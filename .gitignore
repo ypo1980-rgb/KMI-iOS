@@ -98,3 +98,8 @@ Carthage/
 # Archives / builds
 *.xcarchive
 *.ipa
+
+
+# ===== Public repo safety =====
+GoogleService-Info.plist
+.firebaserc

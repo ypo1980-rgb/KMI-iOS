@@ -1,0 +1,183 @@
+import {onRequest} from "firebase-functions/v2/https";
+import * as logger from "firebase-functions/logger";
+import * as admin from "firebase-admin";
+
+admin.initializeApp();
+
+type VerifyDeviceBody = {
+  deviceId?: string;
+  email?: string | null;
+  phone?: string | null;
+  platform?: string | null;
+  bundleId?: string | null;
+};
+
+export const verifyDeviceLock = onRequest(
+  {
+    cors: true,
+    region: "us-central1",
+  },
+  async (req, res) => {
+    try {
+      if (req.method !== "POST") {
+        res.status(405).json({ok: false, error: "method_not_allowed"});
+        return;
+      }
+
+      const authHeader = req.headers.authorization || "";
+      if (!authHeader.startsWith("Bearer ")) {
+        res.status(401).json({ok: false, error: "missing_bearer_token"});
+        return;
+      }
+
+      const idToken = authHeader.substring("Bearer ".length).trim();
+      if (!idToken) {
+        res.status(401).json({ok: false, error: "empty_id_token"});
+        return;
+      }
+      const decoded = await admin.auth().verifyIdToken(idToken);
+      const uid = decoded.uid;
+
+      const body = (req.body || {}) as VerifyDeviceBody;
+      const deviceId = (body.deviceId || "").trim();
+      const clientEmail = (body.email || "").trim().toLowerCase();
+      const clientPhone = (body.phone || "").trim();
+      const platform = (body.platform || "ios").trim();
+      const bundleId = (body.bundleId || "").trim();
+
+      logger.info("verifyDeviceLock request", {
+        uid,
+        decodedEmail: decoded.email || null,
+        clientEmail,
+        collection: "authorized_users",
+        deviceId,
+        platform,
+        bundleId,
+      });
+
+      if (!deviceId) {
+        res.status(400).json({ok: false, error: "missing_device_id"});
+        return;
+      }
+
+      const authUserRef = admin.firestore()
+        .collection("authorized_users")
+        .doc(uid);
+      const authUserSnap = await authUserRef.get();
+
+      logger.info("authorized user exists check", {
+        uid,
+        exists: authUserSnap.exists,
+      });
+
+      if (!authUserSnap.exists) {
+        res.status(403).json({
+          ok: false,
+          allowed: false,
+          reason: "user_not_authorized",
+        });
+        return;
+      }
+
+      const authUser = authUserSnap.data() || {};
+      if (authUser.active !== true) {
+        res.status(403).json({
+          ok: false,
+          allowed: false,
+          reason: "user_inactive",
+        });
+        return;
+      }
+
+      const serverEmail = String(authUser.email || "")
+        .trim()
+        .toLowerCase();
+      const serverPhone = String(authUser.phone || "").trim();
+
+      if (serverEmail && clientEmail && serverEmail !== clientEmail) {
+        res.status(403).json({
+          ok: false,
+          allowed: false,
+          reason: "email_mismatch",
+        });
+        return;
+      }
+
+      if (serverPhone && clientPhone && serverPhone !== clientPhone) {
+        res.status(403).json({
+          ok: false,
+          allowed: false,
+          reason: "phone_mismatch",
+        });
+        return;
+      }
+
+      const lockRef = admin.firestore()
+        .collection("device_locks")
+        .doc(uid);
+      const lockSnap = await lockRef.get();
+
+      if (!lockSnap.exists) {
+        await lockRef.set({
+          uid,
+          deviceId,
+          platform,
+          bundleId,
+          email: clientEmail || decoded.email || null,
+          phone: clientPhone || null,
+          firstSeenAt: admin.firestore.FieldValue.serverTimestamp(),
+          lastSeenAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        res.status(200).json({
+          ok: true,
+          allowed: true,
+          lockStatus: "bound_new_device",
+          uid,
+        });
+        return;
+      }
+
+      const lockData = lockSnap.data() || {};
+      const lockedDeviceId = String(lockData.deviceId || "");
+
+      if (lockedDeviceId !== deviceId) {
+        res.status(403).json({
+          ok: false,
+          allowed: false,
+          reason: "device_mismatch",
+          lockStatus: "blocked_other_device",
+        });
+        return;
+      }
+
+      await lockRef.update({
+        lastSeenAt: admin.firestore.FieldValue.serverTimestamp(),
+        email: clientEmail || decoded.email || null,
+        phone: clientPhone || null,
+        platform,
+        bundleId,
+      });
+
+      res.status(200).json({
+        ok: true,
+        allowed: true,
+        lockStatus: "existing_device_ok",
+        uid,
+      });
+    } catch (error: unknown) {
+      logger.error("verifyDeviceLock failed", error);
+
+      let message = "Unknown error";
+      if (error instanceof Error) {
+        message = error.message;
+      }
+
+      res.status(500).json({
+        ok: false,
+        error: "internal_error",
+        message,
+      });
+    }
+  }
+);

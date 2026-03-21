@@ -4,6 +4,7 @@ struct RegisterView: View {
 
     let prefillPhone: String
     let prefillEmail: String
+    let initialRole: UserRole
     let onBack: () -> Void
     let onSubmit: (RegistrationFormState) -> Void
     let onReadMoreTerms: () -> Void
@@ -16,22 +17,25 @@ struct RegisterView: View {
     init(
         prefillPhone: String = "",
         prefillEmail: String = "",
+        initialRole: UserRole = .trainee,
         onBack: @escaping () -> Void,
         onSubmit: @escaping (RegistrationFormState) -> Void,
         onReadMoreTerms: @escaping () -> Void = {}
     ) {
         self.prefillPhone = prefillPhone
         self.prefillEmail = prefillEmail
+        self.initialRole = initialRole
         self.onBack = onBack
         self.onSubmit = onSubmit
         self.onReadMoreTerms = onReadMoreTerms
     }
-
+    
     var body: some View {
         VStack(spacing: 10) {
             RegisterFormView(
                 prefillPhone: prefillPhone,
                 prefillEmail: prefillEmail,
+                initialRole: initialRole,
                 onBack: {
                     onBack()
                 },

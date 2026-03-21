@@ -112,7 +112,8 @@ private enum KmiIconNav {
 
 // MARK: - Root Layout
 struct KmiRootLayout<Content: View>: View {
-
+    @EnvironmentObject private var auth: AuthViewModel
+    
     let title: String
     let roleLabel: String
     let content: Content
@@ -150,39 +151,36 @@ struct KmiRootLayout<Content: View>: View {
     }
     
     var body: some View {
-        KmiSideDrawerContainer(isOpen: $drawerOpen, onItem: { item in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
+        KmiSideDrawerContainer(
+            isOpen: $drawerOpen,
+            onItem: { item in
+
                 switch item.title {
 
-                case "אודות אבי אביסידון":
-                    print("before push aboutAvi:", nav.path)
-                    nav.push(.aboutAvi)
-                    print("after push aboutAvi:", nav.path)
-
-                case "אודות איציק ביטון":
-                    print("before push aboutItzik:", nav.path)
-                    nav.push(.aboutItzik)
-                    print("after push aboutItzik:", nav.path)
-                    
                 case "אודות הרשת":
                     nav.push(.aboutNetwork)
 
                 case "אודות השיטה":
                     nav.push(.aboutMethod)
 
+                case "אודות איציק ביטון":
+                    nav.push(.aboutItzik)
+
+                case "אודות אבי אביסידון":
+                    nav.push(.aboutAvi)
+
                 case "פורום הסניף":
                     nav.push(.forum)
 
-                case "הגדרות":
-                    nav.push(.settings)
+                case "התנתקות":
+                    auth.signOut()
 
                 default:
                     break
                 }
             }
-        }) {
+        ) {
             VStack(spacing: 0) {
-
                 KmiTopBar(
                     roleLabel: roleLabel,
                     title: title,
@@ -190,7 +188,7 @@ struct KmiRootLayout<Content: View>: View {
                     titleColor: titleColor,
                     onMenu: { drawerOpen = true }
                 )
-                
+
                 VStack(spacing: 0) {
                     KmiIconStripBar(
                         items: KmiIconStripItem.allCases,

@@ -12,8 +12,10 @@ struct AuthGateView: View {
 
     private enum AuthEntryStep {
         case choice
-        case loginExisting
-        case registerNew
+        case loginExistingTrainee
+        case loginExistingCoach
+        case registerNewTrainee
+        case registerNewCoach
     }
 
     @State private var step: AuthEntryStep = .choice
@@ -32,85 +34,17 @@ struct AuthGateView: View {
 
             } else if !didEnterAuthFlow {
 
-                IntroView(
+                IntroGateView(
                     onContinue: {
                         didEnterAuthFlow = true
                         didCompleteAuthScreen = false
-                        step = .loginExisting
+                        step = .loginExistingTrainee
                     }
                 )
 
             } else if !didCompleteAuthScreen {
 
-                NavigationStack(path: $nav.path) {
-                    Group {
-                        switch step {
-
-                        case .choice:
-                            KmiRootLayout(
-                                title: "רישום משתמש",
-                                nav: nav,
-                                selectedIcon: nil
-                            ) {
-                                RegistrationChoiceView(
-                                    onNewUser: { step = .registerNew },
-                                    onExistingUser: { step = .loginExisting }
-                                )
-                            }
-
-                        case .loginExisting:
-                            KmiRootLayout(
-                                title: "התחברות",
-                                nav: nav,
-                                selectedIcon: nil
-                            ) {
-                                LoginView(
-                                    onBackToChoice: { step = .choice },
-                                    onGoToRegister: { step = .registerNew },
-                                    onLoginSuccess: {
-                                        didCompleteAuthScreen = true
-                                    }
-                                )
-                            }
-
-                        case .registerNew:
-                            KmiRootLayout(
-                                title: "הרשמה",
-                                nav: nav,
-                                selectedIcon: nil
-                            ) {
-                                RegisterView(
-                                    prefillPhone: "",
-                                    prefillEmail: "",
-                                    onBack: { step = .choice },
-                                    onSubmit: { _ in
-                                        if auth.isSignedIn {
-                                            didCompleteAuthScreen = true
-                                        } else {
-                                            step = .loginExisting
-                                        }
-                                    },
-                                    onReadMoreTerms: { }
-                                )
-                            }
-                        }
-                    }
-                    .navigationDestination(for: AppRoute.self) { route in
-                        switch route {
-                        case .settings:
-                            KmiRootLayout(
-                                title: "הגדרות",
-                                nav: nav,
-                                selectedIcon: .settings
-                            ) {
-                                SettingsView(nav: nav)
-                            }
-
-                        default:
-                            EmptyView()
-                        }
-                    }
-                }
+                authFlowStack
 
             } else if auth.isSignedIn {
 
@@ -123,75 +57,7 @@ struct AuthGateView: View {
 
             } else {
 
-                NavigationStack(path: $nav.path) {
-                    Group {
-                        switch step {
-
-                        case .choice:
-                            KmiRootLayout(
-                                title: "רישום משתמש",
-                                nav: nav,
-                                selectedIcon: nil
-                            ) {
-                                RegistrationChoiceView(
-                                    onNewUser: { step = .registerNew },
-                                    onExistingUser: { step = .loginExisting }
-                                )
-                            }
-
-                        case .loginExisting:
-                            KmiRootLayout(
-                                title: "התחברות",
-                                nav: nav,
-                                selectedIcon: nil
-                            ) {
-                                LoginView(
-                                    onBackToChoice: { step = .choice },
-                                    onGoToRegister: { step = .registerNew },
-                                    onLoginSuccess: {
-                                        didCompleteAuthScreen = true
-                                    }
-                                )
-                            }
-
-                        case .registerNew:
-                            KmiRootLayout(
-                                title: "הרשמה",
-                                nav: nav,
-                                selectedIcon: nil
-                            ) {
-                                RegisterView(
-                                    prefillPhone: "",
-                                    prefillEmail: "",
-                                    onBack: { step = .choice },
-                                    onSubmit: { _ in
-                                        if auth.isSignedIn {
-                                            didCompleteAuthScreen = true
-                                        } else {
-                                            step = .loginExisting
-                                        }
-                                    },
-                                    onReadMoreTerms: { }
-                                )
-                            }
-                        }
-                    }
-                    .navigationDestination(for: AppRoute.self) { route in
-                        switch route {
-                        case .settings:
-                            KmiRootLayout(
-                                title: "הגדרות",
-                                nav: nav,
-                                selectedIcon: .settings
-                            ) {
-                                SettingsView(nav: nav)
-                            }
-
-                        default:
-                            EmptyView()
-                        }
-                    }
-                }
+                authFlowStack
             }
         }
         .environmentObject(auth)
@@ -201,7 +67,7 @@ struct AuthGateView: View {
 
             didEnterAuthFlow = false
             didCompleteAuthScreen = false
-            step = .loginExisting
+            step = .loginExistingTrainee
             nav.popToRoot()
             auth.start()
 
@@ -209,7 +75,7 @@ struct AuthGateView: View {
                 didFinishInitialAuthCheck = true
             }
         }
-        .onChange(of: auth.isSignedIn) { isSignedIn in
+        .onChange(of: auth.isSignedIn) { _, isSignedIn in
             if didEnterAuthFlow && isSignedIn {
                 didCompleteAuthScreen = true
 
@@ -220,6 +86,120 @@ struct AuthGateView: View {
         }
         .onDisappear {
             auth.stop()
+        }
+    }
+
+    private var authFlowStack: some View {
+        NavigationStack(path: $nav.path) {
+            Group {
+                switch step {
+
+                case .choice:
+                    KmiRootLayout(
+                        title: "רישום משתמש",
+                        nav: nav,
+                        selectedIcon: nil
+                    ) {
+                        RegistrationChoiceView(
+                            onNewUserTrainee: { step = .registerNewTrainee },
+                            onExistingUserTrainee: { step = .loginExistingTrainee },
+                            onNewUserCoach: { step = .registerNewCoach },
+                            onExistingUserCoach: { step = .loginExistingCoach }
+                        )
+                    }
+
+                case .loginExistingTrainee:
+                    KmiRootLayout(
+                        title: "התחברות",
+                        nav: nav,
+                        selectedIcon: nil
+                    ) {
+                        LoginView(
+                            initialRole: .trainee,
+                            onBackToChoice: { step = .choice },
+                            onGoToRegister: { step = .registerNewTrainee },
+                            onLoginSuccess: {
+                                didCompleteAuthScreen = true
+                            }
+                        )
+                    }
+
+                case .loginExistingCoach:
+                    KmiRootLayout(
+                        title: "התחברות מאמן",
+                        nav: nav,
+                        selectedIcon: nil
+                    ) {
+                        LoginView(
+                            initialRole: .coach,
+                            onBackToChoice: { step = .choice },
+                            onGoToRegister: { step = .registerNewCoach },
+                            onLoginSuccess: {
+                                didCompleteAuthScreen = true
+                            }
+                        )
+                    }
+
+                case .registerNewTrainee:
+                    KmiRootLayout(
+                        title: "הרשמת מתאמן",
+                        nav: nav,
+                        selectedIcon: nil
+                    ) {
+                        RegisterView(
+                            prefillPhone: "",
+                            prefillEmail: "",
+                            initialRole: .trainee,
+                            onBack: { step = .choice },
+                            onSubmit: { _ in
+                                if auth.isSignedIn {
+                                    didCompleteAuthScreen = true
+                                } else {
+                                    step = .loginExistingTrainee
+                                }
+                            },
+                            onReadMoreTerms: { }
+                        )
+                    }
+
+                case .registerNewCoach:
+                    KmiRootLayout(
+                        title: "הרשמת מאמן",
+                        nav: nav,
+                        selectedIcon: nil
+                    ) {
+                        RegisterView(
+                            prefillPhone: "",
+                            prefillEmail: "",
+                            initialRole: .coach,
+                            onBack: { step = .choice },
+                            onSubmit: { _ in
+                                if auth.isSignedIn {
+                                    didCompleteAuthScreen = true
+                                } else {
+                                    step = .loginExistingCoach
+                                }
+                            },
+                            onReadMoreTerms: { }
+                        )
+                    }
+                }
+            }
+            .navigationDestination(for: AppRoute.self) { route in
+                switch route {
+                case .settings:
+                    KmiRootLayout(
+                        title: "הגדרות",
+                        nav: nav,
+                        selectedIcon: .settings
+                    ) {
+                        SettingsView(nav: nav)
+                    }
+
+                default:
+                    EmptyView()
+                }
+            }
         }
     }
 }

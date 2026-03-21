@@ -200,6 +200,123 @@ final class AuthViewModel: ObservableObject {
         #endif
     }
 
+    func signInWithUsernameOrEmail(
+        identifier: String,
+        password: String,
+        expectedRole: String,
+        coachCode: String?
+    ) async -> Bool {
+        errorText = nil
+
+        let rawId = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
+        let wantedRole = expectedRole.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        guard !rawId.isEmpty, !rawPassword.isEmpty else {
+            errorText = "נא למלא שם משתמש וסיסמה"
+            return false
+        }
+
+        isLoading = true
+        defer { isLoading = false }
+
+        #if canImport(FirebaseAuth)
+        #if canImport(FirebaseFirestore)
+        do {
+            let loginEmail: String
+
+            if rawId.contains("@") {
+                loginEmail = rawId.lowercased()
+            } else {
+                let db = Firestore.firestore()
+                let snap = try await db.collection("users")
+                    .whereField("usernameLower", isEqualTo: rawId.lowercased())
+                    .limit(to: 1)
+                    .getDocuments()
+
+                guard let data = snap.documents.first?.data(),
+                      let resolvedEmail = (data["emailLower"] as? String) ?? (data["email"] as? String),
+                      !resolvedEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                else {
+                    errorText = "שם המשתמש לא נמצא"
+                    return false
+                }
+
+                loginEmail = resolvedEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            }
+
+            let result = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<AuthDataResult, Error>) in
+                Auth.auth().signIn(withEmail: loginEmail, password: rawPassword) { res, err in
+                    if let err {
+                        cont.resume(throwing: err)
+                    } else if let res {
+                        cont.resume(returning: res)
+                    } else {
+                        cont.resume(throwing: NSError(
+                            domain: "Auth",
+                            code: -1,
+                            userInfo: [NSLocalizedDescriptionKey: "Missing auth result"]
+                        ))
+                    }
+                }
+            }
+
+            let uid = result.user.uid
+            let db = Firestore.firestore()
+            let userSnap = try await db.collection("users").document(uid).getDocument()
+            let data = userSnap.data() ?? [:]
+
+            let serverRole = ((data["role"] as? String) ?? "trainee").lowercased()
+            if serverRole != wantedRole {
+                errorText = wantedRole == "coach"
+                    ? "המשתמש אינו מוגדר כמאמן"
+                    : "המשתמש אינו מוגדר כמתאמן"
+                try? Auth.auth().signOut()
+                return false
+            }
+
+            if wantedRole == "coach" {
+                let typedCoachCode = (coachCode ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let storedCoachCode =
+                    ((data["coachCode"] as? String) ?? UserDefaults.standard.string(forKey: "coach_code") ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                guard !typedCoachCode.isEmpty, typedCoachCode == storedCoachCode else {
+                    errorText = "קוד מאמן שגוי"
+                    try? Auth.auth().signOut()
+                    return false
+                }
+            }
+
+            let defaults = UserDefaults.standard
+            defaults.set(rawId, forKey: "remember_username")
+            defaults.set(rawPassword, forKey: "remember_password")
+            defaults.set(true, forKey: "is_logged_in")
+            defaults.set(wantedRole, forKey: "user_role")
+
+            if wantedRole == "coach", let coachCode {
+                defaults.set(coachCode.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "coach_code")
+            }
+
+            await loadUserProfile(uid: uid)
+            isSignedIn = true
+            errorText = nil
+            return true
+
+        } catch {
+            errorText = error.localizedDescription
+            return false
+        }
+        #else
+        errorText = "FirebaseFirestore לא מותקן בפרויקט"
+        return false
+        #endif
+        #else
+        errorText = "FirebaseAuth לא מותקן בפרויקט"
+        return false
+        #endif
+    }
+    
     func sendPasswordReset(email: String, completion: @escaping (Bool, String?) -> Void) {
         errorText = nil
 

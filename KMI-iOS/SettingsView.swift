@@ -12,6 +12,7 @@ struct SettingsView: View {
 
     // ✅ Global nav (מגיע מהמסך הגלובאלי)
     @ObservedObject var nav: AppNavModel
+    var onOpenRegistration: (() -> Void)? = nil
 
     // MARK: Stored settings (UserDefaults)
     @AppStorage("fullName") private var fullName: String = "שם מלא לא מוגדר"
@@ -19,6 +20,9 @@ struct SettingsView: View {
     @AppStorage("email") private var email: String = ""
     @AppStorage("region") private var region: String = ""
     @AppStorage("branch") private var branch: String = ""
+
+    @AppStorage("current_belt") private var currentBeltId: String = ""
+    @AppStorage("belt_current") private var currentBeltIdUser: String = ""
 
     @AppStorage("user_role") private var userRole: String = "trainee" // "coach" / "trainee"
 
@@ -36,8 +40,11 @@ struct SettingsView: View {
     @AppStorage("click_sounds") private var clickSounds: Bool = false
     @AppStorage("haptics_on") private var hapticsOn: Bool = false
 
+    // Voice
+    @AppStorage("voice") private var cloudVoice: String = "male" // male / female
+
     // Theme
-    @AppStorage("theme_mode") private var themeMode: String = "system" // system/light/dark
+    @AppStorage("theme_mode") private var themeMode: String = "light" // light / dark
 
     // App lock
     @AppStorage("app_lock_mode") private var appLockMode: String = "none" // none/biometric/pin
@@ -140,7 +147,7 @@ struct SettingsView: View {
                     HStack {
                         Button {
                             hapticSuccess()
-                            // HOOK: navigate to registration/edit screen
+                            onOpenRegistration?()
                         } label: {
                             Text("ערוך פרטים")
                                 .font(.system(size: 15, weight: .semibold))
@@ -154,7 +161,7 @@ struct SettingsView: View {
                         Spacer()
 
                         Text("הגדרות")
-                            .font(.system(size: 28, weight: .heavy))
+                            .font(.system(size: 30, weight: .heavy))
                             .foregroundStyle(Color.white)
                     }
 
@@ -170,24 +177,26 @@ struct SettingsView: View {
     }
 
     private var profileCard: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Image(systemName: isCoach ? "checkmark.seal.fill" : "person.fill")
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(isCoach ? Color(hex: 0xFF6A1B9A) : Color(hex: 0xFF1565C0))
+                .frame(width: 28, height: 28)
 
             VStack(alignment: .trailing, spacing: 4) {
                 Text(fullName.isEmpty ? "משתמש" : fullName)
-                    .font(.system(size: 18, weight: .heavy))
+                    .font(.system(size: 22, weight: .heavy))
                     .foregroundStyle(Color.black.opacity(0.85))
                     .frame(maxWidth: .infinity, alignment: .trailing)
 
                 if !phone.isEmpty {
                     Text(phone)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color.black.opacity(0.7))
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(Color.black.opacity(0.72))
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -206,7 +215,7 @@ struct SettingsView: View {
                 iconSystemName: "alarm.fill",
                 iconTint: sectionIconTint
             ) {
-                VStack(spacing: 10) {
+                VStack(spacing: 8) {
                     HStack {
                         Text(trainingRemindersEnabled ? "כמה דקות לפני האימון לקבל תזכורת?" : "")
                             .font(.footnote)
@@ -317,6 +326,30 @@ struct SettingsView: View {
                 }
             }
 
+            // --- Voice settings
+            SettingsCard(
+                title: "הגדרות קול",
+                subtitle: "בחירת קול גבר/אישה (אחיד לכל האפליקציה)",
+                iconSystemName: "person.wave.2.fill",
+                iconTint: sectionIconTint
+            ) {
+                VStack(spacing: 10) {
+                    Text("בחר קול להשמעה:")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+
+                    KmiVoiceTabs(voice: $cloudVoice) {
+                        feedbackTap()
+                    }
+
+                    Text("הבחירה נשמרת למכשיר ותשפיע על הדיבור בעוזר הקולי.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+            }
+
             // --- Appearance
             SettingsCard(
                 title: "נראות אפליקציה",
@@ -332,7 +365,7 @@ struct SettingsView: View {
 
                     KmiThemeTabs(themeMode: $themeMode) { feedbackTap() }
 
-                    Text("הטקסט והצבעים יתאימו אוטומטית למצב שבחרת (כולל מצב לפי מערכת).")
+                    Text("הטקסט והצבעים יתאימו אוטומטית למצב שבחרת (לדוגמה: טקסט לבן על רקע כהה).")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .trailing)
@@ -384,12 +417,12 @@ struct SettingsView: View {
                 iconTint: sectionIconTint
             ) {
                 VStack(spacing: 10) {
-                    Text("דרגתי הנוכחית: חגורה \(currentBeltHeb())")
+                    Text("דרגתי הנוכחית: חגורה \(currentBeltDisplayName())")
                         .font(.system(size: 16, weight: .heavy))
-                        .foregroundStyle(beltColorForText())
+                        .foregroundStyle(currentBeltTextColor())
                         .frame(maxWidth: .infinity, alignment: .trailing)
 
-                    BeltsProgressBarsIOS(rows: demoBeltProgressRows())
+                    BeltsProgressBarsIOS(rows: beltProgressRowsFromDefaults())
                 }
             }
 
@@ -448,7 +481,7 @@ struct SettingsView: View {
                     LegalTile(
                         title: "תנאי שימוש",
                         subtitle: "כללי שימוש והתחייבויות המשתמש",
-                        systemIcon: "doc.text.fill"
+                        systemIcon: "gavel.fill"
                     ) {
                         legalInitialTab = 0
                         goLegal = true
@@ -471,7 +504,7 @@ struct SettingsView: View {
             SettingsCard(
                 title: "אודות ותמיכה",
                 subtitle: "ספרו לנו איך אפשר לשפר",
-                iconSystemName: "person.2.fill",
+                iconSystemName: "person.crop.circle.badge.questionmark",
                 iconTint: sectionIconTint
             ) {
                 VStack(spacing: 10) {
@@ -728,24 +761,91 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: Demo belt progress (hook to Shared later)
-    private func currentBeltHeb() -> String {
-        return "לבנה"
+    // MARK: Real belt progress from UserDefaults
+    private func currentBeltResolvedId() -> String {
+        let raw = !currentBeltId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? currentBeltId
+            : currentBeltIdUser
+
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
-    private func beltColorForText() -> Color {
-        return Color.black.opacity(0.85)
+    private func currentBeltDisplayName() -> String {
+        switch currentBeltResolvedId() {
+        case "white", "לבן", "לבנה":
+            return "לבנה"
+        case "yellow", "צהוב", "צהובה":
+            return "צהובה"
+        case "orange", "כתום", "כתומה":
+            return "כתומה"
+        case "green", "ירוק", "ירוקה":
+            return "ירוקה"
+        case "blue", "כחול", "כחולה":
+            return "כחולה"
+        case "brown", "חום", "חומה":
+            return "חומה"
+        case "black", "שחור", "שחורה":
+            return "שחורה"
+        default:
+            return "לבנה"
+        }
     }
 
-    private func demoBeltProgressRows() -> [BeltRow] {
-        return [
-            .init(title: "חגורה: צהובה", pct: 22, color: .yellow),
-            .init(title: "חגורה: כתומה", pct: 15, color: .orange),
-            .init(title: "חגורה: ירוקה", pct: 8,  color: .green),
-            .init(title: "חגורה: כחולה", pct: 3,  color: .blue),
-            .init(title: "חגורה: חומה",  pct: 0,  color: Color(hex: 0xFF6D4C41)),
-            .init(title: "חגורה: שחורה", pct: 0,  color: .black)
+    private func currentBeltTextColor() -> Color {
+        switch currentBeltResolvedId() {
+        case "yellow", "צהוב", "צהובה":
+            return .yellow
+        case "orange", "כתום", "כתומה":
+            return .orange
+        case "green", "ירוק", "ירוקה":
+            return .green
+        case "blue", "כחול", "כחולה":
+            return .blue
+        case "brown", "חום", "חומה":
+            return Color(hex: 0xFF6D4C41)
+        case "black", "שחור", "שחורה":
+            return Color.primary
+        default:
+            return Color.black.opacity(0.85)
+        }
+    }
+
+    private func beltProgressRowsFromDefaults() -> [BeltRow] {
+        let defaults = UserDefaults.standard
+
+        let defs: [(id: String, title: String, color: Color)] = [
+            ("yellow", "חגורה: צהובה", .yellow),
+            ("orange", "חגורה: כתומה", .orange),
+            ("green",  "חגורה: ירוקה", .green),
+            ("blue",   "חגורה: כחולה", .blue),
+            ("brown",  "חגורה: חומה",  Color(hex: 0xFF6D4C41)),
+            ("black",  "חגורה: שחורה", .black)
         ]
+
+        func readPercent(for beltId: String) -> Int {
+            let candidateKeys = [
+                "progress_\(beltId)",
+                "\(beltId)_progress",
+                "\(beltId)Percent",
+                "\(beltId)_percentage"
+            ]
+
+            for key in candidateKeys {
+                if let number = defaults.object(forKey: key) as? NSNumber {
+                    return max(0, min(100, number.intValue))
+                }
+            }
+
+            return 0
+        }
+
+        return defs.map { def in
+            BeltRow(
+                title: def.title,
+                pct: readPercent(for: def.id),
+                color: def.color
+            )
+        }
     }
 
     // MARK: Feedback (sound/haptics/toast)
@@ -843,12 +943,13 @@ struct SettingsCard<Content: View>: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(UIColor.secondarySystemBackground))
+                .fill(Color(UIColor.systemBackground))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                .stroke(Color.black.opacity(0.04), lineWidth: 1)
         )
+        .shadow(color: Color.black.opacity(0.04), radius: 4, x: 0, y: 1)
     }
 }
 
@@ -871,7 +972,8 @@ struct KmiSegmentedTabsInt: View {
                         .font(.system(size: 13, weight: isSel ? .bold : .semibold))
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
+                        .frame(minHeight: 56)
+                        .padding(.vertical, 8)
                         .foregroundStyle(isSel ? Color.white : Color.primary)
                         .background(isSel ? Color.accentColor : Color.clear)
                 }
@@ -883,14 +985,46 @@ struct KmiSegmentedTabsInt: View {
     }
 }
 
-// MARK: - KmiThemeTabs (system/light/dark)
+// MARK: - KmiVoiceTabs (male/female)
+struct KmiVoiceTabs: View {
+    @Binding var voice: String
+    let onChanged: () -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            voiceButton("male", "קול גבר")
+            voiceButton("female", "קול אישה")
+        }
+        .background(Color(UIColor.tertiarySystemFill))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func voiceButton(_ value: String, _ text: String) -> some View {
+        let selected = voice == value
+        return Button {
+            voice = value
+            onChanged()
+        } label: {
+            Text(text)
+                .font(.system(size: 13, weight: selected ? .bold : .semibold))
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 48)
+                .padding(.vertical, 8)
+                .foregroundStyle(selected ? Color.white : Color.primary)
+                .background(selected ? Color.accentColor : Color.clear)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - KmiThemeTabs (light/dark)
 struct KmiThemeTabs: View {
     @Binding var themeMode: String
     let onChanged: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
-            themeButton("system", "לפי\nמערכת")
             themeButton("light", "מצב\nבהיר")
             themeButton("dark", "מצב\nכהה")
         }
@@ -908,7 +1042,8 @@ struct KmiThemeTabs: View {
                 .font(.system(size: 13, weight: selected ? .bold : .semibold))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
+                .frame(minHeight: 48)
+                .padding(.vertical, 8)
                 .foregroundStyle(selected ? Color.white : Color.primary)
                 .background(selected ? Color.accentColor : Color.clear)
         }
@@ -920,7 +1055,7 @@ private func colorSchemeFromThemeMode(_ mode: String) -> ColorScheme? {
     switch mode {
     case "light": return .light
     case "dark":  return .dark
-    default:      return nil
+    default:      return .light
     }
 }
 
@@ -949,7 +1084,8 @@ struct KmiLockTabs: View {
                 .font(.system(size: 13, weight: selected ? .bold : .semibold))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
+                .frame(minHeight: 48)
+                .padding(.vertical, 8)
                 .foregroundStyle(selected ? Color.white : Color.primary)
                 .background(selected ? Color.accentColor : Color.clear)
         }

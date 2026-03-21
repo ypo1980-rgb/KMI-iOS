@@ -117,24 +117,21 @@ export const verifyDeviceLock = onRequest(
         .doc(uid);
       const lockSnap = await lockRef.get();
 
-      if (!lockSnap.exists) {
         await lockRef.set({
           uid,
-          pendingDeviceId: deviceId,
+          deviceId,
           platform,
           bundleId,
           email: clientEmail || decoded.email || null,
           phone: clientPhone || null,
           firstSeenAt: admin.firestore.FieldValue.serverTimestamp(),
           lastSeenAt: admin.firestore.FieldValue.serverTimestamp(),
-          approved: false,
         });
 
-        res.status(403).json({
-          ok: false,
-          allowed: false,
-          reason: "device_pending_approval",
-          lockStatus: "pending_first_device",
+        res.status(200).json({
+          ok: true,
+          allowed: true,
+          lockStatus: "bound_new_device",
           uid,
         });
         return;
@@ -142,30 +139,6 @@ export const verifyDeviceLock = onRequest(
 
       const lockData = lockSnap.data() || {};
       const lockedDeviceId = String(lockData.deviceId || "");
-      const pendingDeviceId = String(lockData.pendingDeviceId || "");
-      const approved = lockData.approved === true;
-
-      if (!approved) {
-        if (pendingDeviceId !== deviceId) {
-          await lockRef.update({
-            pendingDeviceId: deviceId,
-            lastSeenAt: admin.firestore.FieldValue.serverTimestamp(),
-            email: clientEmail || decoded.email || null,
-            phone: clientPhone || null,
-            platform,
-            bundleId,
-          });
-        }
-
-        res.status(403).json({
-          ok: false,
-          allowed: false,
-          reason: "device_pending_approval",
-          lockStatus: "pending_existing_device",
-          uid,
-        });
-        return;
-      }
 
       if (lockedDeviceId !== deviceId) {
         res.status(403).json({

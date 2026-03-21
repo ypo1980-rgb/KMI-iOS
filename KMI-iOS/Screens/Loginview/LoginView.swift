@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LoginView: View {
 
+    let initialRole: LoginRole
     let onBackToChoice: () -> Void
     let onGoToRegister: () -> Void
     let onLoginSuccess: () -> Void
@@ -14,10 +15,23 @@ struct LoginView: View {
         var id: String { rawValue }
     }
 
-    @State private var role: LoginRole = .trainee
-
-    @State private var email: String = ""
+    init(
+        initialRole: LoginRole = .trainee,
+        onBackToChoice: @escaping () -> Void,
+        onGoToRegister: @escaping () -> Void,
+        onLoginSuccess: @escaping () -> Void
+    ) {
+        self.initialRole = initialRole
+        self.onBackToChoice = onBackToChoice
+        self.onGoToRegister = onGoToRegister
+        self.onLoginSuccess = onLoginSuccess
+        _role = State(initialValue: initialRole)
+    }
+    
+    @State private var role: LoginRole
+    @State private var username: String = ""
     @State private var password: String = ""
+    @State private var coachCode: String = ""
 
     @State private var rememberMe: Bool = true
     @State private var showPassword: Bool = false
@@ -27,9 +41,9 @@ struct LoginView: View {
     @State private var resetEmail: String = ""
     @State private var resetMessage: String? = nil
 
-    private let savedEmailKey = "kmi.login.saved.email"
-    private let savedPasswordKey = "kmi.login.saved.password"
-    private let rememberMeKey = "kmi.login.rememberMe"
+    private let savedUsernameKey = "remember_username"
+    private let savedPasswordKey = "remember_password"
+    private let rememberMeKey = "remember_me_login"
 
     var body: some View {
         ZStack {
@@ -59,11 +73,10 @@ struct LoginView: View {
                                     .padding(.horizontal, 10)
                             }
 
-                            LabeledField(title: "אימייל") {
-                                TextField("", text: $email)
+                            LabeledField(title: "שם משתמש") {
+                                TextField("", text: $username)
                                     .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled()
-                                    .keyboardType(.emailAddress)
                                     .multilineTextAlignment(.center)
                             }
 
@@ -88,6 +101,15 @@ struct LoginView: View {
                                             .autocorrectionDisabled()
                                             .multilineTextAlignment(.center)
                                     }
+                                }
+                            }
+
+                            if role == .coach {
+                                LabeledField(title: "קוד מאמן") {
+                                    TextField("", text: $coachCode)
+                                        .textInputAutocapitalization(.never)
+                                        .autocorrectionDisabled()
+                                        .multilineTextAlignment(.center)
                                 }
                             }
 
@@ -123,7 +145,7 @@ struct LoginView: View {
                             .disabled(auth.isLoading)
 
                             Button {
-                                resetEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+                                resetEmail = UserDefaults.standard.string(forKey: "email") ?? ""
                                 resetMessage = nil
                                 showForgotPasswordSheet = true
                             } label: {
@@ -160,9 +182,11 @@ struct LoginView: View {
         .onAppear {
             let defaults = UserDefaults.standard
 
-            rememberMe = defaults.object(forKey: rememberMeKey) as? Bool ?? true
-            email = defaults.string(forKey: savedEmailKey) ?? ""
-            password = defaults.string(forKey: savedPasswordKey) ?? ""
+            role = initialRole
+            rememberMe = defaults.object(forKey: rememberMeKey) as? Bool ?? false
+            username = defaults.string(forKey: savedUsernameKey) ?? defaults.string(forKey: "username") ?? ""
+            password = defaults.string(forKey: savedPasswordKey) ?? defaults.string(forKey: "password") ?? ""
+            coachCode = defaults.string(forKey: "coach_code") ?? ""
 
             didTriggerSuccess = false
         }
@@ -192,25 +216,35 @@ struct LoginView: View {
 
     private func onLoginTapped() {
         let defaults = UserDefaults.standard
-        let e = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let u = username.trimmingCharacters(in: .whitespacesAndNewlines)
         let p = password.trimmingCharacters(in: .whitespacesAndNewlines)
+        let c = coachCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        let roleKey = (role == .coach ? "coach" : "trainee")
 
         defaults.set(rememberMe, forKey: rememberMeKey)
 
         if rememberMe {
-            defaults.set(e, forKey: savedEmailKey)
+            defaults.set(u, forKey: savedUsernameKey)
             defaults.set(p, forKey: savedPasswordKey)
         } else {
-            defaults.removeObject(forKey: savedEmailKey)
+            defaults.removeObject(forKey: savedUsernameKey)
             defaults.removeObject(forKey: savedPasswordKey)
         }
 
         didTriggerSuccess = false
 
-        auth.signIn(email: e, password: p) { success in
-            guard success, !didTriggerSuccess else { return }
-            didTriggerSuccess = true
-            onLoginSuccess()
+        Task { @MainActor in
+            let success = await auth.signInWithUsernameOrEmail(
+                identifier: u,
+                password: p,
+                expectedRole: roleKey,
+                coachCode: role == .coach ? c : nil
+            )
+
+            if success, !didTriggerSuccess {
+                didTriggerSuccess = true
+                onLoginSuccess()
+            }
         }
     }
 }

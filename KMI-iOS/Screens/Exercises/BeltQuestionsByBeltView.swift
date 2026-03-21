@@ -23,6 +23,7 @@ struct BeltQuestionsByBeltView: View {
 
     // ✅ החגורה שנבחרה בפועל במסך
     @State private var selectedBelt: Belt = .orange
+    @State private var didInitializeSelectedBelt: Bool = false
 
     private struct BeltTopicExerciseRoute: Identifiable, Hashable {
         let id: String
@@ -85,123 +86,64 @@ struct BeltQuestionsByBeltView: View {
         let linkedSubjects: [SubjectTopic]
     }
     
-    private var beltTopicsUi: [BeltTopicUi] {
-        let repoTopics = ContentRepo.shared.data[selectedBelt]?.topics ?? []
+    private struct TopicDetailsUi {
+        let itemCount: Int
+        let subTitles: [String]
+    }
+    
+    private func topicDetailsFor(belt: Belt, topicTitle: String) -> TopicDetailsUi {
+        let details = TopicsEngine.shared.topicDetailsFor(
+            belt: belt,
+            topicTitle: topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
 
-        return repoTopics.compactMap { topic in
-            let cleanTopicTitle = topic.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let topicTrim = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            guard !cleanTopicTitle.isEmpty else { return nil }
-
-            let repoSubTopics = ContentRepo.shared.getSubTopicsFor(
-                belt: selectedBelt,
-                topicTitle: cleanTopicTitle
-            )
-
-            let realSubTopics = repoSubTopics.filter {
-                $0.title.trimmingCharacters(in: .whitespacesAndNewlines) != cleanTopicTitle
-            }
-
-            let totalFromSubTopics = repoSubTopics.reduce(0) { partial, subTopic in
-                partial + subTopic.items.count
-            }
-
-            let totalDirectItems = ContentRepo.shared.getAllItemsFor(
-                belt: selectedBelt,
-                topicTitle: cleanTopicTitle,
-                subTopicTitle: nil
-            ).count
-
-            let totalItemsInsideTopic =
-                topic.items.count +
-                topic.subTopics.reduce(0) { partial, subTopic in
-                    partial + subTopic.items.count
+        let cleanSubs = details.subTitles
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0 != topicTrim }
+            .reduce(into: [String]()) { partial, item in
+                if !partial.contains(item) {
+                    partial.append(item)
                 }
+            }
 
-            let totalExercises = max(
-                totalFromSubTopics,
-                max(totalDirectItems, totalItemsInsideTopic)
-            )
+        return TopicDetailsUi(
+            itemCount: Int(details.itemCount),
+            subTitles: cleanSubs
+        )
+    }
 
-            let visibleSubTopicsCount = realSubTopics.count
+    private var beltTopicsUi: [BeltTopicUi] {
+        let topicTitles = TopicsEngine.shared.topicTitlesFor(belt: selectedBelt)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .reduce(into: [String]()) { partial, item in
+                if !partial.contains(item) {
+                    partial.append(item)
+                }
+            }
+
+        return topicTitles.map { title in
+            let details = topicDetailsFor(belt: selectedBelt, topicTitle: title)
+            let subCount = details.subTitles.count
+            let itemCount = details.itemCount
 
             let subtitle: String? = {
-                if visibleSubTopicsCount >= 2 && totalExercises > 0 {
-                    return "\(visibleSubTopicsCount) תתי נושאים • \(totalExercises) תרגילים"
+                if subCount > 0 {
+                    return "\(subCount) תתי נושאים • \(itemCount) תרגילים"
+                } else {
+                    return "\(itemCount) תרגילים"
                 }
-
-                if totalExercises > 0 {
-                    return "\(totalExercises) תרגילים"
-                }
-
-                return nil
             }()
 
             return BeltTopicUi(
-                id: "belt-topic::\(selectedBelt.id)::\(cleanTopicTitle)",
-                title: cleanTopicTitle,
+                id: "belt-topic::\(selectedBelt.id)::\(title)",
+                title: title,
                 subtitle: subtitle,
                 linkedSubjects: []
             )
         }
-    }
-    
-    private func nonEmptySubTopics(for topic: CatalogData.Topic) -> [CatalogData.SubTopic] {
-        topic.subTopics.filter { !$0.items.isEmpty }
-    }
-
-    private func normalizedTopicKey(_ raw: String) -> String {
-        raw
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "–", with: "-")
-            .replacingOccurrences(of: "—", with: "-")
-            .replacingOccurrences(of: "/", with: " / ")
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-    }
-
-    private func linkedSubjects(for topic: CatalogData.Topic) -> [SubjectTopic] {
-        let topicKey = normalizedTopicKey(topic.title)
-
-        return TopicsBySubjectRegistry.subjectsForBelt(selectedBelt).filter { subject in
-            let mappedTopics = subject.topicsByBelt[selectedBelt] ?? []
-            return mappedTopics.contains { raw in
-                normalizedTopicKey(raw) == topicKey
-            }
-        }
-    }
-
-    private func totalExercisesCount(for topic: CatalogData.Topic) -> Int {
-        topic.items.count + nonEmptySubTopics(for: topic).reduce(0) { $0 + $1.items.count }
-    }
-
-    private func subtitleForTopic(_ topic: CatalogData.Topic) -> String {
-        let subCount = nonEmptySubTopics(for: topic).count
-        let total = totalExercisesCount(for: topic)
-
-        if subCount > 0 {
-            return "\(subCount) תתי נושאים • \(total) תרגילים"
-        } else {
-            return "\(total) תרגילים"
-        }
-    }
-    
-    private func catalogExercisesCount(for topicTitle: String, belt: Belt) -> Int {
-        let clean = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard let topic = catalog[belt]?.topics.first(where: {
-            $0.title.trimmingCharacters(in: .whitespacesAndNewlines) == clean
-        }) else {
-            return 0
-        }
-
-        let direct = topic.items.count
-        let subItems = topic.subTopics.reduce(0) { partial, subTopic in
-            partial + subTopic.items.count
-        }
-
-        return direct + subItems
     }
     
     @State private var tab: Tab = .byBelt
@@ -211,6 +153,7 @@ struct BeltQuestionsByBeltView: View {
     @State private var goVoice: Bool = false
     @State private var goPdf: Bool = false
     @State private var goAllLists: Bool = false
+    @State private var practiceTokenFromLists: String = "__ALL__"
 
     enum Tab { case byBelt, byTopic }
     
@@ -305,17 +248,18 @@ struct BeltQuestionsByBeltView: View {
                                             fill: BeltPaletteByBeltScreen.color(for: selectedBelt),
                                             onTap: {
                                                 let topicTitle = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
-
-                                                let repoSubTopics = ContentRepo.shared.getSubTopicsFor(
+                                                let details = topicDetailsFor(
                                                     belt: selectedBelt,
                                                     topicTitle: topicTitle
                                                 )
 
-                                                let realSubTopics = repoSubTopics.filter {
-                                                    $0.title.trimmingCharacters(in: .whitespacesAndNewlines) != topicTitle
-                                                }
+                                                let realSubTitles = details.subTitles
+                                                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                                                    .filter { !$0.isEmpty && $0 != topicTitle }
 
-                                                if repoSubTopics.count > 1 || !realSubTopics.isEmpty {
+                                                let hasSubs = !realSubTitles.isEmpty
+
+                                                if hasSubs {
                                                     selectedTopicSubTopicsRoute = BeltTopicSubTopicsRoute(
                                                         belt: selectedBelt,
                                                         topicTitle: topicTitle,
@@ -324,36 +268,10 @@ struct BeltQuestionsByBeltView: View {
                                                     return
                                                 }
 
-                                                if let onlySubTopic = repoSubTopics.first {
-                                                    let trimmedSubTitle = onlySubTopic.title.trimmingCharacters(in: .whitespacesAndNewlines)
-
-                                                    if trimmedSubTitle != topicTitle {
-                                                        selectedExerciseRoute = BeltTopicExerciseRoute(
-                                                            belt: selectedBelt,
-                                                            topicTitle: topicTitle,
-                                                            forcedSubTopicTitle: onlySubTopic.title
-                                                        )
-                                                    } else {
-                                                        selectedExerciseRoute = BeltTopicExerciseRoute(
-                                                            belt: selectedBelt,
-                                                            topicTitle: topicTitle
-                                                        )
-                                                    }
-                                                    return
-                                                }
-
-                                                let directItems = ContentRepo.shared.getAllItemsFor(
+                                                selectedExerciseRoute = BeltTopicExerciseRoute(
                                                     belt: selectedBelt,
-                                                    topicTitle: topicTitle,
-                                                    subTopicTitle: nil
+                                                    topicTitle: topicTitle
                                                 )
-
-                                                if !directItems.isEmpty {
-                                                    selectedExerciseRoute = BeltTopicExerciseRoute(
-                                                        belt: selectedBelt,
-                                                        topicTitle: topicTitle
-                                                    )
-                                                }
                                             }
                                         )
                                     }
@@ -391,7 +309,10 @@ struct BeltQuestionsByBeltView: View {
                 beltFill: BeltPaletteByBeltScreen.color(for: selectedBelt),
                 onWeakPoints: { goWeakPoints = true },
                 onAllLists: { goAllLists = true },
-                onPractice: { goPractice = true },
+                onPractice: {
+                    practiceTokenFromLists = "__ALL__"
+                    goPractice = true
+                },
                 onSummary: { goSummary = true },
                 onVoice: { goVoice = true },
                 onPdf: { goPdf = true },
@@ -401,7 +322,9 @@ struct BeltQuestionsByBeltView: View {
             .zIndex(2)
         }
         .onAppear {
+            guard !didInitializeSelectedBelt else { return }
             selectedBelt = (belt == .white) ? .yellow : belt
+            didInitializeSelectedBelt = true
         }
         .navigationDestination(item: $selectedLinkedTopicRoute) { route in
             LinkedTopicSubTopicsView(
@@ -436,10 +359,18 @@ struct BeltQuestionsByBeltView: View {
             )
         }
         .navigationDestination(item: $selectedExerciseRoute) { (route: BeltQuestionsByBeltView.BeltTopicExerciseRoute) in
-            BeltTopicExercisesView(
+            MaterialsView(
                 belt: route.belt,
                 topicTitle: route.topicTitle,
-                forcedSubTopicTitle: route.forcedSubTopicTitle
+                subTopicTitle: route.forcedSubTopicTitle,
+                onSummary: { belt, topicTitle, subTopicTitle in
+                    selectedBelt = belt
+                    goSummary = true
+                },
+                onPractice: { belt, topicTitle in
+                    selectedBelt = belt
+                    goPractice = true
+                }
             )
         }
         .navigationDestination(item: $selectedSubjectForSubTopics) { subject in
@@ -462,10 +393,25 @@ struct BeltQuestionsByBeltView: View {
             FavoritesByBeltView(belt: selectedBelt)
         }
         .navigationDestination(isPresented: $goPractice) {
-            PracticeView(belt: selectedBelt)
+            PracticeView(
+                belt: selectedBelt,
+                topic: practiceTokenFromLists
+            )
         }
         .navigationDestination(isPresented: $goAllLists) {
-            ExercisesMarksListView(belt: selectedBelt, topic: "__ALL__", subTopic: nil)
+            ExercisesTabsView(
+                belt: selectedBelt,
+                topicTitle: "__ALL__",
+                subTopicTitle: nil,
+                onPractice: { belt, topicTitle in
+                    selectedBelt = belt
+                    practiceTokenFromLists = topicTitle
+                    goPractice = true
+                },
+                onHome: {
+                    nav.pop()
+                }
+            )
         }
         .navigationDestination(isPresented: $goSummary) {
             SummaryView(belt: selectedBelt, nav: nav)
@@ -683,16 +629,42 @@ private struct BeltTopicSubTopicsView: View {
     let onPickSubTopic: (String) -> Void
     let onPickLinkedSubject: (SubjectTopic) -> Void
 
+    private struct UiSubTopic: Identifiable, Hashable {
+        let id: String
+        let title: String
+        let itemsCount: Int
+    }
+
     var body: some View {
-        let repoSubTopics = ContentRepo.shared.getSubTopicsFor(
+        let cleanTopicTitle = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let details = TopicsEngine.shared.topicDetailsFor(
             belt: belt,
-            topicTitle: topicTitle
+            topicTitle: cleanTopicTitle
         )
 
-        let realSubTopics = repoSubTopics.filter {
-            $0.title.trimmingCharacters(in: .whitespacesAndNewlines) !=
-            topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        let uiSubTopics = details.subTitles
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter {
+                !$0.isEmpty &&
+                $0 != cleanTopicTitle
+            }
+            .reduce(into: [String]()) { partial, item in
+                if !partial.contains(item) {
+                    partial.append(item)
+                }
+            }
+            .map { subTitle in
+                UiSubTopic(
+                    id: "\(belt.id)::\(cleanTopicTitle)::\(subTitle)",
+                    title: subTitle,
+                    itemsCount: ContentRepo.shared.getAllItemsFor(
+                        belt: belt,
+                        topicTitle: cleanTopicTitle,
+                        subTopicTitle: subTitle
+                    ).count
+                )
+            }
 
         ZStack {
             KmiGradientBackground()
@@ -717,23 +689,34 @@ private struct BeltTopicSubTopicsView: View {
                                 )
                             }
 
-                            ForEach(realSubTopics, id: \.title) { st in
+                            ForEach(uiSubTopics) { subTopic in
                                 SubjectPill(
-                                    title: st.title,
-                                    subtitle: "\(st.items.count) תרגילים",
+                                    title: subTopic.title,
+                                    subtitle: "\(subTopic.itemsCount) תרגילים",
                                     fill: BeltPaletteByBeltScreen.color(for: belt),
                                     onTap: {
-                                        onPickSubTopic(st.title)
+                                        onPickSubTopic(subTopic.title)
                                     }
                                 )
                             }
 
-                            if linkedSubjects.isEmpty && realSubTopics.isEmpty && !repoSubTopics.isEmpty {
-                                let total = repoSubTopics.reduce(0) { $0 + $1.items.count }
+                            let directItems = ContentRepo.shared.getAllItemsFor(
+                                belt: belt,
+                                topicTitle: topicTitle,
+                                subTopicTitle: nil
+                            )
 
+                            if !directItems.isEmpty {
                                 SubjectPill(
                                     title: "כל התרגילים בנושא",
-                                    subtitle: "\(total) תרגילים",
+                                    subtitle: "\(directItems.count) תרגילים",
+                                    fill: BeltPaletteByBeltScreen.color(for: belt),
+                                    onTap: onPickAllTopic
+                                )
+                            } else if linkedSubjects.isEmpty && uiSubTopics.isEmpty && details.itemCount > 0 {
+                                SubjectPill(
+                                    title: "כל התרגילים בנושא",
+                                    subtitle: "\(Int(details.itemCount)) תרגילים",
                                     fill: BeltPaletteByBeltScreen.color(for: belt),
                                     onTap: onPickAllTopic
                                 )
@@ -814,15 +797,27 @@ private struct BeltTopicExercisesView: View {
     }
 
     private var sections: [UiSection] {
-        let repoSubTopics = ContentRepo.shared.getSubTopicsFor(
+        let cleanTopic = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let details = TopicsEngine.shared.topicDetailsFor(
             belt: belt,
-            topicTitle: topicTitle
+            topicTitle: cleanTopic
         )
 
+        let cleanSubs = details.subTitles
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0 != cleanTopic }
+            .reduce(into: [String]()) { partial, item in
+                if !partial.contains(item) {
+                    partial.append(item)
+                }
+            }
+
+        // ✅ אם נכנסנו לתת־נושא ספציפי
         if let forcedSubTopicTitle, !forcedSubTopicTitle.isEmpty {
             let items = ContentRepo.shared.getAllItemsFor(
                 belt: belt,
-                topicTitle: topicTitle,
+                topicTitle: cleanTopic,
                 subTopicTitle: forcedSubTopicTitle
             )
 
@@ -830,31 +825,44 @@ private struct BeltTopicExercisesView: View {
 
             return [
                 UiSection(
-                    id: "\(topicTitle)::\(forcedSubTopicTitle)",
+                    id: "\(cleanTopic)::\(forcedSubTopicTitle)",
                     title: forcedSubTopicTitle,
                     items: items
                 )
             ]
         }
 
-        if repoSubTopics.count == 1,
-           let only = repoSubTopics.first,
-           only.title.trimmingCharacters(in: .whitespacesAndNewlines) ==
-           topicTitle.trimmingCharacters(in: .whitespacesAndNewlines) {
+        // ✅ אם אין תתי נושאים → כל התרגילים תחת הנושא
+        if cleanSubs.isEmpty {
+            let items = ContentRepo.shared.getAllItemsFor(
+                belt: belt,
+                topicTitle: cleanTopic,
+                subTopicTitle: nil
+            )
+
+            guard !items.isEmpty else { return [] }
+
             return [
                 UiSection(
-                    id: "\(topicTitle)::__direct__",
-                    title: topicTitle,
-                    items: only.items
+                    id: "\(cleanTopic)::__all__",
+                    title: cleanTopic,
+                    items: items
                 )
             ]
         }
 
-        return repoSubTopics.map { subTopic in
-            UiSection(
-                id: "\(topicTitle)::\(subTopic.title)",
-                title: subTopic.title,
-                items: subTopic.items
+        // ✅ יש תתי נושאים אמיתיים
+        return cleanSubs.map { subTitle in
+            let items = ContentRepo.shared.getAllItemsFor(
+                belt: belt,
+                topicTitle: cleanTopic,
+                subTopicTitle: subTitle
+            )
+
+            return UiSection(
+                id: "\(cleanTopic)::\(subTitle)",
+                title: subTitle,
+                items: items
             )
         }
     }

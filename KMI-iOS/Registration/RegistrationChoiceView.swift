@@ -2,22 +2,18 @@ import SwiftUI
 
 struct RegistrationChoiceView: View {
 
-    let onNewUser: () -> Void
-    let onExistingUser: () -> Void
+    let onNewUserTrainee: () -> Void
+    let onExistingUserTrainee: () -> Void
+    let onNewUserCoach: () -> Void
+    let onExistingUserCoach: () -> Void
 
     private let bannerHeight: CGFloat = 220
 
     var body: some View {
         ZStack {
-
             KmiGradientBackground()
 
             VStack(spacing: 0) {
-
-                // ❌ הוסר: Top title (כבר מגיע מה-KmiRootLayout)
-                // ❌ הוסר: Icons row (כבר מגיע מה-KmiRootLayout)
-
-                // 🔥 Banner
                 if let ui = bundleUIImage("nok_out_banner", ext: "jpeg") {
                     Image(uiImage: ui)
                         .resizable()
@@ -26,22 +22,21 @@ struct RegistrationChoiceView: View {
                         .padding(.horizontal, 16)
                         .padding(.top, 16)
                 } else {
-                    // fallback ריק אם אין תמונה
                     Spacer().frame(height: bannerHeight)
                 }
 
-                Spacer().frame(height: 30)
+                Spacer().frame(height: 24)
 
-                // 🔹 Buttons
-                VStack(spacing: 18) {
-                    BigChoiceButton(title: "משתמש חדש", action: onNewUser)
-                    BigChoiceButton(title: "משתמש קיים", action: onExistingUser)
+                VStack(spacing: 14) {
+                    BigChoiceButton(title: "משתמש חדש – מתאמן", action: onNewUserTrainee)
+                    BigChoiceButton(title: "משתמש קיים – מתאמן", action: onExistingUserTrainee)
+                    BigChoiceButton(title: "משתמש חדש – מאמן", action: onNewUserCoach)
+                    BigChoiceButton(title: "משתמש קיים – מאמן", action: onExistingUserCoach)
                 }
-                .padding(.horizontal, 32)
+                .padding(.horizontal, 28)
 
                 Spacer()
 
-                // 🔹 Logo
                 if let ui = bundleUIImage("kami_logo", ext: "jpeg") {
                     Image(uiImage: ui)
                         .resizable()

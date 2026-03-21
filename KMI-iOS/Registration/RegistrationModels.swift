@@ -10,7 +10,7 @@ enum UserRole: String, CaseIterable, Identifiable {
 struct RegistrationFormState: Equatable {
     var role: UserRole = .trainee
 
-    var coachCode: String = ""   // ✅ NEW: קוד מאמן
+    var coachCode: String = ""
 
     var fullName: String = ""
     var phone: String = ""
@@ -20,13 +20,19 @@ struct RegistrationFormState: Equatable {
     var birthMonth: String = ""
     var birthYear: String = ""
 
+    var gender: String = ""
+
     var username: String = ""
     var password: String = ""
     var showPassword: Bool = false
 
-    var region: String = "השרון"
+    var region: String = ""
     var branches: Set<String> = []
     var groups: Set<String> = []
+
+    var activeBranch: String = ""
+    var activeGroup: String = ""
+
     var belt: String = "ללא"
 
     var wantsSms: Bool = true
@@ -41,13 +47,12 @@ private extension String {
 
 extension RegistrationFormState {
 
-    // ✅ NEW: ערך יציב לשרת/שיתוף בין אנדרואיד+iOS
-       var roleKey: String {
-           switch role {
-           case .coach: return "coach"
-           case .trainee: return "trainee"
-           }
-       }
+    var roleKey: String {
+        switch role {
+        case .coach: return "coach"
+        case .trainee: return "trainee"
+        }
+    }
 
     var emailTrimmed: String { email.trimmed }
     var emailLower: String { emailTrimmed.lowercased() }
@@ -74,8 +79,41 @@ extension RegistrationFormState {
         return "\(y)-\(m.count == 1 ? "0\(m)" : m)-\(d.count == 1 ? "0\(d)" : d)"
     }
 
-    var branchesArray: [String] { branches.map { $0.trimmed }.filter { !$0.isEmpty }.sorted() }
-    var groupsArray: [String] { groups.map { $0.trimmed }.filter { !$0.isEmpty }.sorted() }
+    var branchesArray: [String] {
+        branches.map { $0.trimmed }.filter { !$0.isEmpty }.sorted()
+    }
+
+    var groupsArray: [String] {
+        groups.map { $0.trimmed }.filter { !$0.isEmpty }.sorted()
+    }
+
+    var primaryGroup: String {
+        groupsArray.first ?? ""
+    }
+
+    var activeBranchFinal: String {
+        let manual = activeBranch.trimmed
+        if !manual.isEmpty { return manual }
+        return branchesArray.first ?? ""
+    }
+
+    var activeGroupFinal: String {
+        let manual = activeGroup.trimmed
+        if !manual.isEmpty { return manual }
+        return groupsArray.first ?? ""
+    }
+
+    var currentBeltId: String {
+        switch belt.trimmed {
+        case "צהובה": return "yellow"
+        case "כתומה": return "orange"
+        case "ירוקה": return "green"
+        case "כחולה": return "blue"
+        case "חומה": return "brown"
+        case "שחורה": return "black"
+        default: return "white"
+        }
+    }
 
     var canSubmit: Bool {
         acceptsTerms
@@ -86,60 +124,77 @@ extension RegistrationFormState {
     }
 
     func toFirestoreDictionary(uid: String) -> [String: Any] {
-
         var dict: [String: Any] = [
             "uid": uid,
             "role": roleKey,
             "fullName": fullNameTrimmed,
             "phone": phoneNormalized,
-
             "email": emailTrimmed,
             "emailLower": emailLower,
-
             "birthDate": birthDateString,
-
+            "gender": gender.trimmed,
             "username": usernameTrimmed,
             "usernameLower": usernameLower,
-
             "region": region.trimmed,
             "branches": branchesArray,
+            "branchesCsv": branchesArray.joined(separator: ", "),
+            "activeBranch": activeBranchFinal,
             "groups": groupsArray,
-            "belt": belt.trimmed,
-            "beltId": belt.trimmed,   // ✅ NEW – תואם ללוגיקה של AuthViewModel
-
+            "primaryGroup": primaryGroup,
+            "activeGroup": activeGroupFinal,
+            "belt": role == .trainee ? currentBeltId : "",
             "wantsSms": wantsSms,
             "acceptsTerms": acceptsTerms,
-
             "createdAt": Date().timeIntervalSince1970,
             "updatedAt": Date().timeIntervalSince1970
         ]
 
-        // ✅ NEW: רק למאמן
         if role == .coach {
             dict["coachCode"] = coachCode.trimmed
         }
 
         return dict
     }
-    
+
     func persistToUserDefaults() {
         let ud = UserDefaults.standard
 
-        ud.set(roleKey, forKey: "user_role")
-        ud.set(fullNameTrimmed, forKey: "full_name")
-        ud.set(phoneNormalized, forKey: "phone")
+        let branchesCsv = branchesArray.joined(separator: ", ")
+        let groupsCsv = groupsArray.joined(separator: ", ")
+        let primaryGroup = primaryGroup
+        let activeBranchFinal = activeBranchFinal
+        let activeGroupFinal = activeGroupFinal
 
-        ud.set(emailLower, forKey: "email")
-        ud.set(emailLower, forKey: "email_lower")
-
-        ud.set(usernameTrimmed, forKey: "user_name")
-        ud.set(usernameLower, forKey: "user_name_lower")
-
+        ud.set(fullNameTrimmed, forKey: "fullName")
+        ud.set(phone.trimmed, forKey: "phone")
+        ud.set(emailTrimmed, forKey: "email")
         ud.set(region.trimmed, forKey: "region")
-        ud.set(region.trimmed, forKey: "kmi.user.region")   // ✅ HomeViewModel
 
-        ud.set(belt.trimmed, forKey: "belt")
-        ud.set(usernameLower, forKey: "last_login_hint")
+        ud.set(branchesCsv, forKey: "branch")
+        ud.set(activeBranchFinal, forKey: "active_branch")
+
+        ud.set(groupsCsv, forKey: "age_groups")
+        ud.set(primaryGroup, forKey: "age_group")
+        ud.set(primaryGroup, forKey: "group")
+        ud.set(activeGroupFinal, forKey: "active_group")
+
+        ud.set(usernameTrimmed, forKey: "username")
+        ud.set(password, forKey: "password")
+        ud.set(wantsSms, forKey: "subscribeSms")
+        ud.set(roleKey, forKey: "user_role")
+        ud.set(gender.trimmed, forKey: "gender")
+
+        ud.set(birthDay.trimmed, forKey: "birth_day")
+        ud.set(birthMonth.trimmed, forKey: "birth_month")
+        ud.set(birthYear.trimmed, forKey: "birth_year")
+
+        if role == .trainee {
+            ud.set(currentBeltId, forKey: "current_belt")
+            ud.set(currentBeltId, forKey: "belt_current")
+        } else {
+            ud.removeObject(forKey: "current_belt")
+            ud.removeObject(forKey: "belt_current")
+        }
 
         if role == .coach {
             ud.set(coachCode.trimmed, forKey: "coach_code")
@@ -147,29 +202,6 @@ extension RegistrationFormState {
             ud.removeObject(forKey: "coach_code")
         }
 
-        let branchList = branchesArray
-        let groupList = groupsArray
-
-        if let data = try? JSONEncoder().encode(branchList),
-           let str = String(data: data, encoding: .utf8) {
-            ud.set(str, forKey: "branches_json")
-        }
-
-        let branchesCsv = branchList.joined(separator: ",")
-        ud.set(branchesCsv, forKey: "branches")
-
-        let groupsCsv = groupList.joined(separator: ",")
-        ud.set(groupsCsv, forKey: "age_groups")
-        ud.set(groupsCsv, forKey: "age_group")
-        ud.set(groupsCsv, forKey: "group")
-
-        // ✅ השיוך הראשי שמסך הבית כבר קורא
-        let primaryBranch = branchList.first ?? ""
-        let primaryGroup = groupList.first ?? ""
-
-        ud.set(primaryBranch, forKey: "branch")
-        ud.set(primaryBranch, forKey: "kmi.user.branch")
-
-        ud.set(primaryGroup, forKey: "kmi.user.group")
+        ud.set(true, forKey: "is_logged_in")
     }
 }

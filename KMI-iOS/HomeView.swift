@@ -6,6 +6,16 @@ struct HomeView: View {
     @ObservedObject var nav: AppNavModel
     @EnvironmentObject private var auth: AuthViewModel
 
+    @AppStorage("fullName") private var storedFullName: String = ""
+    @AppStorage("user_role") private var storedUserRole: String = "trainee"
+    @AppStorage("region") private var storedRegion: String = ""
+    @AppStorage("branch") private var storedBranch: String = ""
+    @AppStorage("active_branch") private var storedActiveBranch: String = ""
+    @AppStorage("group") private var storedGroup: String = ""
+    @AppStorage("active_group") private var storedActiveGroup: String = ""
+    @AppStorage("current_belt") private var storedCurrentBelt: String = ""
+    @AppStorage("belt_current") private var storedUserCurrentBelt: String = ""
+
     @State private var fabOpen: Bool = false
     @StateObject private var trainingsVm = HomeTrainingsViewModel()
     @State private var goVoice: Bool = false
@@ -17,6 +27,70 @@ struct HomeView: View {
     @State private var showNavigationSheet: Bool = false
 
     private let calendar = Calendar(identifier: .gregorian)
+
+    private var resolvedRegion: String {
+        let value = auth.userRegion.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? storedRegion.trimmingCharacters(in: .whitespacesAndNewlines) : value
+    }
+
+    private var resolvedBranch: String {
+        let authValue = auth.userBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !authValue.isEmpty { return authValue }
+        let active = storedActiveBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !active.isEmpty { return active }
+        return storedBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var resolvedGroup: String {
+        let authValue = auth.userGroup.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !authValue.isEmpty { return authValue }
+        let active = storedActiveGroup.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !active.isEmpty { return active }
+        return storedGroup.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var resolvedUserRole: String {
+        let value = storedUserRole.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return value.isEmpty ? "trainee" : value
+    }
+
+    private var isCoachUser: Bool {
+        resolvedUserRole == "coach"
+    }
+
+    private var resolvedBeltId: String {
+        let authBeltId = (auth.registeredBelt?.id ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if !authBeltId.isEmpty && authBeltId != "white" {
+            return authBeltId
+        }
+
+        let primary = storedCurrentBelt
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if !primary.isEmpty { return primary }
+
+        let secondary = storedUserCurrentBelt
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if !secondary.isEmpty { return secondary }
+
+        return "white"
+    }
+
+    private var resolvedBelt: Belt {
+        switch resolvedBeltId {
+        case "yellow", "צהוב", "צהובה": return .yellow
+        case "orange", "כתום", "כתומה": return .orange
+        case "green", "ירוק", "ירוקה": return .green
+        case "blue", "כחול", "כחולה": return .blue
+        case "brown", "חום", "חומה": return .brown
+        case "black", "שחור", "שחורה": return .black
+        default: return .white
+        }
+    }
     
     var body: some View {
         ZStack {
@@ -25,8 +99,18 @@ struct HomeView: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 12) {
 
+                    HomeUserCard(
+                        fullName: storedFullName,
+                        role: resolvedUserRole,
+                        region: resolvedRegion,
+                        branch: resolvedBranch,
+                        group: resolvedGroup,
+                        beltText: beltHeb(resolvedBelt)
+                    )
+                    .padding(.top, 10)
+
                     WeekHeaderPill(
-                        title: "אימונים לשבוע הקרוב",
+                        title: isCoachUser ? "אימונים לשבוע הקרוב – מאמן" : "אימונים לשבוע הקרוב",
                         subtitle: currentWeekSubtitle
                     )
                     .padding(.top, 10)
@@ -59,7 +143,7 @@ struct HomeView: View {
 
                     Button {
                         let target = BeltFlow.nextBeltForUser(
-                            registeredBelt: auth.registeredBelt
+                            registeredBelt: resolvedBelt
                         )
                         nav.push(.beltQuestionsByBelt(belt: target))
                     } label: {
@@ -112,7 +196,13 @@ struct HomeView: View {
 
                     Button {
                         closeFab()
-                        goSummary = true
+
+                        let formatter = DateFormatter()
+                        formatter.locale = Locale(identifier: "en_US_POSIX")
+                        formatter.dateFormat = "yyyy-MM-dd"
+                        let todayIso = formatter.string(from: Date())
+
+                        nav.push(.trainingSummary(pickedDateIso: todayIso))
                     } label: {
                         FabMenuRow(title: "סיכום אימון", systemImage: "square.and.pencil")
                     }
@@ -128,7 +218,26 @@ struct HomeView: View {
                         closeFab()
                         goCard = true
                     } label: {
-                        FabMenuRow(title: "כרטיס", systemImage: "person.crop.circle")
+                        FabMenuRow(
+                            title: isCoachUser ? "כרטיס מאמן" : "כרטיס",
+                            systemImage: "person.crop.circle"
+                        )
+                    }
+
+                    if isCoachUser {
+                        Button {
+                            closeFab()
+                            nav.push(.internalExam(belt: resolvedBelt))
+                        } label: {
+                            FabMenuRow(title: "מבחן פנימי", systemImage: "checklist")
+                        }
+
+                        Button {
+                            closeFab()
+                            nav.push(.attendance)
+                        } label: {
+                            FabMenuRow(title: "דו״ח נוכחות", systemImage: "person.text.rectangle")
+                        }
                     }
 
                     Button {
@@ -177,14 +286,26 @@ struct HomeView: View {
         .onChange(of: auth.userGroup) { _, _ in
             trainingsVm.loadForCurrentUser(auth: auth)
         }
+        .onChange(of: storedRegion) { _, _ in
+            trainingsVm.loadForCurrentUser(auth: auth)
+        }
+        .onChange(of: storedActiveBranch) { _, _ in
+            trainingsVm.loadForCurrentUser(auth: auth)
+        }
+        .onChange(of: storedBranch) { _, _ in
+            trainingsVm.loadForCurrentUser(auth: auth)
+        }
+        .onChange(of: storedActiveGroup) { _, _ in
+            trainingsVm.loadForCurrentUser(auth: auth)
+        }
+        .onChange(of: storedGroup) { _, _ in
+            trainingsVm.loadForCurrentUser(auth: auth)
+        }
         .navigationDestination(isPresented: $goVoice) {
             PlaceholderScreen(title: "עוזר קולי")
         }
         .navigationDestination(isPresented: $goMonthly) {
             PlaceholderScreen(title: "לוח אימונים חודשי")
-        }
-        .navigationDestination(isPresented: $goSummary) {
-            PlaceholderScreen(title: "סיכום אימון")
         }
         .navigationDestination(isPresented: $goFree) {
             PlaceholderScreen(title: "אימונים חופשיים")
@@ -201,6 +322,74 @@ struct HomeView: View {
         }
     }
 
+    // MARK: - User Header Card
+    private struct HomeUserCard: View {
+        let fullName: String
+        let role: String
+        let region: String
+        let branch: String
+        let group: String
+        let beltText: String
+
+        private var isCoach: Bool { role.lowercased() == "coach" }
+
+        private var roleTitle: String {
+            isCoach ? "מאמן" : "מתאמן"
+        }
+
+        private var roleColor: Color {
+            isCoach ? Color(hex: 0xFF6A1B9A) : Color.white
+        }
+
+        var body: some View {
+            HStack(spacing: 12) {
+                Image(systemName: isCoach ? "checkmark.seal.fill" : "person.fill")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(roleColor)
+                    .frame(width: 34, height: 34)
+
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(fullName.isEmpty ? "משתמש" : fullName)
+                        .font(.system(size: 20, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+
+                    Text(roleTitle)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(roleColor.opacity(0.95))
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+
+                    if !region.isEmpty || !branch.isEmpty || !group.isEmpty {
+                        Text([region, branch, group].filter { !$0.isEmpty }.joined(separator: " • "))
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.88))
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .multilineTextAlignment(.trailing)
+                    }
+
+                    if !beltText.isEmpty && !isCoach {
+                        Text("חגורה \(beltText)")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.88))
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.white.opacity(0.16))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.white.opacity(0.20), lineWidth: 1)
+            )
+            .padding(.horizontal, 18)
+        }
+    }
+    
     // MARK: - Week Header
 
     private var currentWeekSubtitle: String {
@@ -250,7 +439,7 @@ struct HomeView: View {
     // MARK: - Belt CTA
 
     private func buttonTitleForBelt() -> String {
-        let next = BeltFlow.nextBeltForUser(registeredBelt: auth.registeredBelt)
+        let next = BeltFlow.nextBeltForUser(registeredBelt: resolvedBelt)
         return "מעבר לתרגילים – \(beltHeb(next))"
     }
 
@@ -301,7 +490,11 @@ struct HomeView: View {
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
 
-            Text("האימונים יוצגו כאן לפי הסניף והקבוצה של המשתמש")
+            Text(
+                isCoachUser
+                ? "האימונים יוצגו כאן לפי האזור, הסניף והקבוצה של המאמן"
+                : "האימונים יוצגו כאן לפי הסניף והקבוצה של המשתמש"
+            )
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.88))
                 .multilineTextAlignment(.center)

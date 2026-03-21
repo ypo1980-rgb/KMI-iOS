@@ -1,0 +1,240 @@
+import Foundation
+import Combine
+
+@MainActor
+final class AttendanceViewModel: ObservableObject {
+    @Published private(set) var state: AttendanceUiState
+
+    private let store: AttendanceLocalStore
+
+    init(
+        ownerUid: String,
+        initialDateIso: String? = nil,
+        initialBranchName: String = "",
+        initialGroupKey: String = "",
+        initialCoachName: String = "",
+        store: AttendanceLocalStore = .shared
+    ) {
+        self.store = store
+        self.state = AttendanceUiState(
+            ownerUid: ownerUid,
+            dateIso: initialDateIso?.trimmedNonEmpty ?? Self.todayIso(),
+            branchName: initialBranchName,
+            groupKey: initialGroupKey,
+            coachName: initialCoachName
+        )
+
+        reloadCurrentContext()
+    }
+
+    func setDateIso(_ value: String) {
+        state.dateIso = value.trimmed()
+        reloadRecordsOnly()
+        reloadMonthMarkers()
+    }
+
+    func setBranchName(_ value: String) {
+        state.branchName = value.trimmed()
+        reloadCurrentContext()
+    }
+
+    func setGroupKey(_ value: String) {
+        state.groupKey = value.trimmed()
+        reloadCurrentContext()
+    }
+
+    func setCoachName(_ value: String) {
+        state.coachName = value.trimmed()
+    }
+
+    func setAttendanceStatus(memberId: String, status: AttendanceStatus) {
+        let current = state.recordsByMemberId[memberId]
+        let updated = AttendanceRecord(
+            id: current?.id ?? "\(state.dateIso)_\(memberId)",
+            dateIso: state.dateIso,
+            memberId: memberId,
+            status: status,
+            note: current?.note ?? ""
+        )
+
+        state.recordsByMemberId[memberId] = updated
+    }
+
+    func setAttendanceNote(memberId: String, note: String) {
+        let current = state.recordsByMemberId[memberId]
+        let updated = AttendanceRecord(
+            id: current?.id ?? "\(state.dateIso)_\(memberId)",
+            dateIso: state.dateIso,
+            memberId: memberId,
+            status: current?.status ?? .unknown,
+            note: note
+        )
+
+        state.recordsByMemberId[memberId] = updated
+    }
+
+    func addMember(fullName: String, phone: String = "", notes: String = "") {
+        let cleanName = fullName.trimmed()
+        guard !cleanName.isEmpty else {
+            publishMessage("יש להזין שם מתאמן", isError: true)
+            return
+        }
+
+        if state.members.contains(where: { $0.fullName.trimmed().lowercased() == cleanName.lowercased() }) {
+            publishMessage("המתאמן כבר קיים ברשימה", isError: true)
+            return
+        }
+
+        let member = AttendanceMember(
+            fullName: cleanName,
+            phone: phone.trimmed(),
+            notes: notes.trimmed()
+        )
+
+        state.members.append(member)
+        state.members.sort { $0.fullName < $1.fullName }
+
+        persistMembers()
+
+        state.newMemberName = ""
+        state.newMemberPhone = ""
+        state.newMemberNotes = ""
+
+        publishMessage("המתאמן נוסף לרשימה", isError: false)
+    }
+
+    func removeMember(memberId: String) {
+        state.members.removeAll { $0.id == memberId }
+        state.recordsByMemberId.removeValue(forKey: memberId)
+        persistMembers()
+        publishMessage("המתאמן הוסר מהרשימה", isError: false)
+    }
+
+    func saveReport() {
+        state.isSaving = true
+
+        let records = state.members.map { member -> AttendanceRecord in
+            if let existing = state.recordsByMemberId[member.id] {
+                return existing
+            }
+            return AttendanceRecord(
+                id: "\(state.dateIso)_\(member.id)",
+                dateIso: state.dateIso,
+                memberId: member.id,
+                status: .unknown,
+                note: ""
+            )
+        }
+
+        store.saveRecords(
+            ownerUid: state.ownerUid,
+            branchName: state.branchName,
+            groupKey: state.groupKey,
+            dateIso: state.dateIso,
+            records: records
+        )
+
+        state.recordsByMemberId = Dictionary(uniqueKeysWithValues: records.map { ($0.memberId, $0) })
+        state.isSaving = false
+
+        reloadMonthMarkers()
+        publishMessage("דו״ח הנוכחות נשמר", isError: false)
+    }
+
+    func loadSummaryDaysForMonth(year: Int, month1to12: Int) {
+        guard
+            let start = Self.makeDate(year: year, month: month1to12, day: 1),
+            let end = Calendar.current.date(byAdding: .month, value: 1, to: start)
+        else {
+            state.reportDaysInMonth = []
+            return
+        }
+
+        state.reportDaysInMonth = store.listReportDaysInRange(
+            ownerUid: state.ownerUid,
+            branchName: state.branchName,
+            groupKey: state.groupKey,
+            startIso: Self.isoString(start),
+            endIsoExclusive: Self.isoString(end)
+        )
+    }
+
+    private func reloadCurrentContext() {
+        state.members = store.loadMembers(
+            ownerUid: state.ownerUid,
+            branchName: state.branchName,
+            groupKey: state.groupKey
+        )
+        reloadRecordsOnly()
+        reloadMonthMarkers()
+    }
+
+    private func reloadRecordsOnly() {
+        let loaded = store.loadRecords(
+            ownerUid: state.ownerUid,
+            branchName: state.branchName,
+            groupKey: state.groupKey,
+            dateIso: state.dateIso
+        )
+
+        state.recordsByMemberId = Dictionary(uniqueKeysWithValues: loaded.map { ($0.memberId, $0) })
+    }
+
+    private func reloadMonthMarkers() {
+        let comps = Self.dateComponents(fromIso: state.dateIso)
+        if let year = comps.year, let month = comps.month {
+            loadSummaryDaysForMonth(year: year, month1to12: month)
+        } else {
+            state.reportDaysInMonth = []
+        }
+    }
+
+    private func persistMembers() {
+        store.saveMembers(
+            ownerUid: state.ownerUid,
+            branchName: state.branchName,
+            groupKey: state.groupKey,
+            members: state.members
+        )
+    }
+
+    private func publishMessage(_ text: String, isError: Bool) {
+        state.lastMessage = text
+        state.lastMessageIsError = isError
+        state.messageEventId = Int64(Date().timeIntervalSince1970 * 1000)
+    }
+
+    private static func todayIso() -> String {
+        isoString(Date())
+    }
+
+    private static func isoString(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: date)
+    }
+
+    private static func makeDate(year: Int, month: Int, day: Int) -> Date? {
+        Calendar.current.date(from: DateComponents(year: year, month: month, day: day))
+    }
+
+    private static func dateComponents(fromIso iso: String) -> DateComponents {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        guard let date = f.date(from: iso) else { return DateComponents() }
+        return Calendar.current.dateComponents([.year, .month, .day], from: date)
+    }
+}
+
+private extension String {
+    var trimmedNonEmpty: String? {
+        let clean = trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? nil : clean
+    }
+
+    func trimmed() -> String {
+        trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}

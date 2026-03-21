@@ -1,10 +1,3 @@
-//
-//  KmiSideDrawer.swift
-//  KMI-iOS
-//
-//  Created by יובל פולק on 22/02/2026.
-//
-
 import SwiftUI
 
 // MARK: - Drawer Item Model
@@ -16,23 +9,37 @@ struct KmiDrawerItem: Identifiable {
 
 // MARK: - Drawer UI
 struct KmiSideDrawer: View {
+
+    @EnvironmentObject private var auth: AuthViewModel
+
     let onClose: () -> Void
     let onSelect: (KmiDrawerItem) -> Void
 
-    private let items: [KmiDrawerItem] = [
-        .init(title: "ניהול משתמשים", subtitle: "צפייה בכל המשתמשים ב..."),
-        .init(title: "אודות אבי אביסידון", subtitle: "ראש השיטה"),
-        .init(title: "אודות איציק ביטון", subtitle: "מאמן בכיר"),
-        .init(title: "אודות הרשת", subtitle: "נוקאאוט"),
-        .init(title: "אודות השיטה", subtitle: "ק.מ.י"),
-        .init(title: "תרגילים – הדגמה", subtitle: "סרטוני הסבר קצרים לתרג..."),
-        .init(title: "טופס הרשמה\nלעמותה", subtitle: nil),
-        .init(title: "פורום הסניף", subtitle: nil),
-        .init(title: "ניהול מנוי", subtitle: nil),
-        .init(title: "⭐ דרגו אותנו ⭐", subtitle: nil),
-        .init(title: "התנתקות", subtitle: nil),
-    ]
+    private var items: [KmiDrawerItem] {
 
+        var base: [KmiDrawerItem] = [
+            .init(title: "אודות אבי אביסידון", subtitle: "ראש השיטה"),
+            .init(title: "אודות איציק ביטון", subtitle: "מאמן בכיר"),
+            .init(title: "אודות הרשת", subtitle: "נוקאאוט"),
+            .init(title: "אודות השיטה", subtitle: "ק.מ.י"),
+            .init(title: "פורום הסניף", subtitle: nil),
+            .init(title: "ניהול מנוי", subtitle: nil),
+            .init(title: "⭐ דרגו אותנו ⭐", subtitle: nil)
+        ]
+
+        // פריטים למאמן בלבד
+        if auth.userRole == "coach" {
+            base.insert(
+                .init(title: "ניהול משתמשים", subtitle: "צפייה בכל המשתמשים"),
+                at: 0
+            )
+        }
+
+        base.append(.init(title: "התנתקות", subtitle: nil))
+
+        return base
+    }
+    
     var body: some View {
         ZStack {
             // background panel
@@ -66,9 +73,14 @@ struct KmiSideDrawer: View {
                     VStack(spacing: 12) {
                         ForEach(items) { it in
                             Button {
+
+                                if it.title == "התנתקות" {
+                                    auth.signOut()
+                                }
+
                                 onSelect(it)
-                            } label: {
-                                VStack(spacing: 4) {
+
+                            } label: {                                VStack(spacing: 4) {
                                     Text(it.title)
                                         .font(.system(size: 18, weight: .heavy))
                                         .foregroundStyle(.white)

@@ -5,6 +5,7 @@ struct RegisterFormView: View {
 
     let prefillPhone: String
     let prefillEmail: String
+    let initialRole: UserRole
     let onBack: () -> Void
     let onSubmit: (RegistrationFormState) -> Void
     let onReadMoreTerms: () -> Void
@@ -14,6 +15,20 @@ struct RegisterFormView: View {
 
     private let regions = ["השרון", "מרכז", "צפון", "דרום", "ירושלים"]
 
+    private let allowedCoachPhones: Set<String> = [
+        "0526664660",
+        "0524887178",
+        "0526969287",
+        "0585911518",
+        "0526319090"
+    ]
+
+    private let allowedCoachEmails: Set<String> = [
+        "coach1@example.com",
+        "coach2@example.com",
+        "coach3@example.com"
+    ]
+    
     private var branchesOptions: [String] {
         TrainingCatalogIOS.branchesFor(region: s.region)
     }
@@ -33,15 +48,29 @@ struct RegisterFormView: View {
     @State private var showBranchesSheet = false
     @State private var showGroupsSheet = false
 
+    private var normalizedPhone: String {
+        s.phone.filter { $0.isNumber }
+    }
+
+    private var normalizedEmail: String {
+        s.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private var isWhitelistedCoach: Bool {
+        allowedCoachPhones.contains(normalizedPhone) || allowedCoachEmails.contains(normalizedEmail)
+    }
+
     init(
         prefillPhone: String = "",
         prefillEmail: String = "",
+        initialRole: UserRole = .trainee,
         onBack: @escaping () -> Void,
         onSubmit: @escaping (RegistrationFormState) -> Void,
         onReadMoreTerms: @escaping () -> Void = {}
     ) {
         self.prefillPhone = prefillPhone
         self.prefillEmail = prefillEmail
+        self.initialRole = initialRole
         self.onBack = onBack
         self.onSubmit = onSubmit
         self.onReadMoreTerms = onReadMoreTerms
@@ -49,9 +78,10 @@ struct RegisterFormView: View {
         var initial = RegistrationFormState()
         initial.phone = prefillPhone
         initial.email = prefillEmail
+        initial.role = initialRole
         _s = State(initialValue: initial)
     }
-
+    
     var body: some View {
         ZStack {
             LinearGradient(
@@ -100,12 +130,14 @@ struct RegisterFormView: View {
 
                         dobRow
 
+                        genderPicker
+
                         field(title: "שם משתמש", text: $s.username, keyboard: .default)
 
                         passwordField
                         regionPicker
                     }
-
+                    
                     card {
                         multiSelectRow(
                             title: "סניפים (עד 3)",
@@ -119,7 +151,9 @@ struct RegisterFormView: View {
                             onTap: { showGroupsSheet = true }
                         )
 
-                        beltPicker
+                        if s.role != .coach {
+                            beltPicker
+                        }
 
                         Toggle(isOn: $s.wantsSms) {
                             Text("ארצה לקבל עדכונים בהודעות\nSMS לגבי אימונים קרובים")
@@ -235,18 +269,29 @@ struct RegisterFormView: View {
 
     private func tabButton(_ role: UserRole) -> some View {
         let isSelected = s.role == role
+        let coachLocked = role == .coach && !isWhitelistedCoach
+
         return Button {
+            if coachLocked { return }
             s.role = role
         } label: {
-            Text(role.rawValue)
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(isSelected ? Color.white.opacity(0.25) : Color.clear)
-        }
-        .foregroundStyle(.white)
-    }
+            VStack(spacing: 4) {
+                Text(role.rawValue)
+                    .font(.headline)
 
+                if coachLocked {
+                    Text("מורשים בלבד")
+                        .font(.caption2.bold())
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(isSelected ? Color.white.opacity(0.25) : Color.clear)
+        }
+        .foregroundStyle(.white.opacity(coachLocked ? 0.65 : 1))
+        .disabled(coachLocked)
+    }
+    
     private func card(@ViewBuilder _ content: () -> some View) -> some View {
         VStack(spacing: 10, content: content)
             .padding(14)
@@ -327,6 +372,25 @@ struct RegisterFormView: View {
         }
     }
 
+    private var genderPicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("מין")
+                .font(.subheadline)
+                .foregroundStyle(.gray)
+
+            Picker("", selection: $s.gender) {
+                Text("בחר").tag("")
+                Text("זכר").tag("male")
+                Text("נקבה").tag("female")
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(Color.black.opacity(0.04))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+    }
+    
     private var beltPicker: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("דרגת חגורה נוכחית (ק.מ.י)")
@@ -395,20 +459,25 @@ struct RegisterFormView: View {
         if let y = Int(s.birthYear), !(1900...2100).contains(y) { return "שנת לידה לא תקינה" }
         if s.birthYear.count != 4 { return "חובה להזין שנת לידה (4 ספרות)" }
 
+        if s.gender.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "חובה לבחור מין" }
+
         if s.username.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 { return "שם משתמש קצר מדי" }
         if s.password.count < 6 { return "סיסמה חייבת להכיל לפחות 6 תווים" }
         if !s.acceptsTerms { return "חובה לאשר תנאי שימוש ומדיניות פרטיות" }
 
+        if s.region.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "חובה לבחור אזור" }
         if s.branches.isEmpty { return "חובה לבחור לפחות סניף אחד" }
         if s.groups.isEmpty { return "חובה לבחור לפחות קבוצה אחת" }
 
         if s.role == .coach {
+            if !isWhitelistedCoach { return "הרישום כמאמן מותר רק למאמנים מורשים" }
             let code = s.coachCode.trimmingCharacters(in: .whitespacesAndNewlines)
             if code.count < 4 { return "מאמן חייב להזין קוד מאמן תקין" }
         }
+
         return nil
     }
-
+    
     private func summarizeSet(_ set: Set<String>) -> String {
         if set.isEmpty { return "" }
         return set.joined(separator: " + ")

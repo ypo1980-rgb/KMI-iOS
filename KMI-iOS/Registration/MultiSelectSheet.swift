@@ -1,9 +1,3 @@
-//
-//  MultiSelectSheet.swift
-//  KMI-iOS
-//
-//  Created by יובל פולק on 22/02/2026.
-//
 import SwiftUI
 
 struct MultiSelectSheet: View {

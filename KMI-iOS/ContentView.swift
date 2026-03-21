@@ -62,16 +62,19 @@ private struct KmiCard<Content: View>: View {
 // MARK: - Router (מינימלי)
 enum AppRoute: Hashable {
     case beltQuestionsByBelt(belt: Belt)
-    case beltQuestionsByTopic(belt: Belt)   // ✅ NEW: מעבירים חגורה
+    case beltQuestionsByTopic(belt: Belt)
     case beltTopics(belt: Belt)
-    
+
     case topicDetail(topic: CatalogData.Topic)
     case topicAcrossBelts(topicTitle: String, subTopicTitle: String?)
 
     case internalExam(belt: Belt)
     case beltFinalExam(belt: Belt)
-    
-    // ✅ Side Drawer (About / Extras)
+    case attendance
+
+    // ⭐️ חדש
+    case trainingSummary(pickedDateIso: String?)
+
     case aboutNetwork
     case aboutMethod
     case aboutItzik
@@ -93,8 +96,12 @@ final class AppNavModel: ObservableObject {
 // MARK: - Root (After login only)
 struct ContentView: View {
 
+    @EnvironmentObject private var auth: AuthViewModel
     @StateObject private var nav = AppNavModel()
-    // drawer מנוהל מתוך KmiRootLayout
+
+    private var isCoachUser: Bool {
+        auth.userRole.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "coach"
+    }
 
     var body: some View {
         DeviceGateRootView {
@@ -116,6 +123,19 @@ struct ContentView: View {
                             .navigationBarBackButtonHidden(true)
                             .toolbar(.hidden, for: .navigationBar)
 
+                    case .trainingSummary(let pickedDateIso):
+                        KmiRootLayout(title: "סיכום אימון", nav: nav, selectedIcon: .home) {
+                            TrainingSummaryView(
+                                ownerUid: Auth.auth().currentUser?.uid ?? "demo_ios",
+                                isCoach: isCoachUser,
+                                initialBelt: .green,
+                                pickedDateIso: pickedDateIso,
+                                initialBranchName: "",
+                                initialCoachName: ""
+                            )
+                            .navigationBarBackButtonHidden(true)
+                        }
+                        
                     case .aboutMethod:
                         AboutMethodView(onClose: { nav.pop() })
                             .navigationBarBackButtonHidden(true)
@@ -166,7 +186,25 @@ struct ContentView: View {
                             SettingsView(nav: nav)
                                 .navigationBarBackButtonHidden(true)
                         }
-                    
+
+                    case .internalExam(let belt):
+                        KmiRootLayout(title: "מבחן פנימי", nav: nav, selectedIcon: .home) {
+                            CoachPlaceholderView(
+                                title: "מבחן פנימי",
+                                subtitle: "חגורה: \(belt.heb)"
+                            )
+                            .navigationBarBackButtonHidden(true)
+                        }
+
+                    case .attendance:
+                        KmiRootLayout(title: "דו״ח נוכחות", nav: nav, selectedIcon: .home) {
+                            CoachPlaceholderView(
+                                title: "דו״ח נוכחות",
+                                subtitle: "מסך ניהול נוכחות למאמן"
+                            )
+                            .navigationBarBackButtonHidden(true)
+                        }
+
                 // ✅ fallback כדי שלא יהיה לבן
                 default:
                     ZStack {
@@ -475,6 +513,34 @@ struct TopicDetailView: View {
         }
         .navigationTitle("נושא")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct CoachPlaceholderView: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        ZStack {
+            KmiBackground()
+
+            VStack(spacing: 14) {
+                Image(systemName: "checkmark.shield.fill")
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundStyle(KmiTheme.accent)
+
+                Text(title)
+                    .font(.system(size: 24, weight: .heavy))
+                    .foregroundStyle(KmiTheme.textPrimary)
+
+                Text(subtitle)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(KmiTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
+            .padding(24)
+        }
     }
 }
 

@@ -142,17 +142,29 @@ struct KmiSideDrawerContainer<Content: View>: View {
                         if isOpen {
                             Color.black.opacity(0.25)
                                 .ignoresSafeArea()
-                                .onTapGesture { withAnimation(.easeOut(duration: 0.18)) { isOpen = false } }
+                                .contentShape(Rectangle())
+                                .zIndex(1)
+                                .onTapGesture {
+                                    withAnimation(.easeOut(duration: 0.18)) {
+                                        isOpen = false
+                                    }
+                                }
                         }
                     }
-                    .gesture(edgeOpenGesture())
+                    .simultaneousGesture(edgeOpenGesture())
                     .disabled(isOpen)
 
                 if isOpen {
                     KmiSideDrawer(
-                        onClose: { withAnimation(.easeOut(duration: 0.18)) { isOpen = false } },
+                        onClose: {
+                            withAnimation(.easeOut(duration: 0.18)) {
+                                isOpen = false
+                            }
+                        },
                         onSelect: { item in
-                            withAnimation(.easeOut(duration: 0.18)) { isOpen = false }
+                            withAnimation(.easeOut(duration: 0.18)) {
+                                isOpen = false
+                            }
                             onItem(item)
                         }
                     )

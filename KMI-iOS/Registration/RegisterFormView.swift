@@ -14,20 +14,6 @@ struct RegisterFormView: View {
     @State private var isSubmitting: Bool = false
 
     private let regions = ["השרון", "מרכז", "צפון", "דרום", "ירושלים"]
-
-    private let allowedCoachPhones: Set<String> = [
-        "0526664660",
-        "0524887178",
-        "0526969287",
-        "0585911518",
-        "0526319090"
-    ]
-
-    private let allowedCoachEmails: Set<String> = [
-        "coach1@example.com",
-        "coach2@example.com",
-        "coach3@example.com"
-    ]
     
     private var branchesOptions: [String] {
         TrainingCatalogIOS.branchesFor(region: s.region)
@@ -57,7 +43,18 @@ struct RegisterFormView: View {
     }
 
     private var isWhitelistedCoach: Bool {
-        allowedCoachPhones.contains(normalizedPhone) || allowedCoachEmails.contains(normalizedEmail)
+        CoachWhitelist.isWhitelisted(
+            phone: normalizedPhone,
+            email: normalizedEmail
+        )
+    }
+
+    private var lockToCoach: Bool {
+        isWhitelistedCoach
+    }
+
+    private var lockToTrainee: Bool {
+        !isWhitelistedCoach
     }
 
     init(
@@ -104,13 +101,11 @@ struct RegisterFormView: View {
 
                     if s.role == .coach {
                         card {
-                            Text("אימות מאמן")
+                            Text("רישום מאמן מורשה")
                                 .font(.headline)
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                            field(title: "קוד מאמן", text: $s.coachCode, keyboard: .default)
-
-                            Text("הקוד מתקבל מהמאמן הראשי/מנהל המכון. ללא קוד לא ניתן להירשם כמאמן.")
+                            Text("לאחר השלמת הרישום יופק עבורך קוד מאמן אישי. יש לשמור אותו לצורך התחברות למערכת.")
                                 .font(.subheadline)
                                 .foregroundStyle(.gray)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -172,7 +167,21 @@ struct RegisterFormView: View {
                     Button {
                         guard !isSubmitting, validationError == nil else { return }
                         isSubmitting = true
-                        onSubmit(s)
+
+                        // ✅ snapshot מלא של הטופס לפני שליחה
+                        let submitted = s
+                        print("📝 RegisterFormView: captured snapshot before submit")
+                        print("📝 submitted.fullName =", submitted.fullName)
+                        print("📝 submitted.phone =", submitted.phone)
+                        print("📝 submitted.email =", submitted.email)
+                        print("📝 submitted.region =", submitted.region)
+                        print("📝 submitted.branches =", Array(submitted.branches))
+                        print("📝 submitted.groups =", Array(submitted.groups))
+
+                        DispatchQueue.main.async {
+                            print("📝 RegisterFormView: calling onSubmit(snapshot)")
+                            onSubmit(submitted)
+                        }
 
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                             isSubmitting = false
@@ -218,7 +227,9 @@ struct RegisterFormView: View {
             )
             .presentationDetents([.medium, .large])
         }
-        .onChange(of: s.region) { _, _ in
+        .onChange(of: s.region) { _, newRegion in
+            print("🧭 region changed ->", newRegion)
+
             s.branches.removeAll()
             s.groups.removeAll()
         }
@@ -236,8 +247,42 @@ struct RegisterFormView: View {
 
             s.groups = s.groups.filter { validGroups.contains($0) }
         }
-    }
+        .onAppear {
+            loadSavedProfileIfNeeded()
 
+            // ✅ לוודא שה-region תמיד חוקי עבור ה-Picker
+            if s.region.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !regions.contains(s.region) {
+
+                s.region = regions.first ?? ""
+            }
+
+            // ✅ נעילה אוטומטית 1:1 כמו באנדרואיד
+            s.role = lockToCoach ? .coach : .trainee
+
+            print("📝 RegisterFormView.onAppear")
+            print("📝 region =", s.region)
+            print("📝 gender =", s.gender)
+            print("📝 belt =", s.belt)
+            print("📝 branches =", Array(s.branches))
+            print("📝 groups =", Array(s.groups))
+            print("📝 isWhitelistedCoach =", isWhitelistedCoach)
+            print("📝 lockedRole =", s.role.rawValue)
+        }
+        .onChange(of: normalizedPhone) { _, _ in
+            let forcedRole: UserRole = lockToCoach ? .coach : .trainee
+            if s.role != forcedRole {
+                s.role = forcedRole
+            }
+        }
+        .onChange(of: normalizedEmail) { _, _ in
+            let forcedRole: UserRole = lockToCoach ? .coach : .trainee
+            if s.role != forcedRole {
+                s.role = forcedRole
+            }
+        }
+    }
+        
     private var headerBar: some View {
         HStack {
             Button(action: onBack) {
@@ -269,18 +314,23 @@ struct RegisterFormView: View {
 
     private func tabButton(_ role: UserRole) -> some View {
         let isSelected = s.role == role
-        let coachLocked = role == .coach && !isWhitelistedCoach
+        let isLocked = (role == .coach && lockToTrainee) || (role == .trainee && lockToCoach)
 
         return Button {
-            if coachLocked { return }
+            if isLocked { return }
             s.role = role
         } label: {
             VStack(spacing: 4) {
                 Text(role.rawValue)
                     .font(.headline)
 
-                if coachLocked {
+                if role == .coach && lockToTrainee {
                     Text("מורשים בלבד")
+                        .font(.caption2.bold())
+                }
+
+                if role == .trainee && lockToCoach {
+                    Text("מאמן בלבד")
                         .font(.caption2.bold())
                 }
             }
@@ -288,8 +338,8 @@ struct RegisterFormView: View {
             .padding(.vertical, 10)
             .background(isSelected ? Color.white.opacity(0.25) : Color.clear)
         }
-        .foregroundStyle(.white.opacity(coachLocked ? 0.65 : 1))
-        .disabled(coachLocked)
+        .foregroundStyle(.white.opacity(isLocked ? 0.65 : 1))
+        .disabled(isLocked)
     }
     
     private func card(@ViewBuilder _ content: () -> some View) -> some View {
@@ -362,7 +412,10 @@ struct RegisterFormView: View {
                 .foregroundStyle(.gray)
 
             Picker("", selection: $s.region) {
-                ForEach(regions, id: \.self) { Text($0) }
+                Text("בחר אזור").tag("")
+                ForEach(regions, id: \.self) { region in
+                    Text(region).tag(region)
+                }
             }
             .pickerStyle(.menu)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -469,10 +522,24 @@ struct RegisterFormView: View {
         if s.branches.isEmpty { return "חובה לבחור לפחות סניף אחד" }
         if s.groups.isEmpty { return "חובה לבחור לפחות קבוצה אחת" }
 
+        if lockToCoach && s.role != .coach {
+            return "מאמן מורשה חייב להירשם כמאמן בלבד"
+        }
+
+        if lockToTrainee && s.role != .trainee {
+            return "ההרשמה כמאמן מותרת רק למאמנים מורשים"
+        }
+
+        if lockToCoach && s.role != .coach {
+            return "מאמן מורשה חייב להירשם כמאמן בלבד"
+        }
+
+        if lockToTrainee && s.role != .trainee {
+            return "ההרשמה כמאמן מותרת רק למאמנים מורשים"
+        }
+
         if s.role == .coach {
             if !isWhitelistedCoach { return "הרישום כמאמן מותר רק למאמנים מורשים" }
-            let code = s.coachCode.trimmingCharacters(in: .whitespacesAndNewlines)
-            if code.count < 4 { return "מאמן חייב להזין קוד מאמן תקין" }
         }
 
         return nil
@@ -481,5 +548,110 @@ struct RegisterFormView: View {
     private func summarizeSet(_ set: Set<String>) -> String {
         if set.isEmpty { return "" }
         return set.joined(separator: " + ")
+    }
+
+    private func loadSavedProfileIfNeeded() {
+        let defaults = UserDefaults.standard
+
+        if s.fullName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            s.fullName = defaults.string(forKey: "fullName") ?? ""
+        }
+
+        if s.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            s.phone = defaults.string(forKey: "phone") ?? ""
+        }
+
+        if s.email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            s.email = defaults.string(forKey: "email") ?? ""
+        }
+
+        if s.region.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            s.region = defaults.string(forKey: "region") ?? s.region
+        }
+
+        if s.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            s.username = defaults.string(forKey: "username") ?? ""
+        }
+
+        if s.birthDay.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            s.birthDay = defaults.string(forKey: "birthDay") ?? ""
+        }
+
+        if s.birthMonth.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            s.birthMonth = defaults.string(forKey: "birthMonth") ?? ""
+        }
+
+        if s.birthYear.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            s.birthYear = defaults.string(forKey: "birthYear") ?? ""
+        }
+
+        if s.gender.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            s.gender = defaults.string(forKey: "gender") ?? ""
+        }
+
+        if s.password.isEmpty {
+            s.password = defaults.string(forKey: "password") ?? ""
+        }
+
+        let storedRole = (defaults.string(forKey: "user_role") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if storedRole == "coach" {
+            s.role = .coach
+        } else if storedRole == "trainee" {
+            s.role = .trainee
+        }
+
+        let storedBranches = defaults.stringArray(forKey: "branches") ?? []
+        if s.branches.isEmpty, !storedBranches.isEmpty {
+            s.branches = Set(storedBranches)
+        } else {
+            let singleBranch = (defaults.string(forKey: "branch") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if s.branches.isEmpty, !singleBranch.isEmpty {
+                s.branches = [singleBranch]
+            }
+        }
+
+        let storedGroups = defaults.stringArray(forKey: "groups") ?? []
+        if s.groups.isEmpty, !storedGroups.isEmpty {
+            s.groups = Set(storedGroups)
+        } else {
+            let singleGroup = (defaults.string(forKey: "group") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if s.groups.isEmpty, !singleGroup.isEmpty {
+                s.groups = [singleGroup]
+            }
+        }
+
+        let storedBelt = (defaults.string(forKey: "current_belt") ?? defaults.string(forKey: "belt_current") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if s.belt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || s.belt == "ללא" {
+            switch storedBelt.lowercased() {
+            case "yellow", "צהוב", "צהובה":
+                s.belt = "צהובה"
+            case "orange", "כתום", "כתומה":
+                s.belt = "כתומה"
+            case "green", "ירוק", "ירוקה":
+                s.belt = "ירוקה"
+            case "blue", "כחול", "כחולה":
+                s.belt = "כחולה"
+            case "brown", "חום", "חומה":
+                s.belt = "חומה"
+            case "black", "שחור", "שחורה":
+                s.belt = "שחורה"
+            default:
+                break
+            }
+        }
+
+        s.wantsSms = defaults.object(forKey: "wantsSms") as? Bool ?? s.wantsSms
+        s.acceptsTerms = defaults.object(forKey: "acceptsTerms") as? Bool ?? s.acceptsTerms
+
+        if s.coachCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            s.coachCode = defaults.string(forKey: "coachCode") ?? ""
+        }
     }
 }

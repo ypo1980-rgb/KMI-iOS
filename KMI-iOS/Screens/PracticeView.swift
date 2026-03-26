@@ -15,6 +15,10 @@ struct PracticeView: View {
     @State private var practiceItems: [PracticeItem] = []
     @State private var currentIndex: Int = 0
 
+    @State private var sessionStart = Date()
+    @State private var completedCount: Int = 0
+    @State private var showSummary: Bool = false
+    
     private var modeTitle: String {
         switch topic {
         case "__ALL__":
@@ -69,6 +73,14 @@ struct PracticeView: View {
                 if let item = currentItem {
                     WhiteCard {
                         VStack(spacing: 18) {
+
+                            ProgressView(
+                                value: Double(currentIndex + 1),
+                                total: Double(practiceItems.count)
+                            )
+                            .progressViewStyle(.linear)
+                            .padding(.horizontal, 6)
+
                             Text(item.resolvedTopicTitle)
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundStyle(Color.purple.opacity(0.78))
@@ -94,6 +106,15 @@ struct PracticeView: View {
 
                     VStack(spacing: 12) {
                         HStack(spacing: 12) {
+
+                            PracticeActionButton(
+                                title: "סיים",
+                                fill: Color.red.opacity(0.85),
+                                onTap: {
+                                    showSummary = true
+                                }
+                            )
+
                             PracticeActionButton(
                                 title: "ערבב",
                                 fill: Color.orange.opacity(0.86),
@@ -145,15 +166,28 @@ struct PracticeView: View {
                 }
             }
         }
+        .sheet(isPresented: $showSummary) {
+            PracticeSummaryView(
+                duration: Date().timeIntervalSince(sessionStart),
+                totalExercises: practiceItems.count,
+                completedExercises: completedCount
+            )
+        }
         .navigationTitle("תרגול")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            sessionStart = Date()
+            completedCount = 0
             reloadPracticeItems()
         }
         .onChange(of: belt) { _, _ in
+            sessionStart = Date()
+            completedCount = 0
             reloadPracticeItems()
         }
         .onChange(of: topic) { _, _ in
+            sessionStart = Date()
+            completedCount = 0
             reloadPracticeItems()
         }
     }
@@ -166,13 +200,16 @@ struct PracticeView: View {
 
     private func goNext() {
         guard !practiceItems.isEmpty else { return }
+
+        completedCount += 1
+
         if currentIndex < practiceItems.count - 1 {
             currentIndex += 1
         } else {
-            currentIndex = 0
+            showSummary = true
         }
     }
-
+    
     private func goPrevious() {
         guard !practiceItems.isEmpty else { return }
         if currentIndex > 0 {
@@ -323,5 +360,83 @@ private struct PracticeActionButton: View {
                 )
         }
         .buttonStyle(.plain)
+    }
+}
+
+struct PracticeSummaryView: View {
+
+    let duration: TimeInterval
+    let totalExercises: Int
+    let completedExercises: Int
+
+    @State private var coachFeedback: String = ""
+
+    private var minutes: Int {
+        Int(duration) / 60
+    }
+
+    private var completionRate: Int {
+        guard totalExercises > 0 else { return 0 }
+        return Int((Double(completedExercises) / Double(totalExercises)) * 100)
+    }
+
+    var body: some View {
+        VStack(spacing: 24) {
+
+            Text("האימון הסתיים")
+                .font(.system(size: 28, weight: .heavy))
+
+            VStack(spacing: 12) {
+                Text("משך אימון: \(minutes) דקות")
+                Text("תרגילים בסשן: \(totalExercises)")
+                Text("בוצעו: \(completedExercises)")
+
+                Text("אחוז השלמה: \(completionRate)%")
+                    .font(.system(size: 20, weight: .bold))
+
+                Text("הערת מאמן")
+                    .font(.system(size: 16, weight: .bold))
+                    .padding(.top, 12)
+
+                TextEditor(text: $coachFeedback)
+                    .frame(height: 100)
+                    .padding(8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.gray.opacity(0.3))
+                    )
+
+                Button {
+
+                    let sessionData: [String: Any] = [
+                        "duration": duration,
+                        "totalExercises": totalExercises,
+                        "completedExercises": completedExercises,
+                        "completionRate": completionRate,
+                        "coachFeedback": coachFeedback,
+                        "date": Date().timeIntervalSince1970
+                    ]
+
+                    var sessions =
+                        UserDefaults.standard.array(forKey: "practice_sessions") as? [[String: Any]] ?? []
+
+                    sessions.append(sessionData)
+
+                    UserDefaults.standard.set(sessions, forKey: "practice_sessions")
+
+                    print("Practice session saved")
+
+                } label: {
+                    Text("שמור סיכום אימון")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+                .buttonStyle(.borderedProminent)
+                .padding(.top, 10)
+            }
+
+            Spacer()
+        }
+        .padding(30)
     }
 }

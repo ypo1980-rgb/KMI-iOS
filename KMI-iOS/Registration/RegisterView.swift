@@ -13,6 +13,8 @@ struct RegisterView: View {
 
     @State private var isSubmitting: Bool = false
     @State private var goToTerms: Bool = false
+    @State private var submittedForm: RegistrationFormState? = nil
+    @State private var showCoachCodeDialog: Bool = false
 
     init(
         prefillPhone: String = "",
@@ -59,7 +61,13 @@ struct RegisterView: View {
                         #endif
 
                         if auth.errorText == nil {
-                            onSubmit(form)
+                            submittedForm = form
+
+                            if form.role == .coach, auth.issuedCoachCode != nil {
+                                showCoachCodeDialog = true
+                            } else {
+                                onSubmit(form)
+                            }
                         }
                     }
                 },
@@ -81,6 +89,43 @@ struct RegisterView: View {
         .navigationDestination(isPresented: $goToTerms) {
             LegalView()
         }
+        .alert(
+            coachDialogTitle,
+            isPresented: $showCoachCodeDialog,
+            actions: {
+                Button("העתקה") {
+                    if let code = auth.issuedCoachCode {
+                        UIPasteboard.general.string = code
+                    }
+                }
+
+                Button("אישור") {
+                    if let form = submittedForm {
+                        onSubmit(form)
+                    }
+                    auth.issuedCoachCode = nil
+                    submittedForm = nil
+                }
+            },
+            message: {
+                Text(coachDialogMessage)
+            }
+        )
+    }
+
+    private var coachDialogTitle: String {
+        let normalizedPhone = prefillPhone.filter { $0.isNumber }
+        let normalizedEmail = prefillEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        let nameFromPhone = CoachWhitelist.allowedPhones[normalizedPhone]
+        let nameFromEmail = CoachWhitelist.allowedEmails[normalizedEmail]
+
+        return "שלום, \(nameFromPhone ?? nameFromEmail ?? "מאמן")"
+    }
+
+    private var coachDialogMessage: String {
+        let code = auth.issuedCoachCode ?? ""
+        return "קוד המאמן שלך:\n\n\(code)\n\nעליך לשמור את קוד המאמן שהתקבל לכניסה למערכת ולפעולות מתקדמות."
     }
 }
 

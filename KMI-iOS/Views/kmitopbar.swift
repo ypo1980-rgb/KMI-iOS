@@ -220,23 +220,20 @@ struct KmiRootLayout<Content: View>: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
-        
-        // ✅ זה מוריד את החץ חזור מכל מסך שמשתמש ב-KmiRootLayout
-        .navigationBarBackButtonHidden(true)
     }
 
     // MARK: - Global handler (אחד לכל האפליקציה)
     private func onGlobalIconTap(_ item: KmiIconStripItem) {
 
-        // ✅ אם לוחצים על האייקון שכבר מסומן במסך הנוכחי — לא עושים כלום
-        // (אבל: חיפוש/שיתוף תמיד צריכים לעבוד גם אם כבר "נבחרו")
-        if item != .search, item != .share, let selectedIcon, selectedIcon == item {
+        // ✅ HOME תמיד חייב לעבוד, גם אם הוא כבר מסומן
+        if item == .home {
+            nav.popToRoot()
             return
         }
 
-        // ✅ HOME -> popToRoot
-        if item == .home {
-            nav.popToRoot()
+        // ✅ אם לוחצים על האייקון שכבר מסומן במסך הנוכחי — לא עושים כלום
+        // (אבל: חיפוש/שיתוף תמיד צריכים לעבוד גם אם כבר "נבחרו")
+        if item != .search, item != .share, let selectedIcon, selectedIcon == item {
             return
         }
 

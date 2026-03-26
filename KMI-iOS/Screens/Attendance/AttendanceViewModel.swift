@@ -5,7 +5,7 @@ import Combine
 final class AttendanceViewModel: ObservableObject {
     @Published private(set) var state: AttendanceUiState
 
-    private let store: AttendanceLocalStore
+    private let repository: AttendanceRepository
 
     init(
         ownerUid: String,
@@ -13,9 +13,9 @@ final class AttendanceViewModel: ObservableObject {
         initialBranchName: String = "",
         initialGroupKey: String = "",
         initialCoachName: String = "",
-        store: AttendanceLocalStore = .shared
+        repository: AttendanceRepository = .shared
     ) {
-        self.store = store
+        self.repository = repository
         self.state = AttendanceUiState(
             ownerUid: ownerUid,
             dateIso: initialDateIso?.trimmedNonEmpty ?? Self.todayIso(),
@@ -126,7 +126,7 @@ final class AttendanceViewModel: ObservableObject {
             )
         }
 
-        store.saveRecords(
+        repository.saveRecords(
             ownerUid: state.ownerUid,
             branchName: state.branchName,
             groupKey: state.groupKey,
@@ -150,7 +150,7 @@ final class AttendanceViewModel: ObservableObject {
             return
         }
 
-        state.reportDaysInMonth = store.listReportDaysInRange(
+        state.reportDaysInMonth = repository.listReportDaysInRange(
             ownerUid: state.ownerUid,
             branchName: state.branchName,
             groupKey: state.groupKey,
@@ -160,7 +160,7 @@ final class AttendanceViewModel: ObservableObject {
     }
 
     private func reloadCurrentContext() {
-        state.members = store.loadMembers(
+        state.members = repository.loadMembers(
             ownerUid: state.ownerUid,
             branchName: state.branchName,
             groupKey: state.groupKey
@@ -170,7 +170,7 @@ final class AttendanceViewModel: ObservableObject {
     }
 
     private func reloadRecordsOnly() {
-        let loaded = store.loadRecords(
+        let loaded = repository.loadRecords(
             ownerUid: state.ownerUid,
             branchName: state.branchName,
             groupKey: state.groupKey,
@@ -190,7 +190,7 @@ final class AttendanceViewModel: ObservableObject {
     }
 
     private func persistMembers() {
-        store.saveMembers(
+        repository.saveMembers(
             ownerUid: state.ownerUid,
             branchName: state.branchName,
             groupKey: state.groupKey,

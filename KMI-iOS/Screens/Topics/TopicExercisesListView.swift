@@ -205,7 +205,11 @@ struct TopicExercisesListView: View {
             .safeAreaInset(edge: .bottom) {
                 BottomActionBar(
                     onReset: { resetAllMarks() },
-                    onPractice: { goPractice = true },
+                    onPractice: {
+                        DispatchQueue.main.async {
+                            goPractice = true
+                        }
+                    },
                     onSummary: { goSummary = true }
                 )
             }

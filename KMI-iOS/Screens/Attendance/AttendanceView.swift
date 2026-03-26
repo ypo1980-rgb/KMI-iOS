@@ -123,12 +123,13 @@ struct AttendanceView: View {
         card {
             sectionHeader("פרטי הדו״ח", subtitle: formattedDate(vm.state.dateIso))
 
-            TextField("תאריך (yyyy-MM-dd)", text: Binding(
-                get: { vm.state.dateIso },
-                set: { vm.setDateIso($0) }
-            ))
-            .textFieldStyle(.roundedBorder)
-            .multilineTextAlignment(.trailing)
+            DatePicker(
+                "תאריך אימון",
+                selection: bindingDate(),
+                displayedComponents: .date
+            )
+            .datePickerStyle(.compact)
+            .environment(\.locale, Locale(identifier: "he_IL"))
 
             TextField("סניף", text: Binding(
                 get: { vm.state.branchName },
@@ -241,9 +242,24 @@ struct AttendanceView: View {
 
     private var actionsCard: some View {
         card {
-            sectionHeader("פעולות", subtitle: "שמירה ושיתוף של דו״ח הנוכחות")
+            sectionHeader("פעולות", subtitle: "שמירה, שיתוף וסטטיסטיקה של דו״ח הנוכחות")
 
             HStack(spacing: 10) {
+                NavigationLink {
+                    AttendanceGroupStatsView(
+                        ownerUid: vm.state.ownerUid,
+                        initialBranchName: vm.state.branchName,
+                        initialGroupKey: vm.state.groupKey
+                    )
+                } label: {
+                    HStack {
+                        Image(systemName: "chart.bar.xaxis")
+                        Text("סטטיסטיקה לקבוצה")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+
                 Button {
                     shareReport()
                 } label: {
@@ -254,16 +270,16 @@ struct AttendanceView: View {
                     .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
-
-                Button {
-                    vm.saveReport()
-                } label: {
-                    Text(vm.state.isSaving ? "שומר..." : "שמירת דו״ח נוכחות")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(vm.state.isSaving)
             }
+
+            Button {
+                vm.saveReport()
+            } label: {
+                Text(vm.state.isSaving ? "שומר..." : "שמירת דו״ח נוכחות")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(vm.state.isSaving)
         }
     }
 
@@ -280,11 +296,23 @@ struct AttendanceView: View {
                 Spacer()
 
                 VStack(alignment: .trailing, spacing: 4) {
-                    Text(row.memberName)
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
 
+                    NavigationLink {
+                        AttendanceStatsView(
+                            ownerUid: vm.state.ownerUid,
+                            branchName: vm.state.branchName,
+                            groupKey: vm.state.groupKey,
+                            memberId: row.memberId,
+                            memberName: row.memberName
+                        )
+                    } label: {
+
+                        Text(row.memberName)
+                            .font(.headline.weight(.bold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                    
                     if !row.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text(row.phone)
                             .font(.caption)
@@ -405,5 +433,22 @@ struct AttendanceView: View {
         input.dateFormat = "yyyy-MM-dd"
         guard let date = input.date(from: iso) else { return DateComponents() }
         return Calendar.current.dateComponents([.year, .month, .day], from: date)
+    }
+
+    private func bindingDate() -> Binding<Date> {
+        Binding<Date>(
+            get: {
+                let f = DateFormatter()
+                f.locale = Locale(identifier: "en_US_POSIX")
+                f.dateFormat = "yyyy-MM-dd"
+                return f.date(from: vm.state.dateIso) ?? Date()
+            },
+            set: { newDate in
+                let f = DateFormatter()
+                f.locale = Locale(identifier: "en_US_POSIX")
+                f.dateFormat = "yyyy-MM-dd"
+                vm.setDateIso(f.string(from: newDate))
+            }
+        )
     }
 }

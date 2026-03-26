@@ -24,7 +24,10 @@ struct BeltQuestionsByBeltView: View {
     // ✅ החגורה שנבחרה בפועל במסך
     @State private var selectedBelt: Belt = .orange
     @State private var didInitializeSelectedBelt: Bool = false
-
+    @State private var tab: Tab = .byBelt
+    @State private var quickMenuOpen: Bool = false
+    @State private var expandedTopic: String? = nil
+    
     private struct BeltTopicExerciseRoute: Identifiable, Hashable {
         let id: String
         let belt: Belt
@@ -146,17 +149,13 @@ struct BeltQuestionsByBeltView: View {
         }
     }
     
-    @State private var tab: Tab = .byBelt
-    @State private var goWeakPoints: Bool = false
-    @State private var goPractice: Bool = false
-    @State private var goSummary: Bool = false
-    @State private var goVoice: Bool = false
-    @State private var goPdf: Bool = false
-    @State private var goAllLists: Bool = false
     @State private var practiceTokenFromLists: String = "__ALL__"
-
-    enum Tab { case byBelt, byTopic }
     
+    private enum Tab {
+        case byBelt
+        case byTopic
+    }
+
     private func nextBelt(after registered: Belt) -> Belt {
         let base: Belt = (registered == .white) ? .yellow : registered
         guard let idx = belts.firstIndex(of: base) else { return .orange }
@@ -188,6 +187,20 @@ struct BeltQuestionsByBeltView: View {
             }
         }
         return result
+    }
+
+    private func practiceItemsForCurrentToken() -> [String] {
+        let token = practiceTokenFromLists.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if token.isEmpty || token == "__ALL__" {
+            return allItemsForSelectedBelt().map { $0.item }
+        }
+
+        return ContentRepo.shared.getAllItemsFor(
+            belt: selectedBelt,
+            topicTitle: token,
+            subTopicTitle: nil
+        )
     }
 
     private func isDone(topicTitle: String, item: String) -> Bool {
@@ -241,39 +254,146 @@ struct BeltQuestionsByBeltView: View {
 
                             ScrollView(showsIndicators: false) {
                                 VStack(spacing: 12) {
-                                    ForEach(beltTopicsUi) { entry in
-                                        SubjectPill(
-                                            title: entry.title,
-                                            subtitle: entry.subtitle,
-                                            fill: BeltPaletteByBeltScreen.color(for: selectedBelt),
-                                            onTap: {
-                                                let topicTitle = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
-                                                let details = topicDetailsFor(
-                                                    belt: selectedBelt,
-                                                    topicTitle: topicTitle
-                                                )
+                                    ForEach(beltTopicsUi, id: \.id) { entry in
+                                        let topicTitle = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
 
-                                                let realSubTitles = details.subTitles
-                                                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                                                    .filter { !$0.isEmpty && $0 != topicTitle }
+                                        let details = topicDetailsFor(
+                                            belt: selectedBelt,
+                                            topicTitle: topicTitle
+                                        )
 
-                                                let hasSubs = !realSubTitles.isEmpty
+                                        let subTitles = details.subTitles
+                                            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                                            .filter { !$0.isEmpty && $0 != topicTitle }
 
-                                                if hasSubs {
-                                                    selectedTopicSubTopicsRoute = BeltTopicSubTopicsRoute(
-                                                        belt: selectedBelt,
-                                                        topicTitle: topicTitle,
-                                                        linkedSubjects: []
-                                                    )
-                                                    return
+                                        let hasSubs = !subTitles.isEmpty
+                                        let isExpanded = expandedTopic == topicTitle
+
+                                        Button {
+                                            if hasSubs {
+                                                withAnimation(.easeInOut(duration: 0.22)) {
+                                                    expandedTopic = isExpanded ? nil : topicTitle
                                                 }
-
+                                            } else {
                                                 selectedExerciseRoute = BeltTopicExerciseRoute(
                                                     belt: selectedBelt,
                                                     topicTitle: topicTitle
                                                 )
                                             }
-                                        )
+                                        } label: {
+                                            VStack(spacing: 0) {
+                                                HStack(spacing: 10) {
+                                                    if hasSubs {
+                                                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                                            .font(.system(size: 15, weight: .heavy))
+                                                            .foregroundStyle(Color.white.opacity(0.95))
+                                                    }
+
+                                                    Spacer(minLength: 0)
+
+                                                    VStack(alignment: .trailing, spacing: 4) {
+                                                        Text(entry.title)
+                                                            .font(.system(size: 18, weight: .heavy))
+                                                            .foregroundStyle(Color.white)
+                                                            .frame(maxWidth: .infinity, alignment: .trailing)
+                                                            .multilineTextAlignment(.trailing)
+
+                                                        if let subtitle = entry.subtitle, !subtitle.isEmpty {
+                                                            Text(subtitle)
+                                                                .font(.system(size: 14, weight: .heavy))
+                                                                .foregroundStyle(Color.white.opacity(0.92))
+                                                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                                                .multilineTextAlignment(.trailing)
+                                                        }
+                                                    }
+                                                }
+                                                .padding(.horizontal, 18)
+                                                .padding(.vertical, 16)
+
+                                                if hasSubs && isExpanded {
+                                                    VStack(spacing: 10) {
+                                                        ForEach(subTitles, id: \.self) { sub in
+                                                            let itemCount = ContentRepo.shared.getAllItemsFor(
+                                                                belt: selectedBelt,
+                                                                topicTitle: topicTitle,
+                                                                subTopicTitle: sub
+                                                            ).count
+
+                                                            Button {
+                                                                selectedExerciseRoute = BeltTopicExerciseRoute(
+                                                                    belt: selectedBelt,
+                                                                    topicTitle: topicTitle,
+                                                                    forcedSubTopicTitle: sub
+                                                                )
+                                                            } label: {
+                                                                HStack {
+                                                                    VStack(alignment: .trailing, spacing: 4) {
+                                                                        Text(sub)
+                                                                            .font(.system(size: 16, weight: .heavy))
+                                                                            .foregroundStyle(Color.white.opacity(0.98))
+                                                                            .frame(maxWidth: .infinity, alignment: .trailing)
+                                                                            .multilineTextAlignment(.trailing)
+
+                                                                        Text("\(itemCount) תרגילים")
+                                                                            .font(.system(size: 13, weight: .heavy))
+                                                                            .foregroundStyle(Color.white.opacity(0.88))
+                                                                            .frame(maxWidth: .infinity, alignment: .trailing)
+                                                                            .multilineTextAlignment(.trailing)
+                                                                    }
+
+                                                                    Spacer(minLength: 0)
+                                                                }
+                                                                .padding(.horizontal, 16)
+                                                                .padding(.vertical, 14)
+                                                                .background(
+                                                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                                                        .fill(Color.white.opacity(0.16))
+                                                                )
+                                                            }
+                                                            .buttonStyle(.plain)
+                                                        }
+
+                                                        let directItems = ContentRepo.shared.getAllItemsFor(
+                                                            belt: selectedBelt,
+                                                            topicTitle: topicTitle,
+                                                            subTopicTitle: nil
+                                                        )
+
+                                                        if !directItems.isEmpty {
+                                                            Button {
+                                                                selectedExerciseRoute = BeltTopicExerciseRoute(
+                                                                    belt: selectedBelt,
+                                                                    topicTitle: topicTitle
+                                                                )
+                                                            } label: {
+                                                                HStack {
+                                                                    Text("כל הנושא")
+                                                                        .font(.system(size: 16, weight: .heavy))
+                                                                        .foregroundStyle(Color.white.opacity(0.98))
+
+                                                                    Spacer(minLength: 0)
+                                                                }
+                                                                .padding(.horizontal, 16)
+                                                                .padding(.vertical, 14)
+                                                                .background(
+                                                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                                                        .fill(Color.white.opacity(0.16))
+                                                                )
+                                                            }
+                                                            .buttonStyle(.plain)
+                                                        }
+                                                    }
+                                                    .padding(.horizontal, 14)
+                                                    .padding(.bottom, 14)
+                                                    .transition(.move(edge: .top).combined(with: .opacity))
+                                                }
+                                            }
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                                    .fill(BeltPaletteByBeltScreen.color(for: selectedBelt))
+                                            )
+                                        }
+                                        .buttonStyle(.plain)
                                     }
                                 }
                                 .padding(.bottom, 8)
@@ -290,7 +410,8 @@ struct BeltQuestionsByBeltView: View {
                 }
             }
             .zIndex(1)
-
+            .allowsHitTesting(!quickMenuOpen)
+            
             VStack {
                 Spacer()
 
@@ -303,23 +424,47 @@ struct BeltQuestionsByBeltView: View {
                 .padding(.bottom, 92)
             }
             .zIndex(2.2)
+            .allowsHitTesting(!quickMenuOpen)
 
             BeltQuickMenuOverlay(
+                isPresented: $quickMenuOpen,
                 beltTitle: "\(selectedBelt.heb)\nחגורה",
                 beltFill: BeltPaletteByBeltScreen.color(for: selectedBelt),
-                onWeakPoints: { goWeakPoints = true },
-                onAllLists: { goAllLists = true },
-                onPractice: {
-                    practiceTokenFromLists = "__ALL__"
-                    goPractice = true
+                onWeakPoints: {
+                    print("🟣 QUICK TAP: weakPoints | belt =", selectedBelt.heb)
+                    nav.push(.weakPoints(belt: selectedBelt))
                 },
-                onSummary: { goSummary = true },
-                onVoice: { goVoice = true },
-                onPdf: { goPdf = true },
-                onFinalExam: { nav.push(.beltFinalExam(belt: selectedBelt)) },
-                onInternalExam: coach.isCoach ? { nav.push(.internalExam(belt: selectedBelt)) } : nil
+                onAllLists: {
+                    print("🟣 QUICK TAP: allLists | belt =", selectedBelt.heb)
+                    nav.push(.allLists(belt: selectedBelt))
+                },
+                onPractice: {
+                    print("🟣 QUICK TAP: practice | belt =", selectedBelt.heb)
+                    practiceTokenFromLists = "__ALL__"
+                    nav.push(.practice(belt: selectedBelt, topicTitle: "__ALL__"))
+                },
+                onSummary: {
+                    print("🟣 QUICK TAP: summary | belt =", selectedBelt.heb)
+                    nav.push(.summary(belt: selectedBelt))
+                },
+                onVoice: {
+                    print("🟣 QUICK TAP: voice | belt =", selectedBelt.heb)
+                    nav.push(.voiceAssistant)
+                },
+                onPdf: {
+                    print("🟣 QUICK TAP: pdf | belt =", selectedBelt.heb)
+                    nav.push(.pdfExport(belt: selectedBelt))
+                },
+                onFinalExam: {
+                    print("🟣 QUICK TAP: beltFinalExam | belt =", selectedBelt.heb)
+                    nav.push(.beltFinalExam(belt: selectedBelt))
+                },
+                onInternalExam: coach.isCoach ? {
+                    print("🟣 QUICK TAP: internalExam | belt =", selectedBelt.heb)
+                    nav.push(.internalExam(belt: selectedBelt))
+                } : nil
             )
-            .zIndex(2)
+            .zIndex(1000)
         }
         .onAppear {
             guard !didInitializeSelectedBelt else { return }
@@ -365,11 +510,12 @@ struct BeltQuestionsByBeltView: View {
                 subTopicTitle: route.forcedSubTopicTitle,
                 onSummary: { belt, topicTitle, subTopicTitle in
                     selectedBelt = belt
-                    goSummary = true
+                    nav.push(.summary(belt: belt))
                 },
                 onPractice: { belt, topicTitle in
                     selectedBelt = belt
-                    goPractice = true
+                    practiceTokenFromLists = topicTitle
+                    nav.push(.practice(belt: belt, topicTitle: topicTitle))
                 }
             )
         }
@@ -389,40 +535,7 @@ struct BeltQuestionsByBeltView: View {
         .navigationDestination(item: $selectedSubjectSectionRoute) { (route: BeltQuestionsByBeltView.SubjectSectionExerciseRoute) in
             SubjectExercisesView(route: route)
         }
-        .navigationDestination(isPresented: $goWeakPoints) {
-            FavoritesByBeltView(belt: selectedBelt)
-        }
-        .navigationDestination(isPresented: $goPractice) {
-            PracticeView(
-                belt: selectedBelt,
-                topic: practiceTokenFromLists
-            )
-        }
-        .navigationDestination(isPresented: $goAllLists) {
-            ExercisesTabsView(
-                belt: selectedBelt,
-                topicTitle: "__ALL__",
-                subTopicTitle: nil,
-                onPractice: { belt, topicTitle in
-                    selectedBelt = belt
-                    practiceTokenFromLists = topicTitle
-                    goPractice = true
-                },
-                onHome: {
-                    nav.pop()
-                }
-            )
-        }
-        .navigationDestination(isPresented: $goSummary) {
-            SummaryView(belt: selectedBelt, nav: nav)
-        }
-        .navigationDestination(isPresented: $goVoice) {
-            VoiceAssistantView()
-        }
-        .navigationDestination(isPresented: $goPdf) {
-            PdfExportView(belt: selectedBelt)
-        }
-    }
+      }
 }
 
 // MARK: - Belt Palette + Wheel
@@ -499,6 +612,8 @@ private struct SubjectPill: View {
 // MARK: - Floating quick menu overlay
 
 private struct BeltQuickMenuOverlay: View {
+    @Binding var isPresented: Bool
+
     let beltTitle: String
     let beltFill: Color
 
@@ -512,7 +627,7 @@ private struct BeltQuickMenuOverlay: View {
     let onFinalExam: () -> Void
     let onInternalExam: (() -> Void)?
 
-    @State private var isOpen: Bool = false
+    private var isOpen: Bool { isPresented }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -520,19 +635,24 @@ private struct BeltQuickMenuOverlay: View {
             if isOpen {
                 Color.black.opacity(0.22)
                     .ignoresSafeArea()
-                    .onTapGesture { close() }
+                    .allowsHitTesting(false)
+                    .zIndex(1)
             }
 
             VStack(spacing: 0) {
                 Spacer()
-
+                
                 HStack(alignment: .bottom) {
                     Spacer()
 
                     Button {
+                        print("🟠 MENU BUTTON TAP | before isOpen =", isOpen)
+
                         withAnimation(.spring(response: 0.28, dampingFraction: 0.90)) {
-                            isOpen.toggle()
+                            isPresented.toggle()
                         }
+
+                        print("🟠 MENU BUTTON TAP | after isOpen =", isPresented)
                     } label: {
                         Image(systemName: isOpen ? "xmark" : "line.3.horizontal")
                             .font(.system(size: 18, weight: .heavy))
@@ -543,6 +663,7 @@ private struct BeltQuickMenuOverlay: View {
                             .shadow(radius: 8, y: 3)
                     }
                     .buttonStyle(.plain)
+                    .zIndex(3)
                     .padding(.trailing, 18)
                     .padding(.bottom, 24)
                 }
@@ -572,14 +693,21 @@ private struct BeltQuickMenuOverlay: View {
         .ignoresSafeArea(edges: .bottom)
     }
 
-    private func closeThen(_ action: () -> Void) {
+    private func closeThen(_ action: @escaping () -> Void) {
+        print("🟣 OVERLAY closeThen start | isOpen =", isOpen)
+
         close()
-        action()
+
+        DispatchQueue.main.async {
+            print("🟣 OVERLAY closeThen dispatch action")
+            action()
+        }
     }
 
     private func close() {
+        print("🟠 OVERLAY close()")
         withAnimation(.spring(response: 0.25, dampingFraction: 0.95)) {
-            isOpen = false
+            isPresented = false
         }
     }
 
@@ -589,7 +717,10 @@ private struct BeltQuickMenuOverlay: View {
         let onTap: () -> Void
 
         var body: some View {
-            Button(action: onTap) {
+            Button {
+                print("🟠 QUICK PILL TAP -> \(title)")
+                onTap()
+            } label: {
                 HStack(spacing: 12) {
                     ZStack {
                         Circle()
@@ -605,8 +736,10 @@ private struct BeltQuickMenuOverlay: View {
                     Text(title)
                         .font(.system(size: 18, weight: .heavy))
                         .foregroundStyle(Color.black.opacity(0.85))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .frame(width: 170, alignment: .center)
                         .padding(.vertical, 12)
-                        .padding(.horizontal, 16)
                         .background(
                             RoundedRectangle(cornerRadius: 22, style: .continuous)
                                 .fill(Color.white.opacity(0.95))
@@ -615,6 +748,8 @@ private struct BeltQuickMenuOverlay: View {
 
                     Spacer(minLength: 0)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }

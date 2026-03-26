@@ -1,4 +1,5 @@
 import SwiftUI
+import FirebaseAuth
 import Shared
 
 struct HomeView: View {
@@ -58,6 +59,39 @@ struct HomeView: View {
         resolvedUserRole == "coach"
     }
 
+    private var freeSessionsUid: String {
+        Auth.auth().currentUser?.uid ?? "demo_ios"
+    }
+
+    private var freeSessionsName: String {
+        let rawDisplayName =
+            (Auth.auth().currentUser?.displayName ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !rawDisplayName.isEmpty { return rawDisplayName }
+
+        let rawEmail =
+            (Auth.auth().currentUser?.email ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !rawEmail.isEmpty { return rawEmail }
+
+        let fallbackName = storedFullName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !fallbackName.isEmpty { return fallbackName }
+
+        return "משתמש"
+    }
+
+    private var freeSessionsBranch: String {
+        let clean = resolvedBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? "default_branch" : clean
+    }
+
+    private var freeSessionsGroupKey: String {
+        let clean = resolvedGroup.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? "default_group" : clean
+    }
+
     private var resolvedBeltId: String {
         let authBeltId = (auth.registeredBelt?.id ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -91,6 +125,32 @@ struct HomeView: View {
         default: return .white
         }
     }
+
+    // ✅ fallback ישיר לפי הנתונים שכבר מוצגים בכרטיס העליון
+    private var fallbackUpcomingTrainings: [TrainingData] {
+        TrainingCatalogIOS.upcomingFor(
+            region: resolvedRegion,
+            branch: resolvedBranch,
+            group: resolvedGroup,
+            count: 3
+        )
+    }
+
+    private var effectiveUpcomingTrainings: [TrainingData] {
+        trainingsVm.upcomingTrainings.isEmpty ? fallbackUpcomingTrainings : trainingsVm.upcomingTrainings
+    }
+
+    private var effectiveStatusMessage: String? {
+        if !trainingsVm.upcomingTrainings.isEmpty {
+            return trainingsVm.statusMessage
+        }
+
+        if !fallbackUpcomingTrainings.isEmpty {
+            return nil
+        }
+
+        return trainingsVm.statusMessage
+    }
     
     var body: some View {
         ZStack {
@@ -115,17 +175,37 @@ struct HomeView: View {
                     )
                     .padding(.top, 10)
 
-                    if trainingsVm.upcomingTrainings.isEmpty {
-                        if let statusMessage = trainingsVm.statusMessage {
+                    if effectiveUpcomingTrainings.isEmpty {
+                        if let statusMessage = effectiveStatusMessage {
                             emptyBlock(message: statusMessage)
                                 .padding(.top, 6)
                         } else {
-                            emptyBlock(message: "לא נמצאו אימונים לשבוע הקרוב")
-                                .padding(.top, 6)
+                            VStack(spacing: 14) {
+
+                                emptyBlock(message: "לא נמצאו אימונים לשבוע הקרוב")
+
+                                Button {
+                                    goMonthly = true
+                                } label: {
+                                    Label("הצג לוח אימונים חודשי", systemImage: "calendar")
+                                        .font(.system(size: 16, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .padding(.vertical, 12)
+                                        .frame(maxWidth: .infinity)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                .fill(Color.white.opacity(0.22))
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.horizontal, 18)
+
+                            }
+                            .padding(.top, 6)
                         }
                     } else {
                         VStack(spacing: 12) {
-                            ForEach(trainingsVm.upcomingTrainings) { training in
+                            ForEach(effectiveUpcomingTrainings) { training in
                                 TrainingCardView(
                                     training: training,
                                     onNavigateTap: {
@@ -135,9 +215,17 @@ struct HomeView: View {
                                     }
                                 )
                                 .padding(.horizontal, 18)
+                                .transition(
+                                    .move(edge: .bottom)
+                                    .combined(with: .opacity)
+                                )
                             }
                         }
                         .padding(.top, 6)
+                        .animation(
+                            .spring(response: 0.35, dampingFraction: 0.85),
+                            value: effectiveUpcomingTrainings
+                        )
                     }
                     Spacer(minLength: 22)
 
@@ -159,6 +247,26 @@ struct HomeView: View {
                             .overlay(
                                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                                     .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 18)
+
+                    Button {
+                        nav.push(.progress)
+                    } label: {
+                        Text("התקדמות לפי חגורות")
+                            .font(.system(size: 18, weight: .heavy))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(Color.white.opacity(0.14))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .stroke(Color.white.opacity(0.20), lineWidth: 1)
                             )
                     }
                     .buttonStyle(.plain)
@@ -209,19 +317,16 @@ struct HomeView: View {
 
                     Button {
                         closeFab()
-                        goFree = true
+                        nav.push(
+                            .freeSessions(
+                                branch: freeSessionsBranch,
+                                groupKey: freeSessionsGroupKey,
+                                uid: freeSessionsUid,
+                                name: freeSessionsName
+                            )
+                        )
                     } label: {
                         FabMenuRow(title: "אימונים חופשיים", systemImage: "plus")
-                    }
-
-                    Button {
-                        closeFab()
-                        goCard = true
-                    } label: {
-                        FabMenuRow(
-                            title: isCoachUser ? "כרטיס מאמן" : "כרטיס",
-                            systemImage: "person.crop.circle"
-                        )
                     }
 
                     if isCoachUser {
@@ -238,13 +343,6 @@ struct HomeView: View {
                         } label: {
                             FabMenuRow(title: "דו״ח נוכחות", systemImage: "person.text.rectangle")
                         }
-                    }
-
-                    Button {
-                        closeFab()
-                        nav.push(.settings)
-                    } label: {
-                        FabMenuRow(title: "הגדרות", systemImage: "gearshape.fill")
                     }
                 }
                 .buttonStyle(.plain)
@@ -277,6 +375,9 @@ struct HomeView: View {
         .task {
             trainingsVm.loadForCurrentUser(auth: auth)
         }
+        .refreshable {
+            trainingsVm.loadForCurrentUser(auth: auth)
+        }
         .onChange(of: auth.userRegion) { _, _ in
             trainingsVm.loadForCurrentUser(auth: auth)
         }
@@ -301,17 +402,18 @@ struct HomeView: View {
         .onChange(of: storedGroup) { _, _ in
             trainingsVm.loadForCurrentUser(auth: auth)
         }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: UIApplication.willEnterForegroundNotification
+            )
+        ) { _ in
+            trainingsVm.loadForCurrentUser(auth: auth)
+        }
         .navigationDestination(isPresented: $goVoice) {
             PlaceholderScreen(title: "עוזר קולי")
         }
         .navigationDestination(isPresented: $goMonthly) {
-            PlaceholderScreen(title: "לוח אימונים חודשי")
-        }
-        .navigationDestination(isPresented: $goFree) {
-            PlaceholderScreen(title: "אימונים חופשיים")
-        }
-        .navigationDestination(isPresented: $goCard) {
-            PlaceholderScreen(title: "כרטיס")
+            MonthlyTrainingBoardView()
         }
         .sheet(isPresented: $showNavigationSheet, onDismiss: {
             selectedTraining = nil
@@ -393,25 +495,14 @@ struct HomeView: View {
     // MARK: - Week Header
 
     private var currentWeekSubtitle: String {
-        let today = Date()
-        let start = startOfWeek(for: today)
-        let end = calendar.date(byAdding: .day, value: 6, to: start) ?? today
+        let start = calendar.startOfDay(for: Date())
+        let end = calendar.date(byAdding: .day, value: 6, to: start) ?? start
 
         return "(תאריכים: \(hebrewWeekdayName(from: start)) \(shortDate(start))–\(hebrewWeekdayName(from: end)) \(shortDate(end)))"
     }
 
-    private func startOfWeek(for date: Date) -> Date {
-        var cal = calendar
-        cal.firstWeekday = 1 // Sunday
-
-        let weekday = cal.component(.weekday, from: date)
-        let daysFromSunday = (weekday - cal.firstWeekday + 7) % 7
-
-        return cal.date(
-            byAdding: .day,
-            value: -daysFromSunday,
-            to: cal.startOfDay(for: date)
-        ) ?? date
+    private func startOfNext7Days(from date: Date) -> Date {
+        calendar.startOfDay(for: date)
     }
 
     private func shortDate(_ date: Date) -> String {

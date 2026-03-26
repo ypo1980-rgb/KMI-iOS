@@ -10,10 +10,8 @@ enum KmiIconStripRouter {
     ) {
         switch item {
         case .home:
-            // Home לרוב הוא "חזרה לשורש" או פשוט לא לעשות כלום כאן
-            // אם יש אצלך nav.popToRoot() תוכל לקרוא לו כאן.
-            break
-            
+            nav.popToRoot()
+
         case .settings:
             nav.push(.settings)
             

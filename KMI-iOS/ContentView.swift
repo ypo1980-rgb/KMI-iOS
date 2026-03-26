@@ -68,13 +68,23 @@ enum AppRoute: Hashable {
     case topicDetail(topic: CatalogData.Topic)
     case topicAcrossBelts(topicTitle: String, subTopicTitle: String?)
 
+    case weakPoints(belt: Belt)
+    case allLists(belt: Belt)
+    case practice(belt: Belt, topicTitle: String)
+    case summary(belt: Belt)
+    case voiceAssistant
+    case pdfExport(belt: Belt)
+
     case internalExam(belt: Belt)
     case beltFinalExam(belt: Belt)
     case attendance
+    case progress
+    case trainingHistory
+    case freeSessions(branch: String, groupKey: String, uid: String, name: String)
 
     // ⭐️ חדש
     case trainingSummary(pickedDateIso: String?)
-
+    
     case aboutNetwork
     case aboutMethod
     case aboutItzik
@@ -86,11 +96,44 @@ enum AppRoute: Hashable {
 }
 
 final class AppNavModel: ObservableObject {
-    @Published var path: [AppRoute] = []
 
-    func push(_ r: AppRoute) { path.append(r) }
-    func pop() { _ = path.popLast() }
-    func popToRoot() { path.removeAll() }
+    static weak var sharedInstance: AppNavModel?
+
+    @Published var path: [AppRoute] = [] {
+        didSet {
+            print("🧭 AppNavModel.path =", path)
+        }
+    }
+
+    init() {
+        AppNavModel.sharedInstance = self
+    }
+
+    func push(_ r: AppRoute) {
+        print("🧭 PUSH request:", r)
+        if path.last == r {
+            print("🧭 PUSH skipped (same as last):", r)
+            return
+        }
+        path.append(r)
+        print("🧭 PUSH done:", r)
+    }
+
+    func pop() {
+        print("🧭 POP request. current path =", path)
+        guard !path.isEmpty else {
+            print("🧭 POP skipped (empty path)")
+            return
+        }
+        let removed = path.popLast()
+        print("🧭 POP done. removed =", String(describing: removed), "new path =", path)
+    }
+
+    func popToRoot() {
+        print("🧭 POP TO ROOT. old path =", path)
+        path.removeAll()
+        print("🧭 POP TO ROOT done. new path =", path)
+    }
 }
 
 // MARK: - Root (After login only)
@@ -101,6 +144,36 @@ struct ContentView: View {
 
     private var isCoachUser: Bool {
         auth.userRole.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "coach"
+    }
+
+    private var freeSessionsUid: String {
+        Auth.auth().currentUser?.uid ?? "demo_ios"
+    }
+
+    private var freeSessionsName: String {
+        let rawDisplayName =
+            (Auth.auth().currentUser?.displayName ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !rawDisplayName.isEmpty { return rawDisplayName }
+
+        let rawEmail =
+            (Auth.auth().currentUser?.email ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !rawEmail.isEmpty { return rawEmail }
+
+        return "משתמש"
+    }
+
+    private var freeSessionsBranch: String {
+        let clean = auth.userBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? "default_branch" : clean
+    }
+
+    private var freeSessionsGroupKey: String {
+        let clean = auth.userGroup.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? "default_group" : clean
     }
 
     var body: some View {
@@ -180,11 +253,116 @@ struct ContentView: View {
                             .navigationBarBackButtonHidden(true)
                         }
 
+                    case .progress:
+                        KmiRootLayout(title: "התקדמות", nav: nav, selectedIcon: .home) {
+                            ProgressScreenIOS()
+                                .navigationBarBackButtonHidden(true)
+                        }
+
+                    case .trainingHistory:
+                        KmiRootLayout(title: "היסטוריית אימונים", nav: nav, selectedIcon: .home) {
+                            TrainingHistoryView()
+                                .navigationBarBackButtonHidden(true)
+                        }
+
+                    case .freeSessions(let branch, let groupKey, let uid, let name):
+                        KmiRootLayout(title: "אימונים חופשיים", nav: nav, selectedIcon: .home) {
+                            FreeSessionsView(
+                                branch: branch,
+                                groupKey: groupKey,
+                                currentUid: uid,
+                                currentName: name
+                            )
+                            .navigationBarBackButtonHidden(true)
+                        }
+                        
                     // ✅ settings (אם קיים אצלך)
                     case .settings:
                         KmiRootLayout(title: "הגדרות", nav: nav, selectedIcon: .settings) {
                             SettingsView(nav: nav)
                                 .navigationBarBackButtonHidden(true)
+                        }
+                     
+                    case .weakPoints(let belt):
+                        KmiRootLayout(title: "נקודות תורפה", nav: nav, selectedIcon: .home) {
+                            FavoritesByBeltView(belt: belt)
+                                .navigationBarBackButtonHidden(true)
+                        }
+
+                    case .allLists(let belt):
+                        KmiRootLayout(title: "כל הרשימות", nav: nav, selectedIcon: .home) {
+                            ExercisesTabsView(
+                                belt: belt,
+                                topicTitle: "__ALL__",
+                                subTopicTitle: nil,
+                                onPractice: { pickedBelt, topicTitle in
+                                    nav.push(.practice(belt: pickedBelt, topicTitle: topicTitle))
+                                },
+                                onHome: {
+                                    nav.popToRoot()
+                                }
+                            )
+                            .navigationBarBackButtonHidden(true)
+                        }
+
+                    case .practice(let belt, let topicTitle):
+                        KmiRootLayout(title: "תרגול", nav: nav, selectedIcon: .home) {
+                            RandomPracticeView(
+                                nav: nav,
+                                belt: belt,
+                                topicTitle: topicTitle,
+                                items: {
+                                    let cleanToken = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                                    if cleanToken.isEmpty || cleanToken == "__ALL__" {
+                                        let catalog = CatalogData.shared.data
+                                        let topics = catalog[belt]?.topics ?? []
+
+                                        var result: [String] = []
+                                        for t in topics {
+                                            result.append(contentsOf: t.items)
+                                            for st in t.subTopics {
+                                                result.append(contentsOf: st.items)
+                                            }
+                                        }
+                                        return result
+                                    }
+
+                                    return ContentRepo.shared.getAllItemsFor(
+                                        belt: belt,
+                                        topicTitle: cleanToken,
+                                        subTopicTitle: nil
+                                    )
+                                }()
+                            )
+                            .navigationBarBackButtonHidden(true)
+                        }
+
+                    case .summary(let belt):
+                        KmiRootLayout(title: "מסך סיכום", nav: nav, selectedIcon: .home) {
+                            SummaryView(belt: belt, nav: nav)
+                                .navigationBarBackButtonHidden(true)
+                        }
+
+                    case .voiceAssistant:
+                        KmiRootLayout(title: "עוזר קולי", nav: nav, selectedIcon: .home) {
+                            VoiceAssistantView()
+                                .navigationBarBackButtonHidden(true)
+                        }
+
+                    case .pdfExport(let belt):
+                        KmiRootLayout(title: "PDF", nav: nav, selectedIcon: .home) {
+                            PdfExportView(belt: belt)
+                                .navigationBarBackButtonHidden(true)
+                        }
+                        
+                    case .beltFinalExam(let belt):
+                        KmiRootLayout(title: "מבחן מסכם", nav: nav, selectedIcon: .home) {
+                            CoachPlaceholderView(
+                                title: "מבחן מסכם",
+                                subtitle: "חגורה: \(belt.heb)"
+                            )
+                            .navigationBarBackButtonHidden(true)
                         }
 
                     case .internalExam(let belt):
@@ -195,16 +373,19 @@ struct ContentView: View {
                             )
                             .navigationBarBackButtonHidden(true)
                         }
-
+                        
                     case .attendance:
                         KmiRootLayout(title: "דו״ח נוכחות", nav: nav, selectedIcon: .home) {
-                            CoachPlaceholderView(
-                                title: "דו״ח נוכחות",
-                                subtitle: "מסך ניהול נוכחות למאמן"
+                            AttendanceView(
+                                ownerUid: Auth.auth().currentUser?.uid ?? "demo_ios",
+                                initialDateIso: nil,
+                                initialBranchName: "",
+                                initialGroupKey: "",
+                                initialCoachName: ""
                             )
                             .navigationBarBackButtonHidden(true)
                         }
-
+                        
                 // ✅ fallback כדי שלא יהיה לבן
                 default:
                     ZStack {

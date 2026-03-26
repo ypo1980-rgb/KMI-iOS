@@ -16,6 +16,7 @@ final class AuthViewModel: ObservableObject {
     @Published var isLoading: Bool = true
     @Published var isSignedIn: Bool = false
     @Published var errorText: String? = nil
+    @Published var issuedCoachCode: String? = nil
 
     // ✅ role (trainee / coach) לצביעת UI והרשאות
     @Published var userRole: String = "trainee"
@@ -276,18 +277,34 @@ final class AuthViewModel: ObservableObject {
             }
 
             if wantedRole == "coach" {
-                let typedCoachCode = (coachCode ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                let storedCoachCode =
-                    ((data["coachCode"] as? String) ?? UserDefaults.standard.string(forKey: "coach_code") ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-
-                guard !typedCoachCode.isEmpty, typedCoachCode == storedCoachCode else {
-                    errorText = "קוד מאמן שגוי"
+                let approved = data["coachApproved"] as? Bool ?? false
+                if !approved {
+                    errorText = "החשבון עדיין לא אושר כמאמן"
                     try? Auth.auth().signOut()
                     return false
                 }
             }
 
+            if wantedRole == "coach" {
+                let typedCoachCode = (coachCode ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                let storedCoachCode = ((data["coachCode"] as? String) ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                if typedCoachCode.isEmpty {
+                    errorText = "יש להזין קוד מאמן"
+                    try? Auth.auth().signOut()
+                    return false
+                }
+
+                if typedCoachCode != storedCoachCode {
+                    errorText = "קוד מאמן שגוי"
+                    try? Auth.auth().signOut()
+                    return false
+                }
+            }
+            
             let defaults = UserDefaults.standard
             defaults.set(rawId, forKey: "remember_username")
             defaults.set(rawPassword, forKey: "remember_password")
@@ -450,60 +467,73 @@ final class AuthViewModel: ObservableObject {
 #if DEBUG
 print("🟠 registerAndSaveProfile: created auth user uid=\(uid)")
 #endif
-            #if canImport(FirebaseFirestore)
-            do {
-                let db = Firestore.firestore()
+#if canImport(FirebaseFirestore)
+do {
+    let db = Firestore.firestore()
 
-                // ✅ שומר את כל הטופס כפרופיל משתמש
-                var userData = form.toFirestoreDictionary(uid: uid)
+    issuedCoachCode = nil
 
-                // beltId עוזר לטעינת חגורה בהמשך
-                if userData["beltId"] == nil {
-                    userData["beltId"] = form.belt.trimmingCharacters(in: .whitespacesAndNewlines)
-                }
+    // ✅ שומר את כל הטופס כפרופיל משתמש
+    var userData = form.toFirestoreDictionary(uid: uid)
 
-                try await db.collection("users")
-                    .document(uid)
-                    .setData(userData, merge: true)
+    // beltId עוזר לטעינת חגורה בהמשך
+    if userData["beltId"] == nil {
+        userData["beltId"] = form.belt.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
-                #if DEBUG
-                print("🟠 registerAndSaveProfile: saved Firestore profile uid=\(uid)")
-                #endif
+    // ✅ מאמן מורשה בלבד + יצירת קוד אוטומטי כמו באנדרואיד
+    let generatedCoachCode: String?
+    if form.role == .coach {
+        let normalizedPhone = form.phone.filter { $0.isNumber }
+        let normalizedEmail = form.emailTrimmed.lowercased()
 
-                // ✅ אם נרשם כמאמן – בודקים allowlist
-                if form.role == .coach {
-                    let code = form.coachCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard CoachWhitelist.isWhitelisted(
+            phone: normalizedPhone,
+            email: normalizedEmail
+        ) else {
+            self.errorText = "הרישום כמאמן מותר רק למאמנים מורשים"
+            return
+        }
 
-                    let snap = try await db.collection("coach_allowlist")
-                        .document(code)
-                        .getDocument()
+        let code = CoachCodeGenerator.generate()
+        generatedCoachCode = code
+        userData["coachCode"] = code
+        userData["coachApproved"] = true
+    } else {
+        generatedCoachCode = nil
+        userData["coachApproved"] = false
+    }
 
-                    let isEnabled = (snap.data()?["enabled"] as? Bool) ?? false
+    try await db.collection("users")
+        .document(uid)
+        .setData(userData, merge: true)
 
-                    if !isEnabled {
-                        try await db.collection("users")
-                            .document(uid)
-                            .setData(["role": "trainee"], merge: true)
+    #if DEBUG
+    print("🟠 registerAndSaveProfile: saved Firestore profile uid=\(uid)")
+    #endif
 
-                        self.errorText = "קוד מאמן לא תקין. נרשמת כמתאמן."
-                    }
-                }
+    // ✅ שמירה מקומית
+    form.persistToUserDefaults()
 
-            } catch {
-                #if DEBUG
-                print("🔴 registerAndSaveProfile: Firestore save failed: \(error.localizedDescription)")
-                #endif
-                self.errorText = "שמירת פרופיל נכשלה: \(error.localizedDescription)"
-                return
-            }
-            
-            #endif
+    if let generatedCoachCode {
+        UserDefaults.standard.set(generatedCoachCode, forKey: "coach_code")
+        issuedCoachCode = generatedCoachCode
+    } else {
+        UserDefaults.standard.removeObject(forKey: "coach_code")
+    }
 
-            // ✅ שמירה מקומית
-            form.persistToUserDefaults()
+} catch {
+    #if DEBUG
+    print("🔴 registerAndSaveProfile: Firestore save failed: \(error.localizedDescription)")
+    #endif
+    self.errorText = "שמירת פרופיל נכשלה: \(error.localizedDescription)"
+    return
+}
 
-            // ✅ מרעננים את הפרופיל מהשרת
-            await loadUserProfile(uid: uid)
+#endif
+
+// ✅ מרעננים את הפרופיל מהשרת
+await loadUserProfile(uid: uid)
 
             #if DEBUG
             print("✅ registerAndSaveProfile success uid=\(uid)")

@@ -242,14 +242,36 @@ enum TrainingCatalogIOS {
 
     static func trainingsFor(branch: String, group: String?) -> [TrainingData] {
         let wanted = normalizeGroupName(group)
+        let normalizedBranch = branch
+            .replacingOccurrences(of: "-", with: "–")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        return slots
-            .filter { slot in
-                guard slot.branch == branch else { return false }
-                guard let group, !group.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return true }
+        let branchSlots = slots.filter { slot in
+            let slotBranch = slot.branch
+                .replacingOccurrences(of: "-", with: "–")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
 
-                return slot.groups.contains(where: { normalizeGroupName($0) == wanted || $0 == group })
+            return slotBranch == normalizedBranch
+        }
+
+        let groupText = (group ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let filteredSlots: [TrainingSlot]
+        if groupText.isEmpty {
+            filteredSlots = branchSlots
+        } else {
+            let matched = branchSlots.filter { slot in
+                slot.groups.contains(where: {
+                    let raw = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return normalizeGroupName(raw) == wanted || raw == groupText
+                })
             }
+
+            // ✅ אם אין התאמה מדויקת לקבוצה – נציג את כל האימונים של הסניף
+            filteredSlots = matched.isEmpty ? branchSlots : matched
+        }
+
+        return filteredSlots
             .map { slot in
                 nextWeekly(
                     slot: slot,
@@ -258,13 +280,46 @@ enum TrainingCatalogIOS {
             }
             .sorted { $0.date < $1.date }
     }
-
+    
     static func upcomingFor(region: String, branch: String, group: String, count: Int = 3) -> [TrainingData] {
-        guard isRegionActive(region) else { return [] }
-        guard branchesFor(region: region).contains(branch) else { return [] }
-        return Array(trainingsFor(branch: branch, group: group).prefix(count))
-    }
+        let normalizedRegion = region.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedBranch = branch
+            .replacingOccurrences(of: "-", with: "–")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
+        // ✅ קודם כל: אם יש branch תקין ויש slots – נשתמש בו גם אם region חסר/לא תואם
+        let directUpcoming = trainingsFor(branch: normalizedBranch, group: group)
+
+        let now = Date()
+        let end = Calendar.current.date(byAdding: .day, value: 7, to: now) ?? now
+
+        let directFiltered = directUpcoming.filter { training in
+            training.date >= now && training.date <= end
+        }
+
+        if !directFiltered.isEmpty {
+            return Array(directFiltered.prefix(count))
+        }
+
+        // ✅ fallback ישן – רק אם לא נמצאו אימונים ישירים
+        guard !normalizedRegion.isEmpty else { return [] }
+        guard isRegionActive(normalizedRegion) else { return [] }
+
+        let regionBranches = branchesFor(region: normalizedRegion).map {
+            $0.replacingOccurrences(of: "-", with: "–")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        guard regionBranches.contains(normalizedBranch) else { return [] }
+
+        let upcoming = trainingsFor(branch: normalizedBranch, group: group)
+            .filter { training in
+                training.date >= now && training.date <= end
+            }
+
+        return Array(upcoming.prefix(count))
+    }
+    
     private static func nextWeekly(slot: TrainingSlot, now: Date) -> TrainingData {
         let calendar = Calendar(identifier: .gregorian)
         let locale = Locale(identifier: "he_IL")

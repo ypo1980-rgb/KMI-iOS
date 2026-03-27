@@ -11,8 +11,8 @@ struct CoachWhitelist {
     ]
 
     static let allowedEmails: [String: String] = [
-        "coach1@example.com": "מאמן 1",
-        "coach2@example.com": "מאמן 2",
+        "ypo1980@gmail.com": "יובל פולק",
+        "Yonatanmalesa99@gmail.com": "יוני מלסה",
         "coach3@example.com": "מאמן 3"
     ]
 

@@ -139,14 +139,16 @@ extension FreeSessionDetailsSheet {
 
                         Text(part.state.titleHeb)
                             .font(.caption.bold())
-                            .padding(6)
-                            .background(Color.blue.opacity(0.15))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(stateColor(part.state).opacity(0.16))
+                            .foregroundStyle(stateColor(part.state))
                             .clipShape(Capsule())
 
                         Spacer()
 
                         Text(part.name)
-                            .font(.body)
+                            .font(.body.weight(.semibold))
 
                     }
 
@@ -206,16 +208,16 @@ extension FreeSessionDetailsSheet {
     private func shareSession() {
 
         let message =
-"""
-אימון קרב מגן ישראלי 💪
+    """
+    אימון קרב מגן ישראלי 💪
 
-\(session.title)
+    \(session.title)
 
-🕒 \(fmtTimeHeb(session.startsAt))
-📍 \(session.locationName ?? "")
+    🕒 \(fmtTimeHeb(session.startsAt))
+    📍 \(session.locationName ?? "")
 
-מוזמנים להצטרף!
-"""
+    מוזמנים להצטרף!
+    """
 
         let encoded = message.addingPercentEncoding(
             withAllowedCharacters: .urlQueryAllowed
@@ -224,9 +226,8 @@ extension FreeSessionDetailsSheet {
         if let url = URL(string: "https://wa.me/?text=\(encoded)") {
             UIApplication.shared.open(url)
         }
-
     }
-
+    
     private func openNavigation() {
 
         if let lat = session.lat, let lng = session.lng {
@@ -280,5 +281,15 @@ extension FreeSessionDetailsSheet {
         fmt.dateFormat = "EEEE · d.M.yyyy · HH:mm"
 
         return fmt.string(from: date)
+    }
+    
+    private func stateColor(_ state: ParticipantState) -> Color {
+        switch state {
+        case .invited: return .gray
+        case .going:   return .green
+        case .onWay:   return .blue
+        case .arrived: return .mint
+        case .cant:    return .red
+        }
     }
 }

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CoachOnlyGateView<Content: View>: View {
 
+    @EnvironmentObject private var auth: AuthViewModel
     @StateObject private var role = CoachService.shared
     let content: () -> Content
 
@@ -20,7 +21,7 @@ struct CoachOnlyGateView<Content: View>: View {
                     Text("גישה למאמנים בלבד")
                         .font(.title3.weight(.heavy))
 
-                    Text("ההרשאה נקבעת בשרת לפי מספר טלפון")
+                    Text("ההרשאה נקבעת לפי תפקיד המשתמש או לפי מספר טלפון")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -28,7 +29,7 @@ struct CoachOnlyGateView<Content: View>: View {
             }
         }
         .task {
-            await role.checkCoach()
+            await role.checkCoach(userRole: auth.userRole)
         }
     }
 }

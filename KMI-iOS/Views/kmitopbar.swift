@@ -1,4 +1,5 @@
 import SwiftUI
+import FirebaseAuth
 import Shared
 
 // MARK: - Global TopBar (לא תלוי ב-HomeView)
@@ -149,14 +150,114 @@ struct KmiRootLayout<Content: View>: View {
         self.titleColor = titleColor
         self.content = content()
     }
+  
+    private var effectiveRole: String {
+        let loginRole = UserDefaults.standard.string(forKey: "user_role")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if let loginRole, !loginRole.isEmpty {
+            return loginRole
+        }
+
+        return auth.userRole
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    private var isCoachTheme: Bool {
+        effectiveRole == "coach" || effectiveRole == "trainer" || effectiveRole == "מאמן"
+    }
+
+    @ViewBuilder
+    private var layoutBackground: some View {
+        if isCoachTheme {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.10, green: 0.03, blue: 0.03),
+                    Color(red: 0.22, green: 0.05, blue: 0.05),
+                    Color(red: 0.42, green: 0.08, blue: 0.08),
+                    Color(red: 0.62, green: 0.11, blue: 0.11)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        } else {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.01, green: 0.05, blue: 0.14),
+                    Color(red: 0.07, green: 0.10, blue: 0.23),
+                    Color(red: 0.11, green: 0.33, blue: 0.80)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        }
+    }
     
     var body: some View {
         KmiSideDrawerContainer(
             isOpen: $drawerOpen,
             onItem: { item in
 
+                let freeSessionsUid =
+                    Auth.auth().currentUser?.uid ?? "demo_ios"
+
+                let freeSessionsName: String = {
+                    let rawDisplayName =
+                        (Auth.auth().currentUser?.displayName ?? "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                    if !rawDisplayName.isEmpty { return rawDisplayName }
+
+                    let rawEmail =
+                        (Auth.auth().currentUser?.email ?? "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                    if !rawEmail.isEmpty { return rawEmail }
+
+                    return "משתמש"
+                }()
+
+                let freeSessionsBranch: String = {
+                    let clean = auth.userBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return clean.isEmpty ? "default_branch" : clean
+                }()
+
+                let freeSessionsGroupKey: String = {
+                    let clean = auth.userGroup.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return clean.isEmpty ? "default_group" : clean
+                }()
+
                 switch item.title {
 
+                case "אימונים חופשיים":
+                    nav.push(
+                        .freeSessions(
+                            branch: freeSessionsBranch,
+                            groupKey: freeSessionsGroupKey,
+                            uid: freeSessionsUid,
+                            name: freeSessionsName
+                        )
+                    )
+
+                case "דו״ח נוכחות":
+                    nav.push(.attendance)
+
+                case "מבחן פנימי לחגורה":
+                    nav.push(.internalExam(belt: auth.registeredBelt ?? .green))
+
+                case "שליחת הודעה":
+                    nav.push(.coachBroadcast)
+
+                case "רשימת מתאמנים":
+                    nav.push(.coachTrainees)
+
+                case "ניהול משתמשים":
+                    nav.push(.adminUsers)
+                    
                 case "אודות הרשת":
                     nav.push(.aboutNetwork)
 
@@ -180,34 +281,40 @@ struct KmiRootLayout<Content: View>: View {
                 }
             }
         ) {
-            VStack(spacing: 0) {
-                KmiTopBar(
-                    roleLabel: roleLabel,
-                    title: title,
-                    rightText: rightText,
-                    titleColor: titleColor,
-                    onMenu: { drawerOpen = true }
-                )
+            ZStack {
+                layoutBackground
 
                 VStack(spacing: 0) {
-                    KmiIconStripBar(
-                        items: KmiIconStripItem.allCases,
-                        selected: selectedIcon
-                    ) { item in
-                        onGlobalIconTap(item)
+                    KmiTopBar(
+                        roleLabel: roleLabel,
+                        title: title,
+                        rightText: rightText,
+                        titleColor: titleColor,
+                        onMenu: { drawerOpen = true }
+                    )
+
+                    VStack(spacing: 0) {
+                        KmiIconStripBar(
+                            items: KmiIconStripItem.allCases,
+                            selected: selectedIcon
+                        ) { item in
+                            onGlobalIconTap(item)
+                        }
+                        .padding(.top, 6)
+                        .padding(.bottom, 8)
+
+                        Divider()
+                            .opacity(0.18)
                     }
-                    .padding(.top, 6)
-                    .padding(.bottom, 8)
+                    .background(Color.white.opacity(0.92))
+                    .shadow(color: Color.black.opacity(0.05), radius: 8, y: 4)
 
-                    Divider()
-                        .opacity(0.18)
+                    content
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
-                .background(Color.white.opacity(0.92))
-                .shadow(color: Color.black.opacity(0.05), radius: 8, y: 4)
-
-                content
             }
         }
+        
         // ✅ Sheet של חיפוש גלובאלי
         .sheet(isPresented: $showGlobalSearch) {
             GlobalExerciseSearchSheet()

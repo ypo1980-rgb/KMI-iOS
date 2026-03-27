@@ -178,25 +178,12 @@ struct SubjectAcrossBeltsView: View {
             var hardOut: [UiSection] = []
 
             for sec in filteredHardSections {
-                let items = HardSectionsCatalog.shared.itemsFor(sec, belt: belt)
 
-                if !items.isEmpty {
-                    let uiItems = items.enumerated().map { index, item in
-                        UiItem(
-                            id: "\(belt.id)::\(sec.id)::\(index)::\(item)",
-                            displayName: item,
-                            topicTitle: sec.title
-                        )
-                    }
-
-                    hardOut.append(
-                        UiSection(
-                            id: "\(belt.id)::\(sec.id)",
-                            title: sec.title,
-                            items: uiItems
-                        )
-                    )
-                }
+                appendHardSectionTree(
+                    sec,
+                    belt: belt,
+                    into: &hardOut
+                )
             }
 
             if !hardOut.isEmpty {

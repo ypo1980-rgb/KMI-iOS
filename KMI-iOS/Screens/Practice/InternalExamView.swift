@@ -3,7 +3,8 @@ import Shared
 
 struct InternalExamView: View {
     let belt: Belt
-
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var auth: AuthViewModel
     @StateObject private var coach = CoachService.shared
     @State private var currentBelt: Belt
     @State private var traineeName: String = ""
@@ -16,7 +17,8 @@ struct InternalExamView: View {
     @State private var resumeCheckedKey: String? = nil
     @State private var hasUnsavedChanges = false
     @State private var showTraineeNameBox = true
-
+    @State private var showExitDialog = false
+    
     @State private var marksMap: [String: Int] = [:]
     @State private var expandedTopic: String? = nil
 
@@ -44,7 +46,7 @@ struct InternalExamView: View {
             }
         }
         .task {
-            await coach.checkCoach()
+            await coach.checkCoach(userRole: auth.userRole)
             bootstrapInitialState()
         }
         .onChange(of: traineeName) { _ in
@@ -54,10 +56,43 @@ struct InternalExamView: View {
             expandedTopic = nil
             checkForDraft()
         }
+
         .navigationBarBackButtonHidden(true)
+
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    if hasUnsavedChanges {
+                        showExitDialog = true
+                    } else {
+                        dismiss()
+                    }
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+            }
+        }
+
         .navigationBarTitleDisplayMode(.inline)
+
         .sheet(isPresented: $showPickTraineeDialog) {
             traineePickerSheet
+        }
+        .alert("שמירת מבחן", isPresented: $showExitDialog) {
+
+            Button("שמור") {
+                saveCurrentExam()
+                dismiss()
+            }
+
+            Button("צא בלי לשמור", role: .destructive) {
+                dismiss()
+            }
+
+            Button("ביטול", role: .cancel) { }
+
+        } message: {
+            Text("האם לשמור את המבחן לפני היציאה?")
         }
         .alert("מבחן שמור נמצא", isPresented: $showResumeDialog) {
             Button("המשך") {
@@ -155,6 +190,11 @@ struct InternalExamView: View {
                     onSave: saveCurrentExam,
                     onShare: shareSummaryText
                 )
+                .contextMenu {
+                    Button("ייצוא PDF") {
+                        exportPdf()
+                    }
+                }
             }
         }
     }
@@ -341,10 +381,57 @@ struct InternalExamView: View {
     }
 
     private func shareSummaryText() {
+
         let text = session.shareText
-        UIPasteboard.general.string = text
+
+        let activity = UIActivityViewController(
+            activityItems: [text],
+            applicationActivities: nil
+        )
+
+        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let root = scene.windows.first?.rootViewController {
+
+            root.present(activity, animated: true)
+        }
     }
 
+    private func exportPdf() {
+
+        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 595, height: 842))
+
+        let data = renderer.pdfData { ctx in
+            ctx.beginPage()
+
+            let text = session.shareText
+
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 16)
+            ]
+
+            text.draw(
+                in: CGRect(x: 40, y: 40, width: 515, height: 760),
+                withAttributes: attrs
+            )
+        }
+
+        let tmp = FileManager.default.temporaryDirectory
+        let file = tmp.appendingPathComponent("internal_exam.pdf")
+
+        try? data.write(to: file)
+
+        let activity = UIActivityViewController(
+            activityItems: [file],
+            applicationActivities: nil
+        )
+
+        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let root = scene.windows.first?.rootViewController {
+
+            root.present(activity, animated: true)
+        }
+    }
+    
     // MARK: - Data Source
 
     private func examItems(for belt: Belt) -> [ExamExerciseItem] {

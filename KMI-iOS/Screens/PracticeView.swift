@@ -1,5 +1,7 @@
 import SwiftUI
 import Shared
+import AVFoundation
+import AudioToolbox
 
 struct PracticeView: View {
     let belt: Belt
@@ -18,6 +20,15 @@ struct PracticeView: View {
     @State private var sessionStart = Date()
     @State private var completedCount: Int = 0
     @State private var showSummary: Bool = false
+    @State private var isMuted: Bool = false
+    @State private var didPlayHalfTimeAlert: Bool = false
+    @State private var lastBeepSecond: Int? = nil
+
+    private let speechSynth = AVSpeechSynthesizer()
+    @State private var showDurationPicker = true
+    @State private var practiceDuration: Int = 5
+    @State private var timeRemaining: Int = 0
+    @State private var timer: Timer?
     
     private var modeTitle: String {
         switch topic {
@@ -58,6 +69,10 @@ struct PracticeView: View {
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(Color.black.opacity(0.60))
 
+                        Text("זמן נותר: \(formattedTimeRemaining)")
+                            .font(.system(size: 15, weight: .heavy))
+                            .foregroundStyle(Color.red.opacity(0.78))
+
                         Text("סה״כ תרגילים: \(practiceItems.count)")
                             .font(.system(size: 14, weight: .bold))
                             .foregroundStyle(Color.black.opacity(0.50))
@@ -93,6 +108,30 @@ struct PracticeView: View {
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.horizontal, 10)
 
+                            Button {
+                                isMuted.toggle()
+
+                                if isMuted {
+                                    stopSpeaking()
+                                } else {
+                                    speakCurrentItem()
+                                }
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                                    Text(isMuted ? "הפעל קול" : "השתק קול")
+                                }
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(Color.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.purple.opacity(0.82))
+                                )
+                            }
+                            .buttonStyle(.plain)
+
                             Text("\(currentIndex + 1) / \(practiceItems.count)")
                                 .font(.system(size: 14, weight: .bold))
                                 .foregroundStyle(Color.black.opacity(0.50))
@@ -111,10 +150,13 @@ struct PracticeView: View {
                                 title: "סיים",
                                 fill: Color.red.opacity(0.85),
                                 onTap: {
+                                    stopTimer()
+                                    stopSpeaking()
+                                    playFinishSound()
                                     showSummary = true
                                 }
                             )
-
+                            
                             PracticeActionButton(
                                 title: "ערבב",
                                 fill: Color.orange.opacity(0.86),
@@ -173,6 +215,9 @@ struct PracticeView: View {
                 completedExercises: completedCount
             )
         }
+        .sheet(isPresented: $showDurationPicker) {
+            durationPickerView
+        }
         .navigationTitle("תרגול")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
@@ -190,6 +235,13 @@ struct PracticeView: View {
             completedCount = 0
             reloadPracticeItems()
         }
+        .onChange(of: currentIndex) { _, _ in
+            speakCurrentItem()
+        }
+        .onDisappear {
+            stopTimer()
+            stopSpeaking()
+        }
     }
 
     private func reloadPracticeItems() {
@@ -202,10 +254,13 @@ struct PracticeView: View {
         guard !practiceItems.isEmpty else { return }
 
         completedCount += 1
+        stopSpeaking()
 
         if currentIndex < practiceItems.count - 1 {
             currentIndex += 1
         } else {
+            stopTimer()
+            playFinishSound()
             showSummary = true
         }
     }
@@ -221,6 +276,7 @@ struct PracticeView: View {
 
     private func shuffleItems() {
         guard !practiceItems.isEmpty else { return }
+        stopSpeaking()
         practiceItems.shuffle()
         currentIndex = 0
     }
@@ -339,6 +395,114 @@ struct PracticeView: View {
         }
 
         return text
+    }
+
+    private var formattedTimeRemaining: String {
+        let minutes = max(timeRemaining, 0) / 60
+        let seconds = max(timeRemaining, 0) % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+
+    private var durationPickerView: some View {
+        VStack(spacing: 24) {
+            Text("בחר זמן תרגול")
+                .font(.system(size: 24, weight: .heavy))
+
+            Picker("משך אימון", selection: $practiceDuration) {
+                Text("3 דקות").tag(3)
+                Text("5 דקות").tag(5)
+                Text("10 דקות").tag(10)
+                Text("15 דקות").tag(15)
+            }
+            .pickerStyle(.wheel)
+            .frame(height: 160)
+
+            Button {
+                sessionStart = Date()
+                completedCount = 0
+                timeRemaining = practiceDuration * 60
+                didPlayHalfTimeAlert = false
+                lastBeepSecond = nil
+                showDurationPicker = false
+                playStartSound()
+                startTimer()
+                speakCurrentItem()
+            } label: {
+                Text("התחל אימון")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(40)
+    }
+
+    private func startTimer() {
+        stopTimer()
+
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            if timeRemaining > 0 {
+                timeRemaining -= 1
+
+                let totalDuration = practiceDuration * 60
+                let halfTimePoint = totalDuration / 2
+
+                if !didPlayHalfTimeAlert && timeRemaining == halfTimePoint {
+                    didPlayHalfTimeAlert = true
+                    playHalfTimeAlert()
+                }
+
+                if timeRemaining <= 10, timeRemaining > 0 {
+                    if lastBeepSecond != timeRemaining {
+                        lastBeepSecond = timeRemaining
+                        playCountdownBeep()
+                    }
+                }
+            } else {
+                stopTimer()
+                stopSpeaking()
+                playFinishSound()
+                showSummary = true
+            }
+        }
+    }
+
+    private func stopTimer() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func speakCurrentItem() {
+        guard !isMuted else { return }
+        guard let item = currentItem else { return }
+        guard !showDurationPicker else { return }
+
+        stopSpeaking()
+
+        let utterance = AVSpeechUtterance(string: item.displayName)
+        utterance.voice = AVSpeechSynthesisVoice(language: "he-IL")
+        utterance.rate = 0.45
+        speechSynth.speak(utterance)
+    }
+
+    private func stopSpeaking() {
+        speechSynth.stopSpeaking(at: .immediate)
+    }
+
+    private func playStartSound() {
+        AudioServicesPlaySystemSound(1113)
+    }
+
+    private func playHalfTimeAlert() {
+        AudioServicesPlaySystemSound(1016)
+    }
+
+    private func playCountdownBeep() {
+        AudioServicesPlaySystemSound(1104)
+    }
+
+    private func playFinishSound() {
+        AudioServicesPlaySystemSound(1005)
     }
 }
 

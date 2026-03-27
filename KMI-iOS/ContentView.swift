@@ -16,13 +16,106 @@ private enum KmiTheme {
 }
 
 private struct KmiBackground: View {
+
+    @EnvironmentObject private var auth: AuthViewModel
+
+    private var effectiveRole: String {
+        let loginRole = UserDefaults.standard.string(forKey: "user_role")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if let loginRole, !loginRole.isEmpty {
+            return loginRole
+        }
+
+        return auth.userRole
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    private var isCoach: Bool {
+        effectiveRole == "coach" || effectiveRole == "trainer" || effectiveRole == "מאמן"
+    }
+
     var body: some View {
-        LinearGradient(
-            colors: [KmiTheme.bgTop, KmiTheme.bgMid, KmiTheme.bgBot],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
+
+        if isCoach {
+
+            LinearGradient(
+                colors: [
+                    Color(red: 0.10, green: 0.03, blue: 0.03),
+                    Color(red: 0.22, green: 0.05, blue: 0.05),
+                    Color(red: 0.42, green: 0.08, blue: 0.08),
+                    Color(red: 0.62, green: 0.11, blue: 0.11)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+        } else {
+
+            LinearGradient(
+                colors: [KmiTheme.bgTop, KmiTheme.bgMid, KmiTheme.bgBot],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+        }
+    }
+}
+
+private struct CoachModeBanner: View {
+
+    @EnvironmentObject private var auth: AuthViewModel
+
+    private var effectiveRole: String {
+        let loginRole = UserDefaults.standard.string(forKey: "user_role")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if let loginRole, !loginRole.isEmpty {
+            return loginRole
+        }
+
+        return auth.userRole
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    private var isCoach: Bool {
+        effectiveRole == "coach" || effectiveRole == "trainer" || effectiveRole == "מאמן"
+    }
+
+    var body: some View {
+
+        if isCoach {
+
+            HStack(spacing: 8) {
+
+                Image(systemName: "person.badge.shield.checkmark")
+                    .font(.system(size: 14, weight: .bold))
+
+                Text("מצב מאמן")
+                    .font(.system(size: 14, weight: .bold))
+
+                Spacer()
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.62, green: 0.11, blue: 0.11),
+                        Color(red: 0.32, green: 0.06, blue: 0.06)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+        }
     }
 }
 
@@ -78,11 +171,12 @@ enum AppRoute: Hashable {
     case internalExam(belt: Belt)
     case beltFinalExam(belt: Belt)
     case attendance
+    case coachTrainees
+    case coachBroadcast
     case progress
     case trainingHistory
     case freeSessions(branch: String, groupKey: String, uid: String, name: String)
 
-    // ⭐️ חדש
     case trainingSummary(pickedDateIso: String?)
     
     case aboutNetwork
@@ -93,6 +187,8 @@ enum AppRoute: Hashable {
 
     case settings
     case exercisesMarks(belt: Belt, topic: String, subTopic: String?)
+    // ⭐️ Admin
+    case adminUsers
 }
 
 final class AppNavModel: ObservableObject {
@@ -142,10 +238,29 @@ struct ContentView: View {
     @EnvironmentObject private var auth: AuthViewModel
     @StateObject private var nav = AppNavModel()
 
-    private var isCoachUser: Bool {
-        auth.userRole.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "coach"
+    private var effectiveRole: String {
+        let loginRole = UserDefaults.standard.string(forKey: "user_role")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if let loginRole, !loginRole.isEmpty {
+            return loginRole
+        }
+
+        return auth.userRole
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
     }
 
+    private var isCoachUser: Bool {
+        effectiveRole == "coach" || effectiveRole == "trainer" || effectiveRole == "מאמן"
+    }
+
+    private var isAdminUser: Bool {
+        let email = Auth.auth().currentUser?.email?.lowercased() ?? ""
+        return email == "ypo1980@gmail.com"
+    }
+    
     private var freeSessionsUid: String {
         Auth.auth().currentUser?.uid ?? "demo_ios"
     }
@@ -207,6 +322,18 @@ struct ContentView: View {
                                 initialCoachName: ""
                             )
                             .navigationBarBackButtonHidden(true)
+                        }
+                    
+                    case .coachTrainees:
+                        KmiRootLayout(title: "אודות מתאמנים", nav: nav, selectedIcon: .home) {
+                            CoachTraineesView()
+                                .navigationBarBackButtonHidden(true)
+                        }
+                  
+                    case .coachBroadcast:
+                        KmiRootLayout(title: "שליחת הודעה לקבוצה", nav: nav, selectedIcon: .home) {
+                            CoachBroadcastView()
+                                .navigationBarBackButtonHidden(true)
                         }
                         
                     case .aboutMethod:
@@ -367,9 +494,8 @@ struct ContentView: View {
 
                     case .internalExam(let belt):
                         KmiRootLayout(title: "מבחן פנימי", nav: nav, selectedIcon: .home) {
-                            CoachPlaceholderView(
-                                title: "מבחן פנימי",
-                                subtitle: "חגורה: \(belt.heb)"
+                            InternalExamView(
+                                belt: belt
                             )
                             .navigationBarBackButtonHidden(true)
                         }
@@ -384,6 +510,40 @@ struct ContentView: View {
                                 initialCoachName: ""
                             )
                             .navigationBarBackButtonHidden(true)
+                        }
+                        
+                    case .adminUsers:
+                        if isAdminUser {
+                            KmiRootLayout(title: "ניהול משתמשים", nav: nav, selectedIcon: .home) {
+                                AdminUsersView()
+                                    .navigationBarBackButtonHidden(true)
+                            }
+                        } else {
+                            KmiRootLayout(title: "אין הרשאה", nav: nav, selectedIcon: .home) {
+                                VStack(spacing: 12) {
+                                    Spacer()
+
+                                    Text("אין הרשאה")
+                                        .font(.system(size: 28, weight: .heavy))
+                                        .foregroundStyle(.white)
+
+                                    Text("המסך הזה פתוח רק למנהל האפליקציה")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(.white.opacity(0.75))
+
+                                    Spacer()
+                                }
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .background(
+                                    LinearGradient(
+                                        colors: [KmiTheme.bgTop, KmiTheme.bgMid, KmiTheme.bgBot],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                    .ignoresSafeArea()
+                                )
+                                .navigationBarBackButtonHidden(true)
+                            }
                         }
                         
                 // ✅ fallback כדי שלא יהיה לבן

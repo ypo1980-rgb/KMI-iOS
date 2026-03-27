@@ -38,100 +38,105 @@ struct TopicsBySubjectListView: View {
 
     var body: some View {
 
-        VStack(spacing: 12) {
+        ScrollView {
+            VStack(spacing: 12) {
 
-            // ✅ NEW: נושאים חוצי־חגורות (כמו באנדרואיד “לפי נושא”)
-            WhiteCard {
-                VStack(alignment: .leading, spacing: 10) {
+                // ✅ NEW: נושאים חוצי־חגורות (כמו באנדרואיד “לפי נושא”)
+                WhiteCard {
+                    VStack(alignment: .leading, spacing: 10) {
 
-                    Text("נושאים בחגורות (חוצה־חגורות)")
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(Color.black.opacity(0.82))
+                        Text("נושאים בחגורות (חוצה־חגורות)")
+                            .font(.headline.weight(.bold))
+                            .foregroundStyle(Color.black.opacity(0.82))
 
-                    VStack(spacing: 10) {
-                        ForEach(subjects, id: \.id) { s in
-                            NavigationLink {
-                                SubjectAcrossBeltsView(subject: s)
-                            } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(s.titleHeb)
-                                            .font(.body.weight(.semibold))
-                                            .foregroundStyle(Color.black.opacity(0.82))
+                        VStack(spacing: 10) {
+                            ForEach(subjects, id: \.id) { s in
+                                NavigationLink {
+                                    SubjectAcrossBeltsView(subject: s)
+                                } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(s.titleHeb)
+                                                .font(.body.weight(.semibold))
+                                                .foregroundStyle(Color.black.opacity(0.82))
 
-                                        Text("\(s.belts.count) חגורות")
-                                            .font(.caption)
-                                            .foregroundStyle(Color.black.opacity(0.55))
+                                            Text("\(s.belts.count) חגורות")
+                                                .font(.caption)
+                                                .foregroundStyle(Color.black.opacity(0.55))
+                                        }
+
+                                        Spacer()
+
+                                        Image(systemName: "chevron.left")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(Color.black.opacity(0.35))
                                     }
-
-                                    Spacer()
-
-                                    Image(systemName: "chevron.left")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(Color.black.opacity(0.35))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 12)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                            .fill(Color.white.opacity(0.92))
+                                    )
                                 }
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                        .fill(Color.white.opacity(0.92))
-                                )
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 12)
                 }
-                .padding(.vertical, 10)
-                .padding(.horizontal, 12)
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 6)
+                .padding(.horizontal, 16)
+                .padding(.top, 6)
 
-            // ✅ הקיים: קטגוריות רגילות מהקטלוג (Topic title אגגרגציה)
-            WhiteCard {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("נושאים (קטגוריות)")
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(Color.black.opacity(0.82))
+                // ✅ הקיים: קטגוריות רגילות מהקטלוג (Topic title אגגרגציה)
+                WhiteCard {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("נושאים (קטגוריות)")
+                            .font(.headline.weight(.bold))
+                            .foregroundStyle(Color.black.opacity(0.82))
 
-                    VStack(spacing: 10) {
-                        ForEach(aggregated) { a in
-                            NavigationLink {
-                                TopicAcrossBeltsView(topicTitle: a.title)
-                            } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(a.title)
-                                            .font(.body.weight(.semibold))
-                                            .foregroundStyle(Color.black.opacity(0.82))
+                        VStack(spacing: 10) {
+                            ForEach(aggregated) { a in
+                                NavigationLink {
+                                    TopicAcrossBeltsView(topicTitle: a.title)
+                                } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(a.title)
+                                                .font(.body.weight(.semibold))
+                                                .foregroundStyle(Color.black.opacity(0.82))
 
-                                        Text("\(a.topicsCount) חגורות • \(a.itemsCount) תרגילים")
-                                            .font(.caption)
-                                            .foregroundStyle(Color.black.opacity(0.55))
+                                            Text("\(a.topicsCount) חגורות • \(a.itemsCount) תרגילים")
+                                                .font(.caption)
+                                                .foregroundStyle(Color.black.opacity(0.55))
+                                        }
+
+                                        Spacer()
+
+                                        Image(systemName: "chevron.left")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(Color.black.opacity(0.35))
                                     }
-
-                                    Spacer()
-
-                                    Image(systemName: "chevron.left")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(Color.black.opacity(0.35))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 12)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                            .fill(Color.white.opacity(0.92))
+                                    )
                                 }
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                        .fill(Color.white.opacity(0.92))
-                                )
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 12)
                 }
-                .padding(.vertical, 10)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 16)
+                .padding(.top, 6)
+
+                Spacer(minLength: 18)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 6)
+            .padding(.bottom, 16)
         }
     }
 }

@@ -109,80 +109,56 @@ struct AuthGateView: View {
                     }
 
                 case .loginExistingTrainee:
-                    KmiRootLayout(
-                        title: "התחברות",
-                        nav: nav,
-                        selectedIcon: nil
-                    ) {
-                        LoginView(
-                            initialRole: .trainee,
-                            onBackToChoice: { step = .choice },
-                            onGoToRegister: { step = .registerNewTrainee },
-                            onLoginSuccess: {
-                                didCompleteAuthScreen = true
-                            }
-                        )
-                    }
+                    LoginView(
+                        initialRole: .trainee,
+                        onBackToChoice: { step = .choice },
+                        onGoToRegister: { step = .registerNewTrainee },
+                        onLoginSuccess: {
+                            didCompleteAuthScreen = true
+                        }
+                    )
 
                 case .loginExistingCoach:
-                    KmiRootLayout(
-                        title: "התחברות מאמן",
-                        nav: nav,
-                        selectedIcon: nil
-                    ) {
-                        LoginView(
-                            initialRole: .coach,
-                            onBackToChoice: { step = .choice },
-                            onGoToRegister: { step = .registerNewCoach },
-                            onLoginSuccess: {
-                                didCompleteAuthScreen = true
-                            }
-                        )
-                    }
+                    LoginView(
+                        initialRole: .coach,
+                        onBackToChoice: { step = .choice },
+                        onGoToRegister: { step = .registerNewCoach },
+                        onLoginSuccess: {
+                            didCompleteAuthScreen = true
+                        }
+                    )
 
                 case .registerNewTrainee:
-                    KmiRootLayout(
-                        title: "הרשמת מתאמן",
-                        nav: nav,
-                        selectedIcon: nil
-                    ) {
-                        RegisterView(
-                            prefillPhone: "",
-                            prefillEmail: "",
-                            initialRole: .trainee,
-                            onBack: { step = .choice },
-                            onSubmit: { _ in
-                                if auth.isSignedIn {
-                                    didCompleteAuthScreen = true
-                                } else {
-                                    step = .loginExistingTrainee
-                                }
-                            },
-                            onReadMoreTerms: { }
-                        )
-                    }
+                    RegisterView(
+                        prefillPhone: "",
+                        prefillEmail: "",
+                        initialRole: .trainee,
+                        onBack: { step = .choice },
+                        onSubmit: { _ in
+                            if auth.isSignedIn {
+                                didCompleteAuthScreen = true
+                            } else {
+                                step = .loginExistingTrainee
+                            }
+                        },
+                        onReadMoreTerms: { }
+                    )
 
                 case .registerNewCoach:
-                    KmiRootLayout(
-                        title: "הרשמת מאמן",
-                        nav: nav,
-                        selectedIcon: nil
-                    ) {
-                        RegisterView(
-                            prefillPhone: "",
-                            prefillEmail: "",
-                            initialRole: .coach,
-                            onBack: { step = .choice },
-                            onSubmit: { _ in
-                                if auth.isSignedIn {
-                                    didCompleteAuthScreen = true
-                                } else {
-                                    step = .loginExistingCoach
-                                }
-                            },
-                            onReadMoreTerms: { }
-                        )
-                    }
+                    RegisterView(
+                        prefillPhone: "",
+                        prefillEmail: "",
+                        initialRole: .coach,
+                        onBack: { step = .choice },
+                        onSubmit: { _ in
+                            if auth.isSignedIn {
+                                didCompleteAuthScreen = true
+                            } else {
+                                step = .loginExistingCoach
+                            }
+                        },
+                        onReadMoreTerms: { }
+                    )
                 }
             }
             .navigationDestination(for: AppRoute.self) { route in
@@ -212,7 +188,7 @@ private struct IntroGateView: View {
 
     var body: some View {
         ZStack {
-            KmiGradientBackground()
+            KmiGradientBackground(forceTraineeStyle: true)
 
             VStack(spacing: 16) {
                 Spacer()

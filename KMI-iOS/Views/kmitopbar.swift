@@ -71,6 +71,8 @@ struct KmiTopBar: View {
             .padding(.vertical, 10)
         }
         .frame(height: 60)
+        .background(Color.white.opacity(0.92))
+        .ignoresSafeArea(edges: .top)
     }
 }
 
@@ -166,38 +168,20 @@ struct KmiRootLayout<Content: View>: View {
     }
 
     private var isCoachTheme: Bool {
-        effectiveRole == "coach" || effectiveRole == "trainer" || effectiveRole == "מאמן"
+        let r = effectiveRole.lowercased()
+        return r.contains("coach") || r.contains("trainer") || r.contains("מאמן")
     }
 
     @ViewBuilder
     private var layoutBackground: some View {
-        if isCoachTheme {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.10, green: 0.03, blue: 0.03),
-                    Color(red: 0.22, green: 0.05, blue: 0.05),
-                    Color(red: 0.42, green: 0.08, blue: 0.08),
-                    Color(red: 0.62, green: 0.11, blue: 0.11)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-        } else {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.01, green: 0.05, blue: 0.14),
-                    Color(red: 0.07, green: 0.10, blue: 0.23),
-                    Color(red: 0.11, green: 0.33, blue: 0.80)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-        }
+        KmiGradientBackground()
     }
     
     var body: some View {
+        let _ = print(
+            "KMI_THEME role=\(effectiveRole) isCoachTheme=\(isCoachTheme)"
+        )
+
         KmiSideDrawerContainer(
             isOpen: $drawerOpen,
             onItem: { item in

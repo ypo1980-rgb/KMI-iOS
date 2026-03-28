@@ -1313,7 +1313,7 @@ private struct SubjectExercisesView: View {
             titleColor: KmiBeltPalette.color(for: route.belt)
         ) {
             ZStack {
-                BeltTopicsGradientBackground()
+                KmiGradientBackground()
 
                 ScrollView {
                     VStack(spacing: 12) {

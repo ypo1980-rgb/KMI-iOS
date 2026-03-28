@@ -154,7 +154,7 @@ struct HomeView: View {
     
     var body: some View {
         ZStack {
-            HomeBackground()
+            KmiGradientBackground()
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 12) {
@@ -229,29 +229,38 @@ struct HomeView: View {
                     }
                     Spacer(minLength: 22)
 
-                    Button {
-                        let target = BeltFlow.nextBeltForUser(
-                            registeredBelt: resolvedBelt
+                Button {
+                    let target = BeltFlow.nextBeltForUser(
+                        registeredBelt: resolvedBelt
+                    )
+                    nav.push(.beltQuestionsByBelt(belt: target))
+                } label: {
+                    Text(buttonTitleForBelt())
+                        .font(.system(size: 18, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(
+                                    isCoachUser
+                                    ? Color.black.opacity(0.30)
+                                    : Color.white.opacity(0.18)
+                                )
                         )
-                        nav.push(.beltQuestionsByBelt(belt: target))
-                    } label: {
-                        Text(buttonTitleForBelt())
-                            .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .fill(Color.white.opacity(0.18))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 18)
-
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(
+                                    isCoachUser
+                                    ? Color.red.opacity(0.30)
+                                    : Color.white.opacity(0.22),
+                                    lineWidth: 1
+                                )
+                        )
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 18)
+                
                     Button {
                         nav.push(.progress)
                     } label: {
@@ -482,11 +491,20 @@ struct HomeView: View {
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(0.16))
+                    .fill(
+                        isCoach
+                        ? Color.black.opacity(0.40)
+                        : Color.white.opacity(0.16)
+                    )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.white.opacity(0.20), lineWidth: 1)
+                    .stroke(
+                        isCoach
+                        ? Color.red.opacity(0.35)
+                        : Color.white.opacity(0.20),
+                        lineWidth: 1
+                    )
             )
             .padding(.horizontal, 18)
         }
@@ -559,7 +577,7 @@ struct HomeView: View {
         VStack(spacing: 12) {
             ForEach(0..<3, id: \.self) { _ in
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color.white.opacity(0.18))
+                    .fill(Color.black.opacity(0.40))
                     .frame(height: 168)
                     .overlay {
                         ProgressView()
@@ -595,28 +613,13 @@ struct HomeView: View {
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.white.opacity(0.16))
+                .fill(isCoachUser ? Color.black.opacity(0.40) : Color.white.opacity(0.16))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(Color.white.opacity(0.20), lineWidth: 1)
         )
         .padding(.horizontal, 18)
-    }
-}
-
-// MARK: - Background
-private struct HomeBackground: View {
-    var body: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.30, green: 0.18, blue: 0.72),
-                Color(red: 0.02, green: 0.72, blue: 0.95)
-            ],
-            startPoint: .topTrailing,
-            endPoint: .bottomLeading
-        )
-        .ignoresSafeArea()
     }
 }
 
@@ -694,7 +697,7 @@ private struct PlaceholderScreen: View {
 
     var body: some View {
         ZStack {
-            HomeBackground()
+            KmiGradientBackground()
 
             VStack(spacing: 14) {
                 Image(systemName: "hammer.fill")

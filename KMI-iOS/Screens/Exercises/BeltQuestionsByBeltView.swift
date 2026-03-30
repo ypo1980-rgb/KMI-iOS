@@ -226,7 +226,7 @@ struct BeltQuestionsByBeltView: View {
 
     var body: some View {
         ZStack {
-            KmiGradientBackground()
+            KmiGradientBackground(forceTraineeStyle: false)
 
             VStack(spacing: 0) {
                 SegmentedTabs(
@@ -802,7 +802,7 @@ private struct BeltTopicSubTopicsView: View {
             }
 
         ZStack {
-            KmiGradientBackground()
+            KmiGradientBackground(forceTraineeStyle: false)
 
             ScrollView {
                 WhiteCard {
@@ -875,12 +875,12 @@ private struct LinkedTopicSubTopicsView: View {
     let subjects: [SubjectTopic]
     let onPickLinkedSubject: (SubjectTopic) -> Void
 
-        var body: some View {
-            ZStack {
-                KmiGradientBackground()
+    var body: some View {
+        ZStack {
+            KmiGradientBackground(forceTraineeStyle: false)
 
-                ScrollView {
-                    WhiteCard {
+            ScrollView {
+                WhiteCard {
                         VStack(spacing: 12) {
                             Text(title)
                                 .font(.headline.weight(.bold))
@@ -1041,7 +1041,7 @@ private struct BeltTopicExercisesView: View {
 
     var body: some View {
         ZStack {
-            KmiGradientBackground()
+            KmiGradientBackground(forceTraineeStyle: false)
 
             ScrollView {
                 VStack(spacing: 12) {
@@ -1177,7 +1177,7 @@ private struct SubjectSubTopicsView: View {
         .filter { !$0.items.isEmpty }
 
         ZStack {
-            KmiGradientBackground()
+            KmiGradientBackground(forceTraineeStyle: false)
 
             ScrollView {
                 WhiteCard {
@@ -1313,7 +1313,7 @@ private struct SubjectExercisesView: View {
             titleColor: KmiBeltPalette.color(for: route.belt)
         ) {
             ZStack {
-                KmiGradientBackground()
+                KmiGradientBackground(forceTraineeStyle: false)
 
                 ScrollView {
                     VStack(spacing: 12) {

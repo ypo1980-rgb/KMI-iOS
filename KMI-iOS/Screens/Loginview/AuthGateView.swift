@@ -25,7 +25,7 @@ struct AuthGateView: View {
             if !didFinishInitialAuthCheck && auth.isLoading {
 
                 ZStack {
-                    KmiGradientBackground()
+                    KmiGradientBackground(forceTraineeStyle: true)
 
                     ProgressView()
                         .tint(.white)

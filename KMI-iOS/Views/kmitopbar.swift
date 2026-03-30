@@ -174,7 +174,7 @@ struct KmiRootLayout<Content: View>: View {
 
     @ViewBuilder
     private var layoutBackground: some View {
-        KmiGradientBackground()
+        KmiGradientBackground(forceTraineeStyle: false)
     }
     
     var body: some View {

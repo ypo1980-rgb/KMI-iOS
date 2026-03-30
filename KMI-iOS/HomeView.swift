@@ -154,7 +154,7 @@ struct HomeView: View {
     
     var body: some View {
         ZStack {
-            KmiGradientBackground()
+            KmiGradientBackground(forceTraineeStyle: false)
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 12) {
@@ -697,7 +697,7 @@ private struct PlaceholderScreen: View {
 
     var body: some View {
         ZStack {
-            KmiGradientBackground()
+            KmiGradientBackground(forceTraineeStyle: false)
 
             VStack(spacing: 14) {
                 Image(systemName: "hammer.fill")

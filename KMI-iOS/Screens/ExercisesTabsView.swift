@@ -111,7 +111,7 @@ struct ExercisesTabsView: View {
 
     var body: some View {
         ZStack {
-            KmiGradientBackground()
+            KmiGradientBackground(forceTraineeStyle: false)
 
             VStack(spacing: 0) {
                 WhiteCard {

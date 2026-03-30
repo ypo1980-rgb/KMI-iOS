@@ -6,6 +6,7 @@ import StoreKit
 import MessageUI
 import UIKit
 import AudioToolbox
+import Shared
 
 // MARK: - SettingsContentView (Content-only; NO local top bar / icon strip)
 struct SettingsView: View {
@@ -30,6 +31,10 @@ struct SettingsView: View {
     // Training reminders
     @AppStorage("training_reminders_enabled") var trainingRemindersEnabled: Bool = true
     @AppStorage("training_reminder_minutes") var trainingReminderMinutes: Int = 60
+    @AppStorage("daily_exercise_reminder_enabled_trainee") var dailyReminderEnabledTrainee: Bool = false
+    @AppStorage("daily_exercise_reminder_enabled_coach") var dailyReminderEnabledCoach: Bool = false
+    @AppStorage("daily_exercise_reminder_hour") var dailyReminderHour: Int = 20
+    @AppStorage("daily_exercise_reminder_minute") var dailyReminderMinute: Int = 0
 
     @AppStorage("free_sessions_reminders_enabled") var freeSessionsRemindersEnabled: Bool = false
     @AppStorage("calendar_sync_enabled") var calendarSyncEnabled: Bool = false
@@ -88,6 +93,58 @@ struct SettingsView: View {
         isCoach ? Color(hex: 0xFF6A1B9A) : Color(hex: 0xFF1565C0)
     }
 
+    private var dailyReminderEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { isCoach ? dailyReminderEnabledCoach : dailyReminderEnabledTrainee },
+            set: { newValue in
+                if isCoach {
+                    dailyReminderEnabledCoach = newValue
+                } else {
+                    dailyReminderEnabledTrainee = newValue
+                }
+
+                if newValue {
+                    DailyReminderScheduler.shared.requestPermissionIfNeeded { granted in
+                        if granted {
+                            DailyReminderScheduler.shared.refreshSchedule()
+                        } else {
+                            DispatchQueue.main.async {
+                                if isCoach {
+                                    dailyReminderEnabledCoach = false
+                                } else {
+                                    dailyReminderEnabledTrainee = false
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    DailyReminderScheduler.shared.cancelAll()
+                }
+            }
+        )
+    }
+
+    private var dailyReminderTimeBinding: Binding<Date> {
+        Binding(
+            get: {
+                var cal = Calendar.current
+                cal.timeZone = TimeZone(identifier: "Asia/Jerusalem")!
+                return cal.date(from: DateComponents(
+                    hour: dailyReminderHour,
+                    minute: dailyReminderMinute
+                )) ?? Date()
+            },
+            set: { newValue in
+                let comps = Calendar.current.dateComponents([.hour, .minute], from: newValue)
+                dailyReminderHour = comps.hour ?? 20
+                dailyReminderMinute = comps.minute ?? 0
+                if dailyReminderEnabledBinding.wrappedValue {
+                    DailyReminderScheduler.shared.refreshSchedule()
+                }
+            }
+        )
+    }
+    
     // MARK: Body (CONTENT ONLY)
     var body: some View {
         ZStack {
@@ -343,6 +400,44 @@ struct SettingsView: View {
                 }
             }
 
+            SettingsCard(
+                title: "תרגיל יומי",
+                subtitle: "קבל כל יום תרגיל מהחגורה הבאה בשעה שתבחר",
+                iconSystemName: "bell.badge.fill",
+                iconTint: sectionIconTint
+            ) {
+                VStack(spacing: 10) {
+                    HStack {
+                        Text(
+                            isCoach
+                            ? "המאמן יכול להפעיל או לכבות לעצמו את התרגיל היומי"
+                            : "שלח לי כל יום תרגיל חדש מהחגורה הבאה"
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+
+                        Toggle("", isOn: dailyReminderEnabledBinding)
+                            .labelsHidden()
+                    }
+
+                    if dailyReminderEnabledBinding.wrappedValue {
+                        DatePicker(
+                            "שעת התרגיל היומי",
+                            selection: dailyReminderTimeBinding,
+                            displayedComponents: .hourAndMinute
+                        )
+                        .environment(\.locale, Locale(identifier: "he_IL"))
+                        .datePickerStyle(.compact)
+
+                        Text("ברירת מחדל: 20:00. בשבת ובחג לא תישלח התראה.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                }
+            }
+            
             // --- Free sessions reminders
             SettingsCard(
                 title: "תזכורות אימונים חופשיים",

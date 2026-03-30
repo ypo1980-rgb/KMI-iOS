@@ -7,7 +7,7 @@ struct TrainingHistoryView: View {
     var body: some View {
         ZStack {
 
-            KmiGradientBackground()
+            KmiGradientBackground(forceTraineeStyle: false)
 
             if sessions.isEmpty {
 

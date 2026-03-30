@@ -11,7 +11,7 @@ struct RegistrationChoiceView: View {
 
     var body: some View {
         ZStack {
-            KmiGradientBackground()
+            KmiGradientBackground(forceTraineeStyle: false)
 
             VStack(spacing: 0) {
                 if let ui = bundleUIImage("nok_out_banner", ext: "jpeg") {

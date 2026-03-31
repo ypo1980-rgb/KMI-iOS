@@ -4,13 +4,17 @@ import Shared
 struct BeltFinalExamView: View {
 
     let belt: Belt
+    @EnvironmentObject private var nav: AppNavModel
 
     var body: some View {
         KmiExamRunnerView(
             title: "מבחן מסכם",
             subtitle: "חגורה \(belt.heb)",
             items: ExamDataSource.itemsForBelt(belt),
-            accent: beltAccentColor(for: belt)
+            accent: beltAccentColor(for: belt),
+            onFinish: {
+                nav.pop()
+            }
         )
         .navigationBarBackButtonHidden(true)
         .navigationBarTitleDisplayMode(.inline)

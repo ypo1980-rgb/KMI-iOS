@@ -12,6 +12,12 @@ struct RegisterFormView: View {
 
     @State private var s: RegistrationFormState
     @State private var isSubmitting: Bool = false
+    @State private var didFinishInitialLoad: Bool = false
+    @State private var displayedBranchValue: String = ""
+    @State private var displayedGroupValue: String = ""
+
+    @AppStorage("active_branch") private var storedActiveBranch: String = ""
+    @AppStorage("active_group") private var storedActiveGroup: String = ""
 
     private let regions = ["השרון", "מרכז", "צפון", "דרום", "ירושלים"]
     
@@ -40,6 +46,36 @@ struct RegisterFormView: View {
 
     private var normalizedEmail: String {
         s.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private var displayedBranchesText: String {
+        let persisted = storedActiveBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !persisted.isEmpty { return persisted }
+
+        let manual = s.activeBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !manual.isEmpty { return manual }
+
+        let arr = s.branches
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .sorted()
+
+        return arr.joined(separator: " + ")
+    }
+
+    private var displayedGroupsText: String {
+        let persisted = storedActiveGroup.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !persisted.isEmpty { return persisted }
+
+        let manual = s.activeGroup.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !manual.isEmpty { return manual }
+
+        let arr = s.groups
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .sorted()
+
+        return arr.joined(separator: " + ")
     }
 
     private var isWhitelistedCoach: Bool {
@@ -136,20 +172,20 @@ struct RegisterFormView: View {
                     card {
                         multiSelectRow(
                             title: "סניפים (עד 3)",
-                            valueText: summarizeSet(s.branches),
+                            valueText: displayedBranchValue,
                             onTap: { showBranchesSheet = true }
                         )
 
                         multiSelectRow(
                             title: "קבוצות (עד 3)",
-                            valueText: summarizeSet(s.groups),
+                            valueText: displayedGroupValue,
                             onTap: { showGroupsSheet = true }
                         )
 
                         if s.role != .coach {
                             beltPicker
                         }
-
+                        
                         Toggle(isOn: $s.wantsSms) {
                             Text("ארצה לקבל עדכונים בהודעות\nSMS לגבי אימונים קרובים")
                         }
@@ -227,17 +263,53 @@ struct RegisterFormView: View {
             )
             .presentationDetents([.medium, .large])
         }
-        .onChange(of: s.region) { _, newRegion in
+        .onChange(of: s.region) { oldRegion, newRegion in
             print("🧭 region changed ->", newRegion)
+
+            guard didFinishInitialLoad else {
+                print("🧭 skip clearing branches/groups during initial load")
+                return
+            }
+
+            let oldClean = oldRegion.trimmingCharacters(in: .whitespacesAndNewlines)
+            let newClean = newRegion.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard !oldClean.isEmpty else {
+                print("🧭 skip clearing because old region is empty during initial setup")
+                return
+            }
+
+            guard oldClean != newClean else { return }
 
             s.branches.removeAll()
             s.groups.removeAll()
+            s.activeBranch = ""
+            s.activeGroup = ""
+            displayedBranchValue = ""
+            displayedGroupValue = ""
+            storedActiveBranch = ""
+            storedActiveGroup = ""
         }
         .onChange(of: s.branches) { _, newBranches in
             if newBranches.isEmpty {
+                s.activeBranch = ""
+                displayedBranchValue = ""
+                storedActiveBranch = ""
                 s.groups.removeAll()
+                s.activeGroup = ""
+                displayedGroupValue = ""
+                storedActiveGroup = ""
                 return
             }
+
+            let sortedBranches = Array(newBranches)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .sorted()
+
+            s.activeBranch = sortedBranches.first ?? ""
+            displayedBranchValue = s.activeBranch
+            storedActiveBranch = s.activeBranch
 
             let validGroups = Set(
                 Array(newBranches).flatMap { branch in
@@ -246,19 +318,70 @@ struct RegisterFormView: View {
             )
 
             s.groups = s.groups.filter { validGroups.contains($0) }
+
+            let sortedGroups = Array(s.groups)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .sorted()
+
+            s.activeGroup = sortedGroups.first ?? ""
+            displayedGroupValue = s.activeGroup
+            storedActiveGroup = s.activeGroup
+        }
+        .onChange(of: s.groups) { _, newGroups in
+            let sortedGroups = Array(newGroups)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .sorted()
+
+            s.activeGroup = sortedGroups.first ?? ""
+            displayedGroupValue = s.activeGroup
+            storedActiveGroup = s.activeGroup
         }
         .onAppear {
+            didFinishInitialLoad = false
             loadSavedProfileIfNeeded()
 
-            // ✅ לוודא שה-region תמיד חוקי עבור ה-Picker
+            let defaults = UserDefaults.standard
+
+            let savedBranch =
+                defaults.string(forKey: "active_branch") ??
+                defaults.string(forKey: "branch") ??
+                defaults.string(forKey: "kmi.user.branch") ??
+                ""
+
+            if !savedBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                s.branches = [savedBranch]
+                s.activeBranch = savedBranch
+                displayedBranchValue = savedBranch
+                storedActiveBranch = savedBranch
+            } else {
+                displayedBranchValue = storedActiveBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+
+            let savedGroup =
+                defaults.string(forKey: "active_group") ??
+                defaults.string(forKey: "group") ??
+                defaults.string(forKey: "kmi.user.group") ??
+                ""
+
+            if !savedGroup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                s.groups = [savedGroup]
+                s.activeGroup = savedGroup
+                displayedGroupValue = savedGroup
+                storedActiveGroup = savedGroup
+            } else {
+                displayedGroupValue = storedActiveGroup.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+
             if s.region.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || !regions.contains(s.region) {
 
                 s.region = regions.first ?? ""
             }
 
-            // ✅ נעילה אוטומטית 1:1 כמו באנדרואיד
-            s.role = lockToCoach ? .coach : .trainee
+            // ✅ שומרים על מצב הכניסה בפועל: מתאמן נשאר מתאמן, מאמן נשאר מאמן
+            s.role = initialRole
 
             print("📝 RegisterFormView.onAppear")
             print("📝 region =", s.region)
@@ -267,19 +390,23 @@ struct RegisterFormView: View {
             print("📝 branches =", Array(s.branches))
             print("📝 groups =", Array(s.groups))
             print("📝 isWhitelistedCoach =", isWhitelistedCoach)
-            print("📝 lockedRole =", s.role.rawValue)
+            print("📝 initialRole =", initialRole.rawValue)
+            print("📝 active role =", s.role.rawValue)
+            print("📝 displayedBranchValue =", displayedBranchValue)
+            print("📝 displayedGroupValue =", displayedGroupValue)
+            print("📝 storedActiveBranch =", storedActiveBranch)
+            print("📝 storedActiveGroup =", storedActiveGroup)
+
+            DispatchQueue.main.async {
+                didFinishInitialLoad = true
+                print("🧭 didFinishInitialLoad = true")
+            }
         }
         .onChange(of: normalizedPhone) { _, _ in
-            let forcedRole: UserRole = lockToCoach ? .coach : .trainee
-            if s.role != forcedRole {
-                s.role = forcedRole
-            }
+            print("🧭 phone changed, keeping selected role =", s.role.rawValue)
         }
         .onChange(of: normalizedEmail) { _, _ in
-            let forcedRole: UserRole = lockToCoach ? .coach : .trainee
-            if s.role != forcedRole {
-                s.role = forcedRole
-            }
+            print("🧭 email changed, keeping selected role =", s.role.rawValue)
         }
     }
         
@@ -314,32 +441,20 @@ struct RegisterFormView: View {
 
     private func tabButton(_ role: UserRole) -> some View {
         let isSelected = s.role == role
-        let isLocked = (role == .coach && lockToTrainee) || (role == .trainee && lockToCoach)
 
         return Button {
-            if isLocked { return }
             s.role = role
         } label: {
             VStack(spacing: 4) {
                 Text(role.rawValue)
                     .font(.headline)
-
-                if role == .coach && lockToTrainee {
-                    Text("מורשים בלבד")
-                        .font(.caption2.bold())
-                }
-
-                if role == .trainee && lockToCoach {
-                    Text("מאמן בלבד")
-                        .font(.caption2.bold())
-                }
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
             .background(isSelected ? Color.white.opacity(0.25) : Color.clear)
         }
-        .foregroundStyle(.white.opacity(isLocked ? 0.65 : 1))
-        .disabled(isLocked)
+        .foregroundStyle(.white)
+        .disabled(false)
     }
     
     private func card(@ViewBuilder _ content: () -> some View) -> some View {
@@ -522,39 +637,33 @@ struct RegisterFormView: View {
         if s.branches.isEmpty { return "חובה לבחור לפחות סניף אחד" }
         if s.groups.isEmpty { return "חובה לבחור לפחות קבוצה אחת" }
 
-        if lockToCoach && s.role != .coach {
-            return "מאמן מורשה חייב להירשם כמאמן בלבד"
-        }
-
-        if lockToTrainee && s.role != .trainee {
-            return "ההרשמה כמאמן מותרת רק למאמנים מורשים"
-        }
-
-        if lockToCoach && s.role != .coach {
-            return "מאמן מורשה חייב להירשם כמאמן בלבד"
-        }
-
-        if lockToTrainee && s.role != .trainee {
-            return "ההרשמה כמאמן מותרת רק למאמנים מורשים"
-        }
-
-        if s.role == .coach {
-            if !isWhitelistedCoach { return "הרישום כמאמן מותר רק למאמנים מורשים" }
+        if s.role == .coach, !isWhitelistedCoach {
+            return "הרישום כמאמן מותר רק למאמנים מורשים"
         }
 
         return nil
     }
     
     private func summarizeSet(_ set: Set<String>) -> String {
-        if set.isEmpty { return "" }
-        return set.joined(separator: " + ")
+        let cleaned = set
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        if cleaned.isEmpty {
+            return ""
+        }
+
+        return cleaned.sorted().joined(separator: " + ")
     }
 
     private func loadSavedProfileIfNeeded() {
         let defaults = UserDefaults.standard
 
         if s.fullName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            s.fullName = defaults.string(forKey: "fullName") ?? ""
+            s.fullName =
+                defaults.string(forKey: "fullName") ??
+                defaults.string(forKey: "full_name") ??
+                ""
         }
 
         if s.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -566,7 +675,11 @@ struct RegisterFormView: View {
         }
 
         if s.region.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            s.region = defaults.string(forKey: "region") ?? s.region
+            s.region =
+                defaults.string(forKey: "region") ??
+                defaults.string(forKey: "active_region") ??
+                defaults.string(forKey: "kmi.user.region") ??
+                s.region
         }
 
         if s.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -574,15 +687,15 @@ struct RegisterFormView: View {
         }
 
         if s.birthDay.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            s.birthDay = defaults.string(forKey: "birthDay") ?? ""
+            s.birthDay = defaults.string(forKey: "birthDay") ?? defaults.string(forKey: "birth_day") ?? ""
         }
 
         if s.birthMonth.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            s.birthMonth = defaults.string(forKey: "birthMonth") ?? ""
+            s.birthMonth = defaults.string(forKey: "birthMonth") ?? defaults.string(forKey: "birth_month") ?? ""
         }
 
         if s.birthYear.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            s.birthYear = defaults.string(forKey: "birthYear") ?? ""
+            s.birthYear = defaults.string(forKey: "birthYear") ?? defaults.string(forKey: "birth_year") ?? ""
         }
 
         if s.gender.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -607,26 +720,66 @@ struct RegisterFormView: View {
         if s.branches.isEmpty, !storedBranches.isEmpty {
             s.branches = Set(storedBranches)
         } else {
-            let singleBranch = (defaults.string(forKey: "branch") ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let singleBranch = (
+                defaults.string(forKey: "branch") ??
+                defaults.string(forKey: "active_branch") ??
+                defaults.string(forKey: "kmi.user.branch") ??
+                ""
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
             if s.branches.isEmpty, !singleBranch.isEmpty {
                 s.branches = [singleBranch]
             }
         }
 
+        s.activeBranch = (
+            defaults.string(forKey: "active_branch") ??
+            defaults.string(forKey: "branch") ??
+            defaults.string(forKey: "kmi.user.branch") ??
+            s.branches.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .sorted()
+                .first ??
+            ""
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
         let storedGroups = defaults.stringArray(forKey: "groups") ?? []
         if s.groups.isEmpty, !storedGroups.isEmpty {
             s.groups = Set(storedGroups)
         } else {
-            let singleGroup = (defaults.string(forKey: "group") ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let singleGroup = (
+                defaults.string(forKey: "group") ??
+                defaults.string(forKey: "active_group") ??
+                defaults.string(forKey: "kmi.user.group") ??
+                ""
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
             if s.groups.isEmpty, !singleGroup.isEmpty {
                 s.groups = [singleGroup]
             }
         }
 
-        let storedBelt = (defaults.string(forKey: "current_belt") ?? defaults.string(forKey: "belt_current") ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        s.activeGroup = (
+            defaults.string(forKey: "active_group") ??
+            defaults.string(forKey: "group") ??
+            defaults.string(forKey: "kmi.user.group") ??
+            s.groups.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .sorted()
+                .first ??
+            ""
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let storedBelt = (
+            defaults.string(forKey: "current_belt") ??
+            defaults.string(forKey: "belt_current") ??
+            ""
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
 
         if s.belt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || s.belt == "ללא" {
             switch storedBelt.lowercased() {
@@ -651,7 +804,16 @@ struct RegisterFormView: View {
         s.acceptsTerms = defaults.object(forKey: "acceptsTerms") as? Bool ?? s.acceptsTerms
 
         if s.coachCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            s.coachCode = defaults.string(forKey: "coachCode") ?? ""
+            s.coachCode =
+                defaults.string(forKey: "coachCode") ??
+                defaults.string(forKey: "coach_code") ??
+                ""
         }
+
+        print("📝 loadSavedProfileIfNeeded loaded region =", s.region)
+        print("📝 loadSavedProfileIfNeeded loaded branches =", Array(s.branches))
+        print("📝 loadSavedProfileIfNeeded loaded groups =", Array(s.groups))
+        print("📝 loadSavedProfileIfNeeded activeBranch =", s.activeBranch)
+        print("📝 loadSavedProfileIfNeeded activeGroup =", s.activeGroup)
     }
 }

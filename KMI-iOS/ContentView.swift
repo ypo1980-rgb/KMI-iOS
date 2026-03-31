@@ -485,13 +485,12 @@ struct ContentView: View {
                         
                     case .beltFinalExam(let belt):
                         KmiRootLayout(title: "מבחן מסכם", nav: nav, selectedIcon: .home) {
-                            CoachPlaceholderView(
-                                title: "מבחן מסכם",
-                                subtitle: "חגורה: \(belt.heb)"
+                            BeltFinalExamView(
+                                belt: belt
                             )
                             .navigationBarBackButtonHidden(true)
                         }
-
+                        
                     case .internalExam(let belt):
                         KmiRootLayout(title: "מבחן פנימי", nav: nav, selectedIcon: .home) {
                             InternalExamView(

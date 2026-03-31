@@ -64,38 +64,106 @@ extension SettingsView {
     }
 
     func scheduleTrainingReminders(minutes: Int) {
-        toast("התזכורות עודכנו: \(minutes) דקות לפני")
-    }
 
+        UNUserNotificationCenter.current().removePendingNotificationRequests(
+            withIdentifiers: ["training_reminder"]
+        )
+
+        let content = UNMutableNotificationContent()
+        content.title = "תזכורת לאימון"
+        content.body = "האימון מתחיל בעוד \(minutes) דקות"
+        content.sound = .default
+
+        let trigger = UNTimeIntervalNotificationTrigger(
+            timeInterval: TimeInterval(minutes * 60),
+            repeats: false
+        )
+
+        let request = UNNotificationRequest(
+            identifier: "training_reminder",
+            content: content,
+            trigger: trigger
+        )
+
+        UNUserNotificationCenter.current().add(request)
+
+        toast("התזכורת נקבעה \(minutes) דקות לפני האימון")
+        hapticSuccess()
+    }
+    
     func cancelTrainingReminders() {
-        toast("התזכורות בוטלו")
-    }
 
+        UNUserNotificationCenter.current().removePendingNotificationRequests(
+            withIdentifiers: ["training_reminder"]
+        )
+
+        toast("התזכורות בוטלו")
+        hapticSuccess()
+    }
+    
     // MARK: Calendar
     func ensureCalendarPermissionsAndSync() {
+
         let store = EKEventStore()
         isBusy = true
 
         store.requestFullAccessToEvents { granted, _ in
+
             DispatchQueue.main.async {
+
                 self.isBusy = false
-                if granted {
-                    self.toast("האימונים סונכרנו ליומן")
-                    self.hapticSuccess()
-                } else {
+
+                guard granted else {
                     self.calendarSyncEnabled = false
-                    self.toast("אין הרשאה ליומן – לא בוצע סנכרון")
+                    self.toast("אין הרשאה ליומן")
+                    self.hapticError()
+                    return
+                }
+
+                let event = EKEvent(eventStore: store)
+                event.title = "אימון ק.מ.י"
+                event.startDate = Date().addingTimeInterval(3600)
+                event.endDate = event.startDate.addingTimeInterval(3600)
+                event.calendar = store.defaultCalendarForNewEvents
+
+                do {
+                    try store.save(event, span: .thisEvent)
+
+                    self.toast("האימון נוסף ליומן")
+                    self.hapticSuccess()
+
+                } catch {
+
+                    self.toast("שגיאה בהוספת אירוע ליומן")
                     self.hapticError()
                 }
             }
         }
     }
-
+    
     func removeCalendarEvents() {
-        toast("האימונים הוסרו מהיומן")
+
+        let store = EKEventStore()
+
+        let start = Date().addingTimeInterval(-86400)
+        let end = Date().addingTimeInterval(86400 * 365)
+
+        let predicate = store.predicateForEvents(
+            withStart: start,
+            end: end,
+            calendars: nil
+        )
+
+        let events = store.events(matching: predicate)
+
+        for event in events where event.title.contains("ק.מ.י") {
+            try? store.remove(event, span: .thisEvent)
+        }
+
+        toast("אירועי האימונים הוסרו מהיומן")
         hapticSuccess()
     }
-
+    
     // MARK: App lock
     func biometricAvailable() -> Bool {
         let ctx = LAContext()
@@ -298,26 +366,44 @@ extension SettingsView {
 
     // MARK: Feedback
     func feedbackTap() {
-        if clickSounds { playClick() }
-        if hapticsOn { hapticLight() }
+        if clickSounds {
+            playClick()
+        }
+        if hapticsOn {
+            hapticLight()
+        }
     }
 
     func playClick() {
-        AudioServicesPlaySystemSound(1104)
+        DispatchQueue.main.async {
+            AudioServicesPlaySystemSound(1104)
+        }
     }
 
     func hapticLight() {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+            let generator = UIImpactFeedbackGenerator(style: .light)
+            generator.prepare()
+            generator.impactOccurred()
+        }
     }
 
     func hapticSuccess() {
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        DispatchQueue.main.async {
+            let generator = UINotificationFeedbackGenerator()
+            generator.prepare()
+            generator.notificationOccurred(.success)
+        }
     }
 
     func hapticError() {
-        UINotificationFeedbackGenerator().notificationOccurred(.error)
+        DispatchQueue.main.async {
+            let generator = UINotificationFeedbackGenerator()
+            generator.prepare()
+            generator.notificationOccurred(.error)
+        }
     }
-
+    
     func toast(_ text: String) {
         ToastCenter.shared.show(text)
     }

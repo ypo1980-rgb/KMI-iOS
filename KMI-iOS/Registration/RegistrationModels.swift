@@ -166,26 +166,47 @@ extension RegistrationFormState {
         let activeGroupFinal = activeGroupFinal
 
         ud.set(fullNameTrimmed, forKey: "fullName")
+        ud.set(fullNameTrimmed, forKey: "full_name")
+
         ud.set(phone.trimmed, forKey: "phone")
         ud.set(emailTrimmed, forKey: "email")
+
         ud.set(region.trimmed, forKey: "region")
+        ud.set(region.trimmed, forKey: "active_region")
+        ud.set(region.trimmed, forKey: "kmi.user.region")
 
-        ud.set(branchesCsv, forKey: "branch")
+        // ✅ branches
+        ud.set(branchesArray, forKey: "branches")
+        ud.set(activeBranchFinal, forKey: "branch")
         ud.set(activeBranchFinal, forKey: "active_branch")
+        ud.set(activeBranchFinal, forKey: "kmi.user.branch")
+        ud.set(branchesCsv, forKey: "branches_csv")
 
+        // ✅ groups
+        ud.set(groupsArray, forKey: "groups")
         ud.set(groupsCsv, forKey: "age_groups")
         ud.set(primaryGroup, forKey: "age_group")
         ud.set(primaryGroup, forKey: "group")
         ud.set(activeGroupFinal, forKey: "active_group")
+        ud.set(activeGroupFinal, forKey: "kmi.user.group")
 
         ud.set(usernameTrimmed, forKey: "username")
         ud.set(password, forKey: "password")
+
+        ud.set(wantsSms, forKey: "wantsSms")
         ud.set(wantsSms, forKey: "subscribeSms")
+        ud.set(acceptsTerms, forKey: "acceptsTerms")
+
         ud.set(roleKey, forKey: "user_role")
         ud.set(gender.trimmed, forKey: "gender")
 
+        ud.set(birthDay.trimmed, forKey: "birthDay")
         ud.set(birthDay.trimmed, forKey: "birth_day")
+
+        ud.set(birthMonth.trimmed, forKey: "birthMonth")
         ud.set(birthMonth.trimmed, forKey: "birth_month")
+
+        ud.set(birthYear.trimmed, forKey: "birthYear")
         ud.set(birthYear.trimmed, forKey: "birth_year")
 
         if role == .trainee {
@@ -197,8 +218,10 @@ extension RegistrationFormState {
         }
 
         if role == .coach {
+            ud.set(coachCode.trimmed, forKey: "coachCode")
             ud.set(coachCode.trimmed, forKey: "coach_code")
         } else {
+            ud.removeObject(forKey: "coachCode")
             ud.removeObject(forKey: "coach_code")
         }
 

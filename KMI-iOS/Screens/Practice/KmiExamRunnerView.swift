@@ -8,8 +8,6 @@ struct KmiExamRunnerView: View {
     let subtitle: String
     let items: [String]
     let accent: Color
-
-    /// אופציונלי: אם רוצים לבצע פעולה מיוחדת בסיום (למשל nav.pop())
     let onFinish: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
@@ -22,7 +20,10 @@ struct KmiExamRunnerView: View {
     @State private var examStarted: Bool = false
     @State private var isStartingCountdown: Bool = false
     @State private var timerTask: Task<Void, Never>? = nil
-
+    @State private var letsGoPlayer: AVAudioPlayer? = nil
+    @State private var tickPlayer: AVAudioPlayer? = nil
+    @State private var showLetsGo = true
+    
     private let speechSynth = AVSpeechSynthesizer()
 
     init(
@@ -40,20 +41,40 @@ struct KmiExamRunnerView: View {
         self._shuffledItems = State(initialValue: items.shuffled())
     }
 
-    private var total: Int { max(shuffledItems.count, 1) }
+    private var total: Int {
+        max(shuffledItems.count, 1)
+    }
 
     private var progress: Double {
         guard !shuffledItems.isEmpty else { return 0 }
         return Double(currentIndex + 1) / Double(total)
     }
 
+    private var currentItem: String {
+        guard currentIndex >= 0, currentIndex < shuffledItems.count else {
+            return ""
+        }
+        return shuffledItems[currentIndex]
+    }
+
+    private var timerColor: Color {
+        switch timeLeft {
+        case 11...20:
+            return .green
+        case 6...10:
+            return .orange
+        default:
+            return .red
+        }
+    }
+    
     var body: some View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.97, green: 0.95, blue: 1.0),
-                    Color(red: 0.93, green: 0.96, blue: 1.0),
-                    Color(red: 0.89, green: 0.95, blue: 1.0)
+                    Color(red: 0.97, green: 0.95, blue: 1.00),
+                    Color(red: 0.93, green: 0.89, blue: 1.00),
+                    Color(red: 0.89, green: 0.95, blue: 1.00)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -61,189 +82,211 @@ struct KmiExamRunnerView: View {
             .ignoresSafeArea()
 
             if shuffledItems.isEmpty {
-                VStack {
-                    Spacer()
-
-                    Text("אין תרגילים זמינים")
-                        .font(.title3.weight(.heavy))
-                        .foregroundStyle(Color.black.opacity(0.75))
-
-                    Spacer()
-
-                    Button {
-                        finish()
-                    } label: {
-                        Text("סיום מבחן")
-                            .font(.headline.weight(.heavy))
-                            .foregroundStyle(Color.black.opacity(0.78))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .fill(Color.white.opacity(0.88))
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 20)
-                }
+                emptyState
             } else {
                 VStack(spacing: 16) {
-
-                    // כרטיס עליון – מצב המבחן
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(alignment: .center) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(subtitle)
-                                    .font(.title3.weight(.semibold))
-                                    .foregroundStyle(Color.black.opacity(0.82))
-
-                                Text("תרגיל \(currentIndex + 1) מתוך \(shuffledItems.count)")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(Color.gray)
-                            }
-
-                            Spacer()
-
-                            Text(String(format: "%02d", timeLeft))
-                                .font(.title3.weight(.heavy))
-                                .foregroundStyle(accent)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 7)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .fill(Color.white.opacity(0.92))
-                                )
-                        }
-
-                        ProgressView(value: progress)
-                            .tint(accent)
-                            .scaleEffect(x: 1, y: 1.3, anchor: .center)
-
-                        HStack(spacing: 6) {
-                            ForEach(Array(shuffledItems.indices), id: \.self) { idx in
-                                RoundedRectangle(cornerRadius: 999, style: .continuous)
-                                    .fill(
-                                        idx == currentIndex
-                                        ? AnyShapeStyle(accent)
-                                        : AnyShapeStyle(accent.opacity(0.25))
-                                    )
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 6)
-                            }
-                        }
-                    }
-                    .padding(16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .fill(accent.opacity(0.10))
-                    )
-                    .padding(.horizontal, 16)
-                    .padding(.top, 10)
-
-                    // כרטיס שאלה
-                    VStack {
-                        Spacer(minLength: 0)
-
-                        if examStarted {
-                            Text(shuffledItems[currentIndex])
-                                .font(.system(size: 28, weight: .bold))
-                                .foregroundStyle(Color.black.opacity(0.84))
-                                .multilineTextAlignment(.center)
-                                .frame(maxWidth: .infinity)
-                                .padding(.horizontal, 8)
-                        } else {
-                            VStack(spacing: 12) {
-                                Text("המבחן מתחיל")
-                                    .font(.system(size: 26, weight: .bold))
-                                    .foregroundStyle(Color.black.opacity(0.82))
-
-                                Text(isStartingCountdown ? "התכונן..." : "טוען מבחן...")
-                                    .font(.title3.weight(.semibold))
-                                    .foregroundStyle(Color.gray)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, 8)
-                        }
-
-                        Spacer(minLength: 0)
-
-                        HStack(spacing: 12) {
-                            Button {
-                                isMuted.toggle()
-
-                                if isMuted {
-                                    stopSpeaking()
-                                } else if examStarted {
-                                    speakCurrentItem()
-                                }
-                            } label: {
-                                Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                                    .font(.system(size: 20, weight: .bold))
-                                    .foregroundStyle(accent)
-                                    .frame(width: 50, height: 50)
-                                    .background(
-                                        Circle().fill(Color.white)
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(!examStarted)
-
-                            Button {
-                                skipToNext()
-                            } label: {
-                                Text("דלג")
-                                    .font(.headline.weight(.heavy))
-                                    .foregroundStyle(.white)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 14)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                            .fill(accent.opacity(0.92))
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(!examStarted)
-                            .opacity(examStarted ? 1 : 0.55)
-                        }
-                    }
-                    .padding(20)
-                    .frame(maxWidth: .infinity)
-                    .frame(maxHeight: .infinity)
-                    .background(
-                        RoundedRectangle(cornerRadius: 26, style: .continuous)
-                            .fill(Color.white)
-                    )
-                    .padding(.horizontal, 16)
-
-                    // כפתור סיום
-                    Button {
-                        finish()
-                    } label: {
-                        Text("סיום מבחן")
-                            .font(.headline.weight(.heavy))
-                            .foregroundStyle(Color.black.opacity(0.78))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .fill(Color.white.opacity(0.90))
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 20)
+                    topStatusCard
+                    questionCard
+                    finishButton
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 20)
+            }
+        }
+        .navigationTitle(title)
+        .navigationBarBackButtonHidden(true)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    finish()
+                } label: {
+                    Image(systemName: "chevron.backward")
                 }
             }
         }
-        .navigationBarBackButtonHidden(true)
-        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             startExam()
         }
         .onDisappear {
             stopExamFlow()
         }
+    }
+
+    private var emptyState: some View {
+        VStack {
+            Spacer()
+
+            Image(systemName: "exclamationmark.circle")
+                .font(.system(size: 34, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            Text("אין תרגילים זמינים")
+                .font(.title3.weight(.heavy))
+                .foregroundStyle(Color.black.opacity(0.75))
+                .padding(.top, 8)
+
+            Spacer()
+
+            Button {
+                finish()
+            } label: {
+                Text("סיום מבחן")
+                    .font(.headline.weight(.heavy))
+                    .foregroundStyle(Color.black.opacity(0.78))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color.white.opacity(0.88))
+                    )
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 20)
+        }
+    }
+
+    private var topStatusCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(subtitle)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(Color.black.opacity(0.82))
+
+                    Text("תרגיל \(min(currentIndex + 1, shuffledItems.count)) מתוך \(shuffledItems.count)")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.gray)
+                }
+
+                Spacer()
+
+                Text(String(format: "%02d", timeLeft))
+                    .font(.title3.weight(.heavy))
+                    .foregroundStyle(timerColor)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color.white.opacity(0.92))
+                    )
+                    .scaleEffect(timeLeft <= 5 ? 1.25 : 1.0)
+                    .animation(.easeInOut(duration: 0.25), value: timeLeft)
+            }
+
+            ProgressView(value: progress)
+                .tint(accent)
+                .scaleEffect(x: 1, y: 1.3, anchor: .center)
+                .animation(.easeInOut(duration: 0.25), value: progress)
+            
+            HStack(spacing: 6) {
+                ForEach(Array(shuffledItems.indices), id: \.self) { idx in
+                    RoundedRectangle(cornerRadius: 999, style: .continuous)
+                        .fill(idx == currentIndex ? accent : accent.opacity(0.25))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 6)
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(accent.opacity(0.10))
+        )
+    }
+
+    private var questionCard: some View {
+        VStack {
+            Spacer(minLength: 0)
+
+            if examStarted {
+                Text(currentItem)
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(Color.black.opacity(0.84))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 8)
+            } else {
+                VStack(spacing: 12) {
+                    Text("המבחן מתחיל")
+                        .font(.system(size: 26, weight: .bold))
+                        .foregroundStyle(Color.black.opacity(0.82))
+
+                    Text(isStartingCountdown ? "התכונן..." : "טוען מבחן...")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(Color.gray)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 8)
+            }
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 12) {
+                Button {
+                    isMuted.toggle()
+
+                    if isMuted {
+                        stopSpeaking()
+                    } else if examStarted {
+                        speakCurrentItem(afterDelay: true)
+                    }
+                } label: {
+                    Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(accent)
+                        .frame(width: 50, height: 50)
+                        .background(
+                            Circle().fill(Color.white)
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(!examStarted)
+
+                Button {
+                    skipToNext()
+                } label: {
+                    Text("דלג")
+                        .font(.headline.weight(.heavy))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(accent.opacity(0.92))
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(!examStarted)
+                .opacity(examStarted ? 1 : 0.55)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity)
+        .frame(maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(Color.white)
+        )
+    }
+
+    private var finishButton: some View {
+        Button {
+            finish()
+        } label: {
+            Text("סיום מבחן")
+                .font(.headline.weight(.heavy))
+                .foregroundStyle(Color.black.opacity(0.78))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.white.opacity(0.90))
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     private func startExam() {
@@ -264,7 +307,6 @@ struct KmiExamRunnerView: View {
 
         timerTask = Task {
             while !Task.isCancelled {
-
                 if !isRunning {
                     try? await Task.sleep(nanoseconds: 150_000_000)
                     continue
@@ -276,11 +318,17 @@ struct KmiExamRunnerView: View {
                 if !isRunning { continue }
 
                 await MainActor.run {
-
                     if timeLeft > 0 {
                         timeLeft -= 1
-                    }
 
+                        if timeLeft <= 5 {
+                            let generator = UIImpactFeedbackGenerator(style: .rigid)
+                            generator.impactOccurred()
+
+                            playTick()
+                        }
+                    }
+                    
                     if timeLeft == 0 {
                         advanceAutomatically()
                     }
@@ -288,20 +336,44 @@ struct KmiExamRunnerView: View {
             }
         }
     }
-    
+
     private func playLetsGoAndBegin() {
-        AudioServicesPlaySystemSound(1113)
+        stopLetsGoSound()
 
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
+        if let url = Bundle.main.url(forResource: "letsgo", withExtension: "mp3") ??
+            Bundle.main.url(forResource: "letsgo", withExtension: "wav") ??
+            Bundle.main.url(forResource: "letsgo", withExtension: "m4a") {
 
-            guard !shuffledItems.isEmpty else { return }
+            do {
+                let player = try AVAudioPlayer(contentsOf: url)
+                letsGoPlayer = player
+                player.prepareToPlay()
+                player.play()
 
-            examStarted = true
-            isStartingCountdown = false
-            isRunning = true
-            speakCurrentItem()
+                DispatchQueue.main.asyncAfter(deadline: .now() + player.duration) {
+                    beginExamNow()
+                }
+                return
+            } catch {
+                AudioServicesPlaySystemSound(1113)
+            }
+        } else {
+            AudioServicesPlaySystemSound(1113)
         }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            beginExamNow()
+        }
+    }
+
+    private func beginExamNow() {
+        guard !shuffledItems.isEmpty else { return }
+
+        examStarted = true
+        isStartingCountdown = false
+        isRunning = true
+        timeLeft = 20
+        speakCurrentItem(afterDelay: true)
     }
 
     private func advanceAutomatically() {
@@ -309,41 +381,91 @@ struct KmiExamRunnerView: View {
 
         stopSpeaking()
 
+        // ⭐️ רטט קטן במעבר שאלה
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+
         if currentIndex < shuffledItems.count - 1 {
             currentIndex += 1
             timeLeft = 20
-            speakCurrentItem()
+            speakCurrentItem(afterDelay: true)
         } else {
             finish()
         }
     }
-
+    
     private func skipToNext() {
         guard examStarted else { return }
 
         stopSpeaking()
 
+        // ⭐️ רטט קטן
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+
         if currentIndex < shuffledItems.count - 1 {
             currentIndex += 1
             timeLeft = 20
-            speakCurrentItem()
+            speakCurrentItem(afterDelay: true)
         }
     }
-
-    private func speakCurrentItem() {
+    
+    private func speakCurrentItem(afterDelay: Bool = false) {
         guard !isMuted else { return }
         guard currentIndex >= 0, currentIndex < shuffledItems.count else { return }
 
-        let utterance = AVSpeechUtterance(string: shuffledItems[currentIndex])
-        utterance.voice = AVSpeechSynthesisVoice(language: "he-IL")
-        utterance.rate = 0.45
+        let text = shuffledItems[currentIndex]
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        speechSynth.stopSpeaking(at: .immediate)
-        speechSynth.speak(utterance)
+        let speakAction = {
+            let utterance = AVSpeechUtterance(string: text)
+            utterance.voice = AVSpeechSynthesisVoice(language: "he-IL")
+            utterance.rate = 0.45
+            speechSynth.stopSpeaking(at: .immediate)
+            speechSynth.speak(utterance)
+        }
+
+        if afterDelay {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                speakAction()
+            }
+        } else {
+            speakAction()
+        }
     }
 
     private func stopSpeaking() {
         speechSynth.stopSpeaking(at: .immediate)
+    }
+
+    private func stopLetsGoSound() {
+        letsGoPlayer?.stop()
+        letsGoPlayer = nil
+    }
+
+    private func stopTickSound() {
+        tickPlayer?.stop()
+        tickPlayer = nil
+    }
+
+    private func playTick() {
+        stopTickSound()
+
+        if let url = Bundle.main.url(forResource: "tick", withExtension: "wav") ??
+            Bundle.main.url(forResource: "tick", withExtension: "mp3") ??
+            Bundle.main.url(forResource: "tick", withExtension: "m4a") {
+
+            do {
+                let player = try AVAudioPlayer(contentsOf: url)
+                tickPlayer = player
+                player.prepareToPlay()
+                player.play()
+            } catch {
+                AudioServicesPlaySystemSound(1104)
+            }
+        } else {
+            AudioServicesPlaySystemSound(1104)
+        }
     }
 
     private func stopExamFlow() {
@@ -352,9 +474,11 @@ struct KmiExamRunnerView: View {
         isStartingCountdown = false
         timerTask?.cancel()
         timerTask = nil
+        stopLetsGoSound()
+        stopTickSound()
         stopSpeaking()
     }
-
+    
     private func finish() {
         stopExamFlow()
 

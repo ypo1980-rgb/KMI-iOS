@@ -568,7 +568,7 @@ struct BeltQuestionsByTopicView: View {
 
     var body: some View {
         ZStack {
-            BeltTopicsGradientBackground()
+            KmiGradientBackground(forceTraineeStyle: false)
 
             VStack(spacing: 0) {
 
@@ -849,7 +849,7 @@ private struct SubjectSubTopicsListView: View {
 
     var body: some View {
         ZStack {
-            BeltTopicsGradientBackground()
+            KmiGradientBackground(forceTraineeStyle: false)
 
             ScrollView {
                 WhiteCard {
@@ -1123,7 +1123,7 @@ private struct SubjectSectionsListView: View {
     
     var body: some View {
         ZStack {
-            BeltTopicsGradientBackground()
+            KmiGradientBackground(forceTraineeStyle: false)
 
             ScrollView {
                 WhiteCard {

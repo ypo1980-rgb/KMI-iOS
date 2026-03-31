@@ -61,6 +61,7 @@ struct RegisterView: View {
                         #endif
 
                         if auth.errorText == nil {
+                            form.persistToUserDefaults()
                             submittedForm = form
 
                             if form.role == .coach, auth.issuedCoachCode != nil {

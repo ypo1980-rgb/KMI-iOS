@@ -177,7 +177,7 @@ struct SummaryView: View {
 
     var body: some View {
         ZStack {
-            SummaryBackground()
+            KmiGradientBackground(forceTraineeStyle: false)
 
             ScrollView {
                 VStack(spacing: 14) {
@@ -213,12 +213,20 @@ struct SummaryView: View {
 
                                 Image(systemName: showProgressCard ? "chevron.up" : "chevron.down")
                                     .font(.system(size: 13, weight: .heavy))
-                                    .opacity(0.55)
+                                    .opacity(0.65)
                             }
-                            .foregroundStyle(Color.black.opacity(0.80))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(Capsule().fill(Color.purple.opacity(0.16)))
+                            .foregroundStyle(Color.black.opacity(0.82))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 11)
+                            .background(
+                                Capsule()
+                                    .fill(Color.white.opacity(0.92))
+                            )
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                            )
+                            .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 2)
                         }
                         .buttonStyle(.plain)
 

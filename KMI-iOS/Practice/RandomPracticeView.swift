@@ -87,7 +87,9 @@ struct RandomPracticeView: View {
     @State private var showSearchSheet: Bool = false
     @State private var searchQuery: String = ""
     @State private var pickedSearchItem: String? = nil
-
+    @AppStorage("user_role") private var storedUserRole: String = "trainee"
+    @AppStorage("user_logged_in") private var isLoggedIn: Bool = false
+    
     private var beltColor: Color { KmiBeltPalette.color(for: belt) }
 
     private var currentItem: String? {
@@ -264,17 +266,31 @@ struct RandomPracticeView: View {
         }
     }
 
+    private var dynamicRoleLabel: String {
+        guard isLoggedIn else { return "מצב\nמתאמן" }
+
+        let normalizedRole = storedUserRole
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if normalizedRole.contains("coach") {
+            return "מצב\nמאמן"
+        }
+
+        return "מצב\nמתאמן"
+    }
+    
     var body: some View {
         KmiRootLayout(
             title: "תרגול",
             nav: nav,
-            roleLabel: "מצב\nמתאמן",
+            roleLabel: dynamicRoleLabel,
             selectedIcon: nil,
             rightText: "\(belt.heb) • \(topicTitle)",
             titleColor: beltColor
         ) {
             ZStack {
-                BeltTopicsGradientBackground()
+                KmiGradientBackground(forceTraineeStyle: false)
 
                 VStack(spacing: 14) {
 

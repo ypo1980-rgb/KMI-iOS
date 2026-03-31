@@ -21,10 +21,11 @@ struct SettingsView: View {
     @AppStorage("email") var email: String = ""
     @AppStorage("region") var region: String = ""
     @AppStorage("branch") var branch: String = ""
+    @AppStorage("group") var group: String = ""
 
     @AppStorage("current_belt") var currentBeltId: String = ""
     @AppStorage("belt_current") var currentBeltIdUser: String = ""
-
+    
     @AppStorage("user_role") var userRole: String = "trainee" // "coach" / "trainee"
     @AppStorage("coach_code") var coachCode: String = ""
 
@@ -238,11 +239,15 @@ struct SettingsView: View {
 
                     print("⚙️ RegisterFormView: about to close cover")
                     DispatchQueue.main.async {
+                        loadBranchAndGroupFromDefaults()
                         showRegistrationEdit = false
                     }
                     print("⚙️ RegisterFormView: showRegistrationEdit =", showRegistrationEdit)
                 }
             )
+        }
+        .onAppear {
+            loadBranchAndGroupFromDefaults()
         }
     }
       
@@ -482,31 +487,82 @@ struct SettingsView: View {
                         Toggle("", isOn: Binding(
                             get: { calendarSyncEnabled },
                             set: { newValue in
-                                calendarSyncEnabled = newValue
-                                if newValue { ensureCalendarPermissionsAndSync() }
-                                else { removeCalendarEvents() }
-                                feedbackTap()
+                                if newValue {
+                                    calendarSyncEnabled = true
+                                    ensureCalendarPermissionsAndSync()
+                                } else {
+                                    removeCalendarEvents()
+                                    calendarSyncEnabled = false
+                                }
+
+                                if hapticsOn {
+                                    hapticLight()
+                                }
                             }
                         ))
                         .labelsHidden()
                     }
+
+                    Text(calendarSyncEnabled ? "הסנכרון ליומן פעיל" : "הסנכרון ליומן כבוי")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             }
 
             // --- UX
             SettingsCard(
                 title: "חוויית משתמש",
-                subtitle: "צלילים, רטט ושיפור חוויית האינטראקציה",
+                subtitle: "צלילים ורטט בפעולות באפליקציה",
                 iconSystemName: "slider.horizontal.3",
                 iconTint: sectionIconTint
             ) {
                 VStack(spacing: 10) {
+
                     toggleRow(title: "צליל הקשה בכפתורים", isOn: $clickSounds) { enabled in
-                        if enabled { playClick() }
-                        feedbackTap()
+                        clickSounds = enabled
+
+                        if enabled {
+                            playClick()
+                            toast("צליל הקשה הופעל")
+                        } else {
+                            toast("צליל הקשה כובה")
+                        }
                     }
-                    toggleRow(title: "רטט קצר בעת סימון ✓/✗", isOn: $hapticsOn) { _ in
-                        feedbackTap()
+
+                    toggleRow(title: "רטט קצר בעת סימון ✓/✗", isOn: $hapticsOn) { enabled in
+                        hapticsOn = enabled
+
+                        if enabled {
+                            hapticLight()
+                            toast("רטט הופעל")
+                        } else {
+                            toast("רטט כובה")
+                        }
+                    }
+
+                    HStack(spacing: 10) {
+
+                        Button {
+                            playClick()
+                            toast("בדיקת צליל")
+                        } label: {
+                            Text("בדוק צליל")
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button {
+                            hapticLight()
+                            toast("בדיקת רטט")
+                        } label: {
+                            Text("בדוק רטט")
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.borderedProminent)
+
                     }
                 }
             }
@@ -779,5 +835,42 @@ struct SettingsView: View {
             }
             .buttonStyle(.borderedProminent)
         }
+    }
+
+    // MARK: - Fix branch/group loading
+    private func loadBranchAndGroupFromDefaults() {
+        let defaults = UserDefaults.standard
+
+        let fallbackBranchFromArray = defaults.stringArray(forKey: "branches")?
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty }) ?? ""
+
+        let fallbackGroupFromArray = defaults.stringArray(forKey: "groups")?
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty }) ?? ""
+
+        let resolvedBranch = (
+            defaults.string(forKey: "active_branch") ??
+            defaults.string(forKey: "branch") ??
+            defaults.string(forKey: "kmi.user.branch") ??
+            fallbackBranchFromArray
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let resolvedGroup = (
+            defaults.string(forKey: "active_group") ??
+            defaults.string(forKey: "group") ??
+            defaults.string(forKey: "kmi.user.group") ??
+            fallbackGroupFromArray
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        branch = resolvedBranch
+        group = resolvedGroup
+
+        print("⚙️ SettingsView loaded branch =", branch)
+        print("⚙️ SettingsView loaded group =", group)
+        print("⚙️ SettingsView loaded branches array =", defaults.stringArray(forKey: "branches") ?? [])
+        print("⚙️ SettingsView loaded groups array =", defaults.stringArray(forKey: "groups") ?? [])
     }
 }

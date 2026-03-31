@@ -198,11 +198,13 @@ final class ToastCenter {
         let w = UIWindow(windowScene: scene)
         w.backgroundColor = .clear
         w.windowLevel = .alert + 1
+        w.isUserInteractionEnabled = false
 
         let lbl = UILabel()
         lbl.numberOfLines = 2
         lbl.textAlignment = .center
         lbl.textColor = .white
+        lbl.isUserInteractionEnabled = false
         lbl.backgroundColor = UIColor.black.withAlphaComponent(0.75)
         lbl.layer.cornerRadius = 12
         lbl.layer.masksToBounds = true
@@ -210,6 +212,7 @@ final class ToastCenter {
 
         let vc = UIViewController()
         vc.view.backgroundColor = .clear
+        vc.view.isUserInteractionEnabled = false
         vc.view.addSubview(lbl)
 
         lbl.translatesAutoresizingMaskIntoConstraints = false

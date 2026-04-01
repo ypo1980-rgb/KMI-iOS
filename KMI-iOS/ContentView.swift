@@ -411,10 +411,13 @@ struct ContentView: View {
                      
                     case .weakPoints(let belt):
                         KmiRootLayout(title: "נקודות תורפה", nav: nav, selectedIcon: .home) {
-                            FavoritesByBeltView(belt: belt)
-                                .navigationBarBackButtonHidden(true)
+                            WeakPointsView(
+                                belt: belt,
+                                nav: nav
+                            )
+                            .navigationBarBackButtonHidden(true)
                         }
-
+                        
                     case .allLists(let belt):
                         KmiRootLayout(title: "כל הרשימות", nav: nav, selectedIcon: .home) {
                             ExercisesTabsView(

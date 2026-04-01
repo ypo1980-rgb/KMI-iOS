@@ -15,12 +15,26 @@
 /* Begin PBXFileReference section */
 		7E6CD48C2F543C5900BE189A /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		7E6CF5212F3907D90061115C /* KMI-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "KMI-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7E704D372F7D3B6E00EDF69D /* AssistantTrainingDataSourceAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantTrainingDataSourceAdapter.swift; sourceTree = "<group>"; };
 		7E72F6B52F52D55F0072144E /* Shared.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Shared.xcframework; path = ../StudioProjects/KMI/shared/build/XCFrameworks/release/Shared.xcframework; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		7E704D1A2F7D33A500EDF69D /* Exceptions for "KMI-iOS" folder in "KMI-iOS" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Screens/Untitled.swift,
+			);
+			target = 7E6CF5202F3907D90061115C /* KMI-iOS */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		7E8E72EC2F4A3AB20099E4E5 /* KMI-iOS */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				7E704D1A2F7D33A500EDF69D /* Exceptions for "KMI-iOS" folder in "KMI-iOS" target */,
+			);
 			path = "KMI-iOS";
 			sourceTree = "<group>";
 		};
@@ -47,6 +61,7 @@
 				7E8E72D52F4A0A310099E4E5 /* Frameworks */,
 				7E6CF5222F3907D90061115C /* Products */,
 				7E6CD48C2F543C5900BE189A /* GoogleService-Info.plist */,
+				7E704D372F7D3B6E00EDF69D /* AssistantTrainingDataSourceAdapter.swift */,
 			);
 			sourceTree = "<group>";
 		};

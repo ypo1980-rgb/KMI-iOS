@@ -19,7 +19,6 @@ struct HomeView: View {
 
     @State private var fabOpen: Bool = false
     @StateObject private var trainingsVm = HomeTrainingsViewModel()
-    @State private var goVoice: Bool = false
     @State private var goMonthly: Bool = false
     @State private var goSummary: Bool = false
     @State private var goFree: Bool = false
@@ -299,7 +298,7 @@ struct HomeView: View {
                 VStack(spacing: 10) {
                     Button {
                         closeFab()
-                        goVoice = true
+                        nav.push(.voiceAssistant)
                     } label: {
                         FabMenuRow(title: "עוזר קולי", systemImage: "mic.fill")
                     }
@@ -417,9 +416,6 @@ struct HomeView: View {
             )
         ) { _ in
             trainingsVm.loadForCurrentUser(auth: auth)
-        }
-        .navigationDestination(isPresented: $goVoice) {
-            PlaceholderScreen(title: "עוזר קולי")
         }
         .navigationDestination(isPresented: $goMonthly) {
             MonthlyTrainingBoardView()

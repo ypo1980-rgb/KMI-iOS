@@ -97,7 +97,7 @@ private enum KmiIconNav {
             return nil
 
         case .assistant:
-            return nil
+            return .voiceAssistant
         }
     }
 
@@ -106,7 +106,7 @@ private enum KmiIconNav {
         case .share:
             print("TODO: share")
         case .assistant:
-            print("TODO: assistant")
+            break
         default:
             break
         }

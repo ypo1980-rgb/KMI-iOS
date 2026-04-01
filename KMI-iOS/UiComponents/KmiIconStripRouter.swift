@@ -21,9 +21,7 @@ enum KmiIconStripRouter {
             nav.push(.beltQuestionsByTopic(belt: .orange))
             
         case .assistant:
-            // אין Route בשם assistant -> זה Action (פתיחת עוזר קולי/Sheet/Modal)
-            // תטפל בזה במסך עצמו (לדוגמה: toggle ל-sheet / ניווט פנימי אחר)
-            break
+            nav.push(.voiceAssistant)
             
         case .share:
             // Share גם Action (UIActivityViewController)

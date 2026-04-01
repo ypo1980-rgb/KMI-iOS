@@ -166,7 +166,6 @@ enum AppRoute: Hashable {
     case practice(belt: Belt, topicTitle: String)
     case summary(belt: Belt)
     case voiceAssistant
-    case pdfExport(belt: Belt)
 
     case internalExam(belt: Belt)
     case beltFinalExam(belt: Belt)
@@ -474,12 +473,6 @@ struct ContentView: View {
                     case .voiceAssistant:
                         KmiRootLayout(title: "עוזר קולי", nav: nav, selectedIcon: .home) {
                             VoiceAssistantView()
-                                .navigationBarBackButtonHidden(true)
-                        }
-
-                    case .pdfExport(let belt):
-                        KmiRootLayout(title: "PDF", nav: nav, selectedIcon: .home) {
-                            PdfExportView(belt: belt)
                                 .navigationBarBackButtonHidden(true)
                         }
                         

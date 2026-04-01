@@ -16,15 +16,15 @@ struct MonthlyBoardDayCell: View {
                     VStack(alignment: .trailing, spacing: 6) {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
-                                if item.hasHolidays {
+                                if item.hasHolidays || fallbackHolidayTitle != nil {
                                     Circle()
-                                        .fill(item.holidays.first?.isMajor == true ? Color.red.opacity(0.95) : Color.orange.opacity(0.95))
+                                        .fill(item.holidays.first?.isMajor == true ? Color.red.opacity(0.95) : Color.red.opacity(0.95))
                                         .frame(width: 8, height: 8)
                                 }
 
                                 if item.hasTrainings {
                                     Circle()
-                                        .fill(Color.blue.opacity(0.95))
+                                        .fill(trainingColor)
                                         .frame(width: 8, height: 8)
                                 }
                             }
@@ -39,8 +39,8 @@ struct MonthlyBoardDayCell: View {
                         Spacer()
 
                         VStack(alignment: .trailing, spacing: 2) {
-                            if let holiday = item.holidays.first {
-                                Text(holiday.title)
+                            if let holidayTitle = displayHolidayTitle {
+                                Text(holidayTitle)
                                     .font(.system(size: 10, weight: .semibold))
                                     .foregroundStyle(Color.red.opacity(0.95))
                                     .lineLimit(1)
@@ -51,6 +51,12 @@ struct MonthlyBoardDayCell: View {
                                 Text(training.title)
                                     .font(.system(size: 10, weight: .semibold))
                                     .foregroundStyle(Color.white.opacity(0.92))
+                                    .lineLimit(1)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                            } else if shouldShowNoTrainingText {
+                                Text("אין אימונים")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(Color.white.opacity(0.82))
                                     .lineLimit(1)
                                     .frame(maxWidth: .infinity, alignment: .trailing)
                             }
@@ -83,7 +89,7 @@ struct MonthlyBoardDayCell: View {
         if item.isToday {
             return Color.white.opacity(0.18)
         }
-        if item.hasHolidays {
+        if item.hasHolidays || fallbackHolidayTitle != nil {
             return Color.red.opacity(0.12)
         }
         if item.hasTrainings {
@@ -100,5 +106,53 @@ struct MonthlyBoardDayCell: View {
 
     private var textColor: Color {
         item.isToday ? .white : .white.opacity(0.95)
+    }
+
+    private var trainingColor: Color {
+
+        guard let training = item.trainings.first else {
+            return Color.blue.opacity(0.95)
+        }
+
+        let title = training.title
+
+        if title.contains("ילד") {
+            return Color.blue.opacity(0.95)
+        }
+
+        if title.contains("נוער") {
+            return Color.green.opacity(0.95)
+        }
+
+        if title.contains("בוגר") {
+            return Color.purple.opacity(0.95)
+        }
+
+        return Color.blue.opacity(0.95)
+    }
+    private var fallbackHolidayTitle: String? {
+        guard let date = item.date else { return nil }
+
+        if let firstHoliday = ShabbatHolidayCheckerIOS.holidayNamesForDisplay(on: date).first {
+            return firstHoliday
+        }
+
+        if ShabbatHolidayCheckerIOS.isBlockedDate(date) {
+            return "שבת"
+        }
+
+        return nil
+    }
+
+    private var displayHolidayTitle: String? {
+        if let holiday = item.holidays.first {
+            return holiday.title
+        }
+        return fallbackHolidayTitle
+    }
+
+    private var shouldShowNoTrainingText: Bool {
+        guard let date = item.date else { return false }
+        return item.trainings.isEmpty && ShabbatHolidayCheckerIOS.isBlockedDate(date)
     }
 }

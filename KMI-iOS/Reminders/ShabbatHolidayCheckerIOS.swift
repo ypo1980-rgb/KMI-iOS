@@ -3,6 +3,7 @@ import Foundation
 enum ShabbatHolidayCheckerIOS {
 
     static let timeZone = TimeZone(identifier: "Asia/Jerusalem")!
+
     static let calendar: Calendar = {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = timeZone
@@ -12,11 +13,17 @@ enum ShabbatHolidayCheckerIOS {
     private static let entries = HolidayCalendarStore.loadEntries()
 
     static func isBlockedDate(_ date: Date) -> Bool {
-        isSaturday(date) || isFullYomTov(date)
+        isSaturday(date) || isHolidayBlocked(date)
     }
 
     static func isAdjustedEarlyDate(_ date: Date) -> Bool {
-        isFriday(date) || isErevYomTov(date)
+        isFriday(date) || isErevHoliday(date)
+    }
+
+    static func holidayNamesForDisplay(on date: Date) -> [String] {
+        entries
+            .filter { calendar.isDate($0.date, inSameDayAs: date) }
+            .map(\.name)
     }
 
     static func nextAllowedTriggerDate(
@@ -44,6 +51,7 @@ enum ShabbatHolidayCheckerIOS {
 
             if isAdjustedEarlyDate(candidate) {
                 candidate = setTime(on: candidate, hour: 13, minute: 0)
+
                 if candidate <= now {
                     candidate = calendar.date(byAdding: .day, value: 1, to: candidate) ?? candidate
                     candidate = setTime(on: candidate, hour: preferredHour, minute: preferredMinute)
@@ -65,46 +73,63 @@ enum ShabbatHolidayCheckerIOS {
         calendar.component(.weekday, from: date) == 7
     }
 
-    private static func isFullYomTov(_ date: Date) -> Bool {
+    private static func isHolidayBlocked(_ date: Date) -> Bool {
         holidayNames(on: date).contains(where: isBlockingHolidayName)
     }
 
-    private static func isErevYomTov(_ date: Date) -> Bool {
+    private static func isErevHoliday(_ date: Date) -> Bool {
         holidayNames(on: date).contains(where: isBlockingErevHolidayName)
     }
 
     private static func holidayNames(on date: Date) -> [String] {
-        entries
-            .filter { calendar.isDate($0.date, inSameDayAs: date) }
-            .map(\.name)
+        holidayNamesForDisplay(on: date)
     }
 
     private static func isBlockingHolidayName(_ name: String) -> Bool {
-        let blocked = [
+        let normalized = normalize(name)
+
+        let blockedTokens = [
             "ראש השנה",
             "יום כיפור",
-            "פסח – יום א׳",
-            "פסח – שביעי של פסח",
+            "פסח",
+            "חול המועד פסח",
+            "שביעי של פסח",
             "שבועות",
-            "סוכות – יום א׳",
-            "שמיני עצרת"
+            "סוכות",
+            "חול המועד סוכות",
+            "הושענא רבה",
+            "שמיני עצרת",
+            "שמחת תורה"
         ]
-        return blocked.contains(where: { name.contains($0) })
+
+        return blockedTokens.contains { normalized.contains(normalize($0)) }
     }
 
     private static func isBlockingErevHolidayName(_ name: String) -> Bool {
-        let blocked = [
+        let normalized = normalize(name)
+
+        let blockedTokens = [
             "ערב ראש השנה",
             "ערב יום כיפור",
             "ערב פסח",
             "ערב שבועות",
             "ערב סוכות"
         ]
-        return blocked.contains(where: { name.contains($0) })
+
+        return blockedTokens.contains { normalized.contains(normalize($0)) }
+    }
+
+    private static func normalize(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "׳", with: "'")
+            .replacingOccurrences(of: "״", with: "\"")
+            .replacingOccurrences(of: "–", with: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func setTime(on date: Date, hour: Int, minute: Int) -> Date {
         let comps = calendar.dateComponents([.year, .month, .day], from: date)
+
         return calendar.date(from: DateComponents(
             timeZone: timeZone,
             year: comps.year,

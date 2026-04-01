@@ -77,7 +77,7 @@ enum TrainingCatalogIOS {
         "הוד השרון – מרכז ספורט עירוני": ["בוגרים"]
     ]
 
-    private static let slots: [TrainingSlot] = [
+    static let slots: [TrainingSlot] = [
         TrainingSlot(
             id: "sokolov_adults_sun",
             branch: "נתניה – מרכז קהילתי סוקולוב",

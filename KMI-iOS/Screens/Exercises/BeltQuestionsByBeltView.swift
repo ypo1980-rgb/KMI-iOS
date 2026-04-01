@@ -451,10 +451,6 @@ struct BeltQuestionsByBeltView: View {
                     print("🟣 QUICK TAP: voice | belt =", selectedBelt.heb)
                     nav.push(.voiceAssistant)
                 },
-                onPdf: {
-                    print("🟣 QUICK TAP: pdf | belt =", selectedBelt.heb)
-                    nav.push(.pdfExport(belt: selectedBelt))
-                },
                 onFinalExam: {
                     print("🟣 QUICK TAP: beltFinalExam | belt =", selectedBelt.heb)
                     nav.push(.beltFinalExam(belt: selectedBelt))
@@ -622,7 +618,6 @@ private struct BeltQuickMenuOverlay: View {
     let onPractice: () -> Void
     let onSummary: () -> Void
     let onVoice: () -> Void
-    let onPdf: () -> Void
 
     let onFinalExam: () -> Void
     let onInternalExam: (() -> Void)?
@@ -676,8 +671,6 @@ private struct BeltQuickMenuOverlay: View {
                         QuickPill(title: "תרגול", systemImage: "figure.walk", onTap: { closeThen(onPractice) })
                         QuickPill(title: "מסך סיכום", systemImage: "list.bullet.clipboard", onTap: { closeThen(onSummary) })
                         QuickPill(title: "עוזר קולי", systemImage: "mic.fill", onTap: { closeThen(onVoice) })
-                        QuickPill(title: "PDF", systemImage: "doc.richtext", onTap: { closeThen(onPdf) })
-
                         QuickPill(title: "מבחן מסכם", systemImage: "checkmark.seal.fill", onTap: { closeThen(onFinalExam) })
 
                         if let onInternalExam {

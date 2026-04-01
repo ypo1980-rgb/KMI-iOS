@@ -42,14 +42,7 @@ struct MonthlyTrainingBoardView: View {
                     ) { tappedDay in
                         selectedDate = tappedDay.date
                     }
-
-                    MonthlyBoardCalendarGrid(
-                        monthData: monthData,
-                        selectedDate: selectedDate
-                    ) { tappedDay in
-                        selectedDate = tappedDay.date
-                    }
-
+                    
                     MonthlyBoardSelectedDayCard(
                         details: selectedDetails,
                         onAddSummaryTap: selectedDetails?.trainings.isEmpty == false ? {

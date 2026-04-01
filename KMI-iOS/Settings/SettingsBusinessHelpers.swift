@@ -9,7 +9,6 @@ import AudioToolbox
 
 extension SettingsView {
 
-    // MARK: Helpers UI
     @ViewBuilder
     func toggleRow(
         title: String,
@@ -31,7 +30,6 @@ extension SettingsView {
         }
     }
 
-    // MARK: Notifications
     func requestNotificationPermissionIfNeeded(onGranted: @escaping () -> Void) {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             switch settings.authorizationStatus {
@@ -64,7 +62,6 @@ extension SettingsView {
     }
 
     func scheduleTrainingReminders(minutes: Int) {
-
         UNUserNotificationCenter.current().removePendingNotificationRequests(
             withIdentifiers: ["training_reminder"]
         )
@@ -90,9 +87,8 @@ extension SettingsView {
         toast("התזכורת נקבעה \(minutes) דקות לפני האימון")
         hapticSuccess()
     }
-    
-    func cancelTrainingReminders() {
 
+    func cancelTrainingReminders() {
         UNUserNotificationCenter.current().removePendingNotificationRequests(
             withIdentifiers: ["training_reminder"]
         )
@@ -100,17 +96,13 @@ extension SettingsView {
         toast("התזכורות בוטלו")
         hapticSuccess()
     }
-    
-    // MARK: Calendar
-    func ensureCalendarPermissionsAndSync() {
 
+    func ensureCalendarPermissionsAndSync() {
         let store = EKEventStore()
         isBusy = true
 
         store.requestFullAccessToEvents { granted, _ in
-
             DispatchQueue.main.async {
-
                 self.isBusy = false
 
                 guard granted else {
@@ -120,33 +112,87 @@ extension SettingsView {
                     return
                 }
 
-                let event = EKEvent(eventStore: store)
-                event.title = "אימון ק.מ.י"
-                event.startDate = Date().addingTimeInterval(3600)
-                event.endDate = event.startDate.addingTimeInterval(3600)
-                event.calendar = store.defaultCalendarForNewEvents
+                let branch = self.resolvedCalendarBranch()
+                let group = self.resolvedCalendarGroup()
 
-                do {
-                    try store.save(event, span: .thisEvent)
+                guard !branch.isEmpty else {
+                    self.calendarSyncEnabled = false
+                    self.toast("לא נבחר סניף")
+                    self.hapticError()
+                    return
+                }
 
-                    self.toast("האימון נוסף ליומן")
+                let trainings = TrainingCatalogIOS.trainingsFor(branch: branch, group: group)
+
+                guard !trainings.isEmpty else {
+                    self.calendarSyncEnabled = false
+                    self.toast("לא נמצאו אימונים לסניף ולקבוצה שלך")
+                    self.hapticError()
+                    return
+                }
+
+                self.removeCalendarEvents(using: store)
+
+                guard let targetCalendar = store.defaultCalendarForNewEvents else {
+                    self.calendarSyncEnabled = false
+                    self.toast("לא נמצא יומן ברירת מחדל")
+                    self.hapticError()
+                    return
+                }
+
+                var addedCount = 0
+
+                for training in trainings {
+                    let event = EKEvent(eventStore: store)
+                    event.calendar = targetCalendar
+                    event.title = self.calendarEventTitle(for: training, group: group)
+                    event.startDate = training.date
+                    event.endDate = self.endDate(for: training)
+                    event.notes = self.calendarNotes(for: training, branch: branch, group: group)
+                    event.location = training.address
+                    event.timeZone = TimeZone(identifier: "Asia/Jerusalem")
+
+                    do {
+                        try store.save(event, span: .thisEvent)
+                        addedCount += 1
+                    } catch {
+                        print("KMI calendar save error:", error.localizedDescription)
+                    }
+                }
+
+                if addedCount > 0 {
+                    self.toast("סונכרנו \(addedCount) אימונים ליומן")
                     self.hapticSuccess()
-
-                } catch {
-
-                    self.toast("שגיאה בהוספת אירוע ליומן")
+                } else {
+                    self.calendarSyncEnabled = false
+                    self.toast("לא ניתן היה להוסיף אימונים ליומן")
                     self.hapticError()
                 }
             }
         }
     }
-    
-    func removeCalendarEvents() {
 
+    func removeCalendarEvents() {
         let store = EKEventStore()
 
-        let start = Date().addingTimeInterval(-86400)
-        let end = Date().addingTimeInterval(86400 * 365)
+        store.requestFullAccessToEvents { granted, _ in
+            DispatchQueue.main.async {
+                guard granted else {
+                    self.toast("אין הרשאה ליומן")
+                    self.hapticError()
+                    return
+                }
+
+                self.removeCalendarEvents(using: store)
+                self.toast("אירועי האימונים הוסרו מהיומן")
+                self.hapticSuccess()
+            }
+        }
+    }
+
+    private func removeCalendarEvents(using store: EKEventStore) {
+        let start = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
+        let end = Calendar.current.date(byAdding: .day, value: 365, to: Date()) ?? Date()
 
         let predicate = store.predicateForEvents(
             withStart: start,
@@ -156,15 +202,71 @@ extension SettingsView {
 
         let events = store.events(matching: predicate)
 
-        for event in events where event.title.contains("ק.מ.י") {
+        for event in events where event.title.contains("אימון ק.מ.י") || event.title.contains("KMI") {
             try? store.remove(event, span: .thisEvent)
         }
-
-        toast("אירועי האימונים הוסרו מהיומן")
-        hapticSuccess()
     }
-    
-    // MARK: App lock
+
+    private func resolvedCalendarBranch() -> String {
+        (
+            UserDefaults.standard.string(forKey: "kmi.user.branch") ??
+            UserDefaults.standard.string(forKey: "active_branch") ??
+            ""
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func resolvedCalendarGroup() -> String {
+        (
+            UserDefaults.standard.string(forKey: "kmi.user.group") ??
+            UserDefaults.standard.string(forKey: "active_group") ??
+            ""
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func calendarEventTitle(for training: TrainingData, group: String) -> String {
+        let cleanGroup = group.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleanGroup.isEmpty ? "אימון ק.מ.י" : "אימון ק.מ.י – \(cleanGroup)"
+    }
+
+    private func calendarNotes(for training: TrainingData, branch: String, group: String) -> String {
+        var parts: [String] = []
+
+        if !branch.isEmpty {
+            parts.append("סניף: \(branch)")
+        }
+
+        if !group.isEmpty {
+            parts.append("קבוצה: \(group)")
+        }
+
+        parts.append("מקום: \(training.place)")
+        parts.append("כתובת: \(training.address)")
+        parts.append("מאמן: \(training.coach)")
+        parts.append("שעה: \(training.startText) - \(training.endText)")
+
+        return parts.joined(separator: "\n")
+    }
+
+    private func endDate(for training: TrainingData) -> Date {
+        let raw = training.endText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pieces = raw.split(separator: ":")
+
+        guard pieces.count == 2,
+              let hour = Int(pieces[0]),
+              let minute = Int(pieces[1]) else {
+            return training.date.addingTimeInterval(90 * 60)
+        }
+
+        var comps = Calendar.current.dateComponents([.year, .month, .day], from: training.date)
+        comps.hour = hour
+        comps.minute = minute
+        comps.second = 0
+
+        return Calendar.current.date(from: comps) ?? training.date.addingTimeInterval(90 * 60)
+    }
+
     func biometricAvailable() -> Bool {
         let ctx = LAContext()
         var err: NSError?
@@ -223,7 +325,6 @@ extension SettingsView {
         showPinDialog = false
     }
 
-    // MARK: About / Support
     func appVersionLine() -> String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
@@ -262,7 +363,6 @@ extension SettingsView {
         ShareSheet.present(items: [text])
     }
 
-    // MARK: Data management
     func clearAppCacheIOS() -> Bool {
         do {
             let fm = FileManager.default
@@ -277,7 +377,6 @@ extension SettingsView {
         }
     }
 
-    // MARK: Real belt progress from UserDefaults
     func currentBeltResolvedId() -> String {
         let raw = !currentBeltId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? currentBeltId
@@ -364,7 +463,6 @@ extension SettingsView {
         }
     }
 
-    // MARK: Feedback
     func feedbackTap() {
         if clickSounds {
             playClick()
@@ -403,7 +501,7 @@ extension SettingsView {
             generator.notificationOccurred(.error)
         }
     }
-    
+
     func toast(_ text: String) {
         ToastCenter.shared.show(text)
     }

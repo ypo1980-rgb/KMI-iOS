@@ -36,6 +36,13 @@ enum MonthlyTrainingBoardBuilder {
             let key = dateKey(for: currentDate, calendar: calendar)
             let day = calendar.component(.day, from: currentDate)
 
+            let existingHolidays = holidaysByKey[key] ?? []
+            let isBlocked = ShabbatHolidayCheckerIOS.isBlockedDate(currentDate)
+
+            let effectiveTrainings = (isBlocked || !existingHolidays.isEmpty)
+                ? []
+                : (trainingsByKey[key] ?? [])
+            
             items.append(
                 MonthlyBoardDayItem(
                     id: key,
@@ -44,8 +51,8 @@ enum MonthlyTrainingBoardBuilder {
                     dayNumberText: "\(day)",
                     isToday: calendar.isDateInToday(currentDate),
                     isInDisplayedMonth: true,
-                    trainings: trainingsByKey[key] ?? [],
-                    holidays: holidaysByKey[key] ?? []
+                    trainings: effectiveTrainings,
+                    holidays: existingHolidays
                 )
             )
 

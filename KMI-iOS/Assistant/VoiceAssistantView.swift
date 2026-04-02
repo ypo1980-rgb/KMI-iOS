@@ -1,6 +1,9 @@
 import SwiftUI
 import Shared
 
+// ✅ CONTENT-ONLY:
+// המסך הזה נפתח מתוך ContentView שכבר עוטף אותו ב-KmiRootLayout.
+// אסור לעטוף כאן שוב ב-KmiRootLayout, אחרת יופיעו פעמיים TopBar + IconStrip.
 private struct EmptyAssistantTrainingDataSource: AssistantTrainingDataSource {
     func allTrainings() -> [TrainingRow] { [] }
 }
@@ -32,8 +35,6 @@ struct VoiceAssistantView: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 8)
         }
-        .navigationTitle("עוזר קולי")
-        .navigationBarTitleDisplayMode(.inline)
     }
 
     private var headerCard: some View {

@@ -68,14 +68,8 @@ struct KMI_iOSApp: App {
 
     var body: some Scene {
         WindowGroup {
-            PhoneAuthGateView(
-                allowedPhones: [
-                    "0526664660"
-                ]
-            ) {
-                BirthdayGate {
-                    AuthGateView()
-                }
+            BirthdayGate {
+                AuthGateView()
             }
         }
     }

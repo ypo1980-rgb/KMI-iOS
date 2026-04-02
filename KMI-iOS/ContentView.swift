@@ -500,11 +500,27 @@ struct ContentView: View {
                             AttendanceView(
                                 ownerUid: Auth.auth().currentUser?.uid ?? "demo_ios",
                                 initialDateIso: nil,
-                                initialBranchName: "",
-                                initialGroupKey: "",
-                                initialCoachName: ""
+                                initialBranchName: auth.userBranch.isEmpty ? "הסניף שלך כאן" : auth.userBranch,
+                                initialGroupKey: auth.userGroup.isEmpty ? "הקבוצה שלך כאן" : auth.userGroup,
+                                initialCoachName: auth.userFullName
                             )
                             .navigationBarBackButtonHidden(true)
+                            .onAppear {
+                                auth.reloadProfileIfSignedIn()
+
+                                #if DEBUG
+                                let attendanceUid = Auth.auth().currentUser?.uid ?? "demo_ios"
+                                let resolvedBranch = auth.userBranch.isEmpty ? "הסניף שלך כאן" : auth.userBranch
+                                let resolvedGroup = auth.userGroup.isEmpty ? "הקבוצה שלך כאן" : auth.userGroup
+
+                                print("🟣 ATTENDANCE_ROUTE uid =", attendanceUid)
+                                print("🟣 ATTENDANCE_ROUTE auth.userFullName =", auth.userFullName)
+                                print("🟣 ATTENDANCE_ROUTE auth.userBranch =", auth.userBranch)
+                                print("🟣 ATTENDANCE_ROUTE auth.userGroup =", auth.userGroup)
+                                print("🟣 ATTENDANCE_ROUTE resolvedBranch =", resolvedBranch)
+                                print("🟣 ATTENDANCE_ROUTE resolvedGroup =", resolvedGroup)
+                                #endif
+                            }
                         }
                         
                     case .adminUsers:
@@ -553,6 +569,15 @@ struct ContentView: View {
                 }
             }
             .environmentObject(nav)
+            .onAppear {
+                #if DEBUG
+                print("🟣 ContentView.onAppear auth.userFullName(before) =", auth.userFullName)
+                print("🟣 ContentView.onAppear auth.userBranch(before) =", auth.userBranch)
+                print("🟣 ContentView.onAppear auth.userGroup(before) =", auth.userGroup)
+                #endif
+
+                auth.reloadProfileIfSignedIn()
+            }
         }
     }
 }

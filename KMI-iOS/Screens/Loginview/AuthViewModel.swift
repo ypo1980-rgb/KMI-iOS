@@ -22,6 +22,7 @@ final class AuthViewModel: ObservableObject {
     @Published var userRole: String = "trainee"
 
     // ✅ נתוני שיוך למסך הבית
+    @Published var userFullName: String = ""
     @Published var userRegion: String = ""
     @Published var userBranch: String = ""
     @Published var userGroup: String = ""
@@ -75,11 +76,19 @@ final class AuthViewModel: ObservableObject {
                 if let user {
                     // ✅ טוענים פרופיל מהשרת כדי לדעת חגורה ותפקיד
                     await self.loadUserProfile(uid: user.uid)
+
+                    #if DEBUG
+                    print("🟣 AUTH_START uid =", user.uid)
+                    print("🟣 AUTH_START userFullName =", self.userFullName)
+                    print("🟣 AUTH_START userBranch =", self.userBranch)
+                    print("🟣 AUTH_START userGroup =", self.userGroup)
+                    #endif
                 } else {
                     // ✅ יציאה -> מאפסים
                     self.registeredBelt = nil
                     self.nextBelt = BeltFlow.defaultBelt
                     self.userRole = "trainee"
+                    self.userFullName = ""
                     self.userRegion = ""
                     self.userBranch = ""
                     self.userGroup = ""
@@ -140,6 +149,137 @@ final class AuthViewModel: ObservableObject {
         ud.set(group, forKey: "age_groups")
     }
 
+#if canImport(FirebaseFirestore)
+private func ensureUserProfileDocumentExists(
+    uid: String,
+    existingData: [String: Any]
+) async throws -> [String: Any] {
+    let ud = UserDefaults.standard
+
+    let existingBranches =
+        (existingData["branches"] as? [String])?
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty } ?? []
+
+    let existingGroups =
+        (existingData["groups"] as? [String])?
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty } ?? []
+
+    let existingSingleBranch =
+        (existingData["branch"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+    let existingSingleGroup =
+        ((existingData["group"] as? String) ??
+         (existingData["age_group"] as? String) ??
+         (existingData["ageGroup"] as? String) ??
+         "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    let fullName =
+        ((existingData["fullName"] as? String) ??
+         ud.string(forKey: "fullName") ??
+         ud.string(forKey: "full_name") ??
+         "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    let email =
+        ((existingData["email"] as? String) ??
+         Auth.auth().currentUser?.email ??
+         ud.string(forKey: "email") ??
+         "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+
+    let phone =
+        ((existingData["phone"] as? String) ??
+         ud.string(forKey: "phone") ??
+         "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    let region =
+        ((existingData["region"] as? String) ??
+         ud.string(forKey: "kmi.user.region") ??
+         ud.string(forKey: "region") ??
+         "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    let branchFromDefaults =
+        (ud.string(forKey: "kmi.user.branch") ??
+         ud.string(forKey: "branch") ??
+         "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    let groupFromDefaults =
+        (ud.string(forKey: "kmi.user.group") ??
+         ud.string(forKey: "group") ??
+         ud.string(forKey: "age_group") ??
+         "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    let resolvedBranch = existingBranches.first ?? (existingSingleBranch.isEmpty ? branchFromDefaults : existingSingleBranch)
+    let resolvedGroup = existingGroups.first ?? (existingSingleGroup.isEmpty ? groupFromDefaults : existingSingleGroup)
+    
+    let role =
+        ((existingData["role"] as? String) ??
+         ud.string(forKey: "user_role") ??
+         self.userRole)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+
+    let shouldRepair =
+        existingData.isEmpty ||
+        existingBranches.isEmpty ||
+        existingGroups.isEmpty ||
+        (existingData["fullName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+
+    if !shouldRepair {
+        return existingData
+    }
+
+    var repairedData = existingData
+
+    repairedData["uid"] = uid
+    repairedData["fullName"] = fullName
+    repairedData["email"] = email
+    repairedData["emailLower"] = email
+    repairedData["phone"] = phone
+    repairedData["region"] = region
+    repairedData["role"] = role
+    repairedData["updatedAt"] = FieldValue.serverTimestamp()
+
+    if !resolvedBranch.isEmpty {
+        repairedData["branch"] = resolvedBranch
+        repairedData["branches"] = [resolvedBranch]
+    }
+
+    if !resolvedGroup.isEmpty {
+        repairedData["group"] = resolvedGroup
+        repairedData["groups"] = [resolvedGroup]
+        repairedData["age_group"] = resolvedGroup
+    }
+
+    if existingData["createdAt"] == nil {
+        repairedData["createdAt"] = FieldValue.serverTimestamp()
+    }
+
+    let db = Firestore.firestore()
+    try await db.collection("users")
+        .document(uid)
+        .setData(repairedData, merge: true)
+
+    #if DEBUG
+    print("🟡 ensureUserProfileDocumentExists repaired users/\(uid)")
+    print("🟡 ensureUserProfileDocumentExists resolvedBranch =", resolvedBranch)
+    print("🟡 ensureUserProfileDocumentExists resolvedGroup =", resolvedGroup)
+    print("🟡 ensureUserProfileDocumentExists repairedData =", repairedData)
+    #endif
+
+    return repairedData
+}
+#endif
+
     // MARK: - Helpers
     func refreshCurrentUser() {
         #if canImport(FirebaseAuth)
@@ -152,6 +292,82 @@ final class AuthViewModel: ObservableObject {
                 }
             }
         })
+        #endif
+    }
+
+    func reloadProfileIfSignedIn() {
+        #if canImport(FirebaseAuth)
+        guard let uid = Auth.auth().currentUser?.uid else {
+            #if DEBUG
+            print("🔴 reloadProfileIfSignedIn: no current uid")
+            #endif
+            return
+        }
+
+        #if DEBUG
+        print("🟠 reloadProfileIfSignedIn uid =", uid)
+        #endif
+
+        Task { @MainActor in
+            await self.loadUserProfile(uid: uid)
+
+            #if DEBUG
+            print("🟠 reloadProfileIfSignedIn result fullName =", self.userFullName)
+            print("🟠 reloadProfileIfSignedIn result branch =", self.userBranch)
+            print("🟠 reloadProfileIfSignedIn result group =", self.userGroup)
+            print("🟠 reloadProfileIfSignedIn defaults.branch =", UserDefaults.standard.string(forKey: "kmi.user.branch") ?? "")
+            print("🟠 reloadProfileIfSignedIn defaults.group =", UserDefaults.standard.string(forKey: "kmi.user.group") ?? "")
+            #endif
+        }
+        #endif
+    }
+
+    func saveTrainingAssignment(branch: String, group: String) {
+        let cleanBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanGroup = group.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        self.userBranch = cleanBranch
+        self.userGroup = cleanGroup
+
+        self.persistTrainingAssignmentToDefaults(
+            region: self.userRegion,
+            branch: cleanBranch,
+            group: cleanGroup
+        )
+
+        #if DEBUG
+        print("🟢 saveTrainingAssignment branch =", cleanBranch)
+        print("🟢 saveTrainingAssignment group =", cleanGroup)
+        #endif
+
+        #if canImport(FirebaseAuth)
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+
+        Task { @MainActor in
+            #if canImport(FirebaseFirestore)
+            do {
+                try await Firestore.firestore()
+                    .collection("users")
+                    .document(uid)
+                    .setData([
+                        "branch": cleanBranch,
+                        "branches": cleanBranch.isEmpty ? [] : [cleanBranch],
+                        "group": cleanGroup,
+                        "groups": cleanGroup.isEmpty ? [] : [cleanGroup],
+                        "age_group": cleanGroup,
+                        "updatedAt": FieldValue.serverTimestamp()
+                    ], merge: true)
+
+                #if DEBUG
+                print("🟢 saveTrainingAssignment saved to Firestore uid =", uid)
+                #endif
+            } catch {
+                #if DEBUG
+                print("🔴 saveTrainingAssignment failed =", error.localizedDescription)
+                #endif
+            }
+            #endif
+        }
         #endif
     }
 
@@ -507,6 +723,46 @@ do {
         userData["beltId"] = form.belt.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    // ✅ שומרים שיוך סניף וקבוצה כמו באנדרואיד
+    let branchesFromForm =
+        (userData["branches"] as? [String])?
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty } ?? []
+
+    let groupsFromForm =
+        (userData["groups"] as? [String])?
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty } ?? []
+
+    let singleBranchFromForm =
+        (userData["branch"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+    let singleGroupFromForm =
+        ((userData["group"] as? String) ??
+         (userData["age_group"] as? String) ??
+         "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    let branchClean = branchesFromForm.first ?? singleBranchFromForm
+    let groupClean = groupsFromForm.first ?? singleGroupFromForm
+
+    if !branchClean.isEmpty {
+        userData["branch"] = branchClean
+        userData["branches"] = [branchClean]
+    }
+
+    if !groupClean.isEmpty {
+        userData["group"] = groupClean
+        userData["groups"] = [groupClean]
+        userData["age_group"] = groupClean
+    }
+
+    #if DEBUG
+    print("🟠 registerAndSaveProfile resolved branchClean =", branchClean)
+    print("🟠 registerAndSaveProfile resolved groupClean =", groupClean)
+    #endif
+
     // ✅ מאמן מורשה בלבד + יצירת קוד אוטומטי כמו באנדרואיד
     let generatedCoachCode: String?
     if form.role == .coach {
@@ -613,13 +869,17 @@ await loadUserProfile(uid: uid)
     }
     #endif
 
-    #if canImport(FirebaseFirestore)
-    private func loadUserProfileFromFirestore(uid: String) async {
-        do {
-            let db = Firestore.firestore()
-            let ref = db.collection("users").document(uid)
+#if canImport(FirebaseFirestore)
+private func loadUserProfileFromFirestore(uid: String) async {
+    do {
+        #if DEBUG
+        print("🟠 loadUserProfileFromFirestore(uid:) start uid =", uid)
+        #endif
 
-            let snap: DocumentSnapshot
+        let db = Firestore.firestore()
+        let ref = db.collection("users").document(uid)
+
+        let snap: DocumentSnapshot
             if #available(iOS 15.0, *) {
                 snap = try await ref.getDocument()
             } else {
@@ -646,12 +906,27 @@ await loadUserProfile(uid: uid)
                 }
             }
 
-            let data = snap.data() ?? [:]
+        let rawData = snap.data() ?? [:]
 
-            // ✅ role מהשרת (עם fallback רחב יותר)
-            let roleFromServer =
-                (data["role"] as? String) ??
-                (data["userRole"] as? String) ??
+#if DEBUG
+print("🟠 FIRESTORE users/\(uid) exists =", snap.exists)
+print("🟠 FIRESTORE users/\(uid) data =", rawData)
+print("🟠 FIRESTORE users/\(uid) keys =", Array(rawData.keys).sorted())
+#endif
+
+        let data = try await ensureUserProfileDocumentExists(
+            uid: uid,
+            existingData: rawData
+        )
+
+        #if DEBUG
+        print("🟠 FIRESTORE users/\(uid) normalized data =", data)
+        #endif
+
+        // ✅ role מהשרת (עם fallback רחב יותר)
+        let roleFromServer =
+            (data["role"] as? String) ??
+            (data["userRole"] as? String) ??
                 (data["user_type"] as? String) ??
                 (data["type"] as? String) ??
                 ""
@@ -698,52 +973,111 @@ await loadUserProfile(uid: uid)
             self.nextBelt = BeltFlow.nextBeltForUser(registeredBelt: belt)
 
             // ✅ region / branch / group למסך הבית
+            let fullName =
+                (data["fullName"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
             let region =
                 (data["region"] as? String)?
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-            let branches =
-                (data["branches"] as? [String])?
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty } ?? []
+        let branchesArray =
+            (data["branches"] as? [String])?
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty } ?? []
 
-            let groups =
-                (data["groups"] as? [String])?
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty } ?? []
+        let singleBranch =
+            (data["branch"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-            let primaryBranch = branches.first ?? ""
-            let primaryGroup = groups.first ?? ""
+        let branches = branchesArray.isEmpty
+            ? (singleBranch.isEmpty ? [] : [singleBranch])
+            : branchesArray
 
-            self.userRegion = region
-            self.userBranch = primaryBranch
-            self.userGroup = primaryGroup
+        let groupsArray =
+            (data["groups"] as? [String])?
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty } ?? []
 
-            self.persistTrainingAssignmentToDefaults(
-                region: region,
-                branch: primaryBranch,
-                group: primaryGroup
-            )
+        let singleGroup =
+            ((data["group"] as? String) ??
+             (data["age_group"] as? String) ??
+             (data["ageGroup"] as? String) ??
+             "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
-            #if DEBUG
+        let groups = groupsArray.isEmpty
+            ? (singleGroup.isEmpty ? [] : [singleGroup])
+            : groupsArray
+
+        let primaryBranch = branches.first ?? ""
+        let primaryGroup = groups.first ?? ""
+
+#if DEBUG
+print("🟠 PROFILE_PARSED fullName =", fullName)
+print("🟠 PROFILE_PARSED region =", region)
+print("🟠 PROFILE_PARSED raw branch =", data["branch"] as Any)
+print("🟠 PROFILE_PARSED raw branches =", data["branches"] as Any)
+print("🟠 PROFILE_PARSED raw group =", data["group"] as Any)
+print("🟠 PROFILE_PARSED raw groups =", data["groups"] as Any)
+print("🟠 PROFILE_PARSED raw age_group =", data["age_group"] as Any)
+print("🟠 PROFILE_PARSED raw ageGroup =", data["ageGroup"] as Any)
+print("🟠 PROFILE_PARSED branchesArray =", branchesArray)
+print("🟠 PROFILE_PARSED singleBranch =", singleBranch)
+print("🟠 PROFILE_PARSED branches =", branches)
+print("🟠 PROFILE_PARSED groupsArray =", groupsArray)
+print("🟠 PROFILE_PARSED singleGroup =", singleGroup)
+print("🟠 PROFILE_PARSED groups =", groups)
+print("🟠 PROFILE_PARSED primaryBranch =", primaryBranch)
+print("🟠 PROFILE_PARSED primaryGroup =", primaryGroup)
+#endif
+
+        self.userFullName = fullName
+        self.userRegion = region
+        self.userBranch = primaryBranch
+        self.userGroup = primaryGroup
+
+        self.persistTrainingAssignmentToDefaults(
+            region: region,
+            branch: primaryBranch,
+            group: primaryGroup
+        )
+
+        #if DEBUG
+        print("🟠 PROFILE_STATE userFullName =", self.userFullName)
+        print("🟠 PROFILE_STATE userBranch =", self.userBranch)
+        print("🟠 PROFILE_STATE userGroup =", self.userGroup)
+        print("🟢 AUTH_PROFILE uid =", uid)
+        print("🟢 AUTH_PROFILE fullName =", fullName)
+            print("🟢 AUTH_PROFILE region =", region)
+            print("🟢 AUTH_PROFILE branches =", branches)
+            print("🟢 AUTH_PROFILE groups =", groups)
+            print("🟢 AUTH_PROFILE primaryBranch =", primaryBranch)
+            print("🟢 AUTH_PROFILE primaryGroup =", primaryGroup)
             print("Loaded profile uid=\(uid) rawBelt=\(rawBelt ?? "nil") region=\(region) branch=\(primaryBranch) group=\(primaryGroup) -> registered=\(String(describing: belt)) next=\(self.nextBelt)")
             #endif
 
         } catch {
             self.registeredBelt = nil
             self.nextBelt = BeltFlow.defaultBelt
+            self.userFullName = ""
             self.userRegion = ""
             self.userBranch = ""
             self.userGroup = ""
 
             #if DEBUG
-            print("Failed to load profile uid=\(uid): \(error.localizedDescription)")
+            print("🔴 AUTH_PROFILE load failed uid =", uid)
+            print("🔴 AUTH_PROFILE error =", error.localizedDescription)
             #endif
         }
     }
     #endif
 
     private func loadUserProfile(uid: String) async {
+        #if DEBUG
+        print("🟠 loadUserProfile(uid:) called with uid =", uid)
+        #endif
+
         #if canImport(FirebaseFirestore)
         await loadUserProfileFromFirestore(uid: uid)
         #else

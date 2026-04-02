@@ -15,7 +15,6 @@
 /* Begin PBXFileReference section */
 		7E6CD48C2F543C5900BE189A /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		7E6CF5212F3907D90061115C /* KMI-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "KMI-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		7E704D372F7D3B6E00EDF69D /* AssistantTrainingDataSourceAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantTrainingDataSourceAdapter.swift; sourceTree = "<group>"; };
 		7E72F6B52F52D55F0072144E /* Shared.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Shared.xcframework; path = ../StudioProjects/KMI/shared/build/XCFrameworks/release/Shared.xcframework; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -23,6 +22,7 @@
 		7E704D1A2F7D33A500EDF69D /* Exceptions for "KMI-iOS" folder in "KMI-iOS" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Assistant/AssistantTrainingDataSourceAdapter.swift,
 				Screens/Untitled.swift,
 			);
 			target = 7E6CF5202F3907D90061115C /* KMI-iOS */;
@@ -61,7 +61,6 @@
 				7E8E72D52F4A0A310099E4E5 /* Frameworks */,
 				7E6CF5222F3907D90061115C /* Products */,
 				7E6CD48C2F543C5900BE189A /* GoogleService-Info.plist */,
-				7E704D372F7D3B6E00EDF69D /* AssistantTrainingDataSourceAdapter.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -316,7 +315,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 7JBRYHKVUK;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -351,7 +350,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = "";
 				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 7JBRYHKVUK;
 				ENABLE_PREVIEWS = YES;

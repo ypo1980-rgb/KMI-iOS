@@ -34,17 +34,34 @@ final class AttendanceViewModel: ObservableObject {
     }
 
     func setBranchName(_ value: String) {
-        state.branchName = value.trimmed()
+        let clean = value.trimmed()
+        state.branchName = clean
+
+        #if DEBUG
+        print("🟢 VM setBranchName =", clean)
+        #endif
+
         reloadCurrentContext()
     }
 
     func setGroupKey(_ value: String) {
-        state.groupKey = value.trimmed()
+        let clean = value.trimmed()
+        state.groupKey = clean
+
+        #if DEBUG
+        print("🟢 VM setGroupKey =", clean)
+        #endif
+
         reloadCurrentContext()
     }
 
     func setCoachName(_ value: String) {
-        state.coachName = value.trimmed()
+        let clean = value.trimmed()
+        state.coachName = clean
+
+        #if DEBUG
+        print("🟢 VM setCoachName =", clean)
+        #endif
     }
 
     func setAttendanceStatus(memberId: String, status: AttendanceStatus) {
@@ -160,15 +177,79 @@ final class AttendanceViewModel: ObservableObject {
     }
 
     private func reloadCurrentContext() {
-        state.members = repository.loadMembers(
-            ownerUid: state.ownerUid,
-            branchName: state.branchName,
-            groupKey: state.groupKey
-        )
-        reloadRecordsOnly()
-        reloadMonthMarkers()
-    }
+        let ownerUid = state.ownerUid
+        let branchName = state.branchName
+        let groupKey = state.groupKey
+        let repository = self.repository
 
+        #if DEBUG
+        print("🟠 AttendanceVM.reloadCurrentContext ownerUid =", ownerUid)
+        print("🟠 AttendanceVM.reloadCurrentContext branchName =", branchName)
+        print("🟠 AttendanceVM.reloadCurrentContext groupKey =", groupKey)
+        #endif
+
+        Task.detached(priority: nil) {
+            do {
+                let realMembers = try await repository.loadRealMembers(
+                    ownerUid: ownerUid,
+                    branchName: branchName,
+                    groupKey: groupKey
+                )
+
+                await MainActor.run {
+                    #if DEBUG
+                    print("🟠 AttendanceVM.loadRealMembers count =", realMembers.count)
+                    print("🟠 AttendanceVM.loadRealMembers names =", realMembers.map(\.fullName))
+                    #endif
+
+                    if !realMembers.isEmpty {
+                        self.state.members = realMembers
+                    } else {
+                        let fallbackMembers = repository.loadMembers(
+                            ownerUid: ownerUid,
+                            branchName: branchName,
+                            groupKey: groupKey
+                        )
+
+                        #if DEBUG
+                        print("🟠 AttendanceVM.fallbackMembers count =", fallbackMembers.count)
+                        print("🟠 AttendanceVM.fallbackMembers names =", fallbackMembers.map(\.fullName))
+                        #endif
+
+                        self.state.members = fallbackMembers
+                    }
+
+                    self.reloadRecordsOnly()
+                    self.reloadMonthMarkers()
+
+                    #if DEBUG
+                    print("🟠 AttendanceVM.state.members final count =", self.state.members.count)
+                    print("🟠 AttendanceVM.state.summary totalMembers =", self.state.summary.totalMembers)
+                    #endif
+                }
+            } catch {
+                await MainActor.run {
+                    let fallbackMembers = repository.loadMembers(
+                        ownerUid: ownerUid,
+                        branchName: branchName,
+                        groupKey: groupKey
+                    )
+
+                    #if DEBUG
+                    print("🔴 AttendanceVM.loadRealMembers failed =", error.localizedDescription)
+                    print("🔴 AttendanceVM.catch fallbackMembers count =", fallbackMembers.count)
+                    print("🔴 AttendanceVM.catch fallbackMembers names =", fallbackMembers.map(\.fullName))
+                    #endif
+
+                    self.state.members = fallbackMembers
+                    self.reloadRecordsOnly()
+                    self.reloadMonthMarkers()
+                    self.publishMessage("לא נטענו מתאמנים אמיתיים, נטען גיבוי מקומי", isError: true)
+                }
+            }
+        }
+    }
+    
     private func reloadRecordsOnly() {
         let loaded = repository.loadRecords(
             ownerUid: state.ownerUid,

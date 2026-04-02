@@ -8,11 +8,12 @@ struct WeakPointsView: View {
     var body: some View {
         ZStack {
             weakPointsBackground
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 12) {
-                        warningCard
 
-                        smallSectionHeader("מפרקים / אצבעות (כללי)")
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 12) {
+                    warningCard
+
+                    smallSectionHeader("מפרקים / אצבעות (כללי)")
 
                         InfoCard(
                             title: "מפרקים",
@@ -72,12 +73,12 @@ struct WeakPointsView: View {
                         WeakPointRow(place: "עצם הזנב", bodyPart: "חלק תחתון", effect: "האדם לא יכול לשבת (משם ומטה).")
                         WeakPointRow(place: "גיד אכילס", bodyPart: "חלק תחתון", effect: "פגיעה ואי אפשר להזיז את העקב למעלה/למטה.")
 
-                        Spacer(minLength: 16)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                    .padding(.bottom, 24)
+                    Spacer(minLength: 16)
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
+            }
         }
         .navigationBarBackButtonHidden(true)
     }

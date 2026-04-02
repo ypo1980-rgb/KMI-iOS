@@ -1,16 +1,48 @@
 import Foundation
 
+protocol AttendanceRemoteMembersSource {
+    func loadMembers(
+        ownerUid: String,
+        branchName: String,
+        groupKey: String
+    ) async throws -> [AttendanceMember]
+}
+
 final class AttendanceRepository {
 
-    static let shared = AttendanceRepository()
+    static let shared = AttendanceRepository(
+        remoteMembersSource: AttendanceFirestoreMembersSource()
+    )
 
     private let store: AttendanceLocalStore
+    private let remoteMembersSource: AttendanceRemoteMembersSource?
 
-    init(store: AttendanceLocalStore = .shared) {
+    init(
+        store: AttendanceLocalStore = .shared,
+        remoteMembersSource: AttendanceRemoteMembersSource? = nil
+    ) {
         self.store = store
+        self.remoteMembersSource = remoteMembersSource
     }
+    
+    func loadRealMembers(
+        ownerUid: String,
+        branchName: String,
+        groupKey: String
+    ) async throws -> [AttendanceMember] {
+        guard let remoteMembersSource else {
+            return []
+        }
 
-    // MARK: - Members
+        return try await remoteMembersSource.loadMembers(
+            ownerUid: ownerUid,
+            branchName: branchName,
+            groupKey: groupKey
+        )
+        .sorted { $0.fullName < $1.fullName }
+    }
+    
+    // MARK: - Local fallback members (optional only)
 
     func loadMembers(
         ownerUid: String,
@@ -101,7 +133,7 @@ final class AttendanceRepository {
             dateIso: dateIso
         )
     }
-    
+
     // MARK: - Stats / Reports
 
     func reportsLastYear(
@@ -232,7 +264,6 @@ final class AttendanceRepository {
         var streakDays = 0
         var streakOpen = true
 
-        var bestDayCounts: [Int: [String]] = [:]
         var lastSessions: [String] = []
 
         for dateIso in days {
@@ -265,11 +296,7 @@ final class AttendanceRepository {
             }
 
             if isPresent {
-                bestDayCounts[1, default: []].append(dateIso)
-
-                if streakOpen {
-                    streakDays += 1
-                }
+                if streakOpen { streakDays += 1 }
             } else if countsInTotals {
                 streakOpen = false
             }
@@ -278,13 +305,11 @@ final class AttendanceRepository {
         let monthlyPercent = monthTotal > 0 ? Int((Double(monthPresent) / Double(monthTotal)) * 100.0) : 0
         let yearlyPercent = yearTotal > 0 ? Int((Double(yearPresent) / Double(yearTotal)) * 100.0) : 0
 
-        let bestDays = Array((bestDayCounts[1] ?? []).prefix(5))
-
         return AttendanceMemberStats(
             monthlyPercent: monthlyPercent,
             yearlyPercent: yearlyPercent,
             streakDays: streakDays,
-            bestDays: bestDays,
+            bestDays: [],
             lastSessions: lastSessions
         )
     }

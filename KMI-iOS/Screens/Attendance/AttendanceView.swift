@@ -347,10 +347,12 @@ struct AttendanceView: View {
                     .foregroundStyle(.white.opacity(0.75))
                     .frame(maxWidth: .infinity, alignment: .trailing)
             } else {
-                ForEach(vm.state.rows) { row in
+                let uniqueRows = uniqueMembers(vm.state.rows)
+
+                ForEach(uniqueRows) { row in
                     memberRow(row)
 
-                    if row.id != vm.state.rows.last?.id {
+                    if row.id != uniqueRows.last?.id {
                         Divider().overlay(.white.opacity(0.14))
                     }
                 }
@@ -567,6 +569,27 @@ struct AttendanceView: View {
         return Calendar.current.dateComponents([.year, .month, .day], from: date)
     }
 
+    private func uniqueMembers(_ rows: [AttendanceRowUi]) -> [AttendanceRowUi] {
+
+        var unique: [String: AttendanceRowUi] = [:]
+
+        for row in rows {
+
+            let key =
+                row.memberName
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            if unique[key] == nil {
+                unique[key] = row
+            }
+        }
+
+        return unique.values.sorted {
+            $0.memberName.localizedCaseInsensitiveCompare($1.memberName) == .orderedAscending
+        }
+    }
+    
     private func bindingDate() -> Binding<Date> {
         Binding<Date>(
             get: {

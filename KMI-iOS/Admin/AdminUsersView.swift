@@ -36,7 +36,6 @@ struct AdminUsersView: View {
                 .listStyle(.plain)
             }
         }
-        .navigationTitle("ניהול משתמשים")
         .onAppear {
             loadUsers()
         }
@@ -84,18 +83,38 @@ struct AdminUsersView: View {
 
     private var roleFilter: some View {
 
-        Picker("", selection: $selectedRole) {
-
-            Text("כולם").tag(UserRoleFilter.all)
-            Text("מאמנים").tag(UserRoleFilter.coach)
-            Text("מתאמנים").tag(UserRoleFilter.trainee)
-
+        HStack(spacing: 10) {
+            roleFilterButton(title: "כולם", value: .all)
+            roleFilterButton(title: "מאמנים", value: .coach)
+            roleFilterButton(title: "מתאמנים", value: .trainee)
         }
-        .pickerStyle(.segmented)
         .padding(.horizontal)
-        .onChange(of: selectedRole) { _ in
+    }
+
+    private func roleFilterButton(title: String, value: UserRoleFilter) -> some View {
+        Button {
+            selectedRole = value
             applyFilter()
+        } label: {
+            Text(title)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(selectedRole == value ? Color.black.opacity(0.85) : .white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(
+                            selectedRole == value
+                            ? Color.white.opacity(0.95)
+                            : Color.white.opacity(0.14)
+                        )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                )
         }
+        .buttonStyle(.plain)
     }
 
     // MARK: Search
@@ -141,8 +160,28 @@ struct AdminUsersView: View {
 
                 guard let docs = snapshot?.documents else { return }
 
-                users = docs.compactMap { doc in
+                let rawUsers = docs.compactMap { doc in
                     AdminUser.from(doc.data())
+                }
+
+                var uniqueByEmail: [String: AdminUser] = [:]
+
+                for user in rawUsers {
+                    let emailKey = user.email
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased()
+
+                    guard !emailKey.isEmpty else { continue }
+
+                    if let existing = uniqueByEmail[emailKey] {
+                        uniqueByEmail[emailKey] = AdminUser.merged(existing: existing, incoming: user)
+                    } else {
+                        uniqueByEmail[emailKey] = user
+                    }
+                }
+
+                users = uniqueByEmail.values.sorted {
+                    $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending
                 }
 
                 applyFilter()
@@ -201,12 +240,67 @@ struct AdminUser: Identifiable {
             return nil
         }
 
+        let branchesArray =
+            (map["branches"] as? [String])?
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty } ?? []
+
+        let groupsArray =
+            (map["groups"] as? [String])?
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty } ?? []
+
+        let singleBranch =
+            (map["branch"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        let singleGroup =
+            ((map["group"] as? String) ??
+             (map["age_group"] as? String) ??
+             (map["ageGroup"] as? String) ??
+             "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let resolvedBranch = branchesArray.first ?? singleBranch
+        let resolvedGroup = groupsArray.first ?? singleGroup
+
         return AdminUser(
             fullName: fullName,
             email: email,
-            branch: map["branch"] as? String ?? "",
-            group: map["group"] as? String ?? "",
+            branch: resolvedBranch,
+            group: resolvedGroup,
             role: map["role"] as? String ?? "trainee"
         )
+    }
+
+    static func merged(existing: AdminUser, incoming: AdminUser) -> AdminUser {
+        AdminUser(
+            fullName: betterText(existing.fullName, incoming.fullName),
+            email: betterText(existing.email, incoming.email),
+            branch: betterText(existing.branch, incoming.branch),
+            group: betterText(existing.group, incoming.group),
+            role: betterRole(existing.role, incoming.role)
+        )
+    }
+
+    private static func betterText(_ first: String, _ second: String) -> String {
+        let cleanFirst = first.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanSecond = second.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if cleanFirst.isEmpty { return cleanSecond }
+        if cleanSecond.isEmpty { return cleanFirst }
+
+        return cleanSecond.count > cleanFirst.count ? cleanSecond : cleanFirst
+    }
+
+    private static func betterRole(_ first: String, _ second: String) -> String {
+        let cleanFirst = first.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let cleanSecond = second.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        if cleanFirst == "coach" || cleanSecond == "coach" {
+            return "coach"
+        }
+
+        return cleanSecond.isEmpty ? cleanFirst : cleanSecond
     }
 }

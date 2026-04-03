@@ -38,10 +38,10 @@ struct AuthGateView: View {
                     onContinue: {
                         didEnterAuthFlow = true
                         didCompleteAuthScreen = false
-                        step = .loginExistingTrainee
+                        step = .choice
                     }
                 )
-
+                
             } else if !didCompleteAuthScreen {
 
                 authFlowStack
@@ -67,7 +67,7 @@ struct AuthGateView: View {
 
             didEnterAuthFlow = false
             didCompleteAuthScreen = false
-            step = .loginExistingTrainee
+            step = .choice
             nav.popToRoot()
             auth.start()
 
@@ -101,10 +101,8 @@ struct AuthGateView: View {
                         selectedIcon: nil
                     ) {
                         RegistrationChoiceView(
-                            onNewUserTrainee: { step = .registerNewTrainee },
-                            onExistingUserTrainee: { step = .loginExistingTrainee },
-                            onNewUserCoach: { step = .registerNewCoach },
-                            onExistingUserCoach: { step = .loginExistingCoach }
+                            onNewUser: { step = .registerNewTrainee },
+                            onExistingUser: { step = .loginExistingTrainee }
                         )
                     }
 

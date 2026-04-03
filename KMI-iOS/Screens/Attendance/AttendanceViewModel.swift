@@ -203,22 +203,22 @@ final class AttendanceViewModel: ObservableObject {
                     #endif
 
                     if !realMembers.isEmpty {
-                        self.state.members = realMembers
-                    } else {
-                        let fallbackMembers = repository.loadMembers(
-                            ownerUid: ownerUid,
-                            branchName: branchName,
-                            groupKey: groupKey
-                        )
-
+                                          self.state.members = realMembers
+                                      } else {
+                                          let fallbackMembers =
+                                              repository.loadMembers(
+                                                  ownerUid: ownerUid,
+                                                  branchName: branchName,
+                                                  groupKey: groupKey
+                                              )
+ 
                         #if DEBUG
                         print("🟠 AttendanceVM.fallbackMembers count =", fallbackMembers.count)
                         print("🟠 AttendanceVM.fallbackMembers names =", fallbackMembers.map(\.fullName))
                         #endif
 
-                        self.state.members = fallbackMembers
-                    }
-
+                                          self.state.members = fallbackMembers
+                                                              }
                     self.reloadRecordsOnly()
                     self.reloadMonthMarkers()
 
@@ -306,6 +306,27 @@ final class AttendanceViewModel: ObservableObject {
         f.dateFormat = "yyyy-MM-dd"
         guard let date = f.date(from: iso) else { return DateComponents() }
         return Calendar.current.dateComponents([.year, .month, .day], from: date)
+    }
+}
+
+private func uniqueMembers(_ members: [AttendanceMember]) -> [AttendanceMember] {
+
+    var unique: [String: AttendanceMember] = [:]
+
+    for member in members {
+
+        let key =
+            member.fullName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if unique[key] == nil {
+            unique[key] = member
+        }
+    }
+
+    return unique.values.sorted {
+        $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending
     }
 }
 

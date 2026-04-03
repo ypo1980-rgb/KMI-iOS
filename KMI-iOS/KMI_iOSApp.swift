@@ -59,13 +59,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 struct KMI_iOSApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
 
-    init() {
-        if FirebaseApp.app() == nil {
-            FirebaseApp.configure()
-            print("✅ Firebase configured from App.init")
-        }
-    }
-
     var body: some Scene {
         WindowGroup {
             BirthdayGate {

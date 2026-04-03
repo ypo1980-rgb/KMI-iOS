@@ -260,28 +260,7 @@ struct HomeView: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 18)
                 
-                    Button {
-                        nav.push(.progress)
-                    } label: {
-                        Text("התקדמות לפי חגורות")
-                            .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .fill(Color.white.opacity(0.14))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .stroke(Color.white.opacity(0.20), lineWidth: 1)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 18)
-                    .padding(.bottom, 22)
-
-                    Spacer(minLength: 120)
+                Spacer(minLength: 120)
                 }
             }
 
@@ -378,7 +357,7 @@ struct HomeView: View {
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-            .padding(.bottom, 22)
+            .padding(.bottom, 60)
         }
         .task {
             trainingsVm.loadForCurrentUser(auth: auth)

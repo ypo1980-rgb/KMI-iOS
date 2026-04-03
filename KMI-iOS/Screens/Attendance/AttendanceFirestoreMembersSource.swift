@@ -31,7 +31,7 @@ let db = Firestore.firestore()
 print("🟣 FirestoreMembersSource trainee docs =", snap.documents.count)
 #endif
 
-        let members: [AttendanceMember] = snap.documents.compactMap { doc in
+        let rawMembers: [(key: String, member: AttendanceMember)] = snap.documents.compactMap { doc in
             let data = doc.data()
 
             let fullName =
@@ -40,11 +40,20 @@ print("🟣 FirestoreMembersSource trainee docs =", snap.documents.count)
                  "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
+            let email =
+                ((data["email"] as? String) ??
+                 (data["emailLower"] as? String) ??
+                 "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
             let phone =
                 ((data["phone"] as? String) ??
                  (data["phoneNumber"] as? String) ??
                  "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let normalizedPhone = phone.filter { $0.isNumber }
 
             let branchesArray =
                 (data["branches"] as? [String])?
@@ -79,45 +88,81 @@ print("🟣 FirestoreMembersSource trainee docs =", snap.documents.count)
 #if DEBUG
 print("🟣 FirestoreMembersSource doc =", doc.documentID)
 print("🟣   fullName =", fullName)
+print("🟣   email =", email)
+print("🟣   normalizedPhone =", normalizedPhone)
 print("🟣   resolvedBranches =", resolvedBranches)
 print("🟣   resolvedGroups =", resolvedGroups)
 #endif
 
-guard !fullName.isEmpty else {
-    return nil
-}
+            guard !fullName.isEmpty else {
+                return nil
+            }
 
-if !branchClean.isEmpty, !resolvedBranches.contains(branchClean) {
-    #if DEBUG
-    print("🟣   skipped by branch filter")
-    #endif
-    return nil
-}
+            if !branchClean.isEmpty, !resolvedBranches.contains(branchClean) {
+                #if DEBUG
+                print("🟣   skipped by branch filter")
+                #endif
+                return nil
+            }
 
-if !groupClean.isEmpty, !resolvedGroups.contains(groupClean) {
-    #if DEBUG
-    print("🟣   skipped by group filter")
-    #endif
-    return nil
-}
+            if !groupClean.isEmpty, !resolvedGroups.contains(groupClean) {
+                #if DEBUG
+                print("🟣   skipped by group filter")
+                #endif
+                return nil
+            }
+
+            let uniqueKey: String = {
+                if !email.isEmpty {
+                    return "email:\(email)"
+                }
+
+                if !normalizedPhone.isEmpty {
+                    return "phone:\(normalizedPhone)"
+                }
+
+                return "name:\(fullName.lowercased())"
+            }()
 
 #if DEBUG
-print("🟣   included member")
+print("🟣   included member key =", uniqueKey)
 #endif
 
-return AttendanceMember(
-                id: doc.documentID,
-                fullName: fullName,
-                phone: phone,
-                notes: ""
+            return (
+                key: uniqueKey,
+                member: AttendanceMember(
+                    id: doc.documentID,
+                    fullName: fullName,
+                    phone: phone,
+                    notes: ""
+                )
             )
         }
 
+        var uniqueMembers: [String: AttendanceMember] = [:]
+
+        for item in rawMembers {
+            if let existing = uniqueMembers[item.key] {
+                let existingPhone = existing.phone.trimmingCharacters(in: .whitespacesAndNewlines)
+                let incomingPhone = item.member.phone.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                if existingPhone.isEmpty && !incomingPhone.isEmpty {
+                    uniqueMembers[item.key] = item.member
+                }
+            } else {
+                uniqueMembers[item.key] = item.member
+            }
+        }
+
+        let members = uniqueMembers.values.sorted {
+            $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending
+        }
+
         #if DEBUG
-        print("🟣 FirestoreMembersSource final members count =", members.count)
-        print("🟣 FirestoreMembersSource final members names =", members.map(\.fullName))
+        print("🟣 FirestoreMembersSource final unique members count =", members.count)
+        print("🟣 FirestoreMembersSource final unique members names =", members.map(\.fullName))
         #endif
 
-        return members.sorted { $0.fullName < $1.fullName }
+        return members
     }
 }

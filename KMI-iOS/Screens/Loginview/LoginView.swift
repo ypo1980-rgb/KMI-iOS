@@ -50,6 +50,36 @@ struct LoginView: View {
             LoginGradientBackground()
 
             VStack(spacing: 0) {
+                AuthTopBar(
+                    title: "התחברות",
+                    onBack: onBackToChoice
+                )
+
+                KmiIconStripBar(
+                    items: KmiIconStripItem.allCases,
+                    selected: nil
+                ) { item in
+                    switch item {
+                    case .home:
+                        onBackToChoice()
+
+                    case .settings:
+                        break
+
+                    case .search:
+                        break
+
+                    case .share:
+                        break
+
+                    case .assistant:
+                        break
+                    }
+                }
+                .background(Color.white.opacity(0.92))
+
+                Spacer()
+
                 VStack(spacing: 14) {
 
                     RoleTabs(
@@ -60,7 +90,6 @@ struct LoginView: View {
                             role = (sel == .left ? .coach : .trainee)
                         }
                     )
-                    .padding(.top, 14)
 
                     FormCard {
                         VStack(spacing: 14) {
@@ -169,13 +198,14 @@ struct LoginView: View {
                         .padding(.vertical, 18)
                         .padding(.horizontal, 16)
                     }
-
-                    Spacer(minLength: 0)
-
-                    FooterText()
-                        .padding(.bottom, 14)
                 }
                 .padding(.horizontal, 18)
+
+                Spacer()
+            }
+            .overlay(alignment: .bottom) {
+                FooterText()
+                    .padding(.bottom, 14)
             }
         }
         .navigationBarBackButtonHidden()

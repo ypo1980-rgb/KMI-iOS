@@ -34,12 +34,29 @@ final class AttendanceRepository {
             return []
         }
 
-        return try await remoteMembersSource.loadMembers(
+        let members = try await remoteMembersSource.loadMembers(
             ownerUid: ownerUid,
             branchName: branchName,
             groupKey: groupKey
         )
-        .sorted { $0.fullName < $1.fullName }
+
+        var unique: [String: AttendanceMember] = [:]
+
+        for member in members {
+
+            let key =
+                member.fullName
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            if unique[key] == nil {
+                unique[key] = member
+            }
+        }
+
+        return unique.values.sorted {
+            $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending
+        }
     }
     
     // MARK: - Local fallback members (optional only)

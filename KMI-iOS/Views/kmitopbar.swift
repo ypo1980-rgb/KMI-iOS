@@ -68,11 +68,11 @@ struct KmiTopBar: View {
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.top, 10)
+            .padding(.bottom, 0)
         }
-        .frame(height: 60)
+        .frame(height: 50)
         .background(Color.white.opacity(0.92))
-        .ignoresSafeArea(edges: .top)
     }
 }
 
@@ -284,8 +284,6 @@ struct KmiRootLayout<Content: View>: View {
                         ) { item in
                             onGlobalIconTap(item)
                         }
-                        .padding(.top, 6)
-                        .padding(.bottom, 8)
 
                         Divider()
                             .opacity(0.18)

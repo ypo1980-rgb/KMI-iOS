@@ -2,10 +2,8 @@ import SwiftUI
 
 struct RegistrationChoiceView: View {
 
-    let onNewUserTrainee: () -> Void
-    let onExistingUserTrainee: () -> Void
-    let onNewUserCoach: () -> Void
-    let onExistingUserCoach: () -> Void
+    let onNewUser: () -> Void
+    let onExistingUser: () -> Void
 
     private let bannerHeight: CGFloat = 220
 
@@ -27,11 +25,9 @@ struct RegistrationChoiceView: View {
 
                 Spacer().frame(height: 24)
 
-                VStack(spacing: 14) {
-                    BigChoiceButton(title: "משתמש חדש – מתאמן", action: onNewUserTrainee)
-                    BigChoiceButton(title: "משתמש קיים – מתאמן", action: onExistingUserTrainee)
-                    BigChoiceButton(title: "משתמש חדש – מאמן", action: onNewUserCoach)
-                    BigChoiceButton(title: "משתמש קיים – מאמן", action: onExistingUserCoach)
+                VStack(spacing: 24) {
+                    BigChoiceButton(title: "משתמש חדש", action: onNewUser)
+                    BigChoiceButton(title: "משתמש קיים", action: onExistingUser)
                 }
                 .padding(.horizontal, 28)
 

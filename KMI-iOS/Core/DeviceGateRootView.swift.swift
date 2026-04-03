@@ -7,7 +7,9 @@ struct DeviceGateRootView<Content: View>: View {
 
     var body: some View {
         Group {
-            if gate.isChecking {
+            if Auth.auth().currentUser == nil {
+                content()
+            } else if gate.isChecking {
                 ProgressView("בודק הרשאת מכשיר...")
             } else if gate.isAuthorized {
                 content()
@@ -17,7 +19,7 @@ struct DeviceGateRootView<Content: View>: View {
                 )
             }
         }
-        .task {
+        .task(id: Auth.auth().currentUser?.uid) {
             if Auth.auth().currentUser != nil {
                 await gate.verifyCurrentSession()
             }

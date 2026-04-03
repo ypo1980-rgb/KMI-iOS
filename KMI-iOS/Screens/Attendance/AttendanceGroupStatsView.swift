@@ -56,6 +56,15 @@ struct AttendanceGroupStatsView: View {
         .navigationTitle("סטטיסטיקת קבוצה")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            syncIncomingFilters()
+            reload()
+        }
+        .onChange(of: initialBranchName) { _ in
+            syncIncomingFilters()
+            reload()
+        }
+        .onChange(of: initialGroupKey) { _ in
+            syncIncomingFilters()
             reload()
         }
     }
@@ -195,6 +204,30 @@ struct AttendanceGroupStatsView: View {
             branchName: cleanBranch,
             groupKey: cleanGroup
         )
+    }
+
+    private func syncIncomingFilters() {
+        let cleanInitialBranch = initialBranchName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanInitialGroup = initialGroupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let cleanCurrentBranch = branchName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanCurrentGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !cleanInitialBranch.isEmpty && cleanInitialBranch != cleanCurrentBranch {
+            branchName = initialBranchName
+        }
+
+        if !cleanInitialGroup.isEmpty && cleanInitialGroup != cleanCurrentGroup {
+            groupKey = initialGroupKey
+        }
+
+        #if DEBUG
+        print("📊 STATS syncIncomingFilters ownerUid =", ownerUid)
+        print("📊 STATS syncIncomingFilters initialBranch =", initialBranchName)
+        print("📊 STATS syncIncomingFilters initialGroup =", initialGroupKey)
+        print("📊 STATS syncIncomingFilters branchName =", branchName)
+        print("📊 STATS syncIncomingFilters groupKey =", groupKey)
+        #endif
     }
 
     private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {

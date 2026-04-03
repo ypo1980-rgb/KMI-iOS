@@ -443,7 +443,14 @@ private func ensureUserProfileDocumentExists(
         do {
             let loginEmail: String
 
-            if rawId.contains("@") {
+            let isEmail: Bool = {
+                let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+                let range = NSRange(location: 0, length: rawId.utf16.count)
+                let matches = detector?.matches(in: rawId, options: [], range: range) ?? []
+                return matches.first?.url?.scheme == "mailto"
+            }()
+
+            if isEmail {
                 loginEmail = rawId.lowercased()
             } else {
                 let db = Firestore.firestore()
@@ -507,11 +514,11 @@ private func ensureUserProfileDocumentExists(
                     try? Auth.auth().signOut()
                     return false
                 }
-            } else {
-                if serverRole != wantedRole {
-                    errorText = wantedRole == "coach"
-                        ? "המשתמש אינו מוגדר כמאמן"
-                        : "המשתמש אינו מוגדר כמתאמן"
+            } else if wantedRole == "trainee" {
+                // ✅ מאפשר גם לחשבון מאמן להיכנס במצב מתאמן
+                // חסימה תבוצע רק אם בעתיד יהיה תפקיד לא מזוהה או לא תקין
+                if serverRole != "trainee" && serverRole != "coach" && serverRole != "trainer" {
+                    errorText = "המשתמש אינו מוגדר כמתאמן"
                     try? Auth.auth().signOut()
                     return false
                 }
@@ -563,10 +570,34 @@ private func ensureUserProfileDocumentExists(
             return true
 
         } catch {
-            errorText = error.localizedDescription
+
+            if let nsError = error as NSError? {
+
+                switch nsError.code {
+
+                case AuthErrorCode.userNotFound.rawValue:
+                    errorText = "המשתמש לא נמצא במערכת"
+
+                case AuthErrorCode.wrongPassword.rawValue:
+                    errorText = "סיסמה שגויה"
+
+                case AuthErrorCode.invalidEmail.rawValue:
+                    errorText = "כתובת האימייל אינה תקינה"
+
+                case AuthErrorCode.invalidCredential.rawValue:
+                    errorText = "שם משתמש או סיסמה שגויים"
+
+                default:
+                    errorText = nsError.localizedDescription
+                }
+
+            } else {
+                errorText = error.localizedDescription
+            }
+
             return false
         }
-        #else
+#else
         errorText = "FirebaseFirestore לא מותקן בפרויקט"
         return false
         #endif
@@ -674,8 +705,11 @@ private func ensureUserProfileDocumentExists(
 
     // MARK: - Registration (Auth + Profile Save)
     func registerAndSaveProfile(form: RegistrationFormState) async {
-        errorText = nil
 
+        // מונע לחיצה כפולה על הרשמה
+        if isLoading { return }
+
+        errorText = nil
         let email = form.emailTrimmed
         let password = form.password.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -833,7 +867,19 @@ await loadUserProfile(uid: uid)
             #if DEBUG
             print("🔴 registerAndSaveProfile: auth/create failed: \(error.localizedDescription)")
             #endif
-            self.errorText = error.localizedDescription
+
+            if let nsError = error as NSError?,
+               nsError.code == AuthErrorCode.emailAlreadyInUse.rawValue {
+
+                self.errorText = "האימייל כבר רשום. מעבירים למסך התחברות..."
+
+                #if canImport(FirebaseAuth)
+                try? Auth.auth().signOut()
+                #endif
+
+            } else {
+                self.errorText = error.localizedDescription
+            }
         }
         
         #else

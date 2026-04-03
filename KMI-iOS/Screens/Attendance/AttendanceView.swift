@@ -243,36 +243,32 @@ struct AttendanceView: View {
 
     private var contextCard: some View {
         card {
-            sectionHeader("פרטי הדו״ח", subtitle: formattedDate(vm.state.dateIso))
+            sectionHeader("פרטי הדו״ח", subtitle: "")
 
-            DatePicker(
-                "תאריך אימון",
-                selection: bindingDate(),
-                displayedComponents: .date
-            )
-            .datePickerStyle(.compact)
-            .environment(\.locale, Locale(identifier: "he_IL"))
+            VStack(alignment: .trailing, spacing: 10) {
+                HStack {
+                    Text(formattedDate(vm.state.dateIso))
+                        .font(.system(size: 22, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
 
-            TextField("סניף", text: Binding(
-                get: { vm.state.branchName },
-                set: { vm.setBranchName($0) }
-            ))
-            .textFieldStyle(.roundedBorder)
-            .multilineTextAlignment(.trailing)
+                    Text("תאריך אימון")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.78))
+                }
 
-            TextField("קבוצה", text: Binding(
-                get: { vm.state.groupKey },
-                set: { vm.setGroupKey($0) }
-            ))
-            .textFieldStyle(.roundedBorder)
-            .multilineTextAlignment(.trailing)
+                VStack(spacing: 0) {
+                    readonlyInfoRow(value: vm.state.branchName, placeholder: "לא נבחר סניף")
+                    Divider().overlay(.white.opacity(0.10))
 
-            TextField("מאמן", text: Binding(
-                get: { vm.state.coachName },
-                set: { vm.setCoachName($0) }
-            ))
-            .textFieldStyle(.roundedBorder)
-            .multilineTextAlignment(.trailing)
+                    readonlyInfoRow(value: vm.state.groupKey, placeholder: "לא נבחרה קבוצה")
+                    Divider().overlay(.white.opacity(0.10))
+
+                    readonlyInfoRow(value: vm.state.coachName, placeholder: "לא נבחר מאמן")
+                }
+                .background(Color.white.opacity(0.96))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
 
             if !vm.state.reportDaysInMonth.isEmpty {
                 Text("בחודש הנוכחי קיימים \(vm.state.reportDaysInMonth.count) ימים עם דו״ח שמור")
@@ -504,6 +500,20 @@ struct AttendanceView: View {
         .padding(.vertical, 10)
         .background(Color.white.opacity(0.10))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func readonlyInfoRow(value: String, placeholder: String) -> some View {
+        let cleanValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return HStack {
+            Text(cleanValue.isEmpty ? placeholder : cleanValue)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(cleanValue.isEmpty ? Color.gray : Color.black)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func shareReport() {

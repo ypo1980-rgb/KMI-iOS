@@ -1,9 +1,3 @@
-//
-//  LegalView.swift
-//  KMI-iOS
-//
-//  Created by יובל פולק on 28/02/2026.
-//
 import SwiftUI
 
 // MARK: - LegalView (iOS mirror of Android LegalScreen)

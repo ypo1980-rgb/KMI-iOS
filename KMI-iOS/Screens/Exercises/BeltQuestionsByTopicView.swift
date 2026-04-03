@@ -13,7 +13,6 @@ struct BeltQuestionsByTopicView: View {
     @EnvironmentObject private var nav: AppNavModel
     private let catalog = CatalogData.shared.data
 
-    @State private var goExercisesCatalog: Bool = false
     @State private var pickedMainTopic: MainTopic? = nil
     @State private var goSubTopics: Bool = false
     @State private var pickedSectionedSubject: SubjectTopic? = nil
@@ -82,12 +81,6 @@ struct BeltQuestionsByTopicView: View {
                 ]
             )
 
-        if subjectHasVisibleContentInAnyBelt(rollsSubject) {
-            out.append(
-                MainTopic(id: "topic_breakfalls_rolls", titleHeb: "בלימות וגלגולים", subjects: [rollsSubject])
-            )
-        }
-        
         // ✅ עמידת מוצא
         let readySubject =
             firstVisible(
@@ -108,12 +101,6 @@ struct BeltQuestionsByTopicView: View {
                 ]
             )
 
-        if subjectHasVisibleContent(readySubject, for: belt) {
-            out.append(
-                MainTopic(id: "topic_ready_stance", titleHeb: "עמידת מוצא", subjects: [readySubject])
-            )
-        }
-        
         // ✅ הכנה לקרקע
         let groundSubject =
             firstVisible(
@@ -133,75 +120,115 @@ struct BeltQuestionsByTopicView: View {
                 ]
             )
 
-        if subjectHasVisibleContent(groundSubject, for: belt) {
-            out.append(
-                MainTopic(id: "topic_ground_prep", titleHeb: "הכנה לעבודת קרקע",
-                          subjects: [groundSubject])
-            )
-        }
-        
-        // ✅ קאוול
+        // ✅ קאוולר
         let kawalSubject =
             firstVisible(
                 ids: ["topic_kawalr", "topic_kawal", "kawalr", "kawal"],
-                exactTitles: ["קאוול", "קאוולר"],
-                titleContains: ["קאוול"]
+                exactTitles: ["קאוולר", "קאוול"],
+                titleContains: ["קאוול", "קאוולר"]
             )
             ?? syntheticSubject(
                 id: "topic_kawalr",
-                titleHeb: "קאוול",
+                titleHeb: "קאוולר",
                 topicsByBelt: [
-                    .orange: ["קאוול"],
-                    .green: ["קאוול"],
-                    .blue: ["קאוול"],
-                    .brown: ["קאוול"],
-                    .black: ["קאוול"]
+                    .green: ["קאוולר", "קאוול"],
+                    .blue: ["קאוולר", "קאוול"],
+                    .brown: ["קאוולר", "קאוול"],
+                    .black: ["קאוולר", "קאוול"]
                 ]
             )
 
-        if subjectHasVisibleContent(kawalSubject, for: belt) {
-            out.append(
-                MainTopic(id: "topic_kawalr", titleHeb: "קאוולר", subjects: [kawalSubject])
-            )
-        }
-        
-        // ✅ עבודת ידיים (root)
-        if !handsRootSubjects.isEmpty {
-            out.append(
-                MainTopic(id: "hands_root", titleHeb: "עבודת ידיים", subjects: handsRootSubjects)
-            )
+        // ✅ שחרורים
+        let releasesSubjects = visibleSubjects.filter {
+            ["releases", "releases_hugs", "body_hugs", "grabs_releases"].contains($0.id)
+                || $0.titleHeb.contains("שחרור")
+                || $0.titleHeb.contains("חביק")
+                || $0.titleHeb.contains("אחיזה")
         }
 
-        // ✅ הגנות (root)
+        // ✅ בעיטות
+        let kicksSubject =
+            firstVisible(
+                ids: ["kicks", "topic_kicks"],
+                exactTitles: ["בעיטות"],
+                titleContains: []
+            )
+            ?? syntheticSubject(
+                id: "topic_kicks",
+                titleHeb: "בעיטות",
+                topicsByBelt: [
+                    .yellow: ["בעיטות"],
+                    .orange: ["בעיטות"],
+                    .green: ["בעיטות"],
+                    .blue: ["בעיטות"],
+                    .brown: ["בעיטות"],
+                    .black: ["בעיטות"]
+                ]
+            )
+
+        // ✅ הטלות
+        let throwsSubjects = visibleSubjects.filter {
+            $0.titleHeb.contains("הטלה") ||
+            $0.titleHeb.contains("הטלות")
+        }
+
+        // ✅ סדר כמו באנדרואיד:
+        // הגנות -> עבודת ידיים -> שחרורים -> בלימות -> עמידת מוצא -> הכנה לעבודת קרקע -> קאוולר -> בעיטות -> הטלות
+
         if !defenseRootSubjects.isEmpty {
             out.append(
                 MainTopic(id: "defenses_root", titleHeb: "הגנות", subjects: defenseRootSubjects)
             )
         }
 
-        // ✅ שחרורים
-        let releasesSubjects = visibleSubjects.filter {
-            ["releases", "releases_hugs", "body_hugs"].contains($0.id)
-                || $0.titleHeb.contains("שחרור")
-                || $0.titleHeb.contains("חביק")
+        if !handsRootSubjects.isEmpty {
+            out.append(
+                MainTopic(id: "hands_root", titleHeb: "עבודת ידיים", subjects: handsRootSubjects)
+            )
         }
+
         if !releasesSubjects.isEmpty {
             out.append(
                 MainTopic(id: "releases_root", titleHeb: "שחרורים", subjects: releasesSubjects)
             )
         }
 
-        // ✅ בעיטות
-        if let kicks = firstVisible(
-            ids: ["kicks", "topic_kicks"],
-            exactTitles: ["בעיטות"],
-            titleContains: []
-        ) {
+        if subjectHasVisibleContentInAnyBelt(rollsSubject) {
             out.append(
-                MainTopic(id: "kicks_root", titleHeb: "בעיטות", subjects: [kicks])
+                MainTopic(id: "topic_breakfalls_rolls", titleHeb: "בלימות וגלגולים", subjects: [rollsSubject])
             )
         }
-        
+
+        if subjectHasVisibleContentInAnyBelt(readySubject) {
+            out.append(
+                MainTopic(id: "topic_ready_stance", titleHeb: "עמידת מוצא", subjects: [readySubject])
+            )
+        }
+
+        if subjectHasVisibleContentInAnyBelt(groundSubject) {
+            out.append(
+                MainTopic(id: "topic_ground_prep", titleHeb: "הכנה לעבודת קרקע", subjects: [groundSubject])
+            )
+        }
+
+        if subjectHasVisibleContentInAnyBelt(kawalSubject) {
+            out.append(
+                MainTopic(id: "topic_kawalr", titleHeb: "קאוולר", subjects: [kawalSubject])
+            )
+        }
+
+        if subjectHasVisibleContentInAnyBelt(kicksSubject) {
+            out.append(
+                MainTopic(id: "kicks_root", titleHeb: "בעיטות", subjects: [kicksSubject])
+            )
+        }
+
+        if !throwsSubjects.isEmpty {
+            out.append(
+                MainTopic(id: "throws_root", titleHeb: "הטלות", subjects: throwsSubjects)
+            )
+        }
+
         return out
     }
     
@@ -245,7 +272,7 @@ struct BeltQuestionsByTopicView: View {
                     .frame(width: 8)
             }
             .padding(.horizontal, 15)
-            .padding(.vertical, 13)
+            .padding(.vertical, 11)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 17, style: .continuous)
@@ -585,61 +612,19 @@ struct BeltQuestionsByTopicView: View {
                 .padding(.horizontal, 18)
                 .padding(.top, 10)
 
-                Button {
-                    triggerTapHaptic()
-                    goExercisesCatalog = true
-                } label: {
-                    WhiteCard {
-                        HStack(spacing: 14) {
-                            Image(systemName: "list.bullet.rectangle")
-                                .font(.system(size: 22, weight: .bold))
-                                .foregroundStyle(Color.black.opacity(0.72))
-
-                            VStack(alignment: .trailing, spacing: 5) {
-                                Text("כל התרגילים")
-                                    .font(.system(size: 20, weight: .heavy))
-                                    .foregroundStyle(Color.black.opacity(0.84))
-                                    .frame(maxWidth: .infinity, alignment: .trailing)
-
-                                Text("רשימה מלאה לפי חגורה (כולל חיפוש)")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(Color.black.opacity(0.55))
-                                    .frame(maxWidth: .infinity, alignment: .trailing)
-                            }
-
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundStyle(Color.black.opacity(0.30))
-                        }
-                        .padding(.vertical, 14)
-                        .padding(.horizontal, 14)
-                    }
-                    .scaleEffect(0.998)
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 18)
-                .padding(.top, 10)
 
                 ScrollView {
                     VStack(spacing: 14) {
 
-                        VStack(spacing: 6) {
-                            Text("אימון לפי נושא")
-                                .font(.system(size: 26, weight: .heavy))
-                                .foregroundStyle(Color.white)
-
-                            Text("בחר נושא להתקדמות באימון")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(Color.white.opacity(0.75))
-                        }
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.top, 6)
+                        EmptyView()
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.top, 0)
 
                         WhiteCard {
                             VStack(alignment: .trailing, spacing: 14) {
 
-                                Text("נושאים")
-                                    .font(.system(size: 21, weight: .heavy))
+                                Text("נושאים (קטגוריות)")
+                                    .font(.system(size: 24, weight: .heavy))
                                     .foregroundStyle(Color.black.opacity(0.84))
                                     .frame(maxWidth: .infinity, alignment: .trailing)
 
@@ -688,15 +673,15 @@ struct BeltQuestionsByTopicView: View {
 
                         Spacer(minLength: 18)
                     }
-                    .padding(.top, 12)
+                    .padding(.top, 6)
                     .padding(.bottom, 22)
                 }
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(isPresented: $goExercisesCatalog) {
-            ExercisesCatalogView()
-        }
+
+        // navigation לקטלוג הוסר – אין שימוש במסך "כל התרגילים"
+
         .navigationDestination(item: $pickedAcrossBeltsSubject) { subject in
             SubjectAcrossBeltsView(
                 subject: subject,

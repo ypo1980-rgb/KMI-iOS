@@ -9,6 +9,8 @@ final class AuthDeviceGate: ObservableObject {
     @Published private(set) var isAuthorized = false
     @Published private(set) var blockMessage: String?
 
+    private let authorizedUidKey = "kmi.device.authorized.uid"
+
     private init() {}
 
     private func displayMessage(for reason: String?) -> String {
@@ -35,20 +37,6 @@ final class AuthDeviceGate: ObservableObject {
     }
 
     func verifyCurrentSession() async {
-        await MainActor.run {
-            self.isChecking = true
-            self.blockMessage = nil
-        }
-
-        guard Auth.auth().currentUser != nil else {
-            await MainActor.run {
-                self.isAuthorized = false
-                self.blockMessage = "אין משתמש מחובר"
-                self.isChecking = false
-            }
-            return
-        }
-
         guard let user = Auth.auth().currentUser else {
             await MainActor.run {
                 self.isAuthorized = false
@@ -56,6 +44,24 @@ final class AuthDeviceGate: ObservableObject {
                 self.isChecking = false
             }
             return
+        }
+
+        let defaults = UserDefaults.standard
+        let cachedAuthorizedUid = defaults.string(forKey: authorizedUidKey)
+
+        // אם אותו משתמש כבר אושר במכשיר הזה – לא בודקים שוב מול השרת
+        if cachedAuthorizedUid == user.uid {
+            await MainActor.run {
+                self.isAuthorized = true
+                self.blockMessage = nil
+                self.isChecking = false
+            }
+            return
+        }
+
+        await MainActor.run {
+            self.isChecking = true
+            self.blockMessage = nil
         }
 
         print("KMI_AUTH email =", user.email ?? "nil")
@@ -66,10 +72,12 @@ final class AuthDeviceGate: ObservableObject {
         await MainActor.run {
             switch result {
             case .allowed:
+                defaults.set(user.uid, forKey: self.authorizedUidKey)
                 self.isAuthorized = true
                 self.blockMessage = nil
 
             case .denied(let reason):
+                defaults.removeObject(forKey: self.authorizedUidKey)
                 self.isAuthorized = false
                 self.blockMessage = self.displayMessage(for: reason)
 

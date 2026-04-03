@@ -78,8 +78,6 @@ struct LoginView: View {
                 }
                 .background(Color.white.opacity(0.92))
 
-                Spacer()
-
                 VStack(spacing: 14) {
 
                     RoleTabs(
@@ -199,6 +197,7 @@ struct LoginView: View {
                         .padding(.horizontal, 16)
                     }
                 }
+                .padding(.top, 18)
                 .padding(.horizontal, 18)
 
                 Spacer()

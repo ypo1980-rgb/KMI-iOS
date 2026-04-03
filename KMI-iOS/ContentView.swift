@@ -557,14 +557,14 @@ struct ContentView: View {
                             }
                         }
                         
-                // ✅ fallback כדי שלא יהיה לבן
-                default:
-                    ZStack {
-                        Color.white.ignoresSafeArea()
-                        Text("Unhandled route: \(String(describing: route))")
-                            .foregroundStyle(.black)
-                            .padding()
-                    }
+                        // ✅ fallback כדי שלא יהיה לבן
+                        default:
+                            ZStack {
+                                KmiBackground()
+                                Text("Unhandled route: \(String(describing: route))")
+                                    .foregroundStyle(.white)
+                                    .padding()
+                            }
                     }
                 }
             }

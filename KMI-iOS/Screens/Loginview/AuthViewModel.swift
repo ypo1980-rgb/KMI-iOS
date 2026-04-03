@@ -49,6 +49,9 @@ final class AuthViewModel: ObservableObject {
     func forceSignOutForFreshLogin() {
         isSignedIn = false
 
+        // מנקה cache של הרשאת מכשיר
+        UserDefaults.standard.removeObject(forKey: "kmi.device.authorized.uid")
+
         #if canImport(FirebaseAuth)
         do {
             try Auth.auth().signOut()
@@ -691,6 +694,9 @@ private func ensureUserProfileDocumentExists(
 
     func signOut() {
         errorText = nil
+
+        // מנקה הרשאת מכשיר כדי שמשתמש חדש ייבדק
+        UserDefaults.standard.removeObject(forKey: "kmi.device.authorized.uid")
 
         #if canImport(FirebaseAuth)
         do {

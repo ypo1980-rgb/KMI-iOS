@@ -157,10 +157,24 @@ struct BeltQuestionsByBeltView: View {
     }
 
     private func nextBelt(after registered: Belt) -> Belt {
-        let base: Belt = (registered == .white) ? .yellow : registered
-        guard let idx = belts.firstIndex(of: base) else { return .orange }
-        let nextIdx = min(idx + 1, belts.count - 1)
-        return belts[nextIdx]
+        switch registered {
+        case .white:
+            return .yellow
+        case .yellow:
+            return .orange
+        case .orange:
+            return .green
+        case .green:
+            return .blue
+        case .blue:
+            return .brown
+        case .brown:
+            return .black
+        case .black:
+            return .black
+        default:
+            return .orange
+        }
     }
 
     private func toSharedSubject(_ local: SubjectTopic) -> Shared.SubjectTopic {
@@ -419,10 +433,10 @@ struct BeltQuestionsByBeltView: View {
                     belts: belts,
                     selectedBelt: $selectedBelt
                 )
-                .frame(height: 124)
-                .padding(.horizontal, 34)
-                .padding(.bottom, 92)
+                .frame(width: 330, height: 124)
+                .padding(.bottom, 22)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .zIndex(2.2)
             .allowsHitTesting(!quickMenuOpen)
 
@@ -464,7 +478,13 @@ struct BeltQuestionsByBeltView: View {
         }
         .onAppear {
             guard !didInitializeSelectedBelt else { return }
-            selectedBelt = (belt == .white) ? .yellow : belt
+
+            if belts.contains(belt) {
+                selectedBelt = belt
+            } else {
+                selectedBelt = .orange
+            }
+
             didInitializeSelectedBelt = true
         }
         .navigationDestination(item: $selectedLinkedTopicRoute) { route in
@@ -660,7 +680,7 @@ private struct BeltQuickMenuOverlay: View {
                     .buttonStyle(.plain)
                     .zIndex(3)
                     .padding(.trailing, 18)
-                    .padding(.bottom, 24)
+                    .padding(.bottom, 108)
                 }
 
                 if isOpen {

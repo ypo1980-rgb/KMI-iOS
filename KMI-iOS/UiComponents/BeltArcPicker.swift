@@ -6,16 +6,17 @@ struct BeltArcPicker: View {
     let belts: [Belt]
     @Binding var selectedBelt: Belt
 
-    private let big: CGFloat = 90
-    private let small: CGFloat = 50
-    private let stepGap: CGFloat = 28
+    private let big: CGFloat = 126
+    private let small: CGFloat = 70
+    private let stepGap: CGFloat = 18
     private var step: CGFloat { small + stepGap }
 
     private let arcDepth: CGFloat = 58
-    private var pickerHeight: CGFloat { small + arcDepth + 6 }
+    private var pickerHeight: CGFloat { small + arcDepth + 24 }
 
     @State private var centerValue: CGFloat = 0
     @State private var dragStartCenter: CGFloat? = nil
+    @State private var activeCircleDragIndex: Int? = nil
 
     private var currentIndex: Int {
         belts.firstIndex(of: selectedBelt) ?? 0
@@ -30,30 +31,37 @@ struct BeltArcPicker: View {
                 ForEach(Array(belts.enumerated()), id: \.offset) { index, belt in
                     let rel = CGFloat(index) - centerValue
                     let dist = abs(rel)
-                    let hide = dist > 2.6
 
-                    let t = Swift.min(CGFloat(1), dist / 2)
+                    // מציגים את המרכזי ועוד חצי מהעיגולים הקרובים
+                    let hide = dist > 1.10
+
+                    let t = Swift.min(CGFloat(1), dist / 1.0)
                     let drop = arcDepth * (1 - cos(t * .pi / 2))
                     let grow = Swift.max(CGFloat(0), 1 - Swift.min(CGFloat(1), dist))
                     let targetSize = small + (big - small) * grow
 
-                    let targetAlpha: CGFloat = hide ? 0 : (0.75 + 0.25 * (1 - t))
+                    let targetAlpha: CGFloat = {
+                        if hide { return 0 }
+                        if dist < 0.20 { return 1.0 }
+                        return 0.60
+                    }()
 
                     let x = centerX + step * rel
 
-                    let sideBoost = small
+                    let sideBoost = small * 0.42
                     let boostFactor = min(1, dist)
                     let yDrop = drop + sideBoost * boostFactor
-                    let y = yDrop + 6
+                    let y = yDrop + 2
 
-                    let isCenter = dist < 0.25
+                    let isCenter = dist < 0.20
 
                     BeltCircle(belt: belt, isCenter: isCenter)
                         .frame(width: targetSize, height: targetSize)
+                        .scaleEffect(isCenter ? 1.0 : 0.82)
                         .opacity(targetAlpha)
                         .position(x: x, y: y + targetSize / 2)
-                        .zIndex(isCenter ? 2 : 1)
-                        .shadow(radius: isCenter ? 6 : 3, y: isCenter ? 4 : 2)
+                        .zIndex(isCenter ? 3 : 1)
+                        .shadow(radius: isCenter ? 6 : 2, y: isCenter ? 4 : 1)
                         .overlay {
                             if isCenter {
                                 Circle()
@@ -62,6 +70,9 @@ struct BeltArcPicker: View {
                                     .scaleEffect(1.10)
                             }
                         }
+                        .contentShape(Circle())
+                        .allowsHitTesting(!hide)
+                        .highPriorityGesture(circleDragGesture(for: index))
                         .onTapGesture {
                             withAnimation(.easeInOut(duration: 0.22)) {
                                 snapToIndex(index)
@@ -69,7 +80,8 @@ struct BeltArcPicker: View {
                         }
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: pickerHeight, alignment: .top)
+            .frame(width: min(width, 330), height: pickerHeight, alignment: .top)
+            .clipped()
             .contentShape(Rectangle())
             .gesture(dragGesture())
             .onAppear {
@@ -89,17 +101,55 @@ struct BeltArcPicker: View {
     private func dragGesture() -> some Gesture {
         DragGesture(minimumDistance: 6)
             .onChanged { v in
+                if activeCircleDragIndex != nil { return }
+
                 if dragStartCenter == nil {
                     dragStartCenter = centerValue
                 }
                 let start = dragStartCenter ?? centerValue
                 let delta = v.translation.width / step
-                let next = (start + delta).clamped(to: 0...CGFloat(Swift.max(0, belts.count - 1)))
+                let next = (start - delta).clamped(to: 0...CGFloat(Swift.max(0, belts.count - 1)))
                 centerValue = next
+            }
+            .onEnded { _ in
+                if activeCircleDragIndex != nil { return }
+
+                let prevIndex = currentIndex
+                let snap = Int(round(centerValue)).clamped(to: 0...Swift.max(0, belts.count - 1))
+                dragStartCenter = nil
+
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    centerValue = CGFloat(snap)
+                }
+
+                if belts.indices.contains(snap) {
+                    selectedBelt = belts[snap]
+                }
+
+                if snap != prevIndex {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                }
+            }
+    }
+
+    private func circleDragGesture(for index: Int) -> some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { v in
+                activeCircleDragIndex = index
+
+                let delta = v.translation.width / step
+
+                // גורם לעיגול שנגרר להתקדם למרכז
+                let nextCenter = (CGFloat(index) + delta)
+                    .clamped(to: 0...CGFloat(Swift.max(0, belts.count - 1)))
+
+                centerValue = nextCenter
             }
             .onEnded { _ in
                 let prevIndex = currentIndex
                 let snap = Int(round(centerValue)).clamped(to: 0...Swift.max(0, belts.count - 1))
+
+                activeCircleDragIndex = nil
                 dragStartCenter = nil
 
                 withAnimation(.easeInOut(duration: 0.18)) {

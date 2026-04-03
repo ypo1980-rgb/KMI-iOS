@@ -228,37 +228,44 @@ struct HomeView: View {
                     }
                     Spacer(minLength: 22)
 
-                Button {
-                    let target = BeltFlow.nextBeltForUser(
-                        registeredBelt: resolvedBelt
+                    CoachMessagesCard(
+                        title: isCoachUser ? "הודעות למאמן" : "הודעות מהמאמן",
+                        message: "בדיקה",
+                        meta: "המאמן • 22/12/2025 07:05"
                     )
-                    nav.push(.beltQuestionsByBelt(belt: target))
-                } label: {
-                    Text(buttonTitleForBelt())
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(
-                                    isCoachUser
-                                    ? Color.black.opacity(0.30)
-                                    : Color.white.opacity(0.18)
-                                )
+                    .padding(.horizontal, 18)
+
+                    Button {
+                        let target = BeltFlow.nextBeltForUser(
+                            registeredBelt: resolvedBelt
                         )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(
-                                    isCoachUser
-                                    ? Color.red.opacity(0.30)
-                                    : Color.white.opacity(0.22),
-                                    lineWidth: 1
-                                )
-                        )
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 18)
+                        nav.push(.beltQuestionsByBelt(belt: target))
+                    } label: {
+                        Text(buttonTitleForBelt())
+                            .font(.system(size: 18, weight: .heavy))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(
+                                        isCoachUser
+                                        ? Color.black.opacity(0.30)
+                                        : Color.white.opacity(0.18)
+                                    )
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .stroke(
+                                        isCoachUser
+                                        ? Color.red.opacity(0.30)
+                                        : Color.white.opacity(0.22),
+                                        lineWidth: 1
+                                    )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 18)
                 
                 Spacer(minLength: 120)
                 }
@@ -625,6 +632,52 @@ private struct WeekHeaderPill: View {
                 .stroke(Color.white.opacity(0.22), lineWidth: 1)
         )
         .padding(.horizontal, 18)
+    }
+}
+
+private struct CoachMessagesCard: View {
+    let title: String
+    let message: String
+    let meta: String
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 12) {
+            Text(title)
+                .font(.system(size: 22, weight: .heavy))
+                .foregroundStyle(Color.black.opacity(0.82))
+                .frame(maxWidth: .infinity, alignment: .trailing)
+
+            VStack(alignment: .trailing, spacing: 8) {
+                Text(message)
+                    .font(.system(size: 20, weight: .heavy))
+                    .foregroundStyle(Color.black.opacity(0.86))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .multilineTextAlignment(.trailing)
+
+                Text(meta)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.55))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .multilineTextAlignment(.trailing)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.white.opacity(0.72))
+            )
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color.white.opacity(0.90))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+        )
     }
 }
 

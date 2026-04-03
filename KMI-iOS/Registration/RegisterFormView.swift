@@ -380,7 +380,7 @@ struct RegisterFormView: View {
                 s.region = regions.first ?? ""
             }
 
-            // ✅ שומרים על מצב הכניסה בפועל: מתאמן נשאר מתאמן, מאמן נשאר מאמן
+            // ✅ במסכי Auth תמיד עובדים לפי initialRole, בלי לזכור user_role קודם
             s.role = initialRole
 
             print("📝 RegisterFormView.onAppear")
@@ -706,15 +706,8 @@ struct RegisterFormView: View {
             s.password = defaults.string(forKey: "password") ?? ""
         }
 
-        let storedRole = (defaults.string(forKey: "user_role") ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
-        if storedRole == "coach" {
-            s.role = .coach
-        } else if storedRole == "trainee" {
-            s.role = .trainee
-        }
+        // במסך רישום לא טוענים role מהכניסה האחרונה.
+        // מקור האמת כאן הוא initialRole שמוגדר בזרימת האימות.
 
         let storedBranches = defaults.stringArray(forKey: "branches") ?? []
         if s.branches.isEmpty, !storedBranches.isEmpty {

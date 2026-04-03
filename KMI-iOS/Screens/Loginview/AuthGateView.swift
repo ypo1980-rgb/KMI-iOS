@@ -21,43 +21,47 @@ struct AuthGateView: View {
     @State private var step: AuthEntryStep = .choice
 
     var body: some View {
-        Group {
-            if !didFinishInitialAuthCheck && auth.isLoading {
+        ZStack {
+            KmiGradientBackground(forceTraineeStyle: true)
 
-                ZStack {
-                    KmiGradientBackground(forceTraineeStyle: true)
+            Group {
+                if !didFinishInitialAuthCheck && auth.isLoading {
 
                     ProgressView()
                         .tint(.white)
                         .scaleEffect(1.2)
+
+                } else if !didEnterAuthFlow {
+
+                    IntroGateView(
+                        onContinue: {
+                            let defaults = UserDefaults.standard
+                            defaults.set("trainee", forKey: "user_role")
+                            defaults.set(false, forKey: "user_logged_in")
+
+                            didEnterAuthFlow = true
+                            didCompleteAuthScreen = false
+                            step = .choice
+                        }
+                    )
+
+                } else if !didCompleteAuthScreen {
+
+                    authFlowStack
+
+                } else if auth.isSignedIn {
+
+                    ContentView()
+                        .onAppear {
+                            #if DEBUG
+                            print("✅ AuthGateView: auth.isSignedIn == true && didCompleteAuthScreen == true -> showing ContentView")
+                            #endif
+                        }
+
+                } else {
+
+                    authFlowStack
                 }
-
-            } else if !didEnterAuthFlow {
-
-                IntroGateView(
-                    onContinue: {
-                        didEnterAuthFlow = true
-                        didCompleteAuthScreen = false
-                        step = .choice
-                    }
-                )
-                
-            } else if !didCompleteAuthScreen {
-
-                authFlowStack
-
-            } else if auth.isSignedIn {
-
-                ContentView()
-                    .onAppear {
-                        #if DEBUG
-                        print("✅ AuthGateView: auth.isSignedIn == true && didCompleteAuthScreen == true -> showing ContentView")
-                        #endif
-                    }
-
-            } else {
-
-                authFlowStack
             }
         }
         .environmentObject(auth)
@@ -65,13 +69,19 @@ struct AuthGateView: View {
             guard !didBootstrap else { return }
             didBootstrap = true
 
+            let defaults = UserDefaults.standard
+            defaults.set("trainee", forKey: "user_role")
+            defaults.set(false, forKey: "user_logged_in")
+
             didEnterAuthFlow = false
             didCompleteAuthScreen = false
+            didFinishInitialAuthCheck = false
             step = .choice
             nav.popToRoot()
             auth.start()
-
-            DispatchQueue.main.async {
+        }
+        .onChange(of: auth.isLoading) { _, isLoading in
+            if !isLoading {
                 didFinishInitialAuthCheck = true
             }
         }
@@ -146,7 +156,7 @@ struct AuthGateView: View {
                     RegisterView(
                         prefillPhone: "",
                         prefillEmail: "",
-                        initialRole: .coach,
+                        initialRole: .trainee,
                         onBack: { step = .choice },
                         onSubmit: { _ in
                             if auth.isSignedIn {
@@ -171,7 +181,13 @@ struct AuthGateView: View {
                     }
 
                 default:
-                    EmptyView()
+                    ZStack {
+                        KmiGradientBackground(forceTraineeStyle: true)
+
+                        Text("Route לא נתמך עדיין")
+                            .foregroundStyle(.white)
+                            .font(.system(size: 18, weight: .bold))
+                    }
                 }
             }
         }

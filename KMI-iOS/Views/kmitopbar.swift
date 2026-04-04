@@ -28,51 +28,46 @@ struct KmiTopBar: View {
     }
 
     var body: some View {
-        ZStack {
-            Color.white.opacity(0.92)
+        HStack(spacing: 10) {
+            Text(roleLabel)
+                .font(.caption.weight(.heavy))
+                .foregroundStyle(Color.black.opacity(0.75))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color(red: 0.87, green: 0.80, blue: 0.98))
+                )
+
+            Spacer()
 
             HStack(spacing: 10) {
-                Text(roleLabel)
-                    .font(.caption.weight(.heavy))
-                    .foregroundStyle(Color.black.opacity(0.75))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color(red: 0.87, green: 0.80, blue: 0.98))
-                    )
+                Text(title)
+                    .font(.system(size: 22, weight: .heavy))
+                    .foregroundStyle(titleColor)
 
-                Spacer()
-
-                HStack(spacing: 10) {
-                    Text(title)
-                        .font(.title2.weight(.heavy))
-                        .foregroundStyle(titleColor)
-
-                    if let rightText, !rightText.isEmpty {
-                        Text(rightText)
-                            .font(.title3.weight(.heavy))
-                            .foregroundStyle(Color.black.opacity(0.70))
-                    }
-                }
-
-                Spacer()
-
-                Button(action: onMenu) {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.title3.weight(.semibold))
+                if let rightText, !rightText.isEmpty {
+                    Text(rightText)
+                        .font(.system(size: 20, weight: .heavy))
                         .foregroundStyle(Color.black.opacity(0.70))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 8)
                 }
-                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 10)
-            .padding(.bottom, 0)
+
+            Spacer()
+
+            Button(action: onMenu) {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 21, weight: .heavy))
+                    .foregroundStyle(Color.black.opacity(0.74))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
-        .frame(height: 50)
-        .background(Color.white.opacity(0.92))
+        .padding(.horizontal, 14)
+        .padding(.top, 12)
+        .padding(.bottom, 2)
+        .frame(height: 68)
     }
 }
 
@@ -269,27 +264,35 @@ struct KmiRootLayout<Content: View>: View {
                 layoutBackground
 
                 VStack(spacing: 0) {
-                    KmiTopBar(
-                        roleLabel: roleLabel,
-                        title: title,
-                        rightText: rightText,
-                        titleColor: titleColor,
-                        onMenu: { drawerOpen = true }
-                    )
+
+                    TestFlightBanner()
 
                     VStack(spacing: 0) {
+                        KmiTopBar(
+                            roleLabel: roleLabel,
+                            title: title,
+                            rightText: rightText,
+                            titleColor: titleColor,
+                            onMenu: { drawerOpen = true }
+                        )
+
                         KmiIconStripBar(
                             items: KmiIconStripItem.allCases,
                             selected: selectedIcon
                         ) { item in
                             onGlobalIconTap(item)
                         }
-
-                        Divider()
-                            .opacity(0.18)
+                        .padding(.top, 0)
+                        .padding(.bottom, 4)
                     }
-                    .background(Color.white.opacity(0.92))
-                    .shadow(color: Color.black.opacity(0.05), radius: 8, y: 4)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.white)
+                    .overlay(
+                        Rectangle()
+                            .fill(Color.black.opacity(0.04))
+                            .frame(height: 1),
+                        alignment: .bottom
+                    )
 
                     content
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

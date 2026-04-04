@@ -31,10 +31,14 @@ struct AdminUsersView: View {
                         AdminUserDetailsView(user: user)
                     } label: {
                         userRow(user)
+                            .listRowInsets(EdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14))
                     }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 }
                 .listStyle(.plain)
-            }
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)            }
         }
         .onAppear {
             loadUsers()
@@ -84,13 +88,13 @@ struct AdminUsersView: View {
     private var roleFilter: some View {
 
         HStack(spacing: 10) {
-            roleFilterButton(title: "כולם", value: .all)
-            roleFilterButton(title: "מאמנים", value: .coach)
             roleFilterButton(title: "מתאמנים", value: .trainee)
+            roleFilterButton(title: "מאמנים", value: .coach)
+            roleFilterButton(title: "כולם", value: .all)
         }
         .padding(.horizontal)
     }
-
+    
     private func roleFilterButton(title: String, value: UserRoleFilter) -> some View {
         Button {
             selectedRole = value
@@ -121,31 +125,73 @@ struct AdminUsersView: View {
 
     private var searchBar: some View {
 
-        TextField("חיפוש משתמש...", text: $searchText)
-            .textFieldStyle(.roundedBorder)
-            .padding(.horizontal)
-    }
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(Color.black.opacity(0.35))
 
+            TextField("חיפוש משתמש...", text: $searchText)
+                .foregroundStyle(Color.black.opacity(0.82))
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(0.96))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+        )
+        .padding(.horizontal)
+    }
+    
     // MARK: Row
 
     private func userRow(_ user: AdminUser) -> some View {
 
-        VStack(alignment: .trailing, spacing: 4) {
+        HStack(spacing: 12) {
 
-            Text(user.fullName)
-                .font(.system(size: 16, weight: .bold))
+            Image(systemName: "chevron.left")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Color.black.opacity(0.28))
 
-            Text(user.email)
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
 
-            Text("\(user.branch) • \(user.group)")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
+            VStack(alignment: .trailing, spacing: 5) {
+
+                Text(user.fullName)
+                    .font(.system(size: 17, weight: .heavy))
+                    .foregroundStyle(Color.black.opacity(0.84))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .multilineTextAlignment(.trailing)
+
+                Text(user.email)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.black.opacity(0.52))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .multilineTextAlignment(.trailing)
+
+                Text("\(user.branch) • \(user.group)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.48))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .multilineTextAlignment(.trailing)
+            }
         }
-        .padding(.vertical, 6)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.96))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.05), radius: 6, x: 0, y: 2)
     }
-
+    
     // MARK: Firestore
 
     private func loadUsers() {

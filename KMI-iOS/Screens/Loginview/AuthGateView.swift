@@ -156,7 +156,7 @@ struct AuthGateView: View {
                     RegisterView(
                         prefillPhone: "",
                         prefillEmail: "",
-                        initialRole: .trainee,
+                        initialRole: .coach,
                         onBack: { step = .choice },
                         onSubmit: { _ in
                             if auth.isSignedIn {

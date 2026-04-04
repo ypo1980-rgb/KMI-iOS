@@ -14,8 +14,11 @@ struct VoiceAssistantView: View {
         trainingDataSource: EmptyAssistantTrainingDataSource()
     )
 
+    private let tts = AssistantTtsManager.shared
+
     @State private var inputText: String = ""
     @State private var isListening: Bool = false
+    @State private var didIntroSpeak: Bool = false
 
     var body: some View {
         ZStack {
@@ -34,6 +37,14 @@ struct VoiceAssistantView: View {
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 8)
+        }
+        .onAppear {
+            guard !didIntroSpeak else { return }
+            didIntroSpeak = true
+            tts.speak("שלום, כאן יובל העוזר האישי שלך. אנא בחר נושא מתוך הרשימה שלפניך כדי שנוכל להתחיל")
+        }
+        .onDisappear {
+            tts.stop()
         }
     }
 
@@ -91,6 +102,16 @@ struct VoiceAssistantView: View {
 
         return Button {
             logic.setMode(mode)
+            inputText = ""
+
+            switch mode {
+            case .exercise:
+                tts.speak("אוקיי. אני מוכן להסביר על תרגילים. תשאל אותי שם של תרגיל ואני אגיד את ההסבר שלו.")
+            case .trainings:
+                tts.speak("אוקיי. עכשיו אני מוכן לתת מידע על אימונים.")
+            case .kmiMaterial:
+                tts.speak("מעולה. מצב חומר קמי פעיל. תגיד נושא או שם תרגיל ואני אחפש לך במאגר.")
+            }
         } label: {
             Text(title)
                 .font(.system(size: 15, weight: .heavy))
@@ -259,7 +280,12 @@ struct VoiceAssistantView: View {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        _ = logic.sendQuestion(trimmed)
+        let answer = logic.sendQuestion(trimmed)
         inputText = ""
+
+        let cleanAnswer = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanAnswer.isEmpty {
+            tts.speak(cleanAnswer)
+        }
     }
 }

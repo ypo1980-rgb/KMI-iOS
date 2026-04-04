@@ -20,6 +20,14 @@ final class AssistantTtsManager: NSObject {
 
         stop()
 
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            try session.setActive(true, options: [])
+        } catch {
+            print("KMI_TTS audio session error:", error.localizedDescription)
+        }
+
         let utterance = AVSpeechUtterance(string: clean)
         utterance.voice = AVSpeechSynthesisVoice(language: "he-IL")
         utterance.rate = 0.45

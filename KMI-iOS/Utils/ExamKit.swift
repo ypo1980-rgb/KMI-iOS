@@ -5,6 +5,11 @@ import Shared
 
 enum ExamDataSource {
 
+    struct CategorizedExamItem: Hashable {
+        let topic: String
+        let name: String
+    }
+
     static func itemsForBelt(_ belt: Belt) -> [String] {
         let catalog = CatalogData.shared.data
         guard let beltContent = catalog[belt] else { return [] }
@@ -25,11 +30,57 @@ enum ExamDataSource {
             .filter { !$0.isEmpty }
             .filter { seen.insert($0).inserted }
     }
+
+    static func categorizedItemsForBelt(_ belt: Belt) -> [CategorizedExamItem] {
+        let catalog = CatalogData.shared.data
+        guard let beltContent = catalog[belt] else { return [] }
+
+        var out: [CategorizedExamItem] = []
+        var seen = Set<String>()
+
+        for topic in beltContent.topics {
+            let topicTitle = topic.title.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            for item in topic.items {
+                let cleaned = item.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !cleaned.isEmpty else { continue }
+
+                let uniqueKey = "\(topicTitle)||\(cleaned)"
+                guard seen.insert(uniqueKey).inserted else { continue }
+
+                out.append(
+                    CategorizedExamItem(
+                        topic: topicTitle.isEmpty ? "כללי" : topicTitle,
+                        name: cleaned
+                    )
+                )
+            }
+
+            for subTopic in topic.subTopics {
+
+                for item in subTopic.items {
+                    let cleaned = item.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !cleaned.isEmpty else { continue }
+
+                    let uniqueKey = "\(topicTitle)||\(cleaned)"
+                    guard seen.insert(uniqueKey).inserted else { continue }
+
+                    out.append(
+                        CategorizedExamItem(
+                            topic: topicTitle.isEmpty ? "כללי" : topicTitle,
+                            name: cleaned
+                        )
+                    )
+                }
+            }
+        }
+
+        return out
+    }
 }
 
 @MainActor
 final class ExamTts: ObservableObject {
-
     private let synth = AVSpeechSynthesizer()
 
     func speak(_ text: String) {

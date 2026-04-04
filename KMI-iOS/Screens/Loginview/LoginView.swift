@@ -9,6 +9,15 @@ struct LoginView: View {
 
     @EnvironmentObject private var auth: AuthViewModel
 
+    // ✅ זיהוי משתמש מיוחד (יוני)
+    private func isYoniUser(_ email: String) -> Bool {
+        let normalized = email
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        return normalized == "yonatanmalesa99@gmail.com"
+    }
+    
     enum LoginRole: String, CaseIterable, Identifiable {
         case trainee = "מתאמן"
         case coach = "מאמן"
@@ -35,9 +44,12 @@ struct LoginView: View {
 
     @State private var rememberMe: Bool = true
     @State private var showPassword: Bool = false
+    @State private var showCoachCode: Bool = false
     @State private var didTriggerSuccess: Bool = false
 
     @State private var showForgotPasswordSheet: Bool = false
+    @State private var showResetCoachCodeAlert: Bool = false
+    @State private var newCoachCode: String? = nil
     @State private var resetEmail: String = ""
     @State private var resetMessage: String? = nil
 
@@ -47,39 +59,80 @@ struct LoginView: View {
 
     var body: some View {
         ZStack {
-            LoginGradientBackground()
-
+            LoginGradientBackground(role: role)
+            
             VStack(spacing: 0) {
-                AuthTopBar(
-                    title: "התחברות",
-                    onBack: onBackToChoice
-                )
+                VStack(spacing: 0) {
+                    AuthTopBar(
+                        title: "התחברות",
+                        onBack: onBackToChoice
+                    )
 
-                KmiIconStripBar(
-                    items: KmiIconStripItem.allCases,
-                    selected: nil
-                ) { item in
-                    switch item {
-                    case .home:
-                        onBackToChoice()
+                    KmiIconStripBar(
+                        items: KmiIconStripItem.allCases,
+                        selected: nil
+                    ) { item in
+                        switch item {
+                        case .home:
+                            onBackToChoice()
 
-                    case .settings:
-                        break
+                        case .settings:
+                            break
 
-                    case .search:
-                        break
+                        case .search:
+                            break
 
-                    case .share:
-                        break
+                        case .share:
+                            break
 
-                    case .assistant:
-                        break
+                        case .assistant:
+                            break
+                        }
                     }
+                    .padding(.top, 0)
+                    .padding(.bottom, 6)
+                    .padding(.horizontal, 6)
+                    .background(Color.clear)
                 }
-                .background(Color.white.opacity(0.92))
+                .padding(.bottom, 10)
+                .background(Color.white)
 
                 VStack(spacing: 14) {
 
+                    if role == .coach, isYoniUser(username) {
+                        VStack(spacing: 6) {
+                            Text("יוני אחי היקר,")
+                                .font(.system(size: 18, weight: .heavy))
+                                .foregroundStyle(.white)
+
+                            Text("בהערכה רבה על הדרך ועל ההשקעה הרבה שלך.")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color.white.opacity(0.94))
+                                .multilineTextAlignment(.center)
+
+                            Text("מקווה מאוד שתפיק תועלת מהאפליקציה הזאת.")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color.white.opacity(0.94))
+                                .multilineTextAlignment(.center)
+
+                            Text("אלוף! 💪")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color.white.opacity(0.94))
+                                .multilineTextAlignment(.center)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(Color.white.opacity(0.12))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                        )
+                        .padding(.horizontal, 4)
+                    }
+                    
                     RoleTabs(
                         leftTitle: "מאמן",
                         rightTitle: "מתאמן",
@@ -100,10 +153,11 @@ struct LoginView: View {
                                     .padding(.horizontal, 10)
                             }
 
-                            LabeledField(title: "שם משתמש") {
+                            LabeledField(title: "מייל") {
                                 TextField("", text: $username)
                                     .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled()
+                                    .keyboardType(.emailAddress)
                                     .multilineTextAlignment(.center)
                             }
 
@@ -133,13 +187,62 @@ struct LoginView: View {
 
                             if role == .coach {
                                 LabeledField(title: "קוד מאמן") {
-                                    TextField("", text: $coachCode)
-                                        .textInputAutocapitalization(.never)
-                                        .autocorrectionDisabled()
-                                        .multilineTextAlignment(.center)
-                                }
-                            }
+                                    HStack(spacing: 10) {
+                                        Button {
+                                            showCoachCode.toggle()
+                                        } label: {
+                                            Image(systemName: showCoachCode ? "eye.slash" : "eye")
+                                                .foregroundStyle(Color.black.opacity(0.65))
+                                        }
+                                        .buttonStyle(.plain)
 
+                                        if showCoachCode {
+                                            TextField("", text: $coachCode)
+                                                .textInputAutocapitalization(.never)
+                                                .autocorrectionDisabled()
+                                                .multilineTextAlignment(.center)
+                                        } else {
+                                            SecureField("", text: $coachCode)
+                                                .textInputAutocapitalization(.never)
+                                                .autocorrectionDisabled()
+                                                .multilineTextAlignment(.center)
+                                        }
+                                    }
+                                }
+
+                                Button {
+                                    Task {
+                                        let code = await auth.regenerateCoachCode(
+                                            identifier: username,
+                                            password: password
+                                        )
+
+                                        if let code {
+                                            coachCode = code
+                                            newCoachCode = code
+                                            showResetCoachCodeAlert = true
+                                        }
+                                    }
+                                } label: {
+                                    Text("שכחתי קוד מאמן")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(Color.black.opacity(0.70))
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.top, 4)
+                                .disabled(
+                                    auth.isLoading ||
+                                    username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                                    password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                )
+                                .opacity(
+                                    (auth.isLoading ||
+                                     username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                                     password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                    ? 0.55 : 1
+                                )
+                            }
+                            
                             HStack {
                                 Spacer()
 
@@ -176,7 +279,7 @@ struct LoginView: View {
                                 resetMessage = nil
                                 showForgotPasswordSheet = true
                             } label: {
-                                Text("שכחתי סיסמה / שם משתמש")
+                                Text("שכחתי סיסמה / מייל")
                                     .font(.system(size: 16, weight: .semibold))
                                     .foregroundStyle(Color.black.opacity(0.75))
                             }
@@ -197,7 +300,7 @@ struct LoginView: View {
                         .padding(.horizontal, 16)
                     }
                 }
-                .padding(.top, 18)
+                .padding(.top, 0)
                 .padding(.horizontal, 18)
 
                 Spacer()
@@ -241,6 +344,24 @@ struct LoginView: View {
             )
             .presentationDetents([.medium])
         }
+        .alert(
+            "קוד מאמן חדש",
+            isPresented: $showResetCoachCodeAlert
+        ) {
+            Button("העתקה") {
+                if let code = newCoachCode {
+                    UIPasteboard.general.string = code
+                }
+            }
+
+            Button("אישור", role: .cancel) { }
+        } message: {
+            if let code = newCoachCode {
+                Text("קוד המאמן החדש שלך:\n\n\(code)\n\nהקוד הקודם בוטל.")
+            } else {
+                Text("נוצר קוד מאמן חדש.")
+            }
+        }
     }
 
     private func onLoginTapped() {
@@ -281,16 +402,40 @@ struct LoginView: View {
 // MARK: - UI building blocks
 
 private struct LoginGradientBackground: View {
+
+    let role: LoginView.LoginRole
+
     var body: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.08, green: 0.44, blue: 0.86),
-                Color(red: 0.30, green: 0.18, blue: 0.72)
-            ],
-            startPoint: .bottomLeading,
-            endPoint: .topTrailing
-        )
+
+        ZStack {
+
+            if role == .coach {
+
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.10, green: 0.03, blue: 0.03),
+                        Color(red: 0.22, green: 0.05, blue: 0.05),
+                        Color(red: 0.42, green: 0.08, blue: 0.08),
+                        Color(red: 0.62, green: 0.11, blue: 0.11)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+
+            } else {
+
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.08, green: 0.44, blue: 0.86),
+                        Color(red: 0.30, green: 0.18, blue: 0.72)
+                    ],
+                    startPoint: .bottomLeading,
+                    endPoint: .topTrailing
+                )
+            }
+        }
         .ignoresSafeArea()
+        .animation(.easeInOut(duration: 0.35), value: role)
     }
 }
 
@@ -301,14 +446,14 @@ private struct AuthTopBar: View {
 
     var body: some View {
         ZStack {
-            Color.white.opacity(0.92)
+            Color.white
 
             HStack {
                 Button(action: onBack) {
                     Image(systemName: "chevron.right")
-                        .font(.title3.weight(.heavy))
-                        .foregroundStyle(Color.black.opacity(0.75))
-                        .frame(width: 44, height: 44)
+                        .font(.system(size: 22, weight: .heavy))
+                        .foregroundStyle(Color.black.opacity(0.78))
+                        .frame(width: 48, height: 48)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -316,17 +461,26 @@ private struct AuthTopBar: View {
                 Spacer()
 
                 Text(title)
-                    .font(.title2.weight(.heavy))
-                    .foregroundStyle(Color.black.opacity(0.85))
+                    .font(.system(size: 22, weight: .heavy))
+                    .foregroundStyle(Color.black.opacity(0.88))
 
                 Spacer()
 
-                Color.clear.frame(width: 44, height: 44)
+                Button(action: {}) {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 20, weight: .heavy))
+                        .foregroundStyle(Color.black.opacity(0.78))
+                        .frame(width: 48, height: 48)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .opacity(1)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
         }
-        .frame(height: 60)
+        .frame(height: 74)
     }
 }
 
@@ -454,7 +608,18 @@ private struct CheckboxToggleStyle: ToggleStyle {
 
 private struct FooterText: View {
     var body: some View {
-        Text("פותחת באהבה ע\"י יובל פולק ❤️")
+        VStack(spacing: 4) {
+
+            Text("פותחת באהבה ע\"י יובל פולק ❤️")
+                .font(.system(size: 16, weight: .heavy))
+                .foregroundStyle(Color.white.opacity(0.92))
+
+            Text(AppVersion.full)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(0.65))
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.top, 10)
             .font(.system(size: 16, weight: .heavy))
             .foregroundStyle(Color.white.opacity(0.92))
             .frame(maxWidth: .infinity, alignment: .center)

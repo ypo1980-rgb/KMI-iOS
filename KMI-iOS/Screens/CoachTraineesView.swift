@@ -76,17 +76,19 @@ struct CoachTraineesView: View {
     
     var body: some View {
         ZStack {
+
             LinearGradient(
                 colors: [
-                    Color(red: 0.08, green: 0.12, blue: 0.19),
-                    Color(red: 0.14, green: 0.23, blue: 0.33),
-                    Color(red: 0.05, green: 0.65, blue: 0.91)
+                    Color(red: 0.10, green: 0.03, blue: 0.03),
+                    Color(red: 0.22, green: 0.05, blue: 0.05),
+                    Color(red: 0.42, green: 0.08, blue: 0.08),
+                    Color(red: 0.62, green: 0.11, blue: 0.11)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
             .ignoresSafeArea()
-
+            
             if !isCoach {
                 VStack(spacing: 12) {
                     Spacer()
@@ -289,7 +291,7 @@ struct CoachTraineesView: View {
                 .whereField("role", isEqualTo: "trainee")
             : db.collection("users")
                 .whereField("role", isEqualTo: "trainee")
-
+        
         query.getDocuments { snapshot, error in
             isLoading = false
 
@@ -329,7 +331,11 @@ struct CoachTraineesView: View {
             }
             .sorted { $0.fullName < $1.fullName }
 
-            trainees = rows
+            let unique = Dictionary(grouping: rows, by: { $0.id })
+                .compactMap { $0.value.first }
+                .sorted { $0.fullName < $1.fullName }
+
+            trainees = unique
 
             if selectedId == nil {
                 selectedId = rows.first?.id

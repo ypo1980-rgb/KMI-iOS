@@ -10,6 +10,9 @@ private struct MainTopic: Identifiable, Hashable {
 struct BeltQuestionsByTopicView: View {
 
     let belt: Belt
+    var embeddedMode: Bool = false
+    var onSwitchToByBelt: (() -> Void)? = nil
+
     @EnvironmentObject private var nav: AppNavModel
     private let catalog = CatalogData.shared.data
 
@@ -605,13 +608,16 @@ struct BeltQuestionsByTopicView: View {
                     selected: .left,
                     onSelect: { sel in
                         if sel == .right {
-                            nav.pop()
+                            if embeddedMode {
+                                onSwitchToByBelt?()
+                            } else {
+                                nav.pop()
+                            }
                         }
                     }
                 )
                 .padding(.horizontal, 18)
                 .padding(.top, 10)
-
 
                 ScrollView {
                     VStack(spacing: 14) {

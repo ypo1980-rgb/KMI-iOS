@@ -3,24 +3,24 @@ import Shared
 
 // ✅ CONTENT-ONLY: אין כאן TopBar ואין כאן IconStrip ואין כאן DrawerContainer
 struct BeltQuestionsByBeltView: View {
-
+    
     let belt: Belt
-
+    
     @State private var selectedExerciseRoute: BeltTopicExerciseRoute? = nil
     @State private var selectedLinkedTopicRoute: LinkedTopicRoute? = nil
     @State private var selectedTopicSubTopicsRoute: BeltTopicSubTopicsRoute? = nil
-
+    
     // ✅ subject-based flow כמו באנדרואיד:
     @State private var selectedSubjectForSubTopics: SubjectTopic? = nil
     @State private var selectedSubjectSectionRoute: SubjectSectionExerciseRoute? = nil
-
+    
     // ✅ NEW: nav גלובאלי (כדי לנווט למסכים עטופים ב-KmiRootLayout)
     @EnvironmentObject private var nav: AppNavModel
     @StateObject private var coach = CoachService.shared
     // ✅ החגורות שמציגים בגלגל (ללא לבנה)
     private let belts: [Belt] = [.yellow, .orange, .green, .blue, .brown, .black]
     private let catalog = CatalogData.shared.data
-
+    
     // ✅ החגורה שנבחרה בפועל במסך
     @State private var selectedBelt: Belt = .orange
     @State private var didInitializeSelectedBelt: Bool = false
@@ -33,7 +33,7 @@ struct BeltQuestionsByBeltView: View {
         let belt: Belt
         let topicTitle: String
         let forcedSubTopicTitle: String?
-
+        
         init(belt: Belt, topicTitle: String, forcedSubTopicTitle: String? = nil) {
             self.belt = belt
             self.topicTitle = topicTitle
@@ -41,13 +41,13 @@ struct BeltQuestionsByBeltView: View {
             self.id = "\(belt.id)::\(topicTitle)::\(forcedSubTopicTitle ?? "__ALL__")"
         }
     }
-
+    
     fileprivate struct SubjectSectionExerciseRoute: Identifiable, Hashable {
         let id: String
         let belt: Belt
         let subject: SubjectTopic
         let sectionTitle: String
-
+        
         init(belt: Belt, subject: SubjectTopic, sectionTitle: String) {
             self.belt = belt
             self.subject = subject
@@ -55,25 +55,25 @@ struct BeltQuestionsByBeltView: View {
             self.id = "\(belt.id)::\(subject.id)::\(sectionTitle)"
         }
     }
-
+    
     private struct LinkedTopicRoute: Identifiable, Hashable {
         let id: String
         let title: String
         let subjects: [SubjectTopic]
-
+        
         init(title: String, subjects: [SubjectTopic]) {
             self.title = title
             self.subjects = subjects
             self.id = "linked-topic::\(title)"
         }
     }
-
+    
     private struct BeltTopicSubTopicsRoute: Identifiable, Hashable {
         let id: String
         let belt: Belt
         let topicTitle: String
         let linkedSubjects: [SubjectTopic]
-
+        
         init(belt: Belt, topicTitle: String, linkedSubjects: [SubjectTopic]) {
             self.belt = belt
             self.topicTitle = topicTitle
@@ -81,7 +81,7 @@ struct BeltQuestionsByBeltView: View {
             self.id = "topic-subtopics::\(belt.id)::\(topicTitle)"
         }
     }
-
+    
     private struct BeltTopicUi: Identifiable {
         let id: String
         let title: String
@@ -99,9 +99,9 @@ struct BeltQuestionsByBeltView: View {
             belt: belt,
             topicTitle: topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         )
-
+        
         let topicTrim = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-
+        
         let cleanSubs = details.subTitles
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && $0 != topicTrim }
@@ -110,13 +110,13 @@ struct BeltQuestionsByBeltView: View {
                     partial.append(item)
                 }
             }
-
+        
         return TopicDetailsUi(
             itemCount: Int(details.itemCount),
             subTitles: cleanSubs
         )
     }
-
+    
     private var beltTopicsUi: [BeltTopicUi] {
         let topicTitles = TopicsEngine.shared.topicTitlesFor(belt: selectedBelt)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -126,12 +126,12 @@ struct BeltQuestionsByBeltView: View {
                     partial.append(item)
                 }
             }
-
+        
         return topicTitles.map { title in
             let details = topicDetailsFor(belt: selectedBelt, topicTitle: title)
             let subCount = details.subTitles.count
             let itemCount = details.itemCount
-
+            
             let subtitle: String? = {
                 if subCount > 0 {
                     return "\(subCount) תתי נושאים • \(itemCount) תרגילים"
@@ -139,7 +139,7 @@ struct BeltQuestionsByBeltView: View {
                     return "\(itemCount) תרגילים"
                 }
             }()
-
+            
             return BeltTopicUi(
                 id: "belt-topic::\(selectedBelt.id)::\(title)",
                 title: title,
@@ -155,7 +155,7 @@ struct BeltQuestionsByBeltView: View {
         case byBelt
         case byTopic
     }
-
+    
     private func nextBelt(after registered: Belt) -> Belt {
         switch registered {
         case .white:
@@ -176,7 +176,7 @@ struct BeltQuestionsByBeltView: View {
             return .orange
         }
     }
-
+    
     private func toSharedSubject(_ local: SubjectTopic) -> Shared.SubjectTopic {
         Shared.SubjectTopic(
             id: local.id,
@@ -191,9 +191,9 @@ struct BeltQuestionsByBeltView: View {
     
     private func allItemsForSelectedBelt() -> [(topicTitle: String, item: String)] {
         guard let topics = catalog[selectedBelt]?.topics else { return [] }
-
+        
         var result: [(String, String)] = []
-
+        
         for t in topics {
             for it in t.items { result.append((t.title, it)) }
             for st in t.subTopics {
@@ -202,244 +202,88 @@ struct BeltQuestionsByBeltView: View {
         }
         return result
     }
-
+    
     private func practiceItemsForCurrentToken() -> [String] {
         let token = practiceTokenFromLists.trimmingCharacters(in: .whitespacesAndNewlines)
-
+        
         if token.isEmpty || token == "__ALL__" {
             return allItemsForSelectedBelt().map { $0.item }
         }
-
+        
         return ContentRepo.shared.getAllItemsFor(
             belt: selectedBelt,
             topicTitle: token,
             subTopicTitle: nil
         )
     }
-
+    
     private func isDone(topicTitle: String, item: String) -> Bool {
         let b = selectedBelt.id
         let t = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let i = item.trimmingCharacters(in: .whitespacesAndNewlines)
         let key = "kmi.exercise.\(b).\(t).\(i).done"
-
+        
         if UserDefaults.standard.object(forKey: key) == nil { return false }
         return UserDefaults.standard.bool(forKey: key)
     }
-
+    
     private var beltProgress: (done: Int, total: Int) {
         let all = allItemsForSelectedBelt()
         let doneCount = all.filter { isDone(topicTitle: $0.topicTitle, item: $0.item) }.count
         return (doneCount, all.count)
     }
-
+    
     private var beltProgressRatio: Double {
         guard beltProgress.total > 0 else { return 0 }
         return Double(beltProgress.done) / Double(beltProgress.total)
     }
 
+    @ViewBuilder
+    private var tabContent: some View {
+        ZStack {
+            if tab == .byTopic {
+                BeltQuestionsByTopicView(
+                    belt: selectedBelt,
+                    embeddedMode: true,
+                    onSwitchToByBelt: {
+                        withAnimation(.easeInOut(duration: 0.20)) {
+                            tab = .byBelt
+                        }
+                    }
+                )
+                .transition(.opacity)
+            } else {
+                byBeltContent
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: tab)
+    }
+
     var body: some View {
         ZStack {
             KmiGradientBackground(forceTraineeStyle: false)
+            
+            tabContent
+            
+            if tab == .byBelt {
+                if tab == .byBelt {
+                    VStack {
+                        Spacer()
 
-            VStack(spacing: 0) {
-                SegmentedTabs(
-                    leftTitle: "לפי נושא",
-                    rightTitle: "לפי חגורה",
-                    selected: (tab == .byTopic ? .left : .right),
-                    onSelect: { sel in
-                        tab = (sel == .left ? .byTopic : .byBelt)
-
-                        if sel == .left {
-                            nav.push(.beltQuestionsByTopic(belt: selectedBelt))
-                        }
+                        BeltArcPicker(
+                            belts: belts,
+                            selectedBelt: $selectedBelt
+                        )
+                        .frame(width: 330, height: 124)
+                        .padding(.bottom, 22)
                     }
-                )
-                .padding(.horizontal, 18)
-                .padding(.top, 10)
-
-                GeometryReader { geo in
-                    WhiteCard {
-                        VStack(spacing: 12) {
-                            Text("נושאים בחגורה")
-                                .font(.headline.weight(.bold))
-                                .foregroundStyle(Color.black.opacity(0.85))
-                                .frame(maxWidth: .infinity, alignment: .center)
-
-                            ScrollView(showsIndicators: false) {
-                                VStack(spacing: 12) {
-                                    ForEach(beltTopicsUi, id: \.id) { entry in
-                                        let topicTitle = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
-
-                                        let details = topicDetailsFor(
-                                            belt: selectedBelt,
-                                            topicTitle: topicTitle
-                                        )
-
-                                        let subTitles = details.subTitles
-                                            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                                            .filter { !$0.isEmpty && $0 != topicTitle }
-
-                                        let hasSubs = !subTitles.isEmpty
-                                        let isExpanded = expandedTopic == topicTitle
-
-                                        Button {
-                                            if hasSubs {
-                                                withAnimation(.easeInOut(duration: 0.22)) {
-                                                    expandedTopic = isExpanded ? nil : topicTitle
-                                                }
-                                            } else {
-                                                selectedExerciseRoute = BeltTopicExerciseRoute(
-                                                    belt: selectedBelt,
-                                                    topicTitle: topicTitle
-                                                )
-                                            }
-                                        } label: {
-                                            VStack(spacing: 0) {
-                                                HStack(spacing: 10) {
-                                                    if hasSubs {
-                                                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                                            .font(.system(size: 15, weight: .heavy))
-                                                            .foregroundStyle(Color.white.opacity(0.95))
-                                                    }
-
-                                                    Spacer(minLength: 0)
-
-                                                    VStack(alignment: .trailing, spacing: 4) {
-                                                        Text(entry.title)
-                                                            .font(.system(size: 18, weight: .heavy))
-                                                            .foregroundStyle(Color.white)
-                                                            .frame(maxWidth: .infinity, alignment: .trailing)
-                                                            .multilineTextAlignment(.trailing)
-
-                                                        if let subtitle = entry.subtitle, !subtitle.isEmpty {
-                                                            Text(subtitle)
-                                                                .font(.system(size: 14, weight: .heavy))
-                                                                .foregroundStyle(Color.white.opacity(0.92))
-                                                                .frame(maxWidth: .infinity, alignment: .trailing)
-                                                                .multilineTextAlignment(.trailing)
-                                                        }
-                                                    }
-                                                }
-                                                .padding(.horizontal, 18)
-                                                .padding(.vertical, 16)
-
-                                                if hasSubs && isExpanded {
-                                                    VStack(spacing: 10) {
-                                                        ForEach(subTitles, id: \.self) { sub in
-                                                            let itemCount = ContentRepo.shared.getAllItemsFor(
-                                                                belt: selectedBelt,
-                                                                topicTitle: topicTitle,
-                                                                subTopicTitle: sub
-                                                            ).count
-
-                                                            Button {
-                                                                selectedExerciseRoute = BeltTopicExerciseRoute(
-                                                                    belt: selectedBelt,
-                                                                    topicTitle: topicTitle,
-                                                                    forcedSubTopicTitle: sub
-                                                                )
-                                                            } label: {
-                                                                HStack {
-                                                                    VStack(alignment: .trailing, spacing: 4) {
-                                                                        Text(sub)
-                                                                            .font(.system(size: 16, weight: .heavy))
-                                                                            .foregroundStyle(Color.white.opacity(0.98))
-                                                                            .frame(maxWidth: .infinity, alignment: .trailing)
-                                                                            .multilineTextAlignment(.trailing)
-
-                                                                        Text("\(itemCount) תרגילים")
-                                                                            .font(.system(size: 13, weight: .heavy))
-                                                                            .foregroundStyle(Color.white.opacity(0.88))
-                                                                            .frame(maxWidth: .infinity, alignment: .trailing)
-                                                                            .multilineTextAlignment(.trailing)
-                                                                    }
-
-                                                                    Spacer(minLength: 0)
-                                                                }
-                                                                .padding(.horizontal, 16)
-                                                                .padding(.vertical, 14)
-                                                                .background(
-                                                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                                                        .fill(Color.white.opacity(0.16))
-                                                                )
-                                                            }
-                                                            .buttonStyle(.plain)
-                                                        }
-
-                                                        let directItems = ContentRepo.shared.getAllItemsFor(
-                                                            belt: selectedBelt,
-                                                            topicTitle: topicTitle,
-                                                            subTopicTitle: nil
-                                                        )
-
-                                                        if !directItems.isEmpty {
-                                                            Button {
-                                                                selectedExerciseRoute = BeltTopicExerciseRoute(
-                                                                    belt: selectedBelt,
-                                                                    topicTitle: topicTitle
-                                                                )
-                                                            } label: {
-                                                                HStack {
-                                                                    Text("כל הנושא")
-                                                                        .font(.system(size: 16, weight: .heavy))
-                                                                        .foregroundStyle(Color.white.opacity(0.98))
-
-                                                                    Spacer(minLength: 0)
-                                                                }
-                                                                .padding(.horizontal, 16)
-                                                                .padding(.vertical, 14)
-                                                                .background(
-                                                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                                                        .fill(Color.white.opacity(0.16))
-                                                                )
-                                                            }
-                                                            .buttonStyle(.plain)
-                                                        }
-                                                    }
-                                                    .padding(.horizontal, 14)
-                                                    .padding(.bottom, 14)
-                                                    .transition(.move(edge: .top).combined(with: .opacity))
-                                                }
-                                            }
-                                            .background(
-                                                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                                    .fill(BeltPaletteByBeltScreen.color(for: selectedBelt))
-                                            )
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                                .padding(.bottom, 8)
-                            }
-                        }
-                        .padding(.top, 16)
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 16)
-                    }
-                    .frame(height: geo.size.height * 0.65)
-                    .padding(.horizontal, 18)
-                    .padding(.top, 12)
-                    .padding(.bottom, 24)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .zIndex(2.2)
+                    .allowsHitTesting(!quickMenuOpen)
                 }
             }
-            .zIndex(1)
-            .allowsHitTesting(!quickMenuOpen)
             
-            VStack {
-                Spacer()
-
-                BeltArcPicker(
-                    belts: belts,
-                    selectedBelt: $selectedBelt
-                )
-                .frame(width: 330, height: 124)
-                .padding(.bottom, 22)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-            .zIndex(2.2)
-            .allowsHitTesting(!quickMenuOpen)
-
             BeltQuickMenuOverlay(
                 isPresented: $quickMenuOpen,
                 beltTitle: "\(selectedBelt.heb)\nחגורה",
@@ -478,13 +322,13 @@ struct BeltQuestionsByBeltView: View {
         }
         .onAppear {
             guard !didInitializeSelectedBelt else { return }
-
+            
             if belts.contains(belt) {
                 selectedBelt = belt
             } else {
                 selectedBelt = .orange
             }
-
+            
             didInitializeSelectedBelt = true
         }
         .navigationDestination(item: $selectedLinkedTopicRoute) { route in
@@ -551,11 +395,199 @@ struct BeltQuestionsByBeltView: View {
         .navigationDestination(item: $selectedSubjectSectionRoute) { (route: BeltQuestionsByBeltView.SubjectSectionExerciseRoute) in
             SubjectExercisesView(route: route)
         }
+    }
+
+    @ViewBuilder
+    private var byBeltContent: some View {
+  VStack(spacing: 0) {
+      SegmentedTabs(
+          leftTitle: "לפי נושא",
+          rightTitle: "לפי חגורה",
+          selected: (tab == .byTopic ? .left : .right),
+          onSelect: { sel in
+              if sel == .left {
+                  withAnimation(.easeInOut(duration: 0.20)) {
+                      tab = .byTopic
+                  }
+              } else {
+                  tab = .byBelt
+              }
+          }
+      )
+      .padding(.horizontal, 18)
+      .padding(.top, 10)
+
+      GeometryReader { geo in
+          WhiteCard {
+              VStack(spacing: 12) {
+                  Text("נושאים בחגורה")
+                      .font(.headline.weight(.bold))
+                      .foregroundStyle(Color.black.opacity(0.85))
+                      .frame(maxWidth: .infinity, alignment: .center)
+
+                  ScrollView(showsIndicators: false) {
+                      VStack(spacing: 12) {
+                          ForEach(beltTopicsUi, id: \.id) { entry in
+                              let topicTitle = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                              let details = topicDetailsFor(
+                                  belt: selectedBelt,
+                                  topicTitle: topicTitle
+                              )
+
+                              let subTitles = details.subTitles
+                                  .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                                  .filter { !$0.isEmpty && $0 != topicTitle }
+
+                              let hasSubs = !subTitles.isEmpty
+                              let isExpanded = expandedTopic == topicTitle
+
+                              Button {
+                                  if hasSubs {
+                                      withAnimation(.easeInOut(duration: 0.22)) {
+                                          expandedTopic = isExpanded ? nil : topicTitle
+                                      }
+                                  } else {
+                                      selectedExerciseRoute = BeltTopicExerciseRoute(
+                                          belt: selectedBelt,
+                                          topicTitle: topicTitle
+                                      )
+                                  }
+                              } label: {
+                                  VStack(spacing: 0) {
+                                      HStack(spacing: 10) {
+                                          if hasSubs {
+                                              Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                                  .font(.system(size: 15, weight: .heavy))
+                                                  .foregroundStyle(Color.white.opacity(0.95))
+                                          }
+
+                                          Spacer(minLength: 0)
+
+                                          VStack(alignment: .trailing, spacing: 4) {
+                                              Text(entry.title)
+                                                  .font(.system(size: 18, weight: .heavy))
+                                                  .foregroundStyle(Color.white)
+                                                  .frame(maxWidth: .infinity, alignment: .trailing)
+                                                  .multilineTextAlignment(.trailing)
+
+                                              if let subtitle = entry.subtitle, !subtitle.isEmpty {
+                                                  Text(subtitle)
+                                                      .font(.system(size: 14, weight: .heavy))
+                                                      .foregroundStyle(Color.white.opacity(0.92))
+                                                      .frame(maxWidth: .infinity, alignment: .trailing)
+                                                      .multilineTextAlignment(.trailing)
+                                              }
+                                          }
+                                      }
+                                      .padding(.horizontal, 18)
+                                      .padding(.vertical, 16)
+
+                                      if hasSubs && isExpanded {
+                                          VStack(spacing: 10) {
+                                              ForEach(subTitles, id: \.self) { sub in
+                                                  let itemCount = ContentRepo.shared.getAllItemsFor(
+                                                      belt: selectedBelt,
+                                                      topicTitle: topicTitle,
+                                                      subTopicTitle: sub
+                                                  ).count
+
+                                                  Button {
+                                                      selectedExerciseRoute = BeltTopicExerciseRoute(
+                                                          belt: selectedBelt,
+                                                          topicTitle: topicTitle,
+                                                          forcedSubTopicTitle: sub
+                                                      )
+                                                  } label: {
+                                                      HStack {
+                                                          VStack(alignment: .trailing, spacing: 4) {
+                                                              Text(sub)
+                                                                  .font(.system(size: 16, weight: .heavy))
+                                                                  .foregroundStyle(Color.white.opacity(0.98))
+                                                                  .frame(maxWidth: .infinity, alignment: .trailing)
+                                                                  .multilineTextAlignment(.trailing)
+
+                                                              Text("\(itemCount) תרגילים")
+                                                                  .font(.system(size: 13, weight: .heavy))
+                                                                  .foregroundStyle(Color.white.opacity(0.88))
+                                                                  .frame(maxWidth: .infinity, alignment: .trailing)
+                                                                  .multilineTextAlignment(.trailing)
+                                                          }
+
+                                                          Spacer(minLength: 0)
+                                                      }
+                                                      .padding(.horizontal, 16)
+                                                      .padding(.vertical, 14)
+                                                      .background(
+                                                          RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                                              .fill(Color.white.opacity(0.16))
+                                                      )
+                                                  }
+                                                  .buttonStyle(.plain)
+                                              }
+
+                                              let directItems = ContentRepo.shared.getAllItemsFor(
+                                                  belt: selectedBelt,
+                                                  topicTitle: topicTitle,
+                                                  subTopicTitle: nil
+                                              )
+
+                                              if !directItems.isEmpty {
+                                                  Button {
+                                                      selectedExerciseRoute = BeltTopicExerciseRoute(
+                                                          belt: selectedBelt,
+                                                          topicTitle: topicTitle
+                                                      )
+                                                  } label: {
+                                                      HStack {
+                                                          Text("כל הנושא")
+                                                              .font(.system(size: 16, weight: .heavy))
+                                                              .foregroundStyle(Color.white.opacity(0.98))
+
+                                                          Spacer(minLength: 0)
+                                                      }
+                                                      .padding(.horizontal, 16)
+                                                      .padding(.vertical, 14)
+                                                      .background(
+                                                          RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                                              .fill(Color.white.opacity(0.16))
+                                                      )
+                                                  }
+                                                  .buttonStyle(.plain)
+                                              }
+                                          }
+                                          .padding(.horizontal, 14)
+                                          .padding(.bottom, 14)
+                                          .transition(.move(edge: .top).combined(with: .opacity))
+                                      }
+                                  }
+                                  .background(
+                                      RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                          .fill(BeltPaletteByBeltScreen.color(for: selectedBelt))
+                                  )
+                              }
+                              .buttonStyle(.plain)
+                          }
+                      }
+                      .padding(.bottom, 8)
+                  }
+              }
+              .padding(.top, 16)
+              .padding(.horizontal, 16)
+              .padding(.bottom, 16)
+          }
+          .frame(height: geo.size.height * 0.65)
+          .padding(.horizontal, 18)
+          .padding(.top, 12)
+          .padding(.bottom, 24)
+      }
+  }
+  .zIndex(1)
+  .allowsHitTesting(!quickMenuOpen)
       }
 }
 
-// MARK: - Belt Palette + Wheel
-
+// MARK: - Belt Palette + Wheel4
 // ✅ Rename to avoid "Invalid redeclaration of BeltPalette"
 private enum BeltPaletteByBeltScreen {
     static let white  = Color(red: 0.92, green: 0.92, blue: 0.92)

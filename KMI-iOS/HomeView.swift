@@ -230,11 +230,11 @@ struct HomeView: View {
 
                     CoachMessagesCard(
                         title: isCoachUser ? "הודעות למאמן" : "הודעות מהמאמן",
-                        message: "בדיקה",
-                        meta: "המאמן • 22/12/2025 07:05"
+                        message: "אין הודעות בשלב זה",
+                        meta: "הודעות חדשות יוצגו כאן בהמשך"
                     )
                     .padding(.horizontal, 18)
-
+                    
                     Button {
                         let target = BeltFlow.nextBeltForUser(
                             registeredBelt: resolvedBelt
@@ -248,18 +248,12 @@ struct HomeView: View {
                             .padding(.vertical, 16)
                             .background(
                                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .fill(
-                                        isCoachUser
-                                        ? Color.black.opacity(0.30)
-                                        : Color.white.opacity(0.18)
-                                    )
+                                    .fill(Color.white.opacity(0.18))
                             )
                             .overlay(
                                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                                     .stroke(
-                                        isCoachUser
-                                        ? Color.red.opacity(0.30)
-                                        : Color.white.opacity(0.22),
+                                        Color.white.opacity(0.25),
                                         lineWidth: 1
                                     )
                             )
@@ -363,7 +357,8 @@ struct HomeView: View {
                 .frame(width: 56, height: 56)
             }
             .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            .padding(.leading, 26)
             .padding(.bottom, 60)
         }
         .task {
@@ -489,7 +484,7 @@ struct HomeView: View {
                     )
             )
             .padding(.horizontal, 18)
-        }
+            }
     }
     
     // MARK: - Week Header
@@ -641,38 +636,40 @@ private struct CoachMessagesCard: View {
     let meta: String
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 12) {
+        VStack(alignment: .trailing, spacing: 14) {
             Text(title)
-                .font(.system(size: 22, weight: .heavy))
+                .font(.system(size: 24, weight: .heavy))
                 .foregroundStyle(Color.black.opacity(0.82))
                 .frame(maxWidth: .infinity, alignment: .trailing)
 
-            VStack(alignment: .trailing, spacing: 8) {
+            VStack(alignment: .trailing, spacing: 10) {
                 Text(message)
-                    .font(.system(size: 20, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(0.86))
+                    .font(.system(size: 22, weight: .heavy))
+                    .foregroundStyle(Color.black.opacity(0.82))
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .multilineTextAlignment(.trailing)
+                    .padding(.top, 8)
 
                 Text(meta)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.black.opacity(0.55))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.52))
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .multilineTextAlignment(.trailing)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 26)
+            .frame(minHeight: 120)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(0.72))
+                    .fill(Color.white.opacity(0.78))
             )
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 16)
+        .padding(.vertical, 18)
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white.opacity(0.90))
+                .fill(Color.white.opacity(0.92))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)

@@ -134,6 +134,34 @@ final class AuthViewModel: ObservableObject {
         #endif
     }
 
+    private func nextDeveloperCoachCode(for email: String) -> String? {
+        let normalizedEmail = email
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        guard normalizedEmail == "ypo1980@gmail.com" else { return nil }
+
+        let defaults = UserDefaults.standard
+        let key = "kmi.dev.coach.reset.toggle"
+
+        let nextCode = (defaults.bool(forKey: key) ? "123456" : "654321")
+        defaults.set(!defaults.bool(forKey: key), forKey: key)
+
+        return nextCode
+    }
+
+    private func isDeveloperDualRoleUser(email: String, uid: String) -> Bool {
+        let normalizedEmail = email
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        let normalizedUid = uid
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return normalizedEmail == "ypo1980@gmail.com"
+            || normalizedUid == "DBoyoVVpsrVUX0ukhKwNyQlKUKY2"
+    }
+
     private func persistTrainingAssignmentToDefaults(
         region: String,
         branch: String,
@@ -153,6 +181,7 @@ final class AuthViewModel: ObservableObject {
     }
 
 #if canImport(FirebaseFirestore)
+    
 private func ensureUserProfileDocumentExists(
     uid: String,
     existingData: [String: Any]
@@ -434,7 +463,7 @@ private func ensureUserProfileDocumentExists(
         let wantedRole = expectedRole.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
         guard !rawId.isEmpty, !rawPassword.isEmpty else {
-            errorText = "נא למלא שם משתמש וסיסמה"
+            errorText = "נא למלא מייל וסיסמה"
             return false
         }
 
@@ -466,7 +495,7 @@ private func ensureUserProfileDocumentExists(
                       let resolvedEmail = (data["emailLower"] as? String) ?? (data["email"] as? String),
                       !resolvedEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 else {
-                    errorText = "שם המשתמש לא נמצא"
+                    errorText = "המייל לא נמצא"
                     return false
                 }
 
@@ -505,6 +534,16 @@ private func ensureUserProfileDocumentExists(
 
             let serverPhoneNormalized = serverPhoneRaw.filter { $0.isNumber }
 
+            let isCoachAccount =
+                serverRole == "coach" ||
+                serverRole == "trainer" ||
+                (data["coachApproved"] as? Bool ?? false)
+
+            let isDeveloperDualRole = isDeveloperDualRoleUser(
+                email: loginEmailNormalized,
+                uid: uid
+            )
+
             if wantedRole == "coach" {
                 let approved = data["coachApproved"] as? Bool ?? false
                 let whitelistedCoach = CoachWhitelist.isWhitelisted(
@@ -518,9 +557,13 @@ private func ensureUserProfileDocumentExists(
                     return false
                 }
             } else if wantedRole == "trainee" {
-                // ✅ מאפשר גם לחשבון מאמן להיכנס במצב מתאמן
-                // חסימה תבוצע רק אם בעתיד יהיה תפקיד לא מזוהה או לא תקין
-                if serverRole != "trainee" && serverRole != "coach" && serverRole != "trainer" {
+                if isCoachAccount && !isDeveloperDualRole {
+                    errorText = "החשבון הזה מוגדר כחשבון מאמן. יש להיכנס דרך טאב מאמן ולהזין את קוד המאמן שקיבלת."
+                    try? Auth.auth().signOut()
+                    return false
+                }
+
+                if serverRole != "trainee" && !isCoachAccount {
                     errorText = "המשתמש אינו מוגדר כמתאמן"
                     try? Auth.auth().signOut()
                     return false
@@ -565,6 +608,8 @@ private func ensureUserProfileDocumentExists(
 
             if wantedRole == "coach", let coachCode {
                 defaults.set(coachCode.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "coach_code")
+            } else {
+                defaults.removeObject(forKey: "coach_code")
             }
 
             await loadUserProfile(uid: uid)
@@ -588,7 +633,7 @@ private func ensureUserProfileDocumentExists(
                     errorText = "כתובת האימייל אינה תקינה"
 
                 case AuthErrorCode.invalidCredential.rawValue:
-                    errorText = "שם משתמש או סיסמה שגויים"
+                    errorText = "מייל או סיסמה שגויים"
 
                 default:
                     errorText = nsError.localizedDescription
@@ -709,6 +754,151 @@ private func ensureUserProfileDocumentExists(
         #endif
     }
 
+    // MARK: - Coach Code Reset
+
+    func regenerateCoachCode(
+        identifier: String,
+        password: String
+    ) async -> String? {
+
+        let rawId = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !rawId.isEmpty else {
+            errorText = "יש להזין מייל"
+            return nil
+        }
+
+        guard !rawPassword.isEmpty else {
+            errorText = "יש להזין סיסמה כדי להפיק קוד מאמן חדש"
+            return nil
+        }
+
+        errorText = nil
+
+        #if canImport(FirebaseFirestore)
+        #if canImport(FirebaseAuth)
+
+        do {
+
+            let db = Firestore.firestore()
+
+            // נזהה אימייל או username
+            let loginEmail: String
+
+            if rawId.contains("@") {
+
+                loginEmail = rawId.lowercased()
+
+            } else {
+
+                let snap = try await db.collection("users")
+                    .whereField("usernameLower", isEqualTo: rawId.lowercased())
+                    .limit(to: 1)
+                    .getDocuments()
+
+                guard let data = snap.documents.first?.data(),
+                      let email = (data["emailLower"] as? String) ?? (data["email"] as? String)
+                else {
+                    errorText = "המייל לא נמצא"
+                    return nil
+                }
+
+                loginEmail = email.lowercased()
+            }
+
+            if let devCode = nextDeveloperCoachCode(for: loginEmail) {
+                UserDefaults.standard.set(devCode, forKey: "coach_code")
+                errorText = nil
+                return devCode
+            }
+
+            // חיפוש המשתמש
+            let snap = try await db.collection("users")
+                .whereField("emailLower", isEqualTo: loginEmail)
+                .limit(to: 1)
+                .getDocuments()
+            
+            guard let doc = snap.documents.first else {
+                errorText = "המייל לא נמצא"
+                return nil
+            }
+
+            let uid = doc.documentID
+            let data = doc.data()
+
+            let role = (data["role"] as? String ?? "").lowercased()
+            let approved = data["coachApproved"] as? Bool ?? false
+
+            if role != "coach" && !approved {
+                errorText = "המשתמש אינו מאמן"
+                return nil
+            }
+
+            // ✅ שכבת אבטחה: אימות מלא עם האימייל והסיסמה לפני איפוס קוד
+            _ = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<AuthDataResult, Error>) in
+                Auth.auth().signIn(withEmail: loginEmail, password: rawPassword) { res, err in
+                    if let err {
+                        cont.resume(throwing: err)
+                    } else if let res {
+                        cont.resume(returning: res)
+                    } else {
+                        cont.resume(throwing: NSError(
+                            domain: "Auth",
+                            code: -1,
+                            userInfo: [NSLocalizedDescriptionKey: "Missing auth result"]
+                        ))
+                    }
+                }
+            }
+
+            guard Auth.auth().currentUser?.uid == uid else {
+                try? Auth.auth().signOut()
+                errorText = "אימות המשתמש נכשל"
+                return nil
+            }
+
+            // יצירת קוד חדש
+            let newCode = CoachCodeGenerator.generate()
+            try await db.collection("users")
+                .document(uid)
+                .updateData([
+                    "coachCode": newCode,
+                    "updatedAt": FieldValue.serverTimestamp()
+                ])
+
+            UserDefaults.standard.set(newCode, forKey: "coach_code")
+            try? Auth.auth().signOut()
+
+            return newCode
+
+        } catch {
+            if let nsError = error as NSError? {
+                switch nsError.code {
+                case AuthErrorCode.wrongPassword.rawValue:
+                    errorText = "הסיסמה שגויה"
+                case AuthErrorCode.invalidCredential.rawValue:
+                    errorText = "מייל או סיסמה שגויים"
+                case AuthErrorCode.userNotFound.rawValue:
+                    errorText = "המייל לא נמצא"
+                default:
+                    errorText = nsError.localizedDescription
+                }
+            } else {
+                errorText = error.localizedDescription
+            }
+            return nil
+        }
+        #else
+        errorText = "FirebaseAuth לא מותקן"
+        return nil
+        #endif
+        #else
+        errorText = "FirebaseFirestore לא מותקן"
+        return nil
+        #endif
+    }
+    
     // MARK: - Registration (Auth + Profile Save)
     func registerAndSaveProfile(form: RegistrationFormState) async {
 

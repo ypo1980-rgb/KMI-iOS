@@ -117,17 +117,7 @@ struct InternalExamView: View {
 
     private var examContent: some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.01, green: 0.02, blue: 0.09),
-                    Color(red: 0.06, green: 0.09, blue: 0.16),
-                    Color(red: 0.12, green: 0.23, blue: 0.54),
-                    Color(red: 0.22, green: 0.74, blue: 0.97)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            KmiGradientBackground(forceTraineeStyle: false)
 
             VStack(spacing: 8) {
                 traineeHeaderSection
@@ -435,22 +425,20 @@ struct InternalExamView: View {
     // MARK: - Data Source
 
     private func examItems(for belt: Belt) -> [ExamExerciseItem] {
-        let rawItems = ExamDataSource.itemsForBelt(belt)
+        let categorized = ExamDataSource.categorizedItemsForBelt(belt)
 
-        return rawItems.enumerated().map { index, rawName in
-            let cleanedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-            return ExamExerciseItem(
-                id: "\(belt.id)_\(cleanedName)_\(index)",
+        return categorized.enumerated().map { index, item in
+            ExamExerciseItem(
+                id: "\(belt.id)_\(item.topic)_\(item.name)_\(index)",
                 belt: belt,
-                topic: "כללי",
-                name: cleanedName.isEmpty ? "ללא שם" : cleanedName
+                topic: item.topic,
+                name: item.name
             )
         }
     }
 }
 
 // MARK: - UI Models
-
 private struct ExamTopicGroup {
     let topic: String
     let items: [ExamExerciseItem]

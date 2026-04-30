@@ -61,7 +61,7 @@ struct KmiIconStripBar: View {
                                 : Color.black.opacity(0.70)
                             )
                     }
-                    .frame(maxWidth: .infinity)
+                    .frame(width: 64)
                     .padding(.vertical, 8)
                     .background(
                         Group {

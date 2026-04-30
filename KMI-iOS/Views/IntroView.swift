@@ -12,6 +12,9 @@ struct IntroView: View {
             IntroGradientBackground()
 
             VStack(spacing: 18) {
+
+                TestFlightBanner()
+
                 Spacer()
 
                 VStack(spacing: 8) {

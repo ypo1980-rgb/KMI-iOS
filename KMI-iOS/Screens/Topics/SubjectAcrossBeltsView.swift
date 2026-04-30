@@ -50,6 +50,19 @@ struct SubjectAcrossBeltsView: View {
         case "releases":
             return "releases"
 
+        // ✅ עבודת ידיים
+        case "hands_strikes", "topic_hands", "punches":
+            return "hands_strikes"
+
+        case "hands_elbows":
+            return "hands_elbows"
+
+        case "hands_stick_rifle":
+            return "hands_stick_rifle"
+
+        case "hands_all":
+            return "hands_all"
+
         case "knife_defense":
             return "knife_defense"
 
@@ -178,7 +191,6 @@ struct SubjectAcrossBeltsView: View {
             var hardOut: [UiSection] = []
 
             for sec in filteredHardSections {
-
                 appendHardSectionTree(
                     sec,
                     belt: belt,
@@ -186,9 +198,7 @@ struct SubjectAcrossBeltsView: View {
                 )
             }
 
-            if !hardOut.isEmpty {
-                return hardOut
-            }
+            return hardOut
         }
 
         let sharedSubject = toSharedSubject(subject)

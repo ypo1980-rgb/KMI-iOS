@@ -63,39 +63,54 @@ struct LoginView: View {
             
             VStack(spacing: 0) {
                 VStack(spacing: 0) {
-                    AuthTopBar(
+                    KmiTopBar(
+                        roleLabel: "",
                         title: "התחברות",
-                        onBack: onBackToChoice
+                        rightText: nil,
+                        titleColor: Color.black.opacity(0.88),
+                        onMenu: { onBackToChoice() }
                     )
+                    .background(Color.white)
 
-                    KmiIconStripBar(
-                        items: KmiIconStripItem.allCases,
-                        selected: nil
-                    ) { item in
-                        switch item {
-                        case .home:
-                            onBackToChoice()
+                    HStack {
+                        Spacer()
 
-                        case .settings:
-                            break
+                        KmiIconStripBar(
+                            items: KmiIconStripItem.allCases,
+                            selected: nil
+                        ) { item in
+                            switch item {
+                            case .home:
+                                onBackToChoice()
 
-                        case .search:
-                            break
+                            case .settings:
+                                break
 
-                        case .share:
-                            break
+                            case .search:
+                                break
 
-                        case .assistant:
-                            break
+                            case .share:
+                                break
+
+                            case .assistant:
+                                break
+                            }
                         }
+                        .frame(width: 330)
+
+                        Spacer()
                     }
                     .padding(.top, 0)
-                    .padding(.bottom, 6)
-                    .padding(.horizontal, 6)
-                    .background(Color.clear)
+                    .padding(.bottom, 4)
+                    .background(Color.white)
                 }
-                .padding(.bottom, 10)
-                .background(Color.white)
+                .padding(.bottom, 12)
+                .overlay(
+                    Rectangle()
+                        .fill(Color.black.opacity(0.04))
+                        .frame(height: 1),
+                    alignment: .bottom
+                )
 
                 VStack(spacing: 14) {
 
@@ -300,7 +315,7 @@ struct LoginView: View {
                         .padding(.horizontal, 16)
                     }
                 }
-                .padding(.top, 0)
+                .padding(.top, 12)
                 .padding(.horizontal, 18)
 
                 Spacer()
@@ -439,50 +454,7 @@ private struct LoginGradientBackground: View {
     }
 }
 
-// ✅ Auth-only bar: חזרה + כותרת (בלי המבורגר)
-private struct AuthTopBar: View {
-    let title: String
-    let onBack: () -> Void
 
-    var body: some View {
-        ZStack {
-            Color.white
-
-            HStack {
-                Button(action: onBack) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 22, weight: .heavy))
-                        .foregroundStyle(Color.black.opacity(0.78))
-                        .frame(width: 48, height: 48)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                Text(title)
-                    .font(.system(size: 22, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(0.88))
-
-                Spacer()
-
-                Button(action: {}) {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 20, weight: .heavy))
-                        .foregroundStyle(Color.black.opacity(0.78))
-                        .frame(width: 48, height: 48)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .opacity(1)
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 10)
-            .padding(.bottom, 6)
-        }
-        .frame(height: 74)
-    }
-}
 
 private struct RoleTabs: View {
     enum Selection { case left, right }
@@ -620,10 +592,6 @@ private struct FooterText: View {
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.top, 10)
-            .font(.system(size: 16, weight: .heavy))
-            .foregroundStyle(Color.white.opacity(0.92))
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.top, 10)
     }
 }
 

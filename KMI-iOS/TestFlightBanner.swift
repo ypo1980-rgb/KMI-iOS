@@ -2,9 +2,11 @@ import SwiftUI
 
 struct TestFlightBanner: View {
 
+    var show: Bool = true
+
     var body: some View {
 
-        if TestFlightDetector.isTestFlight {
+        if TestFlightDetector.isTestFlight && show {
 
             Text("TESTFLIGHT BUILD")
                 .font(.system(size: 11, weight: .bold))

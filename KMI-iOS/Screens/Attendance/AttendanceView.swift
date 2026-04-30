@@ -12,6 +12,7 @@ struct AttendanceView: View {
     @State private var newMemberName: String = ""
     @State private var newMemberPhone: String = ""
     @State private var newMemberNotes: String = ""
+    @State private var isAddMemberExpanded: Bool = false
 
     init(
         ownerUid: String,
@@ -303,37 +304,69 @@ struct AttendanceView: View {
 
     private var addMemberCard: some View {
         card {
-            sectionHeader("הוספת מתאמן", subtitle: "רשימת המתאמנים נטענת לפי סניף וקבוצה")
-            
-            TextField("שם מלא", text: $newMemberName)
-                .textFieldStyle(.roundedBorder)
-                .multilineTextAlignment(.trailing)
-
-            TextField("טלפון", text: $newMemberPhone)
-                .textFieldStyle(.roundedBorder)
-                .multilineTextAlignment(.trailing)
-
-            TextField("הערות", text: $newMemberNotes)
-                .textFieldStyle(.roundedBorder)
-                .multilineTextAlignment(.trailing)
-
             Button {
-                vm.addMember(
-                    fullName: newMemberName,
-                    phone: newMemberPhone,
-                    notes: newMemberNotes
-                )
-                newMemberName = ""
-                newMemberPhone = ""
-                newMemberNotes = ""
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    isAddMemberExpanded.toggle()
+                }
             } label: {
-                HStack {
-                    Image(systemName: "plus.circle.fill")
-                    Text("הוסף מתאמן")
+                HStack(spacing: 10) {
+                    Image(systemName: isAddMemberExpanded ? "chevron.up.circle.fill" : "chevron.down.circle.fill")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(.white)
+
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("הוספת מתאמן")
+                            .font(.headline.weight(.heavy))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+
+                        Text("רשימת המתאמנים נטענת לפי סניף וקבוצה")
+                            .font(.footnote)
+                            .foregroundStyle(.white.opacity(0.72))
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
                 }
                 .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.plain)
+
+            if isAddMemberExpanded {
+                TextField("שם מלא", text: $newMemberName)
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+
+                TextField("טלפון", text: $newMemberPhone)
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+
+                TextField("הערות", text: $newMemberNotes)
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+
+                Button {
+                    vm.addMember(
+                        fullName: newMemberName,
+                        phone: newMemberPhone,
+                        notes: newMemberNotes
+                    )
+                    newMemberName = ""
+                    newMemberPhone = ""
+                    newMemberNotes = ""
+
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        isAddMemberExpanded = false
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                        Text("הוסף מתאמן")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
     }
 

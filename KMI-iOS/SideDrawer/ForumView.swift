@@ -4,6 +4,7 @@ import FirebaseFirestore
 import PhotosUI
 import UniformTypeIdentifiers
 import AVKit
+import Shared
 
 #if canImport(FirebaseStorage)
 import FirebaseStorage
@@ -26,10 +27,20 @@ private struct ForumUiMessage: Identifiable, Hashable {
     var isMine: Bool = false
 }
 
-private enum ForumAccess {
-    static func isManager(_ ud: UserDefaults) -> Bool { ud.bool(forKey: "is_manager") }
-    static func isTrialActive(_ ud: UserDefaults) -> Bool { ud.bool(forKey: "is_trial_active") }
-    static func hasFullAccess(_ ud: UserDefaults) -> Bool { ud.bool(forKey: "has_full_access") }
+private struct ForumExerciseHit: Identifiable, Hashable {
+    let belt: Belt
+    let topic: String
+    let item: String
+
+    var id: String {
+        "\(belt.id)|\(topic)|\(item)"
+    }
+
+    var displayName: String {
+        item
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .ifEmpty("תרגיל")
+    }
 }
 
 #if canImport(FirebaseStorage)
@@ -40,6 +51,10 @@ private struct MovieFile: Transferable {
         FileRepresentation(importedContentType: .movie) { received in
             let tmp = FileManager.default.temporaryDirectory
                 .appendingPathComponent("forum_video_\(UUID().uuidString).mov")
+
+            if FileManager.default.fileExists(atPath: tmp.path) {
+                try? FileManager.default.removeItem(at: tmp)
+            }
 
             try FileManager.default.copyItem(at: received.file, to: tmp)
             return .init(url: tmp)
@@ -69,6 +84,8 @@ struct ForumView: View {
     @State private var input: String = ""
     @State private var editingMessageId: String? = nil
     @State private var editText: String = ""
+
+    @State private var pickedSearchHit: ForumExerciseHit? = nil
 
     #if canImport(FirebaseStorage)
     @State private var attachedImageData: Data? = nil
@@ -111,6 +128,18 @@ struct ForumView: View {
         }
         .onAppear { boot() }
         .onDisappear { stopListener() }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("KMI_GLOBAL_SEARCH_PICK"))) { output in
+            guard let key = output.object as? String else { return }
+            guard let parsed = parseSearchKey(key) else { return }
+            pickedSearchHit = parsed
+        }
+        .sheet(item: $pickedSearchHit) { hit in
+            ForumExerciseExplanationSheet(
+                hit: hit,
+                branch: branch,
+                groupKey: groupKey
+            )
+        }
 
         #if canImport(FirebaseStorage)
         .onChange(of: imagePickerItem) { _, newItem in
@@ -183,15 +212,6 @@ struct ForumView: View {
         VStack(spacing: 10) {
 
             HStack(spacing: 10) {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .heavy))
-                        .foregroundStyle(.white)
-                        .frame(width: 34, height: 34)
-                        .background(Circle().fill(Color.white.opacity(0.12)))
-                }
-                .buttonStyle(.plain)
-
                 Spacer()
 
                 Text("סניף: \(branch)  •  קבוצה: \(groupKey)")
@@ -461,39 +481,59 @@ struct ForumView: View {
         fullName = ud.string(forKey: "fullName") ?? ""
         email = ud.string(forKey: "email") ?? ""
 
-        branch = (ud.string(forKey: "branch") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let direct = (ud.string(forKey: "groupKey") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !direct.isEmpty {
-            groupKey = direct
-        } else {
-            let age = (ud.string(forKey: "age_group") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !age.isEmpty {
-                groupKey = age
-            } else {
-                groupKey = (ud.string(forKey: "group") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            }
+        Task {
+            await loadUserBranchAndGroup()
         }
 
-        let isManager = ForumAccess.isManager(ud)
-        let isTrial = ForumAccess.isTrialActive(ud)
-        let hasFull = ForumAccess.hasFullAccess(ud)
+        let currentUser = Auth.auth().currentUser
+        let hasBranchAndGroup = !branch.isEmpty && !groupKey.isEmpty
 
-        canUseExtras = hasFull || isManager
+        canUseExtras = (currentUser != nil) && hasBranchAndGroup
 
         if !canUseExtras {
-            if isTrial && !hasFull {
-                lockText = "במהלך תקופת הניסיון מסך הפורום נעול.\nאחרי רכישת מנוי המסך ייפתח עבורך."
+            if currentUser == nil {
+                lockText = "יש להתחבר לאפליקציה כדי להשתמש בפורום הסניף."
+            } else if !hasBranchAndGroup {
+                lockText = "לא אותרו סניף או קבוצה במשתמש.\nיש להשלים את פרטי הסניף והקבוצה כדי להשתמש בפורום."
             } else {
-                lockText = "מסך הפורום זמין למנויים בלבד.\nכדי להמשיך יש לרכוש מנוי פעיל."
+                lockText = "אין הרשאה לפתוח את הפורום."
             }
             return
         }
 
-        Task { await ensureAnonAuth() }
         startListener()
     }
 
+    private func loadUserBranchAndGroup() async {
+
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+
+        do {
+            let snap = try await db.collection("users")
+                .document(uid)
+                .getDocument()
+
+            guard let data = snap.data() else { return }
+
+            let branchVal = (data["branch"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let groupVal = (data["groupKey"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            await MainActor.run {
+                branch = branchVal
+                groupKey = groupVal
+                startListener()
+            }
+
+        } catch {
+            await MainActor.run {
+                errorText = "שגיאה בטעינת פרטי משתמש: \(error.localizedDescription)"
+            }
+        }
+    }
+    
     private func stopListener() {
         listener?.remove()
         listener = nil
@@ -550,14 +590,7 @@ struct ForumView: View {
     }
 
     private func ensureAnonAuth() async {
-        if Auth.auth().currentUser != nil { return }
-        do {
-            _ = try await Auth.auth().signInAnonymously()
-        } catch {
-            await MainActor.run {
-                errorText = "שגיאת התחברות: \(error.localizedDescription)"
-            }
-        }
+        // הפורום עובד רק עם משתמש מחובר אמיתי
     }
 
     // MARK: - Send / Update / Delete
@@ -647,7 +680,7 @@ struct ForumView: View {
         }
     }
 
-    // MARK: - Uploads (only when Storage exists)
+    // MARK: - Uploads
 
     #if canImport(FirebaseStorage)
     private func uploadImage(data: Data, uid: String?) async throws -> String {
@@ -713,6 +746,38 @@ struct ForumView: View {
     }
     #endif
 
+    // MARK: - Search Helpers
+
+    private func parseSearchKey(_ key: String) -> ForumExerciseHit? {
+        func beltFromId(_ raw: String) -> Belt? {
+            switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "white": return .white
+            case "yellow": return .yellow
+            case "orange": return .orange
+            case "green": return .green
+            case "blue": return .blue
+            case "brown": return .brown
+            case "black": return .black
+            default: return nil
+            }
+        }
+
+        let parts = key.split(separator: "|", maxSplits: 2).map(String.init)
+        guard parts.count == 3 else { return nil }
+        guard let belt = beltFromId(parts[0]) else { return nil }
+
+        let topic = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        let item = parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !item.isEmpty else { return nil }
+
+        return ForumExerciseHit(
+            belt: belt,
+            topic: topic,
+            item: item
+        )
+    }
+
     // MARK: - Utils
 
     private func formatDate(_ d: Date) -> String {
@@ -720,5 +785,264 @@ struct ForumView: View {
         df.locale = Locale(identifier: "he_IL")
         df.dateFormat = "dd/MM HH:mm"
         return df.string(from: d)
+    }
+}
+
+// MARK: - Explanation Sheet
+
+private struct ForumExerciseExplanationSheet: View {
+
+    let hit: ForumExerciseHit
+    let branch: String
+    let groupKey: String
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var explanationText: String = ""
+    @State private var isLoading = true
+    @State private var errorText: String? = nil
+
+    @State private var showEditor = false
+    @State private var draftText: String = ""
+
+    @State private var favorites: Set<String> = []
+
+    private let db = Firestore.firestore()
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                header
+
+                if isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .trailing, spacing: 14) {
+                            Text(explanationText.isEmpty ? "אין כרגע הסבר לתרגיל הזה." : explanationText)
+                                .font(.body)
+                                .foregroundStyle(Color.primary)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                .multilineTextAlignment(.trailing)
+
+                            if let errorText, !errorText.isEmpty {
+                                Text(errorText)
+                                    .font(.footnote)
+                                    .foregroundStyle(.red)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                            }
+
+                            infoCard
+                        }
+                        .padding(16)
+                    }
+                }
+
+                Button("סגור") {
+                    dismiss()
+                }
+                .buttonStyle(.bordered)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $showEditor) {
+                explanationEditorSheet
+            }
+            .task {
+                loadFavorites()
+                await loadExplanation()
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            HStack(spacing: 4) {
+                Button {
+                    toggleFavorite()
+                } label: {
+                    Image(systemName: isFavorite ? "star.fill" : "star")
+                        .foregroundStyle(isFavorite ? Color.yellow : Color.gray)
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    draftText = explanationText
+                    showEditor = true
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .foregroundStyle(Color.blue)
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(hit.displayName)
+                    .font(.title3.weight(.bold))
+                    .multilineTextAlignment(.trailing)
+
+                Text("(\(hit.belt.heb)\(hit.topic.isEmpty ? "" : " · \(hit.topic)"))")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.trailing)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+    }
+
+    private var infoCard: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            Text("הסבר זה נשמר ב־Firestore כמסך אמת")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            if !branch.isEmpty || !groupKey.isEmpty {
+                Text("פורום: \(branch) / \(groupKey)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
+    }
+
+    private var explanationEditorSheet: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                TextEditor(text: $draftText)
+                    .padding(12)
+                    .frame(minHeight: 260)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color(.secondarySystemBackground))
+                    )
+                    .multilineTextAlignment(.trailing)
+
+                if let errorText, !errorText.isEmpty {
+                    Text(errorText)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+
+                HStack {
+                    Button("בטל") {
+                        showEditor = false
+                    }
+                    .buttonStyle(.bordered)
+
+                    Spacer()
+
+                    Button("שמור") {
+                        Task { await saveExplanation() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+
+                Spacer()
+            }
+            .padding(16)
+            .navigationTitle("עריכת הסבר")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private var isFavorite: Bool {
+        favorites.contains(normalizedFavoriteId(hit.item))
+    }
+
+    private func loadExplanation() async {
+        isLoading = true
+        errorText = nil
+
+        do {
+            let snap = try await db.collection("exercise_explanations")
+                .document(documentId)
+                .getDocument()
+
+            if let data = snap.data() {
+                explanationText = data["text"] as? String ?? ""
+            } else {
+                explanationText = ""
+            }
+        } catch {
+            errorText = "שגיאה בטעינת הסבר: \(error.localizedDescription)"
+        }
+
+        isLoading = false
+    }
+
+    private func saveExplanation() async {
+        errorText = nil
+
+        let trimmed = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        do {
+            try await db.collection("exercise_explanations")
+                .document(documentId)
+                .setData([
+                    "beltId": hit.belt.id,
+                    "beltHeb": hit.belt.heb,
+                    "topic": hit.topic,
+                    "item": hit.item,
+                    "itemNormalized": normalizedFavoriteId(hit.item),
+                    "text": trimmed,
+                    "updatedAt": FieldValue.serverTimestamp(),
+                    "updatedByUid": Auth.auth().currentUser?.uid as Any,
+                    "updatedByEmail": Auth.auth().currentUser?.email as Any
+                ], merge: true)
+
+            explanationText = trimmed
+            showEditor = false
+        } catch {
+            errorText = "שגיאה בשמירת הסבר: \(error.localizedDescription)"
+        }
+    }
+
+    private func loadFavorites() {
+        let stored = UserDefaults.standard.stringArray(forKey: "forum_exercise_favorites") ?? []
+        favorites = Set(stored)
+    }
+
+    private func toggleFavorite() {
+        let key = normalizedFavoriteId(hit.item)
+        if favorites.contains(key) {
+            favorites.remove(key)
+        } else {
+            favorites.insert(key)
+        }
+        UserDefaults.standard.set(Array(favorites), forKey: "forum_exercise_favorites")
+    }
+
+    private var documentId: String {
+        "\(hit.belt.id)__\(normalizedFavoriteId(hit.item))"
+    }
+
+    private func normalizedFavoriteId(_ raw: String) -> String {
+        raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: "—", with: "-")
+            .replacingOccurrences(of: "  ", with: " ")
+            .lowercased()
+    }
+}
+
+// MARK: - Helpers
+
+private extension String {
+    func ifEmpty(_ fallback: String) -> String {
+        self.isEmpty ? fallback : self
     }
 }

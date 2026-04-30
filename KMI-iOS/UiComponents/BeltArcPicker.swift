@@ -139,8 +139,10 @@ struct BeltArcPicker: View {
 
                 let delta = v.translation.width / step
 
-                // גורם לעיגול שנגרר להתקדם למרכז
-                let nextCenter = (CGFloat(index) + delta)
+                // ✅ היפוך כיוון:
+                // גרירה ימינה => העיגול שמשמאל מתקדם למרכז
+                // גרירה שמאלה => העיגול שמימין מתקדם למרכז
+                let nextCenter = (CGFloat(index) - delta)
                     .clamped(to: 0...CGFloat(Swift.max(0, belts.count - 1)))
 
                 centerValue = nextCenter

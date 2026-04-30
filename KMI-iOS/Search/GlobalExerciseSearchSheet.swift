@@ -3,6 +3,8 @@ import Shared
 
 struct GlobalExerciseSearchSheet_Legacy: View {
 
+    let onPick: (ExerciseSearchHit) -> Void
+
     @Environment(\.dismiss) private var dismiss
 
     @StateObject private var engine = GlobalExerciseSearchEngine.shared
@@ -76,9 +78,9 @@ struct GlobalExerciseSearchSheet_Legacy: View {
                     } else {
                         List(results) { hit in
                             Button {
-                                selectedHit = hit
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
+                                onPick(hit)
+                                dismiss()
+                            } label: {                                VStack(alignment: .leading, spacing: 4) {
                                     Text(hit.displayTitle)
                                         .font(.headline)
 
@@ -110,9 +112,6 @@ struct GlobalExerciseSearchSheet_Legacy: View {
             }
             .onChange(of: beltFilter) { _, _ in
                 refresh()
-            }
-            .navigationDestination(item: $selectedHit) { hit in
-                ExerciseExplanationPlaceholderView(hit: hit)
             }
         }
     }

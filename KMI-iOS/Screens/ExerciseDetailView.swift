@@ -9,6 +9,8 @@ struct ExerciseDetailView: View {
     @State private var isFavorite: Bool = false
     @State private var isCompleted: Bool = false
     @State private var showShare: Bool = false
+    @State private var noteText: String = ""
+    @State private var didLoadNote: Bool = false
 
     private var storageKeyBase: String {
         // מפתח יציב מקומי (בהמשך נחליף למזהה קנוני מה-Shared)
@@ -21,6 +23,13 @@ struct ExerciseDetailView: View {
 
     private var favKey: String { storageKeyBase + ".fav" }
     private var doneKey: String { storageKeyBase + ".done" }
+    private var noteKey: String { storageKeyBase + ".note" }
+
+    private var explanationText: String {
+        let txt = LocalExplanations.shared.get(belt: belt, item: item)
+        let clean = txt.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? "לא נמצא הסבר לתרגיל זה." : clean
+    }
 
     var shareText: String {
         "\(item)\n\(belt.heb) • \(topicTitle)\n\nKMI"
@@ -105,26 +114,65 @@ struct ExerciseDetailView: View {
                     }
 
                     WhiteCard {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("הסבר (placeholder)")
+                        VStack(alignment: .trailing, spacing: 8) {
+                            Text("הסבר על התרגיל")
                                 .font(.headline.weight(.bold))
                                 .foregroundStyle(Color.black.opacity(0.82))
 
-                            Text("כאן יופיע הסבר לתרגיל, טיפים, דגשים בטיחותיים, וריאציות לפי חגורה, וקישורים למדיה.")
+                            Text(explanationText)
                                 .font(.body)
                                 .foregroundStyle(Color.black.opacity(0.70))
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                .multilineTextAlignment(.trailing)
 
                             Divider().opacity(0.15)
 
-                            Text("מוכנות לחיבור ל-Shared:")
-                                .font(.subheadline.weight(.bold))
-                                .foregroundStyle(Color.black.opacity(0.78))
+                            Text("הערת המתאמן:")
+                                .font(.headline.weight(.bold))
+                                .foregroundStyle(Color.black.opacity(0.82))
 
-                            Text("• Explanations / Tips\n• Media (וידאו/תמונה)\n• Variants לפי חגורה\n• Favorites + Progress")
-                                .font(.body)
-                                .foregroundStyle(Color.black.opacity(0.70))
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            TextEditor(text: $noteText)
+                                .scrollContentBackground(.hidden)
+                                .frame(minHeight: 130)
+                                .padding(8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .fill(Color.black.opacity(0.05))
+                                )
+
+                            HStack(spacing: 10) {
+                                Button {
+                                    clearNote()
+                                } label: {
+                                    Text("נקה")
+                                        .font(.caption.weight(.bold))
+                                        .foregroundStyle(Color.black.opacity(0.80))
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 10)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                                .fill(Color.white.opacity(0.92))
+                                        )
+                                }
+                                .buttonStyle(.plain)
+
+                                Button {
+                                    saveNote()
+                                } label: {
+                                    Text("שמור הערה")
+                                        .font(.caption.weight(.bold))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 10)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                                .fill(Color.black.opacity(0.80))
+                                        )
+                                }
+                                .buttonStyle(.plain)
+
+                                Spacer()
+                            }
                         }
                         .padding(.vertical, 10)
                         .padding(.horizontal, 12)
@@ -146,6 +194,7 @@ struct ExerciseDetailView: View {
             // ✅ טעינה אמיתית מהאחסון המקומי
             isFavorite = loadBool(key: favKey, defaultValue: false)
             isCompleted = loadBool(key: doneKey, defaultValue: false)
+            loadNoteIfNeeded()
         }
     }
 
@@ -158,6 +207,23 @@ struct ExerciseDetailView: View {
 
     private func saveBool(_ value: Bool, key: String) {
         UserDefaults.standard.set(value, forKey: key)
+    }
+
+    private func loadNoteIfNeeded() {
+        guard !didLoadNote else { return }
+        noteText = UserDefaults.standard.string(forKey: noteKey) ?? ""
+        didLoadNote = true
+    }
+
+    private func saveNote() {
+        let trimmed = noteText.trimmingCharacters(in: .whitespacesAndNewlines)
+        UserDefaults.standard.set(trimmed, forKey: noteKey)
+        noteText = trimmed
+    }
+
+    private func clearNote() {
+        UserDefaults.standard.removeObject(forKey: noteKey)
+        noteText = ""
     }
 
     // MARK: - UI helpers

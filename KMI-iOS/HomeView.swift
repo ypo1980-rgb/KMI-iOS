@@ -26,6 +26,9 @@ struct HomeView: View {
     @State private var selectedTraining: TrainingData? = nil
     @State private var showNavigationSheet: Bool = false
 
+    // Global search navigation
+    @State private var pickedExercise: ExerciseSelection? = nil
+
     private let calendar = Calendar(identifier: .gregorian)
 
     private var resolvedRegion: String {
@@ -361,6 +364,14 @@ struct HomeView: View {
             .padding(.leading, 26)
             .padding(.bottom, 60)
         }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name("KMI_GLOBAL_SEARCH_PICK")
+            )
+        ) { notif in
+            guard let key = notif.object as? String else { return }
+            pickedExercise = ExerciseSelection.fromSearchKey(key)
+        }
         .task {
             trainingsVm.loadForCurrentUser(auth: auth)
         }
@@ -400,6 +411,13 @@ struct HomeView: View {
         }
         .navigationDestination(isPresented: $goMonthly) {
             MonthlyTrainingBoardView()
+        }
+        .navigationDestination(item: $pickedExercise) { selection in
+            ExerciseDetailView(
+                belt: selection.belt,
+                topicTitle: selection.topicTitle,
+                item: selection.item
+            )
         }
         .sheet(isPresented: $showNavigationSheet, onDismiss: {
             selectedTraining = nil
@@ -740,6 +758,49 @@ private struct PlaceholderScreen: View {
             .padding(24)
         }
         .navigationBarBackButtonHidden(true)
+    }
+}
+
+private struct ExerciseSelection: Identifiable, Hashable {
+    let belt: Belt
+    let topicTitle: String
+    let item: String
+
+    var id: String {
+        "\(belt.id)|\(topicTitle)|\(item)"
+    }
+
+    static func parseBelt(_ raw: String) -> Belt? {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "white", "לבן", "לבנה":
+            return .white
+        case "yellow", "צהוב", "צהובה":
+            return .yellow
+        case "orange", "כתום", "כתומה":
+            return .orange
+        case "green", "ירוק", "ירוקה":
+            return .green
+        case "blue", "כחול", "כחולה":
+            return .blue
+        case "brown", "חום", "חומה":
+            return .brown
+        case "black", "שחור", "שחורה":
+            return .black
+        default:
+            return nil
+        }
+    }
+
+    static func fromSearchKey(_ key: String) -> ExerciseSelection? {
+        let parts = key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 3 else { return nil }
+        guard let belt = parseBelt(parts[0]) else { return nil }
+
+        return ExerciseSelection(
+            belt: belt,
+            topicTitle: parts[1],
+            item: parts[2]
+        )
     }
 }
 

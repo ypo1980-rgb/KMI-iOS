@@ -29,15 +29,22 @@ struct KmiTopBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(roleLabel)
-                .font(.caption.weight(.heavy))
-                .foregroundStyle(Color.black.opacity(0.75))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color(red: 0.87, green: 0.80, blue: 0.98))
-                )
+            Group {
+                if !roleLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(roleLabel)
+                        .font(.caption.weight(.heavy))
+                        .foregroundStyle(Color.black.opacity(0.75))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color(red: 0.87, green: 0.80, blue: 0.98))
+                        )
+                } else {
+                    Color.clear
+                        .frame(width: 44, height: 44)
+                }
+            }
 
             Spacer()
 
@@ -117,6 +124,7 @@ struct KmiRootLayout<Content: View>: View {
     let content: Content
     let rightText: String?
     let titleColor: Color
+    let onPickSearchResult: ((String) -> Void)?
     
     @ObservedObject var nav: AppNavModel
     let selectedIcon: KmiIconStripItem?
@@ -137,6 +145,7 @@ struct KmiRootLayout<Content: View>: View {
         selectedIcon: KmiIconStripItem? = nil,
         rightText: String? = nil,
         titleColor: Color = Color.black.opacity(0.85),
+        onPickSearchResult: ((String) -> Void)? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
@@ -145,6 +154,7 @@ struct KmiRootLayout<Content: View>: View {
         self.selectedIcon = selectedIcon
         self.rightText = rightText
         self.titleColor = titleColor
+        self.onPickSearchResult = onPickSearchResult
         self.content = content()
     }
   
@@ -180,6 +190,7 @@ struct KmiRootLayout<Content: View>: View {
         KmiSideDrawerContainer(
             isOpen: $drawerOpen,
             onItem: { item in
+                print("🟣 SIDE_DRAWER tapped title =", item.title)
 
                 let freeSessionsUid =
                     Auth.auth().currentUser?.uid ?? "demo_ios"
@@ -236,6 +247,10 @@ struct KmiRootLayout<Content: View>: View {
 
                 case "ניהול משתמשים":
                     nav.push(.adminUsers)
+
+                case "ניהול מנוי":
+                    print("🟣 SIDE_DRAWER -> subscription route")
+                    nav.push(.subscription)
                     
                 case "אודות הרשת":
                     nav.push(.aboutNetwork)
@@ -265,8 +280,6 @@ struct KmiRootLayout<Content: View>: View {
 
                 VStack(spacing: 0) {
 
-                    TestFlightBanner()
-
                     VStack(spacing: 0) {
                         KmiTopBar(
                             roleLabel: roleLabel,
@@ -275,25 +288,33 @@ struct KmiRootLayout<Content: View>: View {
                             titleColor: titleColor,
                             onMenu: { drawerOpen = true }
                         )
+                        .background(Color.white)
 
-                        KmiIconStripBar(
-                            items: KmiIconStripItem.allCases,
-                            selected: selectedIcon
-                        ) { item in
-                            onGlobalIconTap(item)
+                        HStack {
+                            Spacer()
+
+                            KmiIconStripBar(
+                                items: KmiIconStripItem.allCases,
+                                selected: selectedIcon
+                            ) { item in
+                                onGlobalIconTap(item)
+                            }
+                            .frame(width: 330)
+
+                            Spacer()
                         }
                         .padding(.top, 0)
                         .padding(.bottom, 4)
+                        .background(Color.white)
                     }
-                    .frame(maxWidth: .infinity)
-                    .background(Color.white)
+                    .padding(.bottom, 12)
                     .overlay(
                         Rectangle()
                             .fill(Color.black.opacity(0.04))
                             .frame(height: 1),
                         alignment: .bottom
                     )
-
+                    
                     content
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
@@ -302,10 +323,16 @@ struct KmiRootLayout<Content: View>: View {
         
         // ✅ Sheet של חיפוש גלובאלי
         .sheet(isPresented: $showGlobalSearch) {
-            GlobalExerciseSearchSheet()
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+            GlobalExerciseSearchSheet_Legacy { hit in
+
+                let key = "\(hit.belt.id)|\(hit.topic)|\(hit.displayTitle)"
+
+                onPickSearchResult?(key)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
+
         // ✅ Sheet של שיתוף (WhatsApp דרך Share Sheet)
         .sheet(isPresented: $showShareSheet) {
             KmiShareSheet(items: shareItems)

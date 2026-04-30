@@ -184,6 +184,9 @@ enum AppRoute: Hashable {
     case aboutAvi
     case forum
 
+    case subscription
+    case subscriptionPlans
+
     case settings
     case exercisesMarks(belt: Belt, topic: String, subTopic: String?)
     // ⭐️ Admin
@@ -297,7 +300,13 @@ struct ContentView: View {
                 KmiRootLayout(
                     title: "מסך הבית",
                     nav: nav,
-                    selectedIcon: .home
+                    selectedIcon: .home,
+                    onPickSearchResult: { key in
+                        NotificationCenter.default.post(
+                            name: Notification.Name("KMI_GLOBAL_SEARCH_PICK"),
+                            object: key
+                        )
+                    }
                 ) {
                     HomeView(nav: nav)
                 }
@@ -351,9 +360,20 @@ struct ContentView: View {
                             .toolbar(.hidden, for: .navigationBar)
 
                     case .forum:
-                        ForumView(onClose: { nav.pop() })
-                            .navigationBarBackButtonHidden(true)
-                            .toolbar(.hidden, for: .navigationBar)
+                        KmiRootLayout(
+                            title: "פורום הסניף",
+                            nav: nav,
+                            selectedIcon: nil,
+                            onPickSearchResult: { key in
+                                NotificationCenter.default.post(
+                                    name: Notification.Name("KMI_GLOBAL_SEARCH_PICK"),
+                                    object: key
+                                )
+                            }
+                        ) {
+                            ForumView(onClose: { nav.pop() })
+                                .navigationBarBackButtonHidden(true)
+                        }
 
                 // ✅ תרגילים לפי חגורה
                 case .beltQuestionsByBelt(let belt):
@@ -402,6 +422,35 @@ struct ContentView: View {
                             .navigationBarBackButtonHidden(true)
                         }
                         
+                    case .subscription:
+                        KmiRootLayout(title: "ניהול מנוי", nav: nav, selectedIcon: .home) {
+                            SubscriptionScreen(
+                                onBack: {
+                                    nav.pop()
+                                },
+                                onOpenPlans: {
+                                    nav.push(.subscriptionPlans)
+                                },
+                                onOpenHome: {
+                                    nav.popToRoot()
+                                }
+                            )
+                            .navigationBarBackButtonHidden(true)
+                        }
+
+                    case .subscriptionPlans:
+                        KmiRootLayout(title: "תוכניות מנוי", nav: nav, selectedIcon: .home) {
+                            SubscriptionPlansScreen(
+                                onBack: {
+                                    nav.pop()
+                                },
+                                onOpenHome: {
+                                    nav.popToRoot()
+                                }
+                            )
+                            .navigationBarBackButtonHidden(true)
+                        }
+
                     // ✅ settings (אם קיים אצלך)
                     case .settings:
                         KmiRootLayout(title: "הגדרות", nav: nav, selectedIcon: .settings) {

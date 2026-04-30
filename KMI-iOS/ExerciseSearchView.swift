@@ -1,9 +1,3 @@
-//
-//  ExerciseSearchView.swift
-//  KMI-iOS
-//
-//  Created by יובל פולק on 03/03/2026.
-//
 import SwiftUI
 import Shared
 
@@ -13,29 +7,48 @@ struct ExerciseSearchView: View {
     @State private var selected: ExerciseHit? = nil
 
     private let catalog = CatalogData.shared.data
-
     private let belts: [Belt] = [.white, .yellow, .orange, .green, .blue, .brown, .black]
 
     struct ExerciseHit: Identifiable, Hashable {
         let belt: Belt
-        let title: String
+        let topic: String
+        let item: String
 
-        var id: String { "\(belt.id)::\(title)" }
+        var key: String { "\(belt.id)|\(topic)|\(item)" }
+        var id: String { key }
     }
 
-    private func allExercises(for belt: Belt) -> [String] {
+    private func allExercises(for belt: Belt) -> [ExerciseHit] {
         guard let beltContent = catalog[belt] else { return [] }
-        var out: [String] = []
 
-        for t in beltContent.topics {
-            out.append(contentsOf: t.items)
-            for st in t.subTopics {
-                out.append(contentsOf: st.items)
+        var out: [ExerciseHit] = []
+
+        for topic in beltContent.topics {
+            for item in topic.items {
+                out.append(
+                    ExerciseHit(
+                        belt: belt,
+                        topic: topic.title,
+                        item: item
+                    )
+                )
+            }
+
+            for subTopic in topic.subTopics {
+                for item in subTopic.items {
+                    out.append(
+                        ExerciseHit(
+                            belt: belt,
+                            topic: topic.title,
+                            item: item
+                        )
+                    )
+                }
             }
         }
 
         var seen = Set<String>()
-        return out.filter { seen.insert($0).inserted }
+        return out.filter { seen.insert($0.key).inserted }
     }
 
     private func normalize(_ s: String) -> String {
@@ -49,10 +62,10 @@ struct ExerciseSearchView: View {
         if q.isEmpty { return [] }
 
         var out: [ExerciseHit] = []
-        for b in belts {
-            for name in allExercises(for: b) {
-                if normalize(name).localizedCaseInsensitiveContains(q) {
-                    out.append(.init(belt: b, title: name))
+        for belt in belts {
+            for hit in allExercises(for: belt) {
+                if normalize(hit.item).localizedCaseInsensitiveContains(q) {
+                    out.append(hit)
                 }
             }
         }
@@ -83,7 +96,7 @@ struct ExerciseSearchView: View {
                             )
 
                         if query.isEmpty {
-                            Text("חפש לפי שם תרגיל כדי לקבל גם הסבר.")
+                            Text("חפש לפי שם תרגיל כדי לקבל גם הסבר, מועדפים והערה.")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(Color.black.opacity(0.55))
                                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -110,13 +123,18 @@ struct ExerciseSearchView: View {
                                             .foregroundStyle(Color.black.opacity(0.55))
 
                                         VStack(alignment: .trailing, spacing: 4) {
-                                            Text(hit.title)
+                                            Text(hit.item)
                                                 .font(.body.weight(.heavy))
                                                 .foregroundStyle(Color.black.opacity(0.82))
                                                 .frame(maxWidth: .infinity, alignment: .trailing)
                                                 .lineLimit(2)
 
-                                            Text("לחץ להסבר")
+                                            Text(hit.topic)
+                                                .font(.caption.weight(.semibold))
+                                                .foregroundStyle(Color.black.opacity(0.50))
+                                                .frame(maxWidth: .infinity, alignment: .trailing)
+
+                                            Text("לחץ לפרטים")
                                                 .font(.caption.weight(.semibold))
                                                 .foregroundStyle(Color.black.opacity(0.55))
                                                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -155,20 +173,36 @@ struct ExerciseSearchView: View {
         .navigationTitle("חיפוש")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $selected) { hit in
-            ExerciseExplanationSheet(belt: hit.belt, title: hit.title)
+            ExerciseDetailsSheet(hit: hit)
         }
     }
 }
 
-private struct ExerciseExplanationSheet: View {
+private struct ExerciseDetailsSheet: View {
 
-    let belt: Belt
-    let title: String
+    let hit: ExerciseSearchView.ExerciseHit
 
     @Environment(\.dismiss) private var dismiss
+    @State private var noteText: String = ""
+    @State private var didLoadNote = false
+    @State private var favoriteRefreshToken = UUID()
 
     private var explanation: String {
-        LocalExplanations.shared.get(belt: belt, item: title)
+        let text = LocalExplanations.shared.get(belt: hit.belt, item: hit.item)
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "לא נמצא הסבר לתרגיל זה." : trimmed
+    }
+
+    private var noteKey: String {
+        "kmi.note.\(hit.key)"
+    }
+
+    private var isFavorite: Bool {
+        UserDefaults.standard.bool(forKey: favoriteKey)
+    }
+
+    private var favoriteKey: String {
+        "kmi.favorite.\(hit.key)"
     }
 
     var body: some View {
@@ -178,24 +212,104 @@ private struct ExerciseExplanationSheet: View {
 
                 ScrollView {
                     WhiteCard {
-                        VStack(alignment: .trailing, spacing: 10) {
+                        VStack(alignment: .trailing, spacing: 14) {
 
-                            Text(title)
-                                .font(.title3.weight(.heavy))
-                                .foregroundStyle(Color.black.opacity(0.85))
-                                .frame(maxWidth: .infinity, alignment: .trailing)
+                            HStack(spacing: 10) {
+                                Button {
+                                    toggleFavorite()
+                                } label: {
+                                    Image(systemName: isFavorite ? "star.fill" : "star")
+                                        .font(.system(size: 18, weight: .bold))
+                                        .foregroundStyle(isFavorite ? Color.yellow.opacity(0.95) : Color.black.opacity(0.55))
+                                        .frame(width: 40, height: 40)
+                                        .background(
+                                            Circle()
+                                                .fill(Color.black.opacity(0.06))
+                                        )
+                                }
+                                .buttonStyle(.plain)
 
-                            Text(belt.heb)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Color.black.opacity(0.55))
-                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                Spacer()
+
+                                VStack(alignment: .trailing, spacing: 4) {
+                                    Text(hit.item)
+                                        .font(.title3.weight(.heavy))
+                                        .foregroundStyle(Color.black.opacity(0.85))
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
+
+                                    Text("חגורה \(hit.belt.heb) • \(hit.topic)")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(Color.black.opacity(0.55))
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                                }
+                            }
 
                             Divider().opacity(0.2)
 
-                            Text(explanation)
-                                .font(.body)
-                                .foregroundStyle(Color.black.opacity(0.82))
-                                .frame(maxWidth: .infinity, alignment: .trailing)
+                            VStack(alignment: .trailing, spacing: 8) {
+                                Text("הסבר על התרגיל")
+                                    .font(.headline.weight(.heavy))
+                                    .foregroundStyle(Color.black.opacity(0.82))
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+
+                                Text(explanation)
+                                    .font(.body)
+                                    .foregroundStyle(Color.black.opacity(0.82))
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                                    .multilineTextAlignment(.trailing)
+                            }
+
+                            Divider().opacity(0.2)
+
+                            VStack(alignment: .trailing, spacing: 8) {
+                                Text("הערת המתאמן:")
+                                    .font(.headline.weight(.heavy))
+                                    .foregroundStyle(Color.black.opacity(0.82))
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+
+                                TextEditor(text: $noteText)
+                                    .scrollContentBackground(.hidden)
+                                    .frame(minHeight: 130)
+                                    .padding(8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                            .fill(Color.black.opacity(0.05))
+                                    )
+                                    .multilineTextAlignment(.trailing)
+
+                                HStack(spacing: 10) {
+                                    Button {
+                                        clearNote()
+                                    } label: {
+                                        Text("נקה")
+                                            .font(.subheadline.weight(.bold))
+                                            .foregroundStyle(Color.black.opacity(0.70))
+                                            .padding(.horizontal, 16)
+                                            .padding(.vertical, 10)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                                    .fill(Color.black.opacity(0.08))
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    Button {
+                                        saveNote()
+                                    } label: {
+                                        Text("שמור הערה")
+                                            .font(.subheadline.weight(.bold))
+                                            .foregroundStyle(.white)
+                                            .padding(.horizontal, 16)
+                                            .padding(.vertical, 10)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                                    .fill(Color.black.opacity(0.78))
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
                         }
                         .padding(.vertical, 12)
                         .padding(.horizontal, 12)
@@ -205,13 +319,40 @@ private struct ExerciseExplanationSheet: View {
                     .padding(.bottom, 22)
                 }
             }
-            .navigationTitle("הסבר")
+            .navigationTitle("פרטי תרגיל")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("סגור") { dismiss() }
                 }
             }
+            .id(favoriteRefreshToken)
+            .onAppear {
+                loadNoteIfNeeded()
+            }
         }
+    }
+
+    private func loadNoteIfNeeded() {
+        guard !didLoadNote else { return }
+        noteText = UserDefaults.standard.string(forKey: noteKey) ?? ""
+        didLoadNote = true
+    }
+
+    private func saveNote() {
+        let trimmed = noteText.trimmingCharacters(in: .whitespacesAndNewlines)
+        UserDefaults.standard.set(trimmed, forKey: noteKey)
+        noteText = trimmed
+    }
+
+    private func clearNote() {
+        UserDefaults.standard.removeObject(forKey: noteKey)
+        noteText = ""
+    }
+
+    private func toggleFavorite() {
+        let newValue = !UserDefaults.standard.bool(forKey: favoriteKey)
+        UserDefaults.standard.set(newValue, forKey: favoriteKey)
+        favoriteRefreshToken = UUID()
     }
 }

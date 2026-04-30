@@ -27,6 +27,9 @@ struct BeltQuestionsByBeltView: View {
     @State private var tab: Tab = .byBelt
     @State private var quickMenuOpen: Bool = false
     @State private var expandedTopic: String? = nil
+
+    // Global search
+    @State private var pickedExercise: ExerciseSelection? = nil
     
     private struct BeltTopicExerciseRoute: Identifiable, Hashable {
         let id: String
@@ -322,14 +325,22 @@ struct BeltQuestionsByBeltView: View {
         }
         .onAppear {
             guard !didInitializeSelectedBelt else { return }
-            
+
             if belts.contains(belt) {
                 selectedBelt = belt
             } else {
                 selectedBelt = .orange
             }
-            
+
             didInitializeSelectedBelt = true
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name("KMI_GLOBAL_SEARCH_PICK")
+            )
+        ) { notif in
+            guard let key = notif.object as? String else { return }
+            pickedExercise = ExerciseSelection.fromSearchKey(key)
         }
         .navigationDestination(item: $selectedLinkedTopicRoute) { route in
             LinkedTopicSubTopicsView(
@@ -394,6 +405,13 @@ struct BeltQuestionsByBeltView: View {
         }
         .navigationDestination(item: $selectedSubjectSectionRoute) { (route: BeltQuestionsByBeltView.SubjectSectionExerciseRoute) in
             SubjectExercisesView(route: route)
+        }
+        .navigationDestination(item: $pickedExercise) { selection in
+            ExerciseDetailView(
+                belt: selection.belt,
+                topicTitle: selection.topicTitle,
+                item: selection.item
+            )
         }
     }
 
@@ -1474,6 +1492,49 @@ private struct SubjectMarkCircleButton: View {
             }
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct ExerciseSelection: Identifiable, Hashable {
+    let belt: Belt
+    let topicTitle: String
+    let item: String
+
+    var id: String {
+        "\(belt.id)|\(topicTitle)|\(item)"
+    }
+
+    private static func parseBelt(_ raw: String) -> Belt? {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "white", "לבן", "לבנה":
+            return .white
+        case "yellow", "צהוב", "צהובה":
+            return .yellow
+        case "orange", "כתום", "כתומה":
+            return .orange
+        case "green", "ירוק", "ירוקה":
+            return .green
+        case "blue", "כחול", "כחולה":
+            return .blue
+        case "brown", "חום", "חומה":
+            return .brown
+        case "black", "שחור", "שחורה":
+            return .black
+        default:
+            return nil
+        }
+    }
+
+    static func fromSearchKey(_ key: String) -> ExerciseSelection? {
+        let parts = key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 3 else { return nil }
+        guard let belt = parseBelt(parts[0]) else { return nil }
+
+        return ExerciseSelection(
+            belt: belt,
+            topicTitle: parts[1],
+            item: parts[2]
+        )
     }
 }
 

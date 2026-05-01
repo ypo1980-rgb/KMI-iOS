@@ -16,18 +16,36 @@ extension SettingsView {
         onChanged: @escaping (Bool) -> Void
     ) -> some View {
         HStack {
-            Text(title)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            if isEnglish {
+                toggleRowText(title)
 
-            Toggle("", isOn: Binding(
-                get: { isOn.wrappedValue },
-                set: { newValue in
-                    isOn.wrappedValue = newValue
-                    onChanged(newValue)
-                }
-            ))
-            .labelsHidden()
+                toggleRowSwitch(isOn: isOn, onChanged: onChanged)
+            } else {
+                toggleRowSwitch(isOn: isOn, onChanged: onChanged)
+
+                toggleRowText(title)
+            }
         }
+    }
+
+    private func toggleRowText(_ title: String) -> some View {
+        Text(title)
+            .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+            .multilineTextAlignment(primaryTextAlignment)
+    }
+
+    private func toggleRowSwitch(
+        isOn: Binding<Bool>,
+        onChanged: @escaping (Bool) -> Void
+    ) -> some View {
+        Toggle("", isOn: Binding(
+            get: { isOn.wrappedValue },
+            set: { newValue in
+                isOn.wrappedValue = newValue
+                onChanged(newValue)
+            }
+        ))
+        .labelsHidden()
     }
 
     func requestNotificationPermissionIfNeeded(onGranted: @escaping () -> Void) {
@@ -43,7 +61,10 @@ extension SettingsView {
                             onGranted()
                         } else {
                             trainingRemindersEnabled = false
-                            toast("אין הרשאה להתראות – לא הופעלו תזכורות")
+                            toast(tr(
+                                "אין הרשאה להתראות – לא הופעלו תזכורות",
+                                "Notification permission was not granted - reminders were not enabled"
+                            ))
                             hapticError()
                         }
                     }
@@ -51,7 +72,10 @@ extension SettingsView {
 
             case .denied:
                 DispatchQueue.main.async {
-                    toast("התראות חסומות בהגדרות המכשיר")
+                    toast(tr(
+                        "התראות חסומות בהגדרות המכשיר",
+                        "Notifications are blocked in device settings"
+                    ))
                     hapticError()
                 }
 
@@ -67,8 +91,11 @@ extension SettingsView {
         )
 
         let content = UNMutableNotificationContent()
-        content.title = "תזכורת לאימון"
-        content.body = "האימון מתחיל בעוד \(minutes) דקות"
+        content.title = tr("תזכורת לאימון ק.מ.י", "K.M.I training reminder")
+        content.body = tr(
+            "האימון מתחיל בעוד \(minutes) דקות",
+            "Training starts in \(minutes) minutes"
+        )
         content.sound = .default
 
         let trigger = UNTimeIntervalNotificationTrigger(
@@ -84,7 +111,10 @@ extension SettingsView {
 
         UNUserNotificationCenter.current().add(request)
 
-        toast("התזכורת נקבעה \(minutes) דקות לפני האימון")
+        toast(tr(
+            "התזכורת נקבעה \(minutes) דקות לפני האימון",
+            "Reminder set \(minutes) minutes before training"
+        ))
         hapticSuccess()
     }
 
@@ -93,7 +123,7 @@ extension SettingsView {
             withIdentifiers: ["training_reminder"]
         )
 
-        toast("התזכורות בוטלו")
+        toast(tr("התזכורות בוטלו", "Reminders were cancelled"))
         hapticSuccess()
     }
 
@@ -107,7 +137,7 @@ extension SettingsView {
 
                 guard granted else {
                     self.calendarSyncEnabled = false
-                    self.toast("אין הרשאה ליומן")
+                    self.toast(self.tr("אין הרשאה ליומן", "Calendar permission was not granted"))
                     self.hapticError()
                     return
                 }
@@ -117,7 +147,7 @@ extension SettingsView {
 
                 guard !branch.isEmpty else {
                     self.calendarSyncEnabled = false
-                    self.toast("לא נבחר סניף")
+                    self.toast(self.tr("לא נבחר סניף", "No branch selected"))
                     self.hapticError()
                     return
                 }
@@ -126,7 +156,10 @@ extension SettingsView {
 
                 guard !trainings.isEmpty else {
                     self.calendarSyncEnabled = false
-                    self.toast("לא נמצאו אימונים לסניף ולקבוצה שלך")
+                    self.toast(self.tr(
+                        "לא נמצאו אימונים לסניף ולקבוצה שלך",
+                        "No trainings were found for your branch and group"
+                    ))
                     self.hapticError()
                     return
                 }
@@ -135,7 +168,7 @@ extension SettingsView {
 
                 guard let targetCalendar = store.defaultCalendarForNewEvents else {
                     self.calendarSyncEnabled = false
-                    self.toast("לא נמצא יומן ברירת מחדל")
+                    self.toast(self.tr("לא נמצא יומן ברירת מחדל", "Default calendar was not found"))
                     self.hapticError()
                     return
                 }
@@ -161,11 +194,17 @@ extension SettingsView {
                 }
 
                 if addedCount > 0 {
-                    self.toast("סונכרנו \(addedCount) אימונים ליומן")
+                    self.toast(self.tr(
+                        "סונכרנו \(addedCount) אימונים ליומן",
+                        "\(addedCount) trainings were synced to the calendar"
+                    ))
                     self.hapticSuccess()
                 } else {
                     self.calendarSyncEnabled = false
-                    self.toast("לא ניתן היה להוסיף אימונים ליומן")
+                    self.toast(self.tr(
+                        "לא ניתן היה להוסיף אימונים ליומן",
+                        "Could not add trainings to the calendar"
+                    ))
                     self.hapticError()
                 }
             }
@@ -178,13 +217,13 @@ extension SettingsView {
         store.requestFullAccessToEvents { granted, _ in
             DispatchQueue.main.async {
                 guard granted else {
-                    self.toast("אין הרשאה ליומן")
+                    self.toast(self.tr("אין הרשאה ליומן", "Calendar permission was not granted"))
                     self.hapticError()
                     return
                 }
 
                 self.removeCalendarEvents(using: store)
-                self.toast("אירועי האימונים הוסרו מהיומן")
+                self.toast(self.tr("אירועי האימונים הוסרו מהיומן", "Training events were removed from the calendar"))
                 self.hapticSuccess()
             }
         }
@@ -202,8 +241,18 @@ extension SettingsView {
 
         let events = store.events(matching: predicate)
 
-        for event in events where event.title.contains("אימון ק.מ.י") || event.title.contains("KMI") {
-            try? store.remove(event, span: .thisEvent)
+        for event in events {
+            let title = event.title.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let isKmiTrainingEvent =
+                title.contains("אימון ק.מ.י") ||
+                title.contains("KMI") ||
+                title.contains("K.M.I") ||
+                title.localizedCaseInsensitiveContains("K.M.I Training")
+
+            if isKmiTrainingEvent {
+                try? store.remove(event, span: .thisEvent)
+            }
         }
     }
 
@@ -211,6 +260,7 @@ extension SettingsView {
         (
             UserDefaults.standard.string(forKey: "kmi.user.branch") ??
             UserDefaults.standard.string(forKey: "active_branch") ??
+            UserDefaults.standard.string(forKey: "branch") ??
             ""
         )
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -220,6 +270,7 @@ extension SettingsView {
         (
             UserDefaults.standard.string(forKey: "kmi.user.group") ??
             UserDefaults.standard.string(forKey: "active_group") ??
+            UserDefaults.standard.string(forKey: "group") ??
             ""
         )
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -227,6 +278,11 @@ extension SettingsView {
 
     private func calendarEventTitle(for training: TrainingData, group: String) -> String {
         let cleanGroup = group.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if isEnglish {
+            return cleanGroup.isEmpty ? "K.M.I Training" : "K.M.I Training – \(cleanGroup)"
+        }
+
         return cleanGroup.isEmpty ? "אימון ק.מ.י" : "אימון ק.מ.י – \(cleanGroup)"
     }
 
@@ -234,17 +290,17 @@ extension SettingsView {
         var parts: [String] = []
 
         if !branch.isEmpty {
-            parts.append("סניף: \(branch)")
+            parts.append(isEnglish ? "Branch: \(branch)" : "סניף: \(branch)")
         }
 
         if !group.isEmpty {
-            parts.append("קבוצה: \(group)")
+            parts.append(isEnglish ? "Group: \(group)" : "קבוצה: \(group)")
         }
 
-        parts.append("מקום: \(training.place)")
-        parts.append("כתובת: \(training.address)")
-        parts.append("מאמן: \(training.coach)")
-        parts.append("שעה: \(training.startText) - \(training.endText)")
+        parts.append(isEnglish ? "Place: \(training.place)" : "מקום: \(training.place)")
+        parts.append(isEnglish ? "Address: \(training.address)" : "כתובת: \(training.address)")
+        parts.append(isEnglish ? "Coach: \(training.coach)" : "מאמן: \(training.coach)")
+        parts.append(isEnglish ? "Time: \(training.startText) - \(training.endText)" : "שעה: \(training.startText) - \(training.endText)")
 
         return parts.joined(separator: "\n")
     }
@@ -275,7 +331,7 @@ extension SettingsView {
 
     func authenticateBiometricIfAvailable(completion: @escaping (Bool) -> Void) {
         guard biometricAvailable() else {
-            toast("ביומטרי לא זמין במכשיר")
+            toast(tr("ביומטרי לא זמין במכשיר", "Biometric authentication is not available on this device"))
             hapticError()
             completion(false)
             return
@@ -284,15 +340,18 @@ extension SettingsView {
         let ctx = LAContext()
         ctx.evaluatePolicy(
             .deviceOwnerAuthenticationWithBiometrics,
-            localizedReason: "אימות להפעלת נעילת האפליקציה"
+            localizedReason: tr(
+                "אימות להפעלת נעילת האפליקציה",
+                "Authenticate to enable app lock"
+            )
         ) { ok, _ in
             DispatchQueue.main.async {
                 if ok {
-                    self.toast("זיהוי ביומטרי הופעל")
+                    self.toast(self.tr("זיהוי ביומטרי הופעל", "Biometric lock enabled"))
                     self.hapticSuccess()
                     completion(true)
                 } else {
-                    self.toast("האימות נכשל")
+                    self.toast(self.tr("האימות נכשל", "Authentication failed"))
                     self.hapticError()
                     completion(false)
                 }
@@ -307,19 +366,36 @@ extension SettingsView {
     }
 
     func onSavePin() {
-        if pin.count < 4 {
-            pinError = "הסיסמה צריכה להיות לפחות 4 תווים"
+        let cleanPin = pin.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanConfirm = pinConfirm.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if cleanPin.count < 4 {
+            pinError = tr(
+                "הסיסמה צריכה להיות לפחות 4 ספרות",
+                "PIN must contain at least 4 digits"
+            )
             return
         }
 
-        if pin != pinConfirm {
-            pinError = "הסיסמאות אינן תואמות"
+        if cleanPin.rangeOfCharacter(from: CharacterSet.decimalDigits.inverted) != nil {
+            pinError = tr(
+                "הסיסמה יכולה להכיל ספרות בלבד",
+                "PIN can contain digits only"
+            )
             return
         }
 
-        appLockPin = pin
+        if cleanPin != cleanConfirm {
+            pinError = tr(
+                "הסיסמאות אינן תואמות",
+                "PIN codes do not match"
+            )
+            return
+        }
+
+        appLockPin = cleanPin
         appLockMode = "pin"
-        toast("נעילה באמצעות סיסמה הופעלה")
+        toast(tr("נעילה באמצעות סיסמה הופעלה", "PIN lock enabled"))
         hapticSuccess()
         resetPinDialog()
         showPinDialog = false
@@ -328,11 +404,21 @@ extension SettingsView {
     func appVersionLine() -> String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
-        return "גרסה \(v) (\(b))"
+        return isEnglish ? "Version \(v) (\(b))" : "גרסה \(v) (\(b))"
     }
 
     func sendFeedbackEmail() {
-        let body = """
+        let body = isEnglish
+        ? """
+
+        ---
+        System details for troubleshooting:
+        Bundle: \(Bundle.main.bundleIdentifier ?? "?")
+        \(appVersionLine())
+        Device: \(UIDevice.current.model)
+        iOS: \(UIDevice.current.systemVersion)
+        """
+        : """
 
         ---
         פרטי מערכת (לעזרה באיתור תקלות):
@@ -343,7 +429,7 @@ extension SettingsView {
         """
 
         let to = "support@kmi.example"
-        let subject = "משוב על האפליקציה"
+        let subject = tr("משוב על האפליקציה", "App feedback")
 
         if MFMailComposeViewController.canSendMail() {
             mailData = MailData(to: to, subject: subject, body: body)
@@ -359,7 +445,11 @@ extension SettingsView {
     }
 
     func shareApp() {
-        let text = "הורידו את KMI – ק.מ.י"
+        let text = tr(
+            "הורידו את אפליקציית K.M.I – קרב מגן ישראלי",
+            "Download the K.M.I app – Israeli Krav Maga"
+        )
+
         ShareSheet.present(items: [text])
     }
 
@@ -388,21 +478,21 @@ extension SettingsView {
     func currentBeltDisplayName() -> String {
         switch currentBeltResolvedId() {
         case "white", "לבן", "לבנה":
-            return "לבנה"
+            return isEnglish ? "White" : "לבנה"
         case "yellow", "צהוב", "צהובה":
-            return "צהובה"
+            return isEnglish ? "Yellow" : "צהובה"
         case "orange", "כתום", "כתומה":
-            return "כתומה"
+            return isEnglish ? "Orange" : "כתומה"
         case "green", "ירוק", "ירוקה":
-            return "ירוקה"
+            return isEnglish ? "Green" : "ירוקה"
         case "blue", "כחול", "כחולה":
-            return "כחולה"
+            return isEnglish ? "Blue" : "כחולה"
         case "brown", "חום", "חומה":
-            return "חומה"
+            return isEnglish ? "Brown" : "חומה"
         case "black", "שחור", "שחורה":
-            return "שחורה"
+            return isEnglish ? "Black" : "שחורה"
         default:
-            return "לבנה"
+            return isEnglish ? "White" : "לבנה"
         }
     }
 
@@ -429,12 +519,12 @@ extension SettingsView {
         let defaults = UserDefaults.standard
 
         let defs: [(id: String, title: String, color: Color)] = [
-            ("yellow", "חגורה: צהובה", .yellow),
-            ("orange", "חגורה: כתומה", .orange),
-            ("green", "חגורה: ירוקה", .green),
-            ("blue", "חגורה: כחולה", .blue),
-            ("brown", "חגורה: חומה", Color(hex: 0xFF6D4C41)),
-            ("black", "חגורה: שחורה", .black)
+            ("yellow", isEnglish ? "Belt: Yellow" : "חגורה: צהובה", .yellow),
+            ("orange", isEnglish ? "Belt: Orange" : "חגורה: כתומה", .orange),
+            ("green", isEnglish ? "Belt: Green" : "חגורה: ירוקה", .green),
+            ("blue", isEnglish ? "Belt: Blue" : "חגורה: כחולה", .blue),
+            ("brown", isEnglish ? "Belt: Brown" : "חגורה: חומה", Color(hex: 0xFF6D4C41)),
+            ("black", isEnglish ? "Belt: Black" : "חגורה: שחורה", .black)
         ]
 
         func readPercent(for beltId: String) -> Int {

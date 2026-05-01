@@ -9,6 +9,38 @@ struct MaterialsView: View {
 
     @Environment(\.dismiss) private var dismiss
 
+    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
+    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+    @AppStorage("selected_language_code") private var selectedLanguageCode: String = "he"
+
+    private var isEnglish: Bool {
+        let values = [
+            kmiAppLanguageCode.lowercased(),
+            appLanguageRaw.lowercased(),
+            initialLanguageCode.lowercased(),
+            selectedLanguageCode.lowercased()
+        ]
+
+        return values.contains("en") || values.contains("english")
+    }
+
+    private var screenLayoutDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
+    private var primaryTextAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var horizontalTextAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
     var onSummary: (Belt, String, String?) -> Void = { _, _, _ in }
     var onPractice: (Belt, String) -> Void = { _, _ in }
 
@@ -67,10 +99,17 @@ struct MaterialsView: View {
     }
 
     private var headerTitle: String {
-        if let subTopicTitle, !subTopicTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "\(topicTitle) – \(subTopicTitle)"
+        let topicClean = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let topicDisplay = KmiEnglishTitleResolver.title(for: topicClean, isEnglish: isEnglish)
+
+        if let subTopicTitle,
+           !subTopicTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let subClean = subTopicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            let subDisplay = KmiEnglishTitleResolver.title(for: subClean, isEnglish: isEnglish)
+            return "\(topicDisplay) – \(subDisplay)"
         }
-        return topicTitle
+
+        return topicDisplay
     }
 
     var body: some View {
@@ -82,6 +121,7 @@ struct MaterialsView: View {
                     belt: belt,
                     title: headerTitle,
                     count: rows.count,
+                    isEnglish: isEnglish,
                     onBack: {
                         dismiss()
                     }
@@ -99,6 +139,7 @@ struct MaterialsView: View {
                                     isExcluded: excluded.contains(row.id),
                                     mark: currentMark(for: row.id),
                                     hasNote: !(notes[row.id]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                                    isEnglish: isEnglish,
                                     onToggleFavorite: {
                                         toggleFavorite(row.id)
                                     },
@@ -135,6 +176,7 @@ struct MaterialsView: View {
                 }
 
                 MaterialsBottomBar(
+                    isEnglish: isEnglish,
                     onPractice: {
                         onPractice(belt, topicTitle)
                     },
@@ -148,6 +190,7 @@ struct MaterialsView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
+        .environment(\.layoutDirection, screenLayoutDirection)
         .onAppear {
             loadState()
         }
@@ -156,6 +199,7 @@ struct MaterialsView: View {
                 title: row.displayName,
                 text: explanationText(for: row),
                 isFavorite: favorites.contains(row.id),
+                isEnglish: isEnglish,
                 onToggleFavorite: {
                     toggleFavorite(row.id)
                 },
@@ -170,8 +214,8 @@ struct MaterialsView: View {
                 VStack(spacing: 16) {
                     Text(row.displayName)
                         .font(.headline)
-                        .multilineTextAlignment(.trailing)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .multilineTextAlignment(primaryTextAlignment)
+                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
 
                     TextEditor(text: $noteDraft)
                         .frame(minHeight: 180)
@@ -182,14 +226,14 @@ struct MaterialsView: View {
                         )
 
                     HStack(spacing: 12) {
-                        Button("מחק") {
+                        Button(tr("מחק", "Delete")) {
                             noteDraft = ""
                             saveNote("", for: row.id)
                             selectedNoteRow = nil
                         }
                         .buttonStyle(.bordered)
 
-                        Button("שמור") {
+                        Button(tr("שמור", "Save")) {
                             saveNote(noteDraft, for: row.id)
                             selectedNoteRow = nil
                         }
@@ -237,14 +281,29 @@ struct MaterialsView: View {
             }
         }
 
-        return text
+        let clean = text
             .replacingOccurrences(of: "  ", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return KmiEnglishTitleResolver.title(for: clean, isEnglish: isEnglish)
     }
 
     private func explanationText(for row: ExerciseRow) -> String {
-        // TODO: כשנחבר את מקור ההסברים האמיתי ב-iOS, נחליף כאן.
-        return "אין כרגע הסבר זמין עבור \"\(row.displayName)\"."
+        let txt = LocalExplanations.shared.get(
+            belt: belt,
+            item: row.rawItem
+        )
+
+        let clean = txt.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if clean.isEmpty {
+            return tr(
+                "לא נמצא הסבר לתרגיל זה.",
+                "No explanation was found for this exercise."
+            )
+        }
+
+        return clean
     }
 
     private func favoriteKey(for id: String) -> String { "favorite.\(id)" }
@@ -351,9 +410,18 @@ struct MaterialsView: View {
     private func speak(_ text: String) {
         speechSynth.stopSpeaking(at: .immediate)
 
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: "he-IL")
-        utterance.rate = 0.48
+        let clean = text
+            .replacingOccurrences(of: "•", with: ".")
+            .replacingOccurrences(of: "/", with: ".")
+            .replacingOccurrences(of: "K.M.I", with: isEnglish ? "K M I" : "קיי אם איי")
+            .replacingOccurrences(of: "KMI", with: isEnglish ? "K M I" : "קיי אם איי")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !clean.isEmpty else { return }
+
+        let utterance = AVSpeechUtterance(string: clean)
+        utterance.voice = AVSpeechSynthesisVoice(language: isEnglish ? "en-US" : "he-IL")
+        utterance.rate = isEnglish ? 0.46 : 0.43
         speechSynth.speak(utterance)
     }
 }
@@ -364,6 +432,7 @@ private struct MaterialsHeaderCard: View {
     let belt: Belt
     let title: String
     let count: Int
+    let isEnglish: Bool
     let onBack: () -> Void
 
     var body: some View {
@@ -386,7 +455,7 @@ private struct MaterialsHeaderCard: View {
                         .foregroundStyle(Color.black.opacity(0.85))
                         .multilineTextAlignment(.center)
 
-                    Text("\(count) תרגילים")
+                    Text(isEnglish ? (count == 1 ? "1 exercise" : "\(count) exercises") : "\(count) תרגילים")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Color.black.opacity(0.60))
                 }
@@ -414,6 +483,19 @@ private struct MaterialsExerciseRow: View {
     let isExcluded: Bool
     let mark: MaterialsView.RowMark?
     let hasNote: Bool
+    let isEnglish: Bool
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var stackAlignment: HorizontalAlignment {
+        isEnglish ? .leading : .trailing
+    }
 
     let onToggleFavorite: () -> Void
     let onToggleExcluded: () -> Void
@@ -425,10 +507,31 @@ private struct MaterialsExerciseRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Menu {
-                Button(isFavorite ? "הסר ממועדפים" : "הוסף למועדפים", action: onToggleFavorite)
-                Button(isExcluded ? "בטל החרגה" : "החרג מתרגול", action: onToggleExcluded)
-                Button("מידע על התרגיל", action: onShowInfo)
-                Button(hasNote ? "ערוך / מחק הערה" : "הוסף הערה", action: onEditNote)
+                Button(
+                    isFavorite
+                    ? (isEnglish ? "Remove from favorites" : "הסר ממועדפים")
+                    : (isEnglish ? "Add to favorites" : "הוסף למועדפים"),
+                    action: onToggleFavorite
+                )
+
+                Button(
+                    isExcluded
+                    ? (isEnglish ? "Cancel exclusion" : "בטל החרגה")
+                    : (isEnglish ? "Exclude from practice" : "החרג מתרגול"),
+                    action: onToggleExcluded
+                )
+
+                Button(
+                    isEnglish ? "Exercise info" : "מידע על התרגיל",
+                    action: onShowInfo
+                )
+
+                Button(
+                    hasNote
+                    ? (isEnglish ? "Edit / delete note" : "ערוך / מחק הערה")
+                    : (isEnglish ? "Add note" : "הוסף הערה"),
+                    action: onEditNote
+                )
             } label: {
                 Image(systemName: "ellipsis.circle.fill")
                     .font(.system(size: 24, weight: .semibold))
@@ -436,12 +539,12 @@ private struct MaterialsExerciseRow: View {
                     .frame(width: 38, height: 38)
             }
 
-            VStack(alignment: .trailing, spacing: 2) {
+            VStack(alignment: stackAlignment, spacing: 2) {
                 Text(title)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(isExcluded ? Color.gray : Color.black.opacity(0.84))
-                    .multilineTextAlignment(.trailing)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .multilineTextAlignment(textAlignment)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
 
                 HStack(spacing: 8) {
                     if hasNote {
@@ -457,12 +560,12 @@ private struct MaterialsExerciseRow: View {
                     }
 
                     if isExcluded {
-                        Text("מוחרג")
+                        Text(isEnglish ? "Excluded" : "מוחרג")
                             .font(.caption.weight(.bold))
                             .foregroundStyle(.red.opacity(0.75))
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
             }
 
             HStack(spacing: 10) {
@@ -519,6 +622,7 @@ private struct MaterialsMarkCircleButton: View {
 // MARK: - Bottom bar
 
 private struct MaterialsBottomBar: View {
+    let isEnglish: Bool
     let onPractice: () -> Void
     let onSummary: () -> Void
     let onReset: () -> Void
@@ -527,13 +631,13 @@ private struct MaterialsBottomBar: View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
                 MaterialsActionButton(
-                    title: "תרגול",
+                    title: isEnglish ? "Practice" : "תרגול",
                     fill: Color(red: 0.44, green: 0.39, blue: 1.0),
                     onTap: onPractice
                 )
 
                 MaterialsActionButton(
-                    title: "איפוס",
+                    title: isEnglish ? "Reset" : "איפוס",
                     fill: Color.red.opacity(0.82),
                     onTap: onReset
                 )
@@ -541,7 +645,7 @@ private struct MaterialsBottomBar: View {
 
             HStack(spacing: 12) {
                 MaterialsActionButton(
-                    title: "מסך סיכום",
+                    title: isEnglish ? "Summary Screen" : "מסך סיכום",
                     fill: Color(red: 0.44, green: 0.39, blue: 1.0),
                     onTap: onSummary
                 )
@@ -585,33 +689,42 @@ private struct MaterialsInfoSheet: View {
     let title: String
     let text: String
     let isFavorite: Bool
+    let isEnglish: Bool
     let onToggleFavorite: () -> Void
     let onSpeak: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
                 Text(title)
                     .font(.headline.weight(.bold))
-                    .multilineTextAlignment(.trailing)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .multilineTextAlignment(textAlignment)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
 
                 ScrollView {
                     Text(text)
                         .font(.body)
-                        .multilineTextAlignment(.trailing)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .multilineTextAlignment(textAlignment)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
                 }
 
                 HStack(spacing: 12) {
-                    Button(isFavorite ? "הסר ממועדפים" : "הוסף למועדפים") {
+                    Button(isFavorite ? (isEnglish ? "Remove favorite" : "הסר ממועדפים") : (isEnglish ? "Add favorite" : "הוסף למועדפים")) {
                         onToggleFavorite()
                     }
                     .buttonStyle(.bordered)
 
-                    Button("השמע") {
+                    Button(isEnglish ? "Play" : "השמע") {
                         onSpeak()
                     }
                     .buttonStyle(.borderedProminent)
@@ -620,11 +733,11 @@ private struct MaterialsInfoSheet: View {
                 Spacer()
             }
             .padding(16)
-            .navigationTitle("מידע על התרגיל")
+            .navigationTitle(isEnglish ? "Exercise info" : "מידע על התרגיל")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("סגור") {
+                    Button(isEnglish ? "Close" : "סגור") {
                         dismiss()
                     }
                 }

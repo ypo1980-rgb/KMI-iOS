@@ -31,14 +31,21 @@ struct AuthGateView: View {
                         .tint(.white)
                         .scaleEffect(1.2)
 
+                } else if auth.isSignedIn {
+
+                    ContentView()
+                        .onAppear {
+                            didCompleteAuthScreen = true
+
+                            #if DEBUG
+                            print("✅ AuthGateView: auth.isSignedIn == true -> showing ContentView")
+                            #endif
+                        }
+
                 } else if !didEnterAuthFlow {
 
                     IntroGateView(
                         onContinue: {
-                            let defaults = UserDefaults.standard
-                            defaults.set("trainee", forKey: "user_role")
-                            defaults.set(false, forKey: "user_logged_in")
-
                             didEnterAuthFlow = true
                             didCompleteAuthScreen = false
                             step = .choice
@@ -48,15 +55,6 @@ struct AuthGateView: View {
                 } else if !didCompleteAuthScreen {
 
                     authFlowStack
-
-                } else if auth.isSignedIn {
-
-                    ContentView()
-                        .onAppear {
-                            #if DEBUG
-                            print("✅ AuthGateView: auth.isSignedIn == true && didCompleteAuthScreen == true -> showing ContentView")
-                            #endif
-                        }
 
                 } else {
 
@@ -68,10 +66,6 @@ struct AuthGateView: View {
         .onAppear {
             guard !didBootstrap else { return }
             didBootstrap = true
-
-            let defaults = UserDefaults.standard
-            defaults.set("trainee", forKey: "user_role")
-            defaults.set(false, forKey: "user_logged_in")
 
             didEnterAuthFlow = false
             didCompleteAuthScreen = false
@@ -86,11 +80,11 @@ struct AuthGateView: View {
             }
         }
         .onChange(of: auth.isSignedIn) { _, isSignedIn in
-            if didEnterAuthFlow && isSignedIn {
+            if isSignedIn {
                 didCompleteAuthScreen = true
 
                 #if DEBUG
-                print("✅ AuthGateView: detected signed-in user after auth flow -> moving to ContentView")
+                print("✅ AuthGateView: detected signed-in user -> moving to ContentView")
                 #endif
             }
         }

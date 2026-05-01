@@ -2,11 +2,29 @@ import SwiftUI
 
 // MARK: - SettingsCard
 struct SettingsCard<Content: View>: View {
+    @Environment(\.layoutDirection) private var layoutDirection
+
     let title: String
     let subtitle: String?
     let iconSystemName: String?
     let iconTint: Color?
     @ViewBuilder let content: Content
+
+    private var isEnglish: Bool {
+        layoutDirection == .leftToRight
+    }
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var stackAlignment: HorizontalAlignment {
+        isEnglish ? .leading : .trailing
+    }
 
     init(
         title: String,
@@ -25,31 +43,14 @@ struct SettingsCard<Content: View>: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack(spacing: 10) {
-                if let iconSystemName {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill((iconTint ?? .accentColor).opacity(0.12))
-                            .frame(width: 34, height: 34)
+                if isEnglish {
+                    settingsIcon
 
-                        Image(systemName: iconSystemName)
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(iconTint ?? .accentColor)
-                    }
-                }
+                    settingsTitleBlock
+                } else {
+                    settingsTitleBlock
 
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(title)
-                        .font(.system(size: 17, weight: .bold))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .lineLimit(1)
-
-                    if let subtitle, !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                            .lineLimit(2)
-                    }
+                    settingsIcon
                 }
             }
 
@@ -65,6 +66,40 @@ struct SettingsCard<Content: View>: View {
                 .stroke(Color.black.opacity(0.04), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.04), radius: 4, x: 0, y: 1)
+    }
+
+    @ViewBuilder
+    private var settingsIcon: some View {
+        if let iconSystemName {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill((iconTint ?? .accentColor).opacity(0.12))
+                    .frame(width: 34, height: 34)
+
+                Image(systemName: iconSystemName)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(iconTint ?? .accentColor)
+            }
+        }
+    }
+
+    private var settingsTitleBlock: some View {
+        VStack(alignment: stackAlignment, spacing: 4) {
+            Text(title)
+                .font(.system(size: 17, weight: .bold))
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .multilineTextAlignment(textAlignment)
+                .lineLimit(1)
+
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
+                    .lineLimit(2)
+            }
+        }
     }
 }
 
@@ -103,13 +138,19 @@ struct KmiSegmentedTabsInt: View {
 
 // MARK: - KmiVoiceTabs
 struct KmiVoiceTabs: View {
+    @Environment(\.layoutDirection) private var layoutDirection
+
     @Binding var voice: String
     let onChanged: () -> Void
 
+    private var isEnglish: Bool {
+        layoutDirection == .leftToRight
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            voiceButton("male", "קול גבר")
-            voiceButton("female", "קול אישה")
+            voiceButton("male", isEnglish ? "Male voice" : "קול גבר")
+            voiceButton("female", isEnglish ? "Female voice" : "קול אישה")
         }
         .background(Color(UIColor.tertiarySystemFill))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -137,13 +178,20 @@ struct KmiVoiceTabs: View {
 
 // MARK: - KmiThemeTabs
 struct KmiThemeTabs: View {
+    @Environment(\.layoutDirection) private var layoutDirection
+
     @Binding var themeMode: String
     let onChanged: () -> Void
 
+    private var isEnglish: Bool {
+        layoutDirection == .leftToRight
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            themeButton("light", "מצב\nבהיר")
-            themeButton("dark", "מצב\nכהה")
+            themeButton("system", isEnglish ? "Device\ndefault" : "לפי\nהמכשיר")
+            themeButton("light", isEnglish ? "Light\nmode" : "מצב\nבהיר")
+            themeButton("dark", isEnglish ? "Dark\nmode" : "מצב\nכהה")
         }
         .background(Color(UIColor.tertiarySystemFill))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -171,14 +219,20 @@ struct KmiThemeTabs: View {
 
 // MARK: - KmiLockTabs
 struct KmiLockTabs: View {
+    @Environment(\.layoutDirection) private var layoutDirection
+
     @Binding var lockMode: String
     let onSelect: (String) -> Void
 
+    private var isEnglish: Bool {
+        layoutDirection == .leftToRight
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            lockButton("none", "ללא\nנעילה")
-            lockButton("biometric", "נעילה\nבאצבע")
-            lockButton("pin", "נעילה\nבסיסמה")
+            lockButton("none", isEnglish ? "No\nlock" : "ללא\nנעילה")
+            lockButton("biometric", isEnglish ? "Biometric\nlock" : "נעילה\nבאצבע")
+            lockButton("pin", isEnglish ? "PIN\nlock" : "נעילה\nבסיסמה")
         }
         .background(Color(UIColor.tertiarySystemFill))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -206,36 +260,40 @@ struct KmiLockTabs: View {
 
 // MARK: - LegalTile
 struct LegalTile: View {
+    @Environment(\.layoutDirection) private var layoutDirection
+
     let title: String
     let subtitle: String
     let systemIcon: String
     let onTap: () -> Void
 
+    private var isEnglish: Bool {
+        layoutDirection == .leftToRight
+    }
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var stackAlignment: HorizontalAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.accentColor.opacity(0.12))
-                        .frame(width: 38, height: 38)
+                if isEnglish {
+                    legalIcon
 
-                    Image(systemName: systemIcon)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
-                }
+                    legalTextBlock
+                } else {
+                    legalTextBlock
 
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(title)
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .lineLimit(2)
-
-                    Text(subtitle)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .lineLimit(2)
+                    legalIcon
                 }
             }
             .padding(12)
@@ -250,6 +308,36 @@ struct LegalTile: View {
         }
         .buttonStyle(.plain)
     }
+
+    private var legalIcon: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.accentColor.opacity(0.12))
+                .frame(width: 38, height: 38)
+
+            Image(systemName: systemIcon)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+        }
+    }
+
+    private var legalTextBlock: some View {
+        VStack(alignment: stackAlignment, spacing: 4) {
+            Text(title)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .multilineTextAlignment(textAlignment)
+                .lineLimit(2)
+
+            Text(subtitle)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .multilineTextAlignment(textAlignment)
+                .lineLimit(2)
+        }
+    }
 }
 
 // MARK: - BeltsProgressBarsIOS
@@ -261,7 +349,13 @@ struct BeltRow: Identifiable {
 }
 
 struct BeltsProgressBarsIOS: View {
+    @Environment(\.layoutDirection) private var layoutDirection
+
     let rows: [BeltRow]
+
+    private var isEnglish: Bool {
+        layoutDirection == .leftToRight
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -271,15 +365,27 @@ struct BeltsProgressBarsIOS: View {
                 ForEach(rows) { row in
                     VStack(spacing: 6) {
                         HStack {
-                            Text("\(row.pct)%")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundStyle(row.title.contains("שחורה") ? Color.primary : row.color)
+                            if isEnglish {
+                                Text(row.title)
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundStyle(row.title.contains("שחורה") || row.title.lowercased().contains("black") ? Color.primary : row.color)
 
-                            Spacer()
+                                Spacer()
 
-                            Text(row.title)
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundStyle(row.title.contains("שחורה") ? Color.primary : row.color)
+                                Text("\(row.pct)%")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundStyle(row.title.contains("שחורה") || row.title.lowercased().contains("black") ? Color.primary : row.color)
+                            } else {
+                                Text("\(row.pct)%")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundStyle(row.title.contains("שחורה") ? Color.primary : row.color)
+
+                                Spacer()
+
+                                Text(row.title)
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundStyle(row.title.contains("שחורה") ? Color.primary : row.color)
+                            }
                         }
 
                         ZStack(alignment: .leading) {

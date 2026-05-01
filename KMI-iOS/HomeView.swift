@@ -3,10 +3,14 @@ import FirebaseAuth
 import Shared
 
 struct HomeView: View {
-
+    
     @ObservedObject var nav: AppNavModel
     @EnvironmentObject private var auth: AuthViewModel
-
+    
+    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
+    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+    
     @AppStorage("fullName") private var storedFullName: String = ""
     @AppStorage("user_role") private var storedUserRole: String = "trainee"
     @AppStorage("region") private var storedRegion: String = ""
@@ -16,7 +20,7 @@ struct HomeView: View {
     @AppStorage("active_group") private var storedActiveGroup: String = ""
     @AppStorage("current_belt") private var storedCurrentBelt: String = ""
     @AppStorage("belt_current") private var storedUserCurrentBelt: String = ""
-
+    
     @State private var fabOpen: Bool = false
     @StateObject private var trainingsVm = HomeTrainingsViewModel()
     @State private var goMonthly: Bool = false
@@ -25,17 +29,47 @@ struct HomeView: View {
     @State private var goCard: Bool = false
     @State private var selectedTraining: TrainingData? = nil
     @State private var showNavigationSheet: Bool = false
-
+    
     // Global search navigation
     @State private var pickedExercise: ExerciseSelection? = nil
-
+    
     private let calendar = Calendar(identifier: .gregorian)
-
+    
+    private var isEnglish: Bool {
+        let values = [
+            kmiAppLanguageCode.lowercased(),
+            appLanguageRaw.lowercased(),
+            initialLanguageCode.lowercased()
+        ]
+        
+        return values.contains("en") || values.contains("english")
+    }
+    
+    private var screenLayoutDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+    
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+    
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+    
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+    
+    private var fallbackUserName: String {
+        isEnglish ? "User" : "משתמש"
+    }
+    
     private var resolvedRegion: String {
         let value = auth.userRegion.trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? storedRegion.trimmingCharacters(in: .whitespacesAndNewlines) : value
     }
-
+    
     private var resolvedBranch: String {
         let authValue = auth.userBranch.trimmingCharacters(in: .whitespacesAndNewlines)
         if !authValue.isEmpty { return authValue }
@@ -43,7 +77,7 @@ struct HomeView: View {
         if !active.isEmpty { return active }
         return storedBranch.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-
+    
     private var resolvedGroup: String {
         let authValue = auth.userGroup.trimmingCharacters(in: .whitespacesAndNewlines)
         if !authValue.isEmpty { return authValue }
@@ -51,71 +85,71 @@ struct HomeView: View {
         if !active.isEmpty { return active }
         return storedGroup.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-
+    
     private var resolvedUserRole: String {
         let value = storedUserRole.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return value.isEmpty ? "trainee" : value
     }
-
+    
     private var isCoachUser: Bool {
         resolvedUserRole == "coach"
     }
-
+    
     private var freeSessionsUid: String {
         Auth.auth().currentUser?.uid ?? "demo_ios"
     }
-
+    
     private var freeSessionsName: String {
         let rawDisplayName =
-            (Auth.auth().currentUser?.displayName ?? "")
+        (Auth.auth().currentUser?.displayName ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-
+        
         if !rawDisplayName.isEmpty { return rawDisplayName }
-
+        
         let rawEmail =
-            (Auth.auth().currentUser?.email ?? "")
+        (Auth.auth().currentUser?.email ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-
+        
         if !rawEmail.isEmpty { return rawEmail }
-
+        
         let fallbackName = storedFullName.trimmingCharacters(in: .whitespacesAndNewlines)
         if !fallbackName.isEmpty { return fallbackName }
-
-        return "משתמש"
+        
+        return fallbackUserName
     }
-
+    
     private var freeSessionsBranch: String {
         let clean = resolvedBranch.trimmingCharacters(in: .whitespacesAndNewlines)
         return clean.isEmpty ? "default_branch" : clean
     }
-
+    
     private var freeSessionsGroupKey: String {
         let clean = resolvedGroup.trimmingCharacters(in: .whitespacesAndNewlines)
         return clean.isEmpty ? "default_group" : clean
     }
-
+    
     private var resolvedBeltId: String {
         let authBeltId = (auth.registeredBelt?.id ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-
+        
         if !authBeltId.isEmpty && authBeltId != "white" {
             return authBeltId
         }
-
+        
         let primary = storedCurrentBelt
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         if !primary.isEmpty { return primary }
-
+        
         let secondary = storedUserCurrentBelt
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         if !secondary.isEmpty { return secondary }
-
+        
         return "white"
     }
-
+    
     private var resolvedBelt: Belt {
         switch resolvedBeltId {
         case "yellow", "צהוב", "צהובה": return .yellow
@@ -127,7 +161,7 @@ struct HomeView: View {
         default: return .white
         }
     }
-
+    
     // ✅ fallback ישיר לפי הנתונים שכבר מוצגים בכרטיס העליון
     private var fallbackUpcomingTrainings: [TrainingData] {
         TrainingCatalogIOS.upcomingFor(
@@ -137,71 +171,82 @@ struct HomeView: View {
             count: 3
         )
     }
-
+    
     private var effectiveUpcomingTrainings: [TrainingData] {
         trainingsVm.upcomingTrainings.isEmpty ? fallbackUpcomingTrainings : trainingsVm.upcomingTrainings
     }
-
+    
     private var effectiveStatusMessage: String? {
         if !trainingsVm.upcomingTrainings.isEmpty {
             return trainingsVm.statusMessage
         }
-
+        
         if !fallbackUpcomingTrainings.isEmpty {
             return nil
         }
-
+        
         return trainingsVm.statusMessage
     }
     
     var body: some View {
         ZStack {
             KmiGradientBackground(forceTraineeStyle: false)
-
+            
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 12) {
-
+                    
                     HomeUserCard(
                         fullName: storedFullName,
                         role: resolvedUserRole,
                         region: resolvedRegion,
                         branch: resolvedBranch,
                         group: resolvedGroup,
-                        beltText: beltHeb(resolvedBelt)
+                        beltText: isEnglish ? beltEn(resolvedBelt) : beltHeb(resolvedBelt),
+                        isEnglish: isEnglish
                     )
                     .padding(.top, 10)
-
+                    
                     WeekHeaderPill(
-                        title: isCoachUser ? "אימונים לשבוע הקרוב – מאמן" : "אימונים לשבוע הקרוב",
+                        title: isCoachUser
+                        ? tr("אימונים לשבוע הקרוב – מאמן", "Trainings for the upcoming week – Coach")
+                        : tr("אימונים לשבוע הקרוב", "Trainings for the upcoming week"),
                         subtitle: currentWeekSubtitle
                     )
                     .padding(.top, 10)
-
+                    
                     if effectiveUpcomingTrainings.isEmpty {
                         if let statusMessage = effectiveStatusMessage {
                             emptyBlock(message: statusMessage)
                                 .padding(.top, 6)
                         } else {
                             VStack(spacing: 14) {
-
-                                emptyBlock(message: "לא נמצאו אימונים לשבוע הקרוב")
-
+                                
+                                emptyBlock(
+                                    message: tr(
+                                        "לא נמצאו אימונים לשבוע הקרוב",
+                                        "No trainings were found for the upcoming week"
+                                    )
+                                )
+                                
                                 Button {
                                     goMonthly = true
                                 } label: {
-                                    Label("הצג לוח אימונים חודשי", systemImage: "calendar")
-                                        .font(.system(size: 16, weight: .bold))
-                                        .foregroundStyle(.white)
-                                        .padding(.vertical, 12)
-                                        .frame(maxWidth: .infinity)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                .fill(Color.white.opacity(0.22))
-                                        )
+                                    Label(
+                                        tr("הצג לוח אימונים חודשי", "Show monthly training board"),
+                                        systemImage: "calendar"
+                                    )
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .padding(.vertical, 12)
+                                    .frame(maxWidth: .infinity)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                            .fill(Color.white.opacity(0.22))
+                                    )
                                 }
                                 .buttonStyle(.plain)
                                 .padding(.horizontal, 18)
-
+                                
                             }
                             .padding(.top, 6)
                         }
@@ -230,11 +275,14 @@ struct HomeView: View {
                         )
                     }
                     Spacer(minLength: 22)
-
+                    
                     CoachMessagesCard(
-                        title: isCoachUser ? "הודעות למאמן" : "הודעות מהמאמן",
-                        message: "אין הודעות בשלב זה",
-                        meta: "הודעות חדשות יוצגו כאן בהמשך"
+                        title: isCoachUser
+                        ? tr("הודעות למאמן", "Coach Messages")
+                        : tr("הודעות מהמאמן", "Messages from the Coach"),
+                        message: tr("אין הודעות בשלב זה", "No messages at this time"),
+                        meta: tr("הודעות חדשות יוצגו כאן בהמשך", "New messages will appear here"),
+                        isEnglish: isEnglish
                     )
                     .padding(.horizontal, 18)
                     
@@ -247,7 +295,12 @@ struct HomeView: View {
                         Text(buttonTitleForBelt())
                             .font(.system(size: 18, weight: .heavy))
                             .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: isEnglish ? .leading : .trailing
+                            )
+                            .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                            .padding(.horizontal, 18)
                             .padding(.vertical, 16)
                             .background(
                                 RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -263,11 +316,11 @@ struct HomeView: View {
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 18)
-                
-                Spacer(minLength: 120)
+                    
+                    Spacer(minLength: 120)
                 }
             }
-
+            
             if fabOpen {
                 Color.black.opacity(0.18)
                     .ignoresSafeArea()
@@ -277,35 +330,36 @@ struct HomeView: View {
                             fabOpen = false
                         }
                     }
-
+                
                 VStack(spacing: 10) {
-                    Button {
-                        closeFab()
-                        nav.push(.voiceAssistant)
-                    } label: {
-                        FabMenuRow(title: "עוזר קולי", systemImage: "mic.fill")
-                    }
-
                     Button {
                         closeFab()
                         goMonthly = true
                     } label: {
-                        FabMenuRow(title: "לוח אימונים חודשי", systemImage: "calendar")
+                        FabMenuRow(
+                            title: tr("לוח אימונים חודשי", "Monthly Calendar"),
+                            systemImage: "calendar",
+                            isEnglish: isEnglish
+                        )
                     }
-
+                    
                     Button {
                         closeFab()
-
+                        
                         let formatter = DateFormatter()
                         formatter.locale = Locale(identifier: "en_US_POSIX")
                         formatter.dateFormat = "yyyy-MM-dd"
                         let todayIso = formatter.string(from: Date())
-
+                        
                         nav.push(.trainingSummary(pickedDateIso: todayIso))
                     } label: {
-                        FabMenuRow(title: "סיכום אימון", systemImage: "square.and.pencil")
+                        FabMenuRow(
+                            title: tr("סיכום אימון", "Training Summary"),
+                            systemImage: "square.and.pencil",
+                            isEnglish: isEnglish
+                        )
                     }
-
+                    
                     Button {
                         closeFab()
                         nav.push(
@@ -317,31 +371,47 @@ struct HomeView: View {
                             )
                         )
                     } label: {
-                        FabMenuRow(title: "אימונים חופשיים", systemImage: "plus")
+                        FabMenuRow(
+                            title: tr("אימונים חופשיים", "Free Sessions"),
+                            systemImage: "plus",
+                            isEnglish: isEnglish
+                        )
                     }
-
+                    
                     if isCoachUser {
                         Button {
                             closeFab()
                             nav.push(.internalExam(belt: resolvedBelt))
                         } label: {
-                            FabMenuRow(title: "מבחן פנימי", systemImage: "checklist")
+                            FabMenuRow(
+                                title: tr("מבחן פנימי", "Internal Exam"),
+                                systemImage: "checklist",
+                                isEnglish: isEnglish
+                            )
                         }
-
+                        
                         Button {
                             closeFab()
                             nav.push(.attendance)
                         } label: {
-                            FabMenuRow(title: "דו״ח נוכחות", systemImage: "person.text.rectangle")
+                            FabMenuRow(
+                                title: tr("דו״ח נוכחות", "Attendance Report"),
+                                systemImage: "person.text.rectangle",
+                                isEnglish: isEnglish
+                            )
                         }
                     }
                 }
                 .buttonStyle(.plain)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                .padding(.leading, 18)
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: .infinity,
+                    alignment: isEnglish ? .bottomLeading : .bottomTrailing
+                )
+                .padding(isEnglish ? .leading : .trailing, 18)
                 .padding(.bottom, 88)
             }
-
+            
             Button {
                 withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                     fabOpen.toggle()
@@ -351,7 +421,7 @@ struct HomeView: View {
                     Circle()
                         .fill(Color.white.opacity(0.92))
                         .shadow(color: Color.black.opacity(0.18), radius: 10, x: 0, y: 6)
-
+                    
                     Image(systemName: "plus")
                         .font(.system(size: 22, weight: .heavy))
                         .foregroundStyle(Color.black.opacity(0.65))
@@ -360,8 +430,12 @@ struct HomeView: View {
                 .frame(width: 56, height: 56)
             }
             .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            .padding(.leading, 26)
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: isEnglish ? .bottomLeading : .bottomTrailing
+            )
+            .padding(isEnglish ? .leading : .trailing, 26)
             .padding(.bottom, 60)
         }
         .onReceive(
@@ -426,8 +500,9 @@ struct HomeView: View {
                 NavigationSheet(training: training)
             }
         }
+        .environment(\.layoutDirection, screenLayoutDirection)
     }
-
+    
     // MARK: - User Header Card
     private struct HomeUserCard: View {
         let fullName: String
@@ -436,48 +511,76 @@ struct HomeView: View {
         let branch: String
         let group: String
         let beltText: String
-
-        private var isCoach: Bool { role.lowercased() == "coach" }
-
-        private var roleTitle: String {
-            isCoach ? "מאמן" : "מתאמן"
+        let isEnglish: Bool
+        
+        private var isCoach: Bool {
+            let clean = role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return clean == "coach" || clean == "trainer" || clean == "מאמן"
         }
-
+        
+        private var roleTitle: String {
+            if isEnglish {
+                return isCoach ? "Coach" : "Trainee"
+            } else {
+                return isCoach ? "מאמן" : "מתאמן"
+            }
+        }
+        
+        private var displayName: String {
+            let clean = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
+            return clean.isEmpty ? (isEnglish ? "User" : "משתמש") : clean
+        }
+        
+        private var textAlignment: TextAlignment {
+            isEnglish ? .leading : .trailing
+        }
+        
+        private var frameAlignment: Alignment {
+            isEnglish ? .leading : .trailing
+        }
+        
+        private var stackAlignment: HorizontalAlignment {
+            isEnglish ? .leading : .trailing
+        }
+        
         private var roleColor: Color {
             isCoach ? Color(hex: 0xFF6A1B9A) : Color.white
         }
-
+        
         var body: some View {
             HStack(spacing: 12) {
                 Image(systemName: isCoach ? "checkmark.seal.fill" : "person.fill")
                     .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(roleColor)
                     .frame(width: 34, height: 34)
-
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(fullName.isEmpty ? "משתמש" : fullName)
+                
+                VStack(alignment: stackAlignment, spacing: 4) {
+                    Text(displayName)
                         .font(.system(size: 20, weight: .heavy))
                         .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                        .multilineTextAlignment(textAlignment)
+                    
                     Text(roleTitle)
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(roleColor.opacity(0.95))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                        .multilineTextAlignment(textAlignment)
+                    
                     if !region.isEmpty || !branch.isEmpty || !group.isEmpty {
                         Text([region, branch, group].filter { !$0.isEmpty }.joined(separator: " • "))
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.88))
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: .infinity, alignment: frameAlignment)
+                            .multilineTextAlignment(textAlignment)
                     }
-
+                    
                     if !beltText.isEmpty && !isCoach {
-                        Text("חגורה \(beltText)")
+                        Text(isEnglish ? "Belt \(beltText)" : "חגורה \(beltText)")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.88))
-                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .frame(maxWidth: .infinity, alignment: frameAlignment)
+                            .multilineTextAlignment(textAlignment)
                     }
                 }
             }
@@ -502,30 +605,34 @@ struct HomeView: View {
                     )
             )
             .padding(.horizontal, 18)
-            }
+        }
     }
     
     // MARK: - Week Header
-
+    
     private var currentWeekSubtitle: String {
         let start = calendar.startOfDay(for: Date())
         let end = calendar.date(byAdding: .day, value: 6, to: start) ?? start
-
-        return "(תאריכים: \(hebrewWeekdayName(from: start)) \(shortDate(start))–\(hebrewWeekdayName(from: end)) \(shortDate(end)))"
+        
+        if isEnglish {
+            return "Dates: \(englishWeekdayName(from: start)) \(shortDate(start))–\(englishWeekdayName(from: end)) \(shortDate(end))"
+        } else {
+            return "תאריכים: \(hebrewWeekdayName(from: start)) \(shortDate(start))–\(hebrewWeekdayName(from: end)) \(shortDate(end))"
+        }
     }
-
+    
     private func startOfNext7Days(from date: Date) -> Date {
         calendar.startOfDay(for: date)
     }
-
+    
     private func shortDate(_ date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "he_IL")
+        formatter.locale = Locale(identifier: isEnglish ? "en_US_POSIX" : "he_IL")
         formatter.calendar = calendar
         formatter.dateFormat = "dd/MM"
         return formatter.string(from: date)
     }
-
+    
     private func hebrewWeekdayName(from date: Date) -> String {
         let weekday = calendar.component(.weekday, from: date)
         switch weekday {
@@ -539,14 +646,33 @@ struct HomeView: View {
         default: return ""
         }
     }
-
+    
+    private func englishWeekdayName(from date: Date) -> String {
+        let weekday = calendar.component(.weekday, from: date)
+        switch weekday {
+        case 1: return "Sunday"
+        case 2: return "Monday"
+        case 3: return "Tuesday"
+        case 4: return "Wednesday"
+        case 5: return "Thursday"
+        case 6: return "Friday"
+        case 7: return "Saturday"
+        default: return ""
+        }
+    }
+    
     // MARK: - Belt CTA
-
+    
     private func buttonTitleForBelt() -> String {
         let next = BeltFlow.nextBeltForUser(registeredBelt: resolvedBelt)
-        return "מעבר לתרגילים – \(beltHeb(next))"
+        
+        if isEnglish {
+            return "Go to exercises – \(beltEn(next))"
+        } else {
+            return "מעבר לתרגילים – \(beltHeb(next))"
+        }
     }
-
+    
     private func beltHeb(_ belt: Belt) -> String {
         switch belt {
         case .white: return "לבנה"
@@ -559,15 +685,28 @@ struct HomeView: View {
         default: return belt.id
         }
     }
-
+    
+    private func beltEn(_ belt: Belt) -> String {
+        switch belt {
+        case .white: return "White"
+        case .yellow: return "Yellow"
+        case .orange: return "Orange"
+        case .green: return "Green"
+        case .blue: return "Blue"
+        case .brown: return "Brown"
+        case .black: return "Black"
+        default: return belt.id
+        }
+    }
+    
     // MARK: - Helpers
-
+    
     private func closeFab() {
         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
             fabOpen = false
         }
     }
-
+    
     private var loadingBlock: some View {
         VStack(spacing: 12) {
             ForEach(0..<3, id: \.self) { _ in
@@ -582,28 +721,49 @@ struct HomeView: View {
             }
         }
     }
-
+    
     private func emptyBlock(message: String) -> some View {
-        VStack(spacing: 10) {
+        VStack(
+            alignment: isEnglish ? .leading : .trailing,
+            spacing: 10
+        ) {
             Image(systemName: "calendar.badge.exclamationmark")
                 .font(.system(size: 28, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.95))
-
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: isEnglish ? .leading : .trailing
+                )
+            
             Text(message)
                 .font(.system(size: 18, weight: .heavy))
                 .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: isEnglish ? .leading : .trailing
+                )
+                .multilineTextAlignment(isEnglish ? .leading : .trailing)
+            
             Text(
                 isCoachUser
-                ? "האימונים יוצגו כאן לפי האזור, הסניף והקבוצה של המאמן"
-                : "האימונים יוצגו כאן לפי הסניף והקבוצה של המשתמש"
+                ? tr(
+                    "האימונים יוצגו כאן לפי האזור, הסניף והקבוצה של המאמן",
+                    "Trainings will appear here according to the coach’s region, branch and group"
+                )
+                : tr(
+                    "האימונים יוצגו כאן לפי הסניף והקבוצה של המשתמש",
+                    "Trainings will appear here according to the user’s branch and group"
+                )
             )
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.88))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 22)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.88))
+            .frame(
+                maxWidth: .infinity,
+                alignment: isEnglish ? .leading : .trailing
+            )
+            .multilineTextAlignment(isEnglish ? .leading : .trailing)
         }
+        .padding(.horizontal, 22)
         .padding(.vertical, 24)
         .frame(maxWidth: .infinity)
         .background(
@@ -652,27 +812,41 @@ private struct CoachMessagesCard: View {
     let title: String
     let message: String
     let meta: String
+    let isEnglish: Bool
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var stackAlignment: HorizontalAlignment {
+        isEnglish ? .leading : .trailing
+    }
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 14) {
+        VStack(alignment: stackAlignment, spacing: 14) {
             Text(title)
                 .font(.system(size: 24, weight: .heavy))
                 .foregroundStyle(Color.black.opacity(0.82))
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .multilineTextAlignment(textAlignment)
 
-            VStack(alignment: .trailing, spacing: 10) {
+            VStack(alignment: stackAlignment, spacing: 10) {
                 Text(message)
                     .font(.system(size: 22, weight: .heavy))
                     .foregroundStyle(Color.black.opacity(0.82))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
                     .padding(.top, 8)
 
                 Text(meta)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Color.black.opacity(0.52))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 26)
@@ -700,12 +874,17 @@ private struct CoachMessagesCard: View {
 private struct FabMenuRow: View {
     let title: String
     let systemImage: String
+    let isEnglish: Bool
 
     private let rowHeight: CGFloat = 54
 
+    private var rowAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
     var body: some View {
         GeometryReader { geo in
-            let width = geo.size.width * 0.52
+            let width = max(210, geo.size.width * 0.52)
 
             HStack(spacing: 10) {
                 Image(systemName: systemImage)
@@ -720,7 +899,7 @@ private struct FabMenuRow: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 14)
-            .frame(width: width, height: rowHeight, alignment: .leading)
+            .frame(width: width, height: rowHeight, alignment: rowAlignment)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(Color.white.opacity(0.92))

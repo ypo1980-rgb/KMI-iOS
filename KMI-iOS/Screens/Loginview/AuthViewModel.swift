@@ -1,6 +1,15 @@
 import Foundation
 import Combine
 import Shared
+import UIKit
+
+#if canImport(FirebaseCore)
+import FirebaseCore
+#endif
+
+#if canImport(GoogleSignIn)
+import GoogleSignIn
+#endif
 
 #if canImport(FirebaseAuth)
 import FirebaseAuth
@@ -475,19 +484,21 @@ private func ensureUserProfileDocumentExists(
         do {
             let loginEmail: String
 
-            let isEmail: Bool = {
-                let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
-                let range = NSRange(location: 0, length: rawId.utf16.count)
-                let matches = detector?.matches(in: rawId, options: [], range: range) ?? []
-                return matches.first?.url?.scheme == "mailto"
-            }()
+            let normalizedIdentifier = rawId
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            let isEmail =
+                normalizedIdentifier.contains("@") &&
+                normalizedIdentifier.contains(".") &&
+                !normalizedIdentifier.contains(" ")
 
             if isEmail {
-                loginEmail = rawId.lowercased()
+                loginEmail = normalizedIdentifier
             } else {
                 let db = Firestore.firestore()
                 let snap = try await db.collection("users")
-                    .whereField("usernameLower", isEqualTo: rawId.lowercased())
+                    .whereField("usernameLower", isEqualTo: normalizedIdentifier)
                     .limit(to: 1)
                     .getDocuments()
 
@@ -499,9 +510,18 @@ private func ensureUserProfileDocumentExists(
                     return false
                 }
 
-                loginEmail = resolvedEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                loginEmail = resolvedEmail
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
             }
 
+            #if DEBUG
+            print("🟡 AUTH_LOGIN identifier =", rawId)
+            print("🟡 AUTH_LOGIN resolved loginEmail =", loginEmail)
+            print("🟡 AUTH_LOGIN wantedRole =", wantedRole)
+            print("🟡 AUTH_LOGIN passwordIsEmpty =", rawPassword.isEmpty)
+            #endif
+            
             let result = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<AuthDataResult, Error>) in
                 Auth.auth().signIn(withEmail: loginEmail, password: rawPassword) { res, err in
                     if let err {
@@ -654,6 +674,219 @@ private func ensureUserProfileDocumentExists(
         return false
         #endif
     }
+
+    func signInWithGoogle(
+        expectedRole: String,
+        coachCode: String?
+    ) async -> Bool {
+        errorText = nil
+
+        let wantedRole = expectedRole
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        isLoading = true
+        defer { isLoading = false }
+
+        #if canImport(FirebaseAuth)
+        #if canImport(FirebaseFirestore)
+        #if canImport(GoogleSignIn)
+
+        do {
+            guard let clientID = FirebaseApp.app()?.options.clientID else {
+                errorText = "חסר clientID בקובץ GoogleService-Info.plist"
+                return false
+            }
+
+            guard let rootViewController = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .flatMap({ $0.windows })
+                .first(where: { $0.isKeyWindow })?
+                .rootViewController
+            else {
+                errorText = "לא נמצא מסך פעיל להצגת התחברות Google"
+                return false
+            }
+
+            var presentingViewController = rootViewController
+            while let presented = presentingViewController.presentedViewController {
+                presentingViewController = presented
+            }
+
+            GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
+
+            let googleResult = try await GIDSignIn.sharedInstance.signIn(
+                withPresenting: presentingViewController
+            )
+
+            guard let idToken = googleResult.user.idToken?.tokenString else {
+                errorText = "לא התקבל Google ID Token"
+                return false
+            }
+
+            let accessToken = googleResult.user.accessToken.tokenString
+
+            let credential = GoogleAuthProvider.credential(
+                withIDToken: idToken,
+                accessToken: accessToken
+            )
+
+            let authResult = try await Auth.auth().signIn(with: credential)
+
+            let uid = authResult.user.uid
+            let loginEmail = (authResult.user.email ?? googleResult.user.profile?.email ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            let db = Firestore.firestore()
+            let userSnap = try await db.collection("users")
+                .document(uid)
+                .getDocument()
+
+            let rawData = userSnap.data() ?? [:]
+
+            let data = try await ensureUserProfileDocumentExists(
+                uid: uid,
+                existingData: rawData
+            )
+
+            let serverRole = ((data["role"] as? String) ?? "trainee")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            let serverPhoneRaw =
+                (data["phone"] as? String) ??
+                (data["phoneNumber"] as? String) ??
+                (data["mobile"] as? String) ??
+                ""
+
+            let serverPhoneNormalized = serverPhoneRaw.filter { $0.isNumber }
+
+            let isCoachAccount =
+                serverRole == "coach" ||
+                serverRole == "trainer" ||
+                (data["coachApproved"] as? Bool ?? false)
+
+            let isDeveloperDualRole = isDeveloperDualRoleUser(
+                email: loginEmail,
+                uid: uid
+            )
+
+            if wantedRole == "coach" {
+                let approved = data["coachApproved"] as? Bool ?? false
+                let whitelistedCoach = CoachWhitelist.isWhitelisted(
+                    phone: serverPhoneNormalized,
+                    email: loginEmail
+                )
+
+                if !approved && !whitelistedCoach {
+                    errorText = "המשתמש אינו מוגדר כמאמן"
+                    try? Auth.auth().signOut()
+                    return false
+                }
+
+                let typedCoachCode = (coachCode ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                let specialCoachCode: String? = {
+                    if loginEmail == "ypo1980@gmail.com" {
+                        return "123456"
+                    }
+                    return nil
+                }()
+
+                let storedCoachCode = (
+                    specialCoachCode ??
+                    ((data["coachCode"] as? String) ?? "")
+                )
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                if typedCoachCode.isEmpty {
+                    errorText = "יש להזין קוד מאמן"
+                    try? Auth.auth().signOut()
+                    return false
+                }
+
+                if typedCoachCode != storedCoachCode {
+                    errorText = "קוד מאמן שגוי"
+                    try? Auth.auth().signOut()
+                    return false
+                }
+
+            } else if wantedRole == "trainee" {
+                if isCoachAccount && !isDeveloperDualRole {
+                    errorText = "החשבון הזה מוגדר כחשבון מאמן. יש להיכנס דרך טאב מאמן ולהזין את קוד המאמן שקיבלת."
+                    try? Auth.auth().signOut()
+                    return false
+                }
+
+                if serverRole != "trainee" && !isCoachAccount {
+                    errorText = "המשתמש אינו מוגדר כמתאמן"
+                    try? Auth.auth().signOut()
+                    return false
+                }
+            }
+
+            let defaults = UserDefaults.standard
+            defaults.set(loginEmail, forKey: "remember_username")
+            defaults.set(loginEmail, forKey: "email")
+            defaults.set(true, forKey: "is_logged_in")
+            defaults.set(wantedRole, forKey: "user_role")
+
+            if wantedRole == "coach", let coachCode {
+                defaults.set(coachCode.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "coach_code")
+            } else {
+                defaults.removeObject(forKey: "coach_code")
+            }
+
+            await loadUserProfile(uid: uid)
+
+            isSignedIn = true
+            errorText = nil
+
+            #if DEBUG
+            print("🟢 GOOGLE_LOGIN success uid =", uid)
+            print("🟢 GOOGLE_LOGIN email =", loginEmail)
+            print("🟢 GOOGLE_LOGIN wantedRole =", wantedRole)
+            #endif
+
+            return true
+
+        } catch {
+            if let nsError = error as NSError? {
+                switch nsError.code {
+                case AuthErrorCode.invalidCredential.rawValue:
+                    errorText = "התחברות Google נכשלה"
+
+                case AuthErrorCode.userDisabled.rawValue:
+                    errorText = "המשתמש חסום במערכת"
+
+                case AuthErrorCode.networkError.rawValue:
+                    errorText = "יש בעיית רשת. בדוק חיבור לאינטרנט ונסה שוב"
+
+                default:
+                    errorText = nsError.localizedDescription
+                }
+            } else {
+                errorText = error.localizedDescription
+            }
+
+            return false
+        }
+
+        #else
+        errorText = "GoogleSignIn לא מותקן בפרויקט"
+        return false
+        #endif
+        #else
+        errorText = "FirebaseFirestore לא מותקן בפרויקט"
+        return false
+        #endif
+        #else
+        errorText = "FirebaseAuth לא מותקן בפרויקט"
+        return false
+        #endif
+    }
     
     func sendPasswordReset(email: String, completion: @escaping (Bool, String?) -> Void) {
         errorText = nil
@@ -669,20 +902,38 @@ private func ensureUserProfileDocumentExists(
 
         isLoading = true
 
-        #if canImport(FirebaseAuth)
-        Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
-            DispatchQueue.main.async {
-                self?.isLoading = false
+#if canImport(FirebaseAuth)
+Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
+    DispatchQueue.main.async {
+        self?.isLoading = false
 
-                if let err {
-                    self?.errorText = err.localizedDescription
-                    completion(false, err.localizedDescription)
-                } else {
-                    completion(true, nil)
-                }
+        if let err {
+            let nsError = err as NSError
+
+            let message: String
+            switch nsError.code {
+            case AuthErrorCode.userNotFound.rawValue:
+                message = "לא נמצא משתמש עם כתובת המייל הזאת"
+
+            case AuthErrorCode.invalidEmail.rawValue:
+                message = "כתובת האימייל אינה תקינה"
+
+            case AuthErrorCode.invalidRecipientEmail.rawValue:
+                message = "כתובת המייל לא תקינה לשליחת איפוס סיסמה"
+
+            default:
+                message = err.localizedDescription
             }
+
+            self?.errorText = message
+            completion(false, message)
+        } else {
+            self?.errorText = nil
+            completion(true, nil)
         }
-        #else
+    }
+}
+#else
         isLoading = false
         let msg = "FirebaseAuth לא מותקן בפרויקט"
         errorText = msg
@@ -786,26 +1037,43 @@ private func ensureUserProfileDocumentExists(
             // נזהה אימייל או username
             let loginEmail: String
 
-            if rawId.contains("@") {
+            let normalizedIdentifier = rawId
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
 
-                loginEmail = rawId.lowercased()
+            let isEmail =
+                normalizedIdentifier.contains("@") &&
+                normalizedIdentifier.contains(".") &&
+                !normalizedIdentifier.contains(" ")
+
+            if isEmail {
+
+                loginEmail = normalizedIdentifier
 
             } else {
 
                 let snap = try await db.collection("users")
-                    .whereField("usernameLower", isEqualTo: rawId.lowercased())
+                    .whereField("usernameLower", isEqualTo: normalizedIdentifier)
                     .limit(to: 1)
                     .getDocuments()
 
                 guard let data = snap.documents.first?.data(),
-                      let email = (data["emailLower"] as? String) ?? (data["email"] as? String)
+                      let email = (data["emailLower"] as? String) ?? (data["email"] as? String),
+                      !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 else {
                     errorText = "המייל לא נמצא"
                     return nil
                 }
 
-                loginEmail = email.lowercased()
+                loginEmail = email
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
             }
+
+            #if DEBUG
+            print("🟡 AUTH_COACH_CODE_RESET identifier =", rawId)
+            print("🟡 AUTH_COACH_CODE_RESET resolved loginEmail =", loginEmail)
+            #endif
 
             if let devCode = nextDeveloperCoachCode(for: loginEmail) {
                 UserDefaults.standard.set(devCode, forKey: "coach_code")
@@ -877,10 +1145,22 @@ private func ensureUserProfileDocumentExists(
                 switch nsError.code {
                 case AuthErrorCode.wrongPassword.rawValue:
                     errorText = "הסיסמה שגויה"
+
                 case AuthErrorCode.invalidCredential.rawValue:
                     errorText = "מייל או סיסמה שגויים"
+
                 case AuthErrorCode.userNotFound.rawValue:
                     errorText = "המייל לא נמצא"
+
+                case AuthErrorCode.invalidEmail.rawValue:
+                    errorText = "כתובת האימייל אינה תקינה"
+
+                case AuthErrorCode.tooManyRequests.rawValue:
+                    errorText = "בוצעו יותר מדי ניסיונות. נסה שוב מאוחר יותר"
+
+                case AuthErrorCode.networkError.rawValue:
+                    errorText = "יש בעיית רשת. בדוק חיבור לאינטרנט ונסה שוב"
+
                 default:
                     errorText = nsError.localizedDescription
                 }

@@ -7,8 +7,12 @@ private enum KmiAccessKeys {
     static let devUnlock = "dev_unlock"
 }
 
-private let DEV_UNLOCK_CODE = "KMI-SECRET-2025"
-private let TRIAL_DURATION_MILLIS: Int64 = 3 * 24 * 60 * 60 * 1000
+// חייב להיות זהה ללוגיקת Android
+private let DEV_UNLOCK_CODE = "34567"
+
+// אם נרצה בעתיד להחזיר ניסיון, אפשר להפעיל מחדש.
+// כרגע זה מושבת כמו באנדרואיד.
+private let FORCE_SUBSCRIPTION_LOCK = false
 
 enum KmiAccess {
 
@@ -38,41 +42,24 @@ enum KmiAccess {
     }
 
     static func clearDevUnlock(defaults: UserDefaults = .standard) {
-        defaults.removeObject(forKey: KmiAccessKeys.devUnlock)
+        defaults.set(false, forKey: KmiAccessKeys.devUnlock)
     }
 
     // MARK: - Trial
 
     static func ensureTrialStarted(defaults: UserDefaults = .standard) {
-        guard !isAdmin(defaults: defaults) else { return }
-
-        if defaults.object(forKey: KmiAccessKeys.trialStartMillis) == nil {
-            defaults.set(currentTimeMillis(), forKey: KmiAccessKeys.trialStartMillis)
-        }
+        // מושבת זמנית כמו באנדרואיד.
+        // משאירים את הפונקציה כדי לא לשבור קריאות קיימות.
     }
 
     static func isTrialActive(defaults: UserDefaults = .standard) -> Bool {
-        if isAdmin(defaults: defaults) { return false }
-
-        let start = defaults.object(forKey: KmiAccessKeys.trialStartMillis) as? Int64 ?? 0
-        guard start > 0 else { return false }
-
-        let now = currentTimeMillis()
-        return now - start < TRIAL_DURATION_MILLIS
+        // כרגע אין תקופת ניסיון פעילה.
+        return false
     }
 
     static func trialDaysLeft(defaults: UserDefaults = .standard) -> Int {
-        if isAdmin(defaults: defaults) { return 0 }
-
-        let start = defaults.object(forKey: KmiAccessKeys.trialStartMillis) as? Int64 ?? 0
-        guard start > 0 else { return 0 }
-
-        let now = currentTimeMillis()
-        let remaining = TRIAL_DURATION_MILLIS - (now - start)
-        guard remaining > 0 else { return 0 }
-
-        let dayMillis: Int64 = 24 * 60 * 60 * 1000
-        return max(Int(remaining / dayMillis), 0)
+        // כרגע אין תקופת ניסיון פעילה.
+        return 0
     }
 
     // MARK: - Full Access
@@ -81,10 +68,23 @@ enum KmiAccess {
         defaults.set(value, forKey: KmiAccessKeys.hasFullAccess)
     }
 
+    static func clearAllAccessFlags(defaults: UserDefaults = .standard) {
+        defaults.set(false, forKey: KmiAccessKeys.isAdmin)
+        defaults.set(false, forKey: KmiAccessKeys.devUnlock)
+        defaults.set(false, forKey: KmiAccessKeys.hasFullAccess)
+        defaults.removeObject(forKey: KmiAccessKeys.trialStartMillis)
+    }
+
     static func hasFullAccess(defaults: UserDefaults = .standard) -> Bool {
-        isAdmin(defaults: defaults)
-        || hasDevUnlock(defaults: defaults)
-        || defaults.bool(forKey: KmiAccessKeys.hasFullAccess)
+        let admin = isAdmin(defaults: defaults)
+        let dev = hasDevUnlock(defaults: defaults)
+        let full = defaults.bool(forKey: KmiAccessKeys.hasFullAccess)
+
+        if FORCE_SUBSCRIPTION_LOCK && !admin && !dev {
+            return false
+        }
+
+        return admin || dev || full
     }
 
     // MARK: - Permissions
@@ -102,8 +102,4 @@ enum KmiAccess {
     }
 
     // MARK: - Helpers
-
-    private static func currentTimeMillis() -> Int64 {
-        Int64(Date().timeIntervalSince1970 * 1000)
-    }
 }

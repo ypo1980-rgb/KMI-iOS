@@ -2,13 +2,159 @@ import SwiftUI
 import FirebaseAuth
 import Shared
 
+// MARK: - Global bilingual UI helpers
+
+private enum KmiGlobalLanguage {
+
+    static var isEnglish: Bool {
+        let defaults = UserDefaults.standard
+
+        let values = [
+            defaults.string(forKey: "kmi_app_language")?.lowercased(),
+            defaults.string(forKey: "app_language")?.lowercased(),
+            defaults.string(forKey: "initial_language_code")?.lowercased(),
+            defaults.string(forKey: "selected_language_code")?.lowercased()
+        ]
+        .compactMap { $0 }
+
+        return values.contains("en") || values.contains("english")
+    }
+
+    static var layoutDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+}
+
+private enum KmiGlobalText {
+
+    static func roleLabel(_ raw: String, isEnglish: Bool) -> String {
+        guard isEnglish else { return raw }
+
+        let clean = raw
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if clean.contains("מאמן") {
+            return "Coach\nMode"
+        }
+
+        if clean.contains("מנהל") {
+            return "Admin\nMode"
+        }
+
+        return "Trainee\nMode"
+    }
+
+    static func screenTitle(_ raw: String, isEnglish: Bool) -> String {
+        let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard isEnglish else { return clean }
+
+        let map: [String: String] = [
+            "מסך הבית": "Home",
+            "בית": "Home",
+            "תרגילים לפי חגורה": "Exercises by Belt",
+            "תרגילים לפי נושא": "Exercises by Topic",
+            "לפי חגורה": "By Belt",
+            "לפי נושא": "By Topic",
+            "נושאים בחגורה": "Belt Topics",
+            "נקודות תורפה": "Weak Points",
+            "כל הרשימות": "All Lists",
+            "תרגול": "Practice",
+            "מסך סיכום": "Summary",
+            "סיכום אימון": "Training Summary",
+            "עוזר קולי": "Voice Assistant",
+            "מבחן מסכם": "Final Exam",
+            "מבחן פנימי": "Internal Exam",
+            "דו״ח נוכחות": "Attendance Report",
+            "דוח נוכחות": "Attendance Report",
+            "התקדמות": "Progress",
+            "היסטוריית אימונים": "Training History",
+            "אימונים חופשיים": "Free Sessions",
+            "אודות מתאמנים": "Trainees",
+            "שליחת הודעה לקבוצה": "Group Message",
+            "ניהול מנוי": "Subscription",
+            "תוכניות מנוי": "Subscription Plans",
+            "הגדרות": "Settings",
+            "אודות הרשת": "About the Network",
+            "אודות השיטה": "About the Method",
+            "אודות איציק ביטון": "About Itzik Biton",
+            "אודות אבי אביסידון": "About Avi Abisidon",
+            "פורום הסניף": "Branch Forum",
+            "אין הרשאה": "No Permission"
+        ]
+
+        if let translated = map[clean] {
+            return translated
+        }
+
+        return KmiEnglishTitleResolver.title(for: clean, isEnglish: true)
+    }
+
+    static func drawerTitle(_ raw: String, isEnglish: Bool) -> String {
+        let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard isEnglish else { return clean }
+
+        let map: [String: String] = [
+            "אימונים חופשיים": "Free Sessions",
+            "דו״ח נוכחות": "Attendance Report",
+            "דוח נוכחות": "Attendance Report",
+            "מבחן פנימי לחגורה": "Internal Belt Exam",
+            "שליחת הודעה": "Send Message",
+            "שליחת הודעה לקבוצה": "Group Message",
+            "רשימת מתאמנים": "Trainee List",
+            "אודות מתאמנים": "Trainees",
+            "ניהול משתמשים": "User Management",
+            "ניהול מנוי": "Subscription",
+            "תוכניות מנוי": "Subscription Plans",
+            "אודות הרשת": "About the Network",
+            "אודות השיטה": "About the Method",
+            "אודות איציק ביטון": "About Itzik Biton",
+            "אודות אבי אביסידון": "About Avi Abisidon",
+            "פורום הסניף": "Branch Forum",
+            "התנתקות": "Logout"
+        ]
+
+        if let translated = map[clean] {
+            return translated
+        }
+
+        return KmiEnglishTitleResolver.title(for: clean, isEnglish: true)
+    }
+}
+
 // MARK: - Global TopBar (לא תלוי ב-HomeView)
 struct KmiTopBar: View {
+    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
+    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+    @AppStorage("selected_language_code") private var selectedLanguageCode: String = "he"
+
     let roleLabel: String
     let title: String
     let onMenu: () -> Void
 
     let rightText: String?
+
+    private var isEnglish: Bool {
+        let values = [
+            kmiAppLanguageCode.lowercased(),
+            appLanguageRaw.lowercased(),
+            initialLanguageCode.lowercased(),
+            selectedLanguageCode.lowercased()
+        ]
+
+        return values.contains("en") || values.contains("english")
+    }
+
+    private var localizedTitle: String {
+        KmiGlobalText.screenTitle(title, isEnglish: isEnglish)
+    }
+
+    private var localizedRoleLabel: String {
+        KmiGlobalText.roleLabel(roleLabel, isEnglish: isEnglish)
+    }
 
     // ✅ NEW
     let titleColor: Color
@@ -30,8 +176,8 @@ struct KmiTopBar: View {
     var body: some View {
         HStack(spacing: 10) {
             Group {
-                if !roleLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(roleLabel)
+                if !localizedRoleLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(localizedRoleLabel)
                         .font(.caption.weight(.heavy))
                         .foregroundStyle(Color.black.opacity(0.75))
                         .padding(.horizontal, 10)
@@ -49,9 +195,11 @@ struct KmiTopBar: View {
             Spacer()
 
             HStack(spacing: 10) {
-                Text(title)
+                Text(localizedTitle)
                     .font(.system(size: 22, weight: .heavy))
                     .foregroundStyle(titleColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
 
                 if let rightText, !rightText.isEmpty {
                     Text(rightText)
@@ -75,6 +223,7 @@ struct KmiTopBar: View {
         .padding(.top, 12)
         .padding(.bottom, 2)
         .frame(height: 68)
+        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
     }
 }
 
@@ -118,6 +267,22 @@ private enum KmiIconNav {
 // MARK: - Root Layout
 struct KmiRootLayout<Content: View>: View {
     @EnvironmentObject private var auth: AuthViewModel
+
+    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
+    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+    @AppStorage("selected_language_code") private var selectedLanguageCode: String = "he"
+
+    private var isEnglish: Bool {
+        let values = [
+            kmiAppLanguageCode.lowercased(),
+            appLanguageRaw.lowercased(),
+            initialLanguageCode.lowercased(),
+            selectedLanguageCode.lowercased()
+        ]
+
+        return values.contains("en") || values.contains("english")
+    }
     
     let title: String
     let roleLabel: String
@@ -221,9 +386,9 @@ struct KmiRootLayout<Content: View>: View {
                     return clean.isEmpty ? "default_group" : clean
                 }()
 
-                switch item.title {
+                switch item.routeKey {
 
-                case "אימונים חופשיים":
+                case .freeSessions:
                     nav.push(
                         .freeSessions(
                             branch: freeSessionsBranch,
@@ -233,45 +398,54 @@ struct KmiRootLayout<Content: View>: View {
                         )
                     )
 
-                case "דו״ח נוכחות":
+                case .attendance:
                     nav.push(.attendance)
 
-                case "מבחן פנימי לחגורה":
+                case .internalExam:
                     nav.push(.internalExam(belt: auth.registeredBelt ?? .green))
 
-                case "שליחת הודעה":
+                case .coachBroadcast:
                     nav.push(.coachBroadcast)
 
-                case "רשימת מתאמנים":
+                case .coachTrainees:
                     nav.push(.coachTrainees)
 
-                case "ניהול משתמשים":
+                case .adminUsers:
                     nav.push(.adminUsers)
 
-                case "ניהול מנוי":
-                    print("🟣 SIDE_DRAWER -> subscription route")
-                    nav.push(.subscription)
-                    
-                case "אודות הרשת":
-                    nav.push(.aboutNetwork)
-
-                case "אודות השיטה":
-                    nav.push(.aboutMethod)
-
-                case "אודות איציק ביטון":
-                    nav.push(.aboutItzik)
-
-                case "אודות אבי אביסידון":
+                case .aboutAvi:
                     nav.push(.aboutAvi)
 
-                case "פורום הסניף":
+                case .aboutMethod:
+                    nav.push(.aboutMethod)
+
+                case .demoVideos:
+                    break
+
+                case .formsPayments:
+                    break
+
+                case .contactUs:
+                    break
+
+                case .forum:
                     nav.push(.forum)
 
-                case "התנתקות":
-                    auth.signOut()
-
-                default:
+                case .editProfile:
                     break
+
+                case .subscription:
+                    print("🟣 SIDE_DRAWER -> subscription route")
+                    nav.push(.subscription)
+
+                case .rateUs:
+                    break
+
+                case .toggleLanguage:
+                    break
+
+                case .logout:
+                    auth.signOut()
                 }
             }
         ) {
@@ -339,6 +513,7 @@ struct KmiRootLayout<Content: View>: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
     }
 
     // MARK: - Global handler (אחד לכל האפליקציה)
@@ -364,7 +539,8 @@ struct KmiRootLayout<Content: View>: View {
 
         // ✅ SHARE -> open share sheet with screenshot
         if item == .share {
-            shareItems = GlobalShareService.shareItemsForCurrentScreen(extraText: title)
+            let shareTitle = KmiGlobalText.screenTitle(title, isEnglish: isEnglish)
+            shareItems = GlobalShareService.shareItemsForCurrentScreen(extraText: shareTitle)
             showShareSheet = true
             return
         }

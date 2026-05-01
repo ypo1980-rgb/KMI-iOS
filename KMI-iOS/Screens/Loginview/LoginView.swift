@@ -168,6 +168,51 @@ struct LoginView: View {
                                     .padding(.horizontal, 10)
                             }
 
+                            Button {
+                                onGoogleLoginTapped()
+                            } label: {
+                                HStack(spacing: 10) {
+                                    if auth.isLoading {
+                                        ProgressView()
+                                            .tint(Color.black.opacity(0.75))
+                                    } else {
+                                        Image(systemName: "globe")
+                                            .font(.system(size: 18, weight: .heavy))
+                                    }
+
+                                    Text(auth.isLoading ? "מתחבר..." : "כניסה עם Google")
+                                        .font(.system(size: 17, weight: .heavy))
+                                }
+                                .foregroundStyle(Color.black.opacity(0.82))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 15)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .fill(Color.white.opacity(0.98))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(auth.isLoading)
+
+                            HStack(spacing: 10) {
+                                Rectangle()
+                                    .fill(Color.black.opacity(0.12))
+                                    .frame(height: 1)
+
+                                Text("או")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(Color.black.opacity(0.45))
+
+                                Rectangle()
+                                    .fill(Color.black.opacity(0.12))
+                                    .frame(height: 1)
+                            }
+                            .padding(.vertical, 2)
+
                             LabeledField(title: "מייל") {
                                 TextField("", text: $username)
                                     .textInputAutocapitalization(.never)
@@ -290,7 +335,17 @@ struct LoginView: View {
                             .disabled(auth.isLoading)
 
                             Button {
-                                resetEmail = UserDefaults.standard.string(forKey: "email") ?? ""
+                                let typedEmail = username.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                                resetEmail = !typedEmail.isEmpty
+                                    ? typedEmail
+                                    : (
+                                        UserDefaults.standard.string(forKey: savedUsernameKey) ??
+                                        UserDefaults.standard.string(forKey: "username") ??
+                                        UserDefaults.standard.string(forKey: "email") ??
+                                        ""
+                                    )
+
                                 resetMessage = nil
                                 showForgotPasswordSheet = true
                             } label: {
@@ -300,7 +355,7 @@ struct LoginView: View {
                             }
                             .buttonStyle(.plain)
                             .padding(.top, 4)
-
+                            
                             Button {
                                 onGoToRegister()
                             } label: {
@@ -379,6 +434,31 @@ struct LoginView: View {
         }
     }
 
+    private func onGoogleLoginTapped() {
+        let defaults = UserDefaults.standard
+        let c = coachCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        let roleKey = (role == .coach ? "coach" : "trainee")
+
+        didTriggerSuccess = false
+
+        Task { @MainActor in
+            let success = await auth.signInWithGoogle(
+                expectedRole: roleKey,
+                coachCode: role == .coach ? c : nil
+            )
+
+            if success, !didTriggerSuccess {
+                if let email = UserDefaults.standard.string(forKey: "email"),
+                   !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    defaults.set(email, forKey: savedUsernameKey)
+                }
+
+                didTriggerSuccess = true
+                onLoginSuccess()
+            }
+        }
+    }
+
     private func onLoginTapped() {
         let defaults = UserDefaults.standard
         let u = username.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -391,11 +471,15 @@ struct LoginView: View {
         if rememberMe {
             defaults.set(u, forKey: savedUsernameKey)
             defaults.set(p, forKey: savedPasswordKey)
+
+            if u.contains("@") {
+                defaults.set(u, forKey: "email")
+            }
         } else {
             defaults.removeObject(forKey: savedUsernameKey)
             defaults.removeObject(forKey: savedPasswordKey)
         }
-
+        
         didTriggerSuccess = false
 
         Task { @MainActor in
@@ -407,6 +491,10 @@ struct LoginView: View {
             )
 
             if success, !didTriggerSuccess {
+                if u.contains("@") {
+                    defaults.set(u, forKey: "email")
+                }
+
                 didTriggerSuccess = true
                 onLoginSuccess()
             }

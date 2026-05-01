@@ -10,7 +10,7 @@ func colorSchemeFromThemeMode(_ mode: String) -> ColorScheme? {
     case "dark":
         return .dark
     default:
-        return .light
+        return nil
     }
 }
 
@@ -40,6 +40,8 @@ struct LoadingOverlay: View {
 
 // MARK: - PinSetupSheet
 struct PinSetupSheet: View {
+    @Environment(\.layoutDirection) private var layoutDirection
+
     @Binding var pin: String
     @Binding var pinConfirm: String
     @Binding var pinError: String?
@@ -50,32 +52,70 @@ struct PinSetupSheet: View {
     @State private var pinVisible: Bool = false
     @State private var pinConfirmVisible: Bool = false
 
+    private var isEnglish: Bool {
+        layoutDirection == .leftToRight
+    }
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
     var body: some View {
         NavigationView {
             VStack(spacing: 12) {
                 Group {
-                    SecureFieldWithToggle(title: "סיסמה", text: $pin, visible: $pinVisible)
-                    SecureFieldWithToggle(title: "אימות סיסמה", text: $pinConfirm, visible: $pinConfirmVisible)
+                    SecureFieldWithToggle(
+                        title: tr("סיסמה", "PIN"),
+                        text: $pin,
+                        visible: $pinVisible
+                    )
+
+                    SecureFieldWithToggle(
+                        title: tr("אימות סיסמה", "Confirm PIN"),
+                        text: $pinConfirm,
+                        visible: $pinConfirmVisible
+                    )
                 }
 
                 if let pinError, !pinError.isEmpty {
                     Text(pinError)
                         .font(.footnote)
                         .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                        .multilineTextAlignment(textAlignment)
                 }
 
                 Spacer()
             }
             .padding(16)
-            .navigationTitle("הגדרת סיסמה")
+            .environment(\.layoutDirection, layoutDirection)
+            .navigationTitle(tr("הגדרת סיסמה", "Set PIN"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("ביטול") { onCancel() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("שמירה") { onSave() }
+                if isEnglish {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(tr("ביטול", "Cancel")) { onCancel() }
+                    }
+
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(tr("שמירה", "Save")) { onSave() }
+                    }
+                } else {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(tr("שמירה", "Save")) { onSave() }
+                    }
+
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(tr("ביטול", "Cancel")) { onCancel() }
+                    }
                 }
             }
         }
@@ -83,30 +123,60 @@ struct PinSetupSheet: View {
 }
 
 struct SecureFieldWithToggle: View {
+    @Environment(\.layoutDirection) private var layoutDirection
+
     let title: String
     @Binding var text: String
     @Binding var visible: Bool
 
+    private var isEnglish: Bool {
+        layoutDirection == .leftToRight
+    }
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
     var body: some View {
         HStack {
-            Button {
-                visible.toggle()
-            } label: {
-                Image(systemName: visible ? "eye.slash.fill" : "eye.fill")
-                    .foregroundStyle(.secondary)
-            }
+            if isEnglish {
+                field
 
-            if visible {
-                TextField(title, text: $text)
-                    .textInputAutocapitalization(.never)
-                    .disableAutocorrection(true)
+                visibilityButton
             } else {
-                SecureField(title, text: $text)
+                visibilityButton
+
+                field
             }
         }
         .padding(12)
         .background(Color(UIColor.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var visibilityButton: some View {
+        Button {
+            visible.toggle()
+        } label: {
+            Image(systemName: visible ? "eye.slash.fill" : "eye.fill")
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var field: some View {
+        if visible {
+            TextField(title, text: $text)
+                .keyboardType(.numberPad)
+                .textInputAutocapitalization(.never)
+                .disableAutocorrection(true)
+                .multilineTextAlignment(textAlignment)
+        } else {
+            SecureField(title, text: $text)
+                .keyboardType(.numberPad)
+                .multilineTextAlignment(textAlignment)
+        }
     }
 }
 

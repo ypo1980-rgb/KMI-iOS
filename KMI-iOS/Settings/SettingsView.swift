@@ -15,6 +15,46 @@ struct SettingsView: View {
     @ObservedObject var nav: AppNavModel
     var onOpenRegistration: (() -> Void)? = nil
 
+    // MARK: Language
+    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
+    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+
+    var isEnglish: Bool {
+        let values = [
+            kmiAppLanguageCode.lowercased(),
+            appLanguageRaw.lowercased(),
+            initialLanguageCode.lowercased()
+        ]
+
+        return values.contains("en") || values.contains("english")
+    }
+
+    var settingsLayoutDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
+    var primaryTextAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    var horizontalTextAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
+    func applyInterfaceLanguage(_ english: Bool) {
+        kmiAppLanguageCode = english ? "en" : "he"
+        appLanguageRaw = english ? "ENGLISH" : "HEBREW"
+        initialLanguageCode = english ? "ENGLISH" : "HEBREW"
+
+        toast(english ? "Language changed to English" : "השפה שונתה לעברית")
+        hapticSuccess()
+    }
+
     // MARK: Stored settings (UserDefaults)
     @AppStorage("fullName") var fullName: String = "שם מלא לא מוגדר"
     @AppStorage("phone") var phone: String = ""
@@ -45,7 +85,7 @@ struct SettingsView: View {
 
     @AppStorage("voice") var cloudVoice: String = "male" // male / female
 
-    @AppStorage("theme_mode") var themeMode: String = "light" // light / dark
+    @AppStorage("theme_mode") var themeMode: String = "system" // system / light / dark
 
     @AppStorage("app_lock_mode") var appLockMode: String = "none" // none/biometric/pin
     @AppStorage("app_lock_pin") var appLockPin: String = ""       // WARNING: store securely later
@@ -169,6 +209,7 @@ struct SettingsView: View {
         .overlay {
             if isBusy { LoadingOverlay() }
         }
+        .environment(\.layoutDirection, settingsLayoutDirection)
         .preferredColorScheme(colorSchemeFromThemeMode(themeMode))
         .sheet(item: $mailData) { data in
             MailComposeView(data: data)
@@ -260,31 +301,23 @@ struct SettingsView: View {
 
                 VStack(spacing: 10) {
                     HStack {
-                        Button {
-                            print("⚙️ SettingsView: tap edit registration")
-                            hapticSuccess()
-                            if let onOpenRegistration {
-                                print("⚙️ SettingsView: using external onOpenRegistration")
-                                onOpenRegistration()
-                            } else {
-                                print("⚙️ SettingsView: opening local RegisterFormView")
-                                showRegistrationEdit = true
-                            }
-                        } label: {
-                            Text("ערוך פרטים")
-                                .font(.system(size: 15, weight: .semibold))
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 10)
-                                .background(Color.accentColor.opacity(0.95))
+                        if isEnglish {
+                            Text(tr("הגדרות", "Settings"))
+                                .font(.system(size: 30, weight: .heavy))
                                 .foregroundStyle(Color.white)
-                                .clipShape(Capsule())
+
+                            Spacer()
+
+                            editDetailsButton
+                        } else {
+                            editDetailsButton
+
+                            Spacer()
+
+                            Text(tr("הגדרות", "Settings"))
+                                .font(.system(size: 30, weight: .heavy))
+                                .foregroundStyle(Color.white)
                         }
-
-                        Spacer()
-
-                        Text("הגדרות")
-                            .font(.system(size: 30, weight: .heavy))
-                            .foregroundStyle(Color.white)
                     }
 
                     profileCard
@@ -298,27 +331,39 @@ struct SettingsView: View {
         .padding(.top, 8)
     }
 
+    private var editDetailsButton: some View {
+        Button {
+            print("⚙️ SettingsView: tap edit registration")
+            hapticSuccess()
+            if let onOpenRegistration {
+                print("⚙️ SettingsView: using external onOpenRegistration")
+                onOpenRegistration()
+            } else {
+                print("⚙️ SettingsView: opening local RegisterFormView")
+                showRegistrationEdit = true
+            }
+        } label: {
+            Text(tr("ערוך פרטים", "Edit details"))
+                .font(.system(size: 15, weight: .semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Color.accentColor.opacity(0.95))
+                .foregroundStyle(Color.white)
+                .clipShape(Capsule())
+        }
+    }
+
     private var profileCard: some View {
         HStack(spacing: 8) {
-            Image(systemName: isCoach ? "checkmark.seal.fill" : "person.fill")
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(isCoach ? Color(hex: 0xFF6A1B9A) : Color(hex: 0xFF1565C0))
-                .frame(width: 28, height: 28)
+            if isEnglish {
+                profileIcon
 
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(fullName.isEmpty ? "משתמש" : fullName)
-                    .font(.system(size: 22, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(0.85))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                profileTextBlock
+            } else {
+                profileTextBlock
 
-                if !phone.isEmpty {
-                    Text(phone)
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(Color.black.opacity(0.72))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
+                profileIcon
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -326,19 +371,79 @@ struct SettingsView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
+    private var profileIcon: some View {
+        Image(systemName: isCoach ? "checkmark.seal.fill" : "person.fill")
+            .font(.system(size: 24, weight: .semibold))
+            .foregroundStyle(isCoach ? Color(hex: 0xFF6A1B9A) : Color(hex: 0xFF1565C0))
+            .frame(width: 28, height: 28)
+    }
+
+    private var profileTextBlock: some View {
+        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 4) {
+            Text(fullName.isEmpty || fullName == "שם מלא לא מוגדר" ? tr("משתמש", "User") : fullName)
+                .font(.system(size: 22, weight: .heavy))
+                .foregroundStyle(Color.black.opacity(0.85))
+                .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                .multilineTextAlignment(primaryTextAlignment)
+
+            if !phone.isEmpty {
+                Text(phone)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Color.black.opacity(0.72))
+                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                    .multilineTextAlignment(primaryTextAlignment)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+    }
+
     // MARK: Cards
     private var settingsCards: some View {
         VStack(spacing: 16) {
 
+            SettingsCard(
+                title: tr("שפה", "Language"),
+                subtitle: tr("בחר שפת ממשק לאפליקציה", "Choose the app interface language"),
+                iconSystemName: "globe",
+                iconTint: sectionIconTint
+            ) {
+                VStack(spacing: 10) {
+                    Text(tr("בחר שפת ממשק", "Choose interface language"))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                        .multilineTextAlignment(primaryTextAlignment)
+
+                    Picker(
+                        "",
+                        selection: Binding<Int>(
+                            get: { isEnglish ? 1 : 0 },
+                            set: { newValue in
+                                applyInterfaceLanguage(newValue == 1)
+                            }
+                        )
+                    ) {
+                        if isEnglish {
+                            Text("English").tag(1)
+                            Text("עברית").tag(0)
+                        } else {
+                            Text("עברית").tag(0)
+                            Text("English").tag(1)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+            }
+
             if isCoach {
                 SettingsCard(
-                    title: "קוד מאמן",
-                    subtitle: "הקוד האישי שלך לצירוף מתאמנים",
+                    title: tr("קוד מאמן", "Coach code"),
+                    subtitle: tr("הקוד האישי שלך לצירוף מתאמנים", "Your personal code for adding trainees"),
                     iconSystemName: "number.square.fill",
                     iconTint: sectionIconTint
                 ) {
                     VStack(spacing: 10) {
-                        Text(coachCode.isEmpty ? "לא נמצא קוד מאמן" : coachCode)
+                        Text(coachCode.isEmpty ? tr("לא נמצא קוד מאמן", "Coach code not found") : coachCode)
                             .font(.system(size: 28, weight: .heavy, design: .rounded))
                             .foregroundStyle(Color.black.opacity(0.85))
                             .frame(maxWidth: .infinity, alignment: .center)
@@ -347,10 +452,10 @@ struct SettingsView: View {
                         Button {
                             guard !coachCode.isEmpty else { return }
                             UIPasteboard.general.string = coachCode
-                            toast("קוד המאמן הועתק")
+                            toast(tr("קוד המאמן הועתק", "Coach code copied"))
                             hapticSuccess()
                         } label: {
-                            Text("העתק קוד מאמן")
+                            Text(tr("העתק קוד מאמן", "Copy coach code"))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
                         }
@@ -362,17 +467,22 @@ struct SettingsView: View {
 
             // --- Training reminders
             SettingsCard(
-                title: "תזכורות אימון",
-                subtitle: "קבל התראה לפני תחילת אימון",
+                title: tr("תזכורות אימון", "Training reminders"),
+                subtitle: tr("קבל התראה לפני תחילת אימון", "Get a reminder before training starts"),
                 iconSystemName: "alarm.fill",
                 iconTint: sectionIconTint
             ) {
                 VStack(spacing: 8) {
                     HStack {
-                        Text(trainingRemindersEnabled ? "כמה דקות לפני האימון לקבל תזכורת?" : "")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
+                        Text(
+                            trainingRemindersEnabled
+                            ? tr("כמה דקות לפני האימון לקבל תזכורת?", "How many minutes before training would you like a reminder?")
+                            : ""
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                        .multilineTextAlignment(primaryTextAlignment)
 
                         Toggle("", isOn: Binding(
                             get: { trainingRemindersEnabled },
@@ -395,7 +505,9 @@ struct SettingsView: View {
                         KmiSegmentedTabsInt(
                             options: [30, 60, 90],
                             selected: $trainingReminderMinutes,
-                            label: { minutes in "\(minutes) דק׳\nלפני" }
+                            label: { minutes in
+                                isEnglish ? "\(minutes) min\nbefore" : "\(minutes) דק׳\nלפני"
+                            }
                         ) { minutes in
                             trainingReminderMinutes = minutes
                             scheduleTrainingReminders(minutes: minutes)
@@ -406,8 +518,11 @@ struct SettingsView: View {
             }
 
             SettingsCard(
-                title: "תרגיל יומי",
-                subtitle: "קבל כל יום תרגיל מהחגורה הבאה בשעה שתבחר",
+                title: tr("תרגיל יומי", "Daily exercise"),
+                subtitle: tr(
+                    "קבל כל יום תרגיל מהחגורה הבאה בשעה שתבחר",
+                    "Get a daily exercise from the next belt at the time you choose"
+                ),
                 iconSystemName: "bell.badge.fill",
                 iconTint: sectionIconTint
             ) {
@@ -415,12 +530,19 @@ struct SettingsView: View {
                     HStack {
                         Text(
                             isCoach
-                            ? "המאמן יכול להפעיל או לכבות לעצמו את התרגיל היומי"
-                            : "שלח לי כל יום תרגיל חדש מהחגורה הבאה"
+                            ? tr(
+                                "המאמן יכול להפעיל או לכבות לעצמו את התרגיל היומי",
+                                "The coach can enable or disable a daily exercise for themselves"
+                            )
+                            : tr(
+                                "שלח לי כל יום תרגיל חדש מהחגורה הבאה",
+                                "Send me a daily exercise from the next belt"
+                            )
                         )
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                        .multilineTextAlignment(primaryTextAlignment)
 
                         Toggle("", isOn: dailyReminderEnabledBinding)
                             .labelsHidden()
@@ -428,33 +550,49 @@ struct SettingsView: View {
 
                     if dailyReminderEnabledBinding.wrappedValue {
                         DatePicker(
-                            "שעת התרגיל היומי",
+                            tr("שעת התרגיל היומי", "Daily exercise time"),
                             selection: dailyReminderTimeBinding,
                             displayedComponents: .hourAndMinute
                         )
-                        .environment(\.locale, Locale(identifier: "he_IL"))
+                        .environment(\.locale, Locale(identifier: isEnglish ? "en_US" : "he_IL"))
+                        .environment(\.layoutDirection, settingsLayoutDirection)
                         .datePickerStyle(.compact)
 
-                        Text("ברירת מחדל: 20:00. בשבת ובחג לא תישלח התראה.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
+                        Text(
+                            tr(
+                                "ברירת מחדל: 20:00. בשבת ובחג לא תישלח התראה.",
+                                "Default: 20:00. No reminder will be sent on Shabbat or holidays."
+                            )
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                        .multilineTextAlignment(primaryTextAlignment)
                     }
                 }
             }
             
             // --- Free sessions reminders
             SettingsCard(
-                title: "תזכורות אימונים חופשיים",
-                subtitle: "קבל התראה לפני אימון חופשי שאישרת הגעה",
+                title: tr("תזכורות אימונים חופשיים", "Free training reminders"),
+                subtitle: tr(
+                    "קבל התראה לפני אימון חופשי שאישרת הגעה",
+                    "Get a reminder before a free training session you confirmed"
+                ),
                 iconSystemName: "bell.badge.fill",
                 iconTint: sectionIconTint
             ) {
                 HStack {
-                    Text("התראות 30 ו-10 דקות לפני אימון חופשי שסימנת \"אני מגיע\"")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Text(
+                        tr(
+                            "התראות 30 ו-10 דקות לפני אימון חופשי שסימנת \"אני מגיע\"",
+                            "Notifications 30 and 10 minutes before a free training session marked \"I'm coming\""
+                        )
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                    .multilineTextAlignment(primaryTextAlignment)
 
                     Toggle("", isOn: Binding(
                         get: { freeSessionsRemindersEnabled },
@@ -472,17 +610,21 @@ struct SettingsView: View {
 
             // --- Calendar sync
             SettingsCard(
-                title: "סנכרון ליומן",
-                subtitle: "ייווצרו/עודכנו אירועים שבועיים",
+                title: tr("סנכרון ליומן", "Device calendar sync"),
+                subtitle: tr(
+                    "ייווצרו/עודכנו אירועים שבועיים",
+                    "Weekly events will be created or updated"
+                ),
                 iconSystemName: "calendar",
                 iconTint: sectionIconTint
             ) {
                 VStack(spacing: 10) {
                     HStack {
-                        Text("סנכרן אימונים ליומן במכשיר")
+                        Text(tr("סנכרן אימונים ליומן במכשיר", "Sync trainings to the device calendar"))
                             .font(.system(size: 16, weight: .semibold))
                             .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                            .multilineTextAlignment(primaryTextAlignment)
 
                         Toggle("", isOn: Binding(
                             get: { calendarSyncEnabled },
@@ -503,41 +645,55 @@ struct SettingsView: View {
                         .labelsHidden()
                     }
 
-                    Text(calendarSyncEnabled ? "הסנכרון ליומן פעיל" : "הסנכרון ליומן כבוי")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Text(
+                        calendarSyncEnabled
+                        ? tr("הסנכרון ליומן פעיל", "Calendar sync is active")
+                        : tr("הסנכרון ליומן כבוי", "Calendar sync is off")
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                    .multilineTextAlignment(primaryTextAlignment)
                 }
             }
 
             // --- UX
             SettingsCard(
-                title: "חוויית משתמש",
-                subtitle: "צלילים ורטט בפעולות באפליקציה",
+                title: tr("חוויית משתמש", "User experience"),
+                subtitle: tr(
+                    "צלילים ורטט בפעולות באפליקציה",
+                    "Sounds and haptics for app actions"
+                ),
                 iconSystemName: "slider.horizontal.3",
                 iconTint: sectionIconTint
             ) {
                 VStack(spacing: 10) {
 
-                    toggleRow(title: "צליל הקשה בכפתורים", isOn: $clickSounds) { enabled in
+                    toggleRow(
+                        title: tr("צליל הקשה בכפתורים", "Button tap sound"),
+                        isOn: $clickSounds
+                    ) { enabled in
                         clickSounds = enabled
 
                         if enabled {
                             playClick()
-                            toast("צליל הקשה הופעל")
+                            toast(tr("צליל הקשה הופעל", "Button tap sound enabled"))
                         } else {
-                            toast("צליל הקשה כובה")
+                            toast(tr("צליל הקשה כובה", "Button tap sound disabled"))
                         }
                     }
 
-                    toggleRow(title: "רטט קצר בעת סימון ✓/✗", isOn: $hapticsOn) { enabled in
+                    toggleRow(
+                        title: tr("רטט קצר בעת סימון ✓/✗", "Short haptic feedback for ✓/✗"),
+                        isOn: $hapticsOn
+                    ) { enabled in
                         hapticsOn = enabled
 
                         if enabled {
                             hapticLight()
-                            toast("רטט הופעל")
+                            toast(tr("רטט הופעל", "Haptics enabled"))
                         } else {
-                            toast("רטט כובה")
+                            toast(tr("רטט כובה", "Haptics disabled"))
                         }
                     }
 
@@ -545,9 +701,9 @@ struct SettingsView: View {
 
                         Button {
                             playClick()
-                            toast("בדיקת צליל")
+                            toast(tr("בדיקת צליל", "Sound test"))
                         } label: {
-                            Text("בדוק צליל")
+                            Text(tr("בדוק צליל", "Test sound"))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
                         }
@@ -555,9 +711,9 @@ struct SettingsView: View {
 
                         Button {
                             hapticLight()
-                            toast("בדיקת רטט")
+                            toast(tr("בדיקת רטט", "Haptic test"))
                         } label: {
-                            Text("בדוק רטט")
+                            Text(tr("בדוק רטט", "Test haptic"))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
                         }
@@ -569,54 +725,79 @@ struct SettingsView: View {
 
             // --- Voice settings
             SettingsCard(
-                title: "הגדרות קול",
-                subtitle: "בחירת קול גבר/אישה (אחיד לכל האפליקציה)",
+                title: tr("הגדרות קול", "Voice settings"),
+                subtitle: tr(
+                    "בחירת קול גבר/אישה (אחיד לכל האפליקציה)",
+                    "Choose male/female voice for the entire app"
+                ),
                 iconSystemName: "person.wave.2.fill",
                 iconTint: sectionIconTint
             ) {
                 VStack(spacing: 10) {
-                    Text("בחר קול להשמעה:")
+                    Text(tr("בחר קול להשמעה:", "Choose voice playback:"))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                        .multilineTextAlignment(primaryTextAlignment)
 
                     KmiVoiceTabs(voice: $cloudVoice) {
                         feedbackTap()
                     }
 
-                    Text("הבחירה נשמרת למכשיר ותשפיע על הדיבור בעוזר הקולי.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Text(
+                        tr(
+                            "הבחירה נשמרת למכשיר ותשפיע על הדיבור בעוזר הקולי.",
+                            "The selection is saved on the device and affects speech in the voice assistant."
+                        )
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                    .multilineTextAlignment(primaryTextAlignment)
                 }
             }
 
             // --- Appearance
             SettingsCard(
-                title: "נראות אפליקציה",
-                subtitle: "בחר מצב מסך עם ניגודיות נוחה לעיניים",
+                title: tr("נראות אפליקציה", "App appearance"),
+                subtitle: tr(
+                    "ברירת המחדל היא לפי מצב המכשיר",
+                    "Default is based on the device appearance"
+                ),
                 iconSystemName: "paintpalette.fill",
                 iconTint: sectionIconTint
             ) {
                 VStack(spacing: 10) {
-                    Text("בחר מצב תצוגה:")
+                    Text(tr("בחר מצב תצוגה:", "Choose display mode:"))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                        .multilineTextAlignment(primaryTextAlignment)
 
-                    KmiThemeTabs(themeMode: $themeMode) { feedbackTap() }
+                    KmiThemeTabs(themeMode: $themeMode) {
+                        feedbackTap()
+                    }
 
-                    Text("הטקסט והצבעים יתאימו אוטומטית למצב שבחרת (לדוגמה: טקסט לבן על רקע כהה).")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Text(
+                        tr(
+                            "במצב לפי המכשיר, האפליקציה תעבור אוטומטית בין מצב כהה ובהיר לפי ההגדרה של iOS.",
+                            "In device default mode, the app automatically follows iOS light/dark appearance."
+                        )
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                    .multilineTextAlignment(primaryTextAlignment)
                 }
             }
 
             // --- App lock
             SettingsCard(
-                title: "נעילת אפליקציה",
-                subtitle: "בחר שיטת נעילה להגנה על האפליקציה",
+                title: tr("נעילת אפליקציה", "App lock"),
+                subtitle: tr(
+                    "בחר שיטת נעילה להגנה על האפליקציה",
+                    "Choose a lock method to protect the app"
+                ),
                 iconSystemName: "lock.fill",
                 iconTint: sectionIconTint
             ) {
@@ -624,7 +805,9 @@ struct SettingsView: View {
                     KmiLockTabs(lockMode: $appLockMode) { mode in
                         switch mode {
                         case "none":
+                            appLockPin = ""
                             feedbackTap()
+                            toast(tr("נעילת האפליקציה בוטלה", "App lock disabled"))
 
                         case "biometric":
                             authenticateBiometricIfAvailable { ok in
@@ -642,27 +825,38 @@ struct SettingsView: View {
                     }
 
                     if !biometricAvailable() {
-                        Text("ביומטרי לא זמין במכשיר או לא הוגדר למשתמש.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
+                        Text(
+                            tr(
+                                "ביומטרי לא זמין במכשיר או לא הוגדר למשתמש.",
+                                "Biometric authentication is not available on this device or is not configured."
+                            )
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                        .multilineTextAlignment(primaryTextAlignment)
                     }
                 }
             }
 
             // --- Stats
             SettingsCard(
-                title: "סטטיסטיקות",
-                subtitle: "התקדמות לפי חגורות ונושאים",
+                title: tr("סטטיסטיקות", "Statistics"),
+                subtitle: tr("התקדמות לפי חגורות ונושאים", "Progress by belts and topics"),
                 iconSystemName: "chart.bar.fill",
                 iconTint: sectionIconTint
             ) {
                 VStack(spacing: 10) {
 
-                    Text("דרגתי הנוכחית: חגורה \(currentBeltDisplayName())")
-                        .font(.system(size: 16, weight: .heavy))
-                        .foregroundStyle(currentBeltTextColor())
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Text(
+                        isEnglish
+                        ? "My current rank: \(currentBeltDisplayName()) belt"
+                        : "דרגתי הנוכחית: חגורה \(currentBeltDisplayName())"
+                    )
+                    .font(.system(size: 16, weight: .heavy))
+                    .foregroundStyle(currentBeltTextColor())
+                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                    .multilineTextAlignment(primaryTextAlignment)
 
                     BeltsProgressBarsIOS(rows: beltProgressRowsFromDefaults())
 
@@ -670,7 +864,7 @@ struct SettingsView: View {
                         nav.push(.progress)
                         feedbackTap()
                     } label: {
-                        Text("פתח מסך התקדמות מלא")
+                        Text(tr("פתח מסך התקדמות מלא", "Open full progress screen"))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
                     }
@@ -680,7 +874,7 @@ struct SettingsView: View {
                         nav.push(.trainingHistory)
                         feedbackTap()
                     } label: {
-                        Text("היסטוריית אימונים")
+                        Text(tr("היסטוריית אימונים", "Training history"))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
                     }
@@ -690,18 +884,18 @@ struct SettingsView: View {
      
             // --- Data management
             SettingsCard(
-                title: "ניהול נתונים",
-                subtitle: "ניקוי נתונים מקומיים במכשיר",
+                title: tr("ניהול נתונים", "Data management"),
+                subtitle: tr("ניקוי נתונים מקומיים במכשיר", "Clear local data on the device"),
                 iconSystemName: "externaldrive.fill",
                 iconTint: sectionIconTint
             ) {
                 VStack(spacing: 10) {
                     Button {
                         coachBroadcastRecentsJson = ""
-                        toast("היסטוריית השידורים נוקתה")
+                        toast(tr("היסטוריית השידורים נוקתה", "Broadcast history was cleared"))
                         hapticSuccess()
                     } label: {
-                        Text("נקה היסטוריית שידורים")
+                        Text(tr("נקה היסטוריית שידורים", "Clear broadcast history"))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
                     }
@@ -711,10 +905,10 @@ struct SettingsView: View {
                         isBusy = true
                         let ok = clearAppCacheIOS()
                         isBusy = false
-                        toast(ok ? "נוקו קבצי המטמון" : "ניקוי נכשל")
+                        toast(ok ? tr("נוקו קבצי המטמון", "Cache files were cleared") : tr("ניקוי נכשל", "Cleanup failed"))
                         ok ? hapticSuccess() : hapticError()
                     } label: {
-                        Text("נקה מטמון אפליקציה")
+                        Text(tr("נקה מטמון אפליקציה", "Clear app cache"))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
                     }
@@ -724,15 +918,15 @@ struct SettingsView: View {
 
             // --- Legal
             SettingsCard(
-                title: "מידע משפטי",
-                subtitle: "מסמכים רשמיים ומידע חשוב",
+                title: tr("מידע משפטי", "Legal information"),
+                subtitle: tr("מסמכים רשמיים ומידע חשוב", "Official documents and important information"),
                 iconSystemName: "doc.text.fill",
                 iconTint: sectionIconTint
             ) {
                 VStack(spacing: 12) {
                     LegalTile(
-                        title: "מדיניות פרטיות",
-                        subtitle: "איך אנחנו שומרים על הנתונים שלך",
+                        title: tr("מדיניות פרטיות", "Privacy policy"),
+                        subtitle: tr("איך אנחנו שומרים על הנתונים שלך", "How we protect your data"),
                         systemIcon: "lock.fill"
                     ) {
                         legalInitialTab = 1
@@ -741,8 +935,8 @@ struct SettingsView: View {
                     }
 
                     LegalTile(
-                        title: "תנאי שימוש",
-                        subtitle: "כללי שימוש והתחייבויות המשתמש",
+                        title: tr("תנאי שימוש", "Terms of use"),
+                        subtitle: tr("כללי שימוש והתחייבויות המשתמש", "Usage rules and user responsibilities"),
                         systemIcon: "doc.text.fill"
                     ) {
                         legalInitialTab = 0
@@ -751,8 +945,8 @@ struct SettingsView: View {
                     }
 
                     LegalTile(
-                        title: "הצהרת נגישות",
-                        subtitle: "מידע על התאמות ונגישות באפליקציה",
+                        title: tr("הצהרת נגישות", "Accessibility statement"),
+                        subtitle: tr("מידע על התאמות ונגישות באפליקציה", "Information about accessibility and adaptations in the app"),
                         systemIcon: "accessibility"
                     ) {
                         legalInitialTab = 2
@@ -764,8 +958,8 @@ struct SettingsView: View {
 
             // --- About & Support
             SettingsCard(
-                title: "אודות ותמיכה",
-                subtitle: "ספרו לנו איך אפשר לשפר",
+                title: tr("אודות ותמיכה", "About and support"),
+                subtitle: tr("ספרו לנו איך אפשר לשפר", "Tell us how we can improve"),
                 iconSystemName: "person.crop.circle.badge.questionmark",
                 iconTint: sectionIconTint
             ) {
@@ -773,14 +967,15 @@ struct SettingsView: View {
                     Text(appVersionLine())
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                        .multilineTextAlignment(primaryTextAlignment)
 
                     HStack(spacing: 10) {
                         Button {
                             sendFeedbackEmail()
                             hapticSuccess()
                         } label: {
-                            Text("שלח משוב")
+                            Text(tr("שלח משוב", "Send feedback"))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
                         }
@@ -790,7 +985,7 @@ struct SettingsView: View {
                             requestReview()
                             hapticSuccess()
                         } label: {
-                            Text("דרג בחנות")
+                            Text(tr("דרג בחנות", "Rate in store"))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
                         }
@@ -801,7 +996,7 @@ struct SettingsView: View {
                         shareApp()
                         hapticSuccess()
                     } label: {
-                        Text("שתף את האפליקציה")
+                        Text(tr("שתף את האפליקציה", "Share the app"))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
                     }
@@ -814,27 +1009,38 @@ struct SettingsView: View {
     // MARK: Action buttons
     private var actionButtons: some View {
         HStack(spacing: 12) {
-
-            Button {
-                // ✅ מסך גלובאלי: חוזרים אחורה בנתיב
-                nav.pop()
-            } label: {
-                Text("ביטול")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+            if isEnglish {
+                cancelSettingsButton
+                okSettingsButton
+            } else {
+                okSettingsButton
+                cancelSettingsButton
             }
-            .buttonStyle(.bordered)
-
-            Button {
-                // ✅ ההעדפות נשמרות inline; פשוט חוזרים
-                nav.pop()
-            } label: {
-                Text("אישור")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-            }
-            .buttonStyle(.borderedProminent)
         }
+    }
+
+    private var cancelSettingsButton: some View {
+        Button {
+            // ✅ מסך גלובאלי: חוזרים אחורה בנתיב
+            nav.pop()
+        } label: {
+            Text(tr("ביטול", "Cancel"))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+        }
+        .buttonStyle(.bordered)
+    }
+
+    private var okSettingsButton: some View {
+        Button {
+            // ✅ ההעדפות נשמרות inline; פשוט חוזרים
+            nav.pop()
+        } label: {
+            Text(tr("אישור", "OK"))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+        }
+        .buttonStyle(.borderedProminent)
     }
 
     // MARK: - Fix branch/group loading

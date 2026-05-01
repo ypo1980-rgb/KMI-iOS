@@ -25,11 +25,13 @@ struct BeltQuestionsByBeltView: View {
     }
 
     private func uiTopicTitle(_ title: String) -> String {
-        KmiEnglishTitleTranslator.topicTitle(title, isEnglish: isEnglish)
+        let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return KmiEnglishTitleResolver.title(for: clean, isEnglish: isEnglish)
     }
 
     private func uiExerciseTitle(_ title: String) -> String {
-        KmiEnglishTitleTranslator.exerciseTitle(title, isEnglish: isEnglish)
+        let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return KmiEnglishTitleResolver.title(for: clean, isEnglish: isEnglish)
     }
 
     private func exercisesCountText(_ count: Int) -> String {
@@ -113,7 +115,7 @@ struct BeltQuestionsByBeltView: View {
         }
     }
     
-    fileprivate struct SubjectSectionExerciseRoute: Identifiable, Hashable {
+    struct SubjectSectionExerciseRoute: Identifiable, Hashable {
         let id: String
         let belt: Belt
         let subject: SubjectTopic
@@ -347,7 +349,8 @@ struct BeltQuestionsByBeltView: View {
 
                         BeltArcPicker(
                             belts: belts,
-                            selectedBelt: $selectedBelt
+                            selectedBelt: $selectedBelt,
+                            isEnglish: isEnglish
                         )
                         .frame(width: 330, height: 124)
                         .padding(.bottom, 22)
@@ -557,7 +560,7 @@ struct BeltQuestionsByBeltView: View {
 
                                           Spacer(minLength: 0)
 
-                                          VStack(alignment: .trailing, spacing: 4) {
+                                          VStack(alignment: isEnglish ? .leading : .trailing, spacing: 4) {
                                               Text(uiTopicTitle(entry.title))
                                                   .font(.system(size: 18, weight: .heavy))
                                                   .foregroundStyle(Color.white)
@@ -600,7 +603,7 @@ struct BeltQuestionsByBeltView: View {
                                                       )
                                                   } label: {
                                                       HStack {
-                                                          VStack(alignment: .trailing, spacing: 4) {
+                                                          VStack(alignment: isEnglish ? .leading : .trailing, spacing: 4) {
                                                               Text(uiTopicTitle(sub))
                                                                   .font(.system(size: 16, weight: .heavy))
                                                                   .foregroundStyle(Color.white.opacity(0.98))
@@ -724,44 +727,7 @@ private enum BeltPaletteByBeltScreen {
 
 
 // MARK: - Subject pill
-
-private struct SubjectPill: View {
-    let title: String
-    let subtitle: String?
-    let fill: Color
-    let onTap: () -> Void
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack {
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(title)
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(Color.white)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .multilineTextAlignment(.trailing)
-
-                    if let subtitle, !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.system(size: 14, weight: .heavy))
-                            .foregroundStyle(Color.white.opacity(0.92))
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                            .multilineTextAlignment(.trailing)
-                    }
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 16)
-            .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(fill)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-}
+// Moved to BeltQuestionsSharedComponents.swift
 
 // MARK: - Floating quick menu overlay
 
@@ -941,681 +907,32 @@ private struct BeltQuickMenuOverlay: View {
     }
 }
 
-private struct BeltTopicSubTopicsView: View {
-    let belt: Belt
-    let topicTitle: String
-    let linkedSubjects: [SubjectTopic]
-    let onPickAllTopic: () -> Void
-    let onPickSubTopic: (String) -> Void
-    let onPickLinkedSubject: (SubjectTopic) -> Void
+// MARK: - Belt topic sub-topics
+// Moved to BeltTopicSubTopicsView.swift
 
-    private struct UiSubTopic: Identifiable, Hashable {
-        let id: String
-        let title: String
-        let itemsCount: Int
-    }
+// MARK: - Linked topic sub-topics
+// Moved to LinkedTopicSubTopicsView.swift
 
-    var body: some View {
-        let cleanTopicTitle = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+// MARK: - Belt topic exercises
+// Moved to BeltTopicExercisesView.swift
 
-        let details = TopicsEngine.shared.topicDetailsFor(
-            belt: belt,
-            topicTitle: cleanTopicTitle
-        )
+// MARK: - Belt topic exercise row
+// Moved to KmiExerciseMarkRow in BeltQuestionsSharedComponents.swift
 
-        let uiSubTopics = details.subTitles
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter {
-                !$0.isEmpty &&
-                $0 != cleanTopicTitle
-            }
-            .reduce(into: [String]()) { partial, item in
-                if !partial.contains(item) {
-                    partial.append(item)
-                }
-            }
-            .map { subTitle in
-                UiSubTopic(
-                    id: "\(belt.id)::\(cleanTopicTitle)::\(subTitle)",
-                    title: subTitle,
-                    itemsCount: ContentRepo.shared.getAllItemsFor(
-                        belt: belt,
-                        topicTitle: cleanTopicTitle,
-                        subTopicTitle: subTitle
-                    ).count
-                )
-            }
+// MARK: - Belt topic mark button
+// Moved to KmiMarkCircleButton in BeltQuestionsSharedComponents.swift
 
-        ZStack {
-            KmiGradientBackground(forceTraineeStyle: false)
+// MARK: - Subject sub-topics
+// Moved to SubjectSubTopicsView.swift
 
-            ScrollView {
-                WhiteCard {
-                    VStack(spacing: 12) {
-                        Text(topicTitle)
-                            .font(.headline.weight(.bold))
-                            .foregroundStyle(Color.black.opacity(0.85))
-                            .frame(maxWidth: .infinity, alignment: .center)
+// MARK: - Subject exercises
+// Moved to SubjectExercisesView.swift
 
-                        VStack(spacing: 12) {
-                            ForEach(linkedSubjects, id: \.id) { subject in
-                                SubjectPill(
-                                    title: subject.titleHeb,
-                                    subtitle: nil,
-                                    fill: BeltPaletteByBeltScreen.color(for: belt),
-                                    onTap: {
-                                        onPickLinkedSubject(subject)
-                                    }
-                                )
-                            }
+// MARK: - Subject exercise row
+// Moved to KmiExerciseMarkRow in BeltQuestionsSharedComponents.swift
 
-                            ForEach(uiSubTopics) { subTopic in
-                                SubjectPill(
-                                    title: subTopic.title,
-                                    subtitle: "\(subTopic.itemsCount) תרגילים",
-                                    fill: BeltPaletteByBeltScreen.color(for: belt),
-                                    onTap: {
-                                        onPickSubTopic(subTopic.title)
-                                    }
-                                )
-                            }
-
-                            let directItems = ContentRepo.shared.getAllItemsFor(
-                                belt: belt,
-                                topicTitle: topicTitle,
-                                subTopicTitle: nil
-                            )
-
-                            if !directItems.isEmpty {
-                                SubjectPill(
-                                    title: "כל התרגילים בנושא",
-                                    subtitle: "\(directItems.count) תרגילים",
-                                    fill: BeltPaletteByBeltScreen.color(for: belt),
-                                    onTap: onPickAllTopic
-                                )
-                            } else if linkedSubjects.isEmpty && uiSubTopics.isEmpty && details.itemCount > 0 {
-                                SubjectPill(
-                                    title: "כל התרגילים בנושא",
-                                    subtitle: "\(Int(details.itemCount)) תרגילים",
-                                    fill: BeltPaletteByBeltScreen.color(for: belt),
-                                    onTap: onPickAllTopic
-                                )
-                            }
-                        }
-                    }
-                    .padding(.vertical, 16)
-                    .padding(.horizontal, 16)
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 12)
-            }
-        }
-        .navigationTitle(topicTitle)
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-private struct LinkedTopicSubTopicsView: View {
-    let title: String
-    let subjects: [SubjectTopic]
-    let onPickLinkedSubject: (SubjectTopic) -> Void
-
-    var body: some View {
-        ZStack {
-            KmiGradientBackground(forceTraineeStyle: false)
-
-            ScrollView {
-                WhiteCard {
-                        VStack(spacing: 12) {
-                            Text(title)
-                                .font(.headline.weight(.bold))
-                                .foregroundStyle(Color.black.opacity(0.85))
-                                .frame(maxWidth: .infinity, alignment: .center)
-
-                            VStack(spacing: 12) {
-                                ForEach(subjects, id: \.id) { subject in
-                                    SubjectPill(
-                                        title: subject.titleHeb,
-                                        subtitle: nil,
-                                        fill: BeltPaletteByBeltScreen.color(for: .orange),
-                                        onTap: {
-                                            onPickLinkedSubject(subject)
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                        .padding(.vertical, 16)
-                        .padding(.horizontal, 16)
-                    }
-                    .padding(.horizontal, 18)
-                    .padding(.top, 12)
-                }
-            }
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-        }
-    }
-    
-
-private struct BeltTopicExercisesView: View {
-    let belt: Belt
-    let topicTitle: String
-    let forcedSubTopicTitle: String?
-
-    fileprivate enum Mark: String {
-        case done
-        case notDone
-    }
-
-    @State private var marksCache: [String: Mark?] = [:]
-
-    private struct UiSection: Identifiable {
-        let id: String
-        let title: String
-        let items: [String]
-    }
-
-    private var sections: [UiSection] {
-        let cleanTopic = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let details = TopicsEngine.shared.topicDetailsFor(
-            belt: belt,
-            topicTitle: cleanTopic
-        )
-
-        let cleanSubs = details.subTitles
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && $0 != cleanTopic }
-            .reduce(into: [String]()) { partial, item in
-                if !partial.contains(item) {
-                    partial.append(item)
-                }
-            }
-
-        // ✅ אם נכנסנו לתת־נושא ספציפי
-        if let forcedSubTopicTitle, !forcedSubTopicTitle.isEmpty {
-            let items = ContentRepo.shared.getAllItemsFor(
-                belt: belt,
-                topicTitle: cleanTopic,
-                subTopicTitle: forcedSubTopicTitle
-            )
-
-            guard !items.isEmpty else { return [] }
-
-            return [
-                UiSection(
-                    id: "\(cleanTopic)::\(forcedSubTopicTitle)",
-                    title: forcedSubTopicTitle,
-                    items: items
-                )
-            ]
-        }
-
-        // ✅ אם אין תתי נושאים → כל התרגילים תחת הנושא
-        if cleanSubs.isEmpty {
-            let items = ContentRepo.shared.getAllItemsFor(
-                belt: belt,
-                topicTitle: cleanTopic,
-                subTopicTitle: nil
-            )
-
-            guard !items.isEmpty else { return [] }
-
-            return [
-                UiSection(
-                    id: "\(cleanTopic)::__all__",
-                    title: cleanTopic,
-                    items: items
-                )
-            ]
-        }
-
-        // ✅ יש תתי נושאים אמיתיים
-        return cleanSubs.map { subTitle in
-            let items = ContentRepo.shared.getAllItemsFor(
-                belt: belt,
-                topicTitle: cleanTopic,
-                subTopicTitle: subTitle
-            )
-
-            return UiSection(
-                id: "\(cleanTopic)::\(subTitle)",
-                title: subTitle,
-                items: items
-            )
-        }
-    }
-
-    private func markKey(sectionTitle: String, item: String) -> String {
-        let b = belt.id
-        let t = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let s = sectionTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let i = item.trimmingCharacters(in: .whitespacesAndNewlines)
-        return "kmi.mark.\(b).\(t).\(s).\(i)"
-    }
-
-    private func loadMark(sectionTitle: String, item: String) -> Mark? {
-        let key = markKey(sectionTitle: sectionTitle, item: item)
-        guard let raw = UserDefaults.standard.string(forKey: key) else { return nil }
-        return Mark(rawValue: raw)
-    }
-
-    private func setMark(_ mark: Mark?, sectionTitle: String, item: String) {
-        let key = markKey(sectionTitle: sectionTitle, item: item)
-        if let mark {
-            UserDefaults.standard.set(mark.rawValue, forKey: key)
-        } else {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-    }
-
-    private func currentMark(sectionTitle: String, item: String) -> Mark? {
-        let cacheKey = "\(sectionTitle)::\(item)"
-        if let cached = marksCache[cacheKey] { return cached }
-        return loadMark(sectionTitle: sectionTitle, item: item)
-    }
-
-    private func toggleMark(_ mark: Mark, sectionTitle: String, item: String) {
-        let cacheKey = "\(sectionTitle)::\(item)"
-        let cur = currentMark(sectionTitle: sectionTitle, item: item)
-        let next: Mark? = (cur == mark) ? nil : mark
-        setMark(next, sectionTitle: sectionTitle, item: item)
-        marksCache[cacheKey] = next
-    }
-
-    var body: some View {
-        ZStack {
-            KmiGradientBackground(forceTraineeStyle: false)
-
-            ScrollView {
-                VStack(spacing: 12) {
-                    ForEach(sections) { sec in
-                        WhiteCard {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text(sec.title)
-                                    .font(.headline.weight(.bold))
-                                    .foregroundStyle(Color.black.opacity(0.85))
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                                VStack(spacing: 0) {
-                                    ForEach(Array(sec.items.enumerated()), id: \.offset) { idx, item in
-                                        BeltTopicExerciseMarkRow(
-                                            title: item,
-                                            mark: currentMark(sectionTitle: sec.title, item: item),
-                                            onMarkDone: {
-                                                toggleMark(.done, sectionTitle: sec.title, item: item)
-                                            },
-                                            onMarkNotDone: {
-                                                toggleMark(.notDone, sectionTitle: sec.title, item: item)
-                                            }
-                                        )
-
-                                        if idx != sec.items.count - 1 {
-                                            Divider().opacity(0.25)
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(.vertical, 12)
-                            .padding(.horizontal, 12)
-                        }
-                    }
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 12)
-                .padding(.bottom, 22)
-            }
-        }
-        .navigationTitle(topicTitle)
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-private struct BeltTopicExerciseMarkRow: View {
-    let title: String
-    let mark: BeltTopicExercisesView.Mark?
-
-    let onMarkDone: () -> Void
-    let onMarkNotDone: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-
-            HStack(spacing: 10) {
-                BeltTopicMarkCircleButton(
-                    systemName: "xmark",
-                    isSelected: mark == .notDone,
-                    selectedFill: Color.red.opacity(0.75),
-                    unselectedFill: Color.red.opacity(0.18),
-                    onTap: onMarkNotDone
-                )
-
-                BeltTopicMarkCircleButton(
-                    systemName: "checkmark",
-                    isSelected: mark == .done,
-                    selectedFill: Color.green.opacity(0.75),
-                    unselectedFill: Color.green.opacity(0.18),
-                    onTap: onMarkDone
-                )
-            }
-
-            Spacer(minLength: 0)
-
-            Text(title)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(Color.black.opacity(0.82))
-                .multilineTextAlignment(.trailing)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.vertical, 10)
-        }
-        .padding(.horizontal, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.40))
-        )
-        .padding(.vertical, 6)
-    }
-}
-
-private struct BeltTopicMarkCircleButton: View {
-    let systemName: String
-    let isSelected: Bool
-    let selectedFill: Color
-    let unselectedFill: Color
-    let onTap: () -> Void
-
-    var body: some View {
-        Button(action: onTap) {
-            ZStack {
-                Circle()
-                    .fill(isSelected ? selectedFill : unselectedFill)
-                    .frame(width: 38, height: 38)
-
-                Image(systemName: systemName)
-                    .font(.system(size: 16, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(isSelected ? 0.95 : 0.55))
-            }
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct SubjectSubTopicsView: View {
-    let belt: Belt
-    let subject: SubjectTopic
-    let onPickSection: (String) -> Void
-
-    var body: some View {
-        let rawSections = SubjectItemsResolver.shared.resolveBySubject(
-            belt: belt,
-            subject: Shared.SubjectTopic(
-                id: subject.id,
-                titleHeb: subject.titleHeb,
-                topicsByBelt: subject.topicsByBelt,
-                subTopicHint: subject.subTopicHint,
-                includeItemKeywords: subject.includeItemKeywords,
-                requireAllItemKeywords: subject.requireAllItemKeywords,
-                excludeItemKeywords: subject.excludeItemKeywords
-            )
-        )
-        .filter { !$0.items.isEmpty }
-
-        ZStack {
-            KmiGradientBackground(forceTraineeStyle: false)
-
-            ScrollView {
-                WhiteCard {
-                    VStack(spacing: 12) {
-                        Text(subject.titleHeb)
-                            .font(.headline.weight(.bold))
-                            .foregroundStyle(Color.black.opacity(0.85))
-                            .frame(maxWidth: .infinity, alignment: .center)
-
-                        VStack(spacing: 12) {
-                            ForEach(rawSections, id: \.title) { sec in
-                                SubjectPill(
-                                    title: sec.title,
-                                    subtitle: "\(sec.items.count) תרגילים",
-                                    fill: BeltPaletteByBeltScreen.color(for: belt),
-                                    onTap: {
-                                        onPickSection(sec.title)
-                                    }
-                                )
-                            }
-                        }
-                    }
-                    .padding(.vertical, 16)
-                    .padding(.horizontal, 16)
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 12)
-            }
-        }
-        .navigationTitle(subject.titleHeb)
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-private struct SubjectExercisesView: View {
-    let route: BeltQuestionsByBeltView.SubjectSectionExerciseRoute
-
-    @EnvironmentObject private var nav: AppNavModel
-
-    fileprivate enum Mark: String {
-        case done
-        case notDone
-    }
-
-    @State private var marksCache: [String: Mark?] = [:]
-
-    private func markKey(item: String) -> String {
-        let b = route.belt.id
-        let t = route.subject.titleHeb.trimmingCharacters(in: .whitespacesAndNewlines)
-        let s = route.sectionTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let i = item.trimmingCharacters(in: .whitespacesAndNewlines)
-        return "kmi.mark.\(b).\(t).\(s).\(i)"
-    }
-
-    private func loadMark(item: String) -> Mark? {
-        let key = markKey(item: item)
-        guard let raw = UserDefaults.standard.string(forKey: key) else { return nil }
-        return Mark(rawValue: raw)
-    }
-
-    private func setMark(_ mark: Mark?, item: String) {
-        let key = markKey(item: item)
-        if let mark {
-            UserDefaults.standard.set(mark.rawValue, forKey: key)
-        } else {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-    }
-
-    private func currentMark(for item: String) -> Mark? {
-        if let cached = marksCache[item] { return cached }
-        return loadMark(item: item)
-    }
-
-    private func toggleMark(_ mark: Mark, item: String) {
-        let cur = currentMark(for: item)
-        let next: Mark? = (cur == mark) ? nil : mark
-        setMark(next, item: item)
-        marksCache[item] = next
-    }
-
-    private func extractDisplayName(from value: Any) -> String? {
-        let mirror = Mirror(reflecting: value)
-
-        if let display = mirror.children.first(where: { $0.label == "displayName" })?.value as? String {
-            let trimmed = display.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }
-
-        let text = String(describing: value)
-        guard let r = text.range(of: "displayName=") else {
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }
-
-        let tail = text[r.upperBound...]
-        let end = tail.firstIndex(of: ",") ?? tail.endIndex
-        let name = String(tail[..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? nil : name
-    }
-
-    private var allItems: [String] {
-        let section = SubjectItemsResolver.shared.resolveBySubject(
-            belt: route.belt,
-            subject: Shared.SubjectTopic(
-                id: route.subject.id,
-                titleHeb: route.subject.titleHeb,
-                topicsByBelt: route.subject.topicsByBelt,
-                subTopicHint: route.subject.subTopicHint,
-                includeItemKeywords: route.subject.includeItemKeywords,
-                requireAllItemKeywords: route.subject.requireAllItemKeywords,
-                excludeItemKeywords: route.subject.excludeItemKeywords
-            )
-        )
-        .first(where: { $0.title == route.sectionTitle })
-
-        var seen = Set<String>()
-
-        return (section?.items ?? [])
-            .compactMap { extractDisplayName(from: $0) }
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .filter { seen.insert($0).inserted }
-    }
-
-    var body: some View {
-        KmiRootLayout(
-            title: route.sectionTitle,
-            nav: nav,
-            roleLabel: "מצב\nמתאמן",
-            selectedIcon: nil,
-            rightText: "חגורה \(route.belt.heb) • \(allItems.count)",
-            titleColor: KmiBeltPalette.color(for: route.belt)
-        ) {
-            ZStack {
-                KmiGradientBackground(forceTraineeStyle: false)
-
-                ScrollView {
-                    VStack(spacing: 12) {
-
-                        WhiteCard {
-                            VStack(spacing: 6) {
-                                Text("חגורה: \(route.belt.heb) • תרגילים: \(allItems.count)")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(Color.black.opacity(0.55))
-                                    .frame(maxWidth: .infinity, alignment: .center)
-                            }
-                            .padding(.vertical, 12)
-                            .padding(.horizontal, 12)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-
-                        WhiteCard {
-                            VStack(spacing: 0) {
-                                ForEach(Array(allItems.enumerated()), id: \.offset) { idx, item in
-                                    SubjectExerciseMarkRow(
-                                        title: item,
-                                        isDoneSelected: currentMark(for: item) == .done,
-                                        isNotDoneSelected: currentMark(for: item) == .notDone,
-                                        onMarkDone: { toggleMark(.done, item: item) },
-                                        onMarkNotDone: { toggleMark(.notDone, item: item) }
-                                    )
-
-                                    if idx != allItems.count - 1 {
-                                        Divider().opacity(0.25)
-                                    }
-                                }
-                            }
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 8)
-                        }
-                        .padding(.horizontal, 16)
-
-                        Spacer(minLength: 18)
-                    }
-                    .padding(.bottom, 120)
-                }
-            }
-        }
-    }
-}
-
-private struct SubjectExerciseMarkRow: View {
-    let title: String
-    let isDoneSelected: Bool
-    let isNotDoneSelected: Bool
-
-    let onMarkDone: () -> Void
-    let onMarkNotDone: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-
-            HStack(spacing: 10) {
-                SubjectMarkCircleButton(
-                    systemName: "xmark",
-                    isSelected: isNotDoneSelected,
-                    selectedFill: Color.red.opacity(0.75),
-                    unselectedFill: Color.red.opacity(0.18),
-                    onTap: onMarkNotDone
-                )
-
-                SubjectMarkCircleButton(
-                    systemName: "checkmark",
-                    isSelected: isDoneSelected,
-                    selectedFill: Color.green.opacity(0.75),
-                    unselectedFill: Color.green.opacity(0.18),
-                    onTap: onMarkDone
-                )
-            }
-
-            Spacer(minLength: 0)
-
-            Text(title)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(Color.black.opacity(0.82))
-                .multilineTextAlignment(.trailing)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.vertical, 10)
-        }
-        .padding(.horizontal, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.40))
-        )
-        .padding(.vertical, 6)
-        .padding(.horizontal, 6)
-    }
-}
-
-private struct SubjectMarkCircleButton: View {
-    let systemName: String
-    let isSelected: Bool
-    let selectedFill: Color
-    let unselectedFill: Color
-    let onTap: () -> Void
-
-    var body: some View {
-        Button(action: onTap) {
-            ZStack {
-                Circle()
-                    .fill(isSelected ? selectedFill : unselectedFill)
-                    .frame(width: 38, height: 38)
-
-                Image(systemName: systemName)
-                    .font(.system(size: 16, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(isSelected ? 0.95 : 0.55))
-            }
-        }
-        .buttonStyle(.plain)
-    }
-}
+// MARK: - Subject mark button
+// Moved to KmiMarkCircleButton in BeltQuestionsSharedComponents.swift
 
 private struct ExerciseSelection: Identifiable, Hashable {
     let belt: Belt

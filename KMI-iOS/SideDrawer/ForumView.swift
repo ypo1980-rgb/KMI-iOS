@@ -27,6 +27,12 @@ private struct ForumUiMessage: Identifiable, Hashable {
     var isMine: Bool = false
 }
 
+private struct ForumParticipantUi: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let isMe: Bool
+}
+
 private struct ForumExerciseHit: Identifiable, Hashable {
     let belt: Belt
     let topic: String
@@ -80,6 +86,7 @@ struct ForumView: View {
     @State private var email: String = ""
 
     @State private var messages: [ForumUiMessage] = []
+    @State private var showParticipantsSheet: Bool = false
 
     @State private var input: String = ""
     @State private var editingMessageId: String? = nil
@@ -140,6 +147,9 @@ struct ForumView: View {
                 groupKey: groupKey
             )
         }
+        .sheet(isPresented: $showParticipantsSheet) {
+            participantsSheet
+        }
 
         #if canImport(FirebaseStorage)
         .onChange(of: imagePickerItem) { _, newItem in
@@ -156,87 +166,211 @@ struct ForumView: View {
     // MARK: - UI
 
     private var lockedView: some View {
-        VStack(spacing: 12) {
-            Text("🔒 גישה לפורום")
-                .font(.title3.weight(.heavy))
-                .foregroundStyle(Color.white)
+        VStack(spacing: 0) {
+            Spacer()
 
-            Text(lockText.isEmpty ? "מסך הפורום זמין למנויים בלבד." : lockText)
-                .font(.body)
-                .foregroundStyle(Color.white.opacity(0.85))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 18)
+            VStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.12))
+                        .frame(width: 68, height: 68)
 
-            Button(action: onClose) {
-                Text("סגור")
-                    .font(.body.weight(.bold))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 46)
-                    .background(Color.white.opacity(0.14))
-                    .clipShape(Capsule())
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 28, weight: .heavy))
+                        .foregroundStyle(Color.white.opacity(0.94))
+                }
+
+                Text("גישה לפורום")
+                    .font(.system(size: 24, weight: .heavy))
+                    .foregroundStyle(Color.white)
+                    .multilineTextAlignment(.center)
+
+                Text(lockText.isEmpty ? "מסך הפורום זמין למנויים בלבד." : lockText)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.86))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+                    .padding(.horizontal, 8)
+
+                Button(action: onClose) {
+                    Text("סגור")
+                        .font(.system(size: 17, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(
+                            Capsule()
+                                .fill(Color.white.opacity(0.16))
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 22)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(Color.black.opacity(0.26))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            )
             .padding(.horizontal, 18)
 
             Spacer()
         }
-        .padding(.top, 24)
     }
 
     private var missingGroupView: some View {
-        VStack(spacing: 10) {
-            Text("לא אותרו סניף/קבוצה במשתמש")
-                .font(.title3.weight(.heavy))
-                .foregroundStyle(.white)
+        VStack(spacing: 0) {
+            Spacer()
 
-            Text("ודאו ש-\"branch\" ו-\"groupKey\" מוגדרים בפרופיל.")
-                .foregroundStyle(.white.opacity(0.85))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 18)
+            VStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.12))
+                        .frame(width: 68, height: 68)
 
-            Button(action: onClose) {
-                Text("סגור")
-                    .font(.body.weight(.bold))
-                    .frame(width: 140, height: 44)
-                    .background(Color.white.opacity(0.14))
-                    .clipShape(Capsule())
+                    Image(systemName: "person.crop.circle.badge.exclamationmark")
+                        .font(.system(size: 28, weight: .heavy))
+                        .foregroundStyle(Color.white.opacity(0.94))
+                }
+
+                Text("לא אותרו סניף או קבוצה")
+                    .font(.system(size: 24, weight: .heavy))
+                    .foregroundStyle(Color.white)
+                    .multilineTextAlignment(.center)
+
+                Text("ודאו שפרטי הסניף והקבוצה מוגדרים בפרופיל המשתמש.")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.86))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+                    .padding(.horizontal, 8)
+
+                Button(action: onClose) {
+                    Text("סגור")
+                        .font(.system(size: 17, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(
+                            Capsule()
+                                .fill(Color.white.opacity(0.16))
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 22)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(Color.black.opacity(0.26))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            )
+            .padding(.horizontal, 18)
 
             Spacer()
         }
-        .padding(.top, 24)
     }
 
     private var chatView: some View {
         VStack(spacing: 10) {
 
-            HStack(spacing: 10) {
-                Spacer()
+            VStack(alignment: .trailing, spacing: 8) {
+                HStack(spacing: 10) {
+                    Button(action: onClose) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 16, weight: .heavy))
+                            .foregroundStyle(Color.white.opacity(0.92))
+                            .frame(width: 38, height: 38)
+                            .background(
+                                Circle()
+                                    .fill(Color.white.opacity(0.12))
+                            )
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
 
-                Text("סניף: \(branch)  •  קבוצה: \(groupKey)")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.white.opacity(0.92))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color.black.opacity(0.30))
-                    )
+                    Spacer(minLength: 0)
+
+                    VStack(alignment: .trailing, spacing: 3) {
+                        Text("פורום הסניף")
+                            .font(.system(size: 20, weight: .heavy))
+                            .foregroundStyle(.white)
+
+                        Text("סניף: \(branch)  •  קבוצה: \(groupKey)")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color.white.opacity(0.82))
+                            .multilineTextAlignment(.trailing)
+                            .lineLimit(2)
+                    }
+
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(Color.white.opacity(0.92))
+                        .frame(width: 38, height: 38)
+                        .background(
+                            Circle()
+                                .fill(Color.white.opacity(0.12))
+                        )
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        )
+                }
+
+                Rectangle()
+                    .fill(Color.white.opacity(0.16))
+                    .frame(height: 1)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 14)
             .padding(.top, 10)
+            .padding(.bottom, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Color.black.opacity(0.22))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.white.opacity(0.10), lineWidth: 1)
+            )
+            .padding(.horizontal, 12)
 
-            Divider().opacity(0.25).padding(.horizontal, 12)
+            if !forumParticipants.isEmpty {
+                participantsCard
+                    .padding(.horizontal, 12)
+            }
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 10) {
+                    LazyVStack(spacing: 6) {
                         ForEach(messages) { msg in
                             messageBubble(msg)
                                 .id(msg.id)
                         }
-                        Color.clear.frame(height: 6).id("__BOTTOM__")
+
+                        Color.clear
+                            .frame(height: 6)
+                            .id("__BOTTOM__")
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -250,31 +384,47 @@ struct ForumView: View {
                 }
             }
 
-            #if canImport(FirebaseStorage)
-            if attachedMediaType != nil {
-                HStack {
-                    Text(attachedMediaType == "image" ? "תמונה מצורפת לשליחה" : "סרטון מצורף לשליחה")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Color.white.opacity(0.85))
-                    Spacer()
-                    Button {
-                        clearAttachment()
-                    } label: {
-                        Text("הסר")
-                            .font(.footnote.weight(.bold))
-                            .foregroundStyle(Color.white)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+#if canImport(FirebaseStorage)
+if attachedMediaType != nil {
+    HStack(spacing: 10) {
+        Button {
+            clearAttachment()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 12, weight: .heavy))
+                .foregroundStyle(Color.white.opacity(0.92))
+                .frame(width: 26, height: 26)
                 .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color.white.opacity(0.10))
+                    Circle()
+                        .fill(Color.white.opacity(0.14))
                 )
-                .padding(.horizontal, 12)
-            }
-            #endif
+        }
+        .buttonStyle(.plain)
+
+        Spacer(minLength: 0)
+
+        Text(attachedMediaType == "image" ? "תמונה מצורפת לשליחה" : "סרטון מצורף לשליחה")
+            .font(.footnote.weight(.bold))
+            .foregroundStyle(Color.white.opacity(0.90))
+            .lineLimit(1)
+
+        Image(systemName: attachedMediaType == "image" ? "photo.fill" : "video.fill")
+            .font(.system(size: 15, weight: .bold))
+            .foregroundStyle(Color.white.opacity(0.90))
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 9)
+    .background(
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(Color.black.opacity(0.26))
+    )
+    .overlay(
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+    )
+    .padding(.horizontal, 12)
+}
+#endif
 
             composer
                 .padding(.horizontal, 12)
@@ -282,169 +432,396 @@ struct ForumView: View {
         }
     }
 
-    private func messageBubble(_ msg: ForumUiMessage) -> some View {
-        let bubble = msg.isMine ? Color(red: 0.11, green: 0.65, blue: 0.91) : Color.black.opacity(0.35)
+    private var forumParticipants: [ForumParticipantUi] {
+        let grouped = Dictionary(grouping: messages) { msg in
+            msg.authorUid ??
+            msg.authorEmail.ifEmpty(msg.authorName)
+                .ifEmpty("unknown_\(msg.id)")
+        }
 
-        return HStack {
-            if msg.isMine { Spacer(minLength: 24) }
+        var participants = grouped.compactMap { key, groupedMessages -> ForumParticipantUi? in
+            guard let sample = groupedMessages.first else { return nil }
+
+            let displayName = sample.authorName
+                .ifEmpty(sample.authorEmail)
+                .ifEmpty("משתתף")
+
+            return ForumParticipantUi(
+                id: key,
+                name: displayName,
+                isMe: sample.isMine
+            )
+        }
+
+        if let currentUid = Auth.auth().currentUser?.uid,
+           !participants.contains(where: { $0.id == currentUid }) {
+            let currentName = fullName
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .ifEmpty(email)
+                .ifEmpty("אני")
+
+            participants.append(
+                ForumParticipantUi(
+                    id: currentUid,
+                    name: currentName,
+                    isMe: true
+                )
+            )
+        }
+
+        return participants
+            .filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .sorted {
+                if $0.isMe != $1.isMe {
+                    return $0.isMe && !$1.isMe
+                }
+                return $0.name.localizedCompare($1.name) == .orderedAscending
+            }
+    }
+
+    private var participantsCard: some View {
+        Button {
+            showParticipantsSheet = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "chevron.left")
+                    .font(.caption.weight(.heavy))
+                    .foregroundStyle(Color.white.opacity(0.72))
+
+                Spacer(minLength: 0)
+
+                Text("משתתפים בפורום (\(forumParticipants.count))")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(Color.white.opacity(0.92))
+                    .lineLimit(1)
+
+                Image(systemName: "person.2.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Color.white.opacity(0.88))
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.black.opacity(0.24))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var participantsSheet: some View {
+        NavigationStack {
+            List {
+                ForEach(forumParticipants) { participant in
+                    HStack(spacing: 12) {
+                        if participant.isMe {
+                            Text("אני")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(Color.blue)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.blue.opacity(0.12))
+                                )
+                        }
+
+                        Spacer(minLength: 0)
+
+                        Text(participant.name)
+                            .font(.body.weight(.semibold))
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+
+                        Circle()
+                            .fill(participant.isMe ? Color.blue.opacity(0.85) : Color.gray.opacity(0.35))
+                            .frame(width: 34, height: 34)
+                            .overlay(
+                                Image(systemName: participant.isMe ? "person.fill.checkmark" : "person.fill")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundStyle(.white)
+                            )
+                    }
+                    .padding(.vertical, 6)
+                    .listRowSeparator(.hidden)
+                }
+            }
+            .listStyle(.plain)
+            .navigationTitle("משתתפים בפורום (\(forumParticipants.count))")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("סגור") {
+                        showParticipantsSheet = false
+                    }
+                }
+            }
+        }
+    }
+
+    private func messageBubble(_ msg: ForumUiMessage) -> some View {
+        let bubbleColor = msg.isMine
+            ? Color(red: 0.10, green: 0.58, blue: 0.38)
+            : Color.black.opacity(0.34)
+
+        let bubbleShape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+
+        return HStack(alignment: .bottom, spacing: 0) {
+            if msg.isMine {
+                Spacer(minLength: 42)
+            }
 
             VStack(alignment: .trailing, spacing: 6) {
 
-                HStack(spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
                     if msg.isMine {
                         Menu {
-                            Button("ערוך") {
+                            Button {
                                 editingMessageId = msg.id
                                 editText = msg.text
                                 input = ""
+
                                 #if canImport(FirebaseStorage)
                                 clearAttachment()
                                 #endif
+                            } label: {
+                                Label("ערוך", systemImage: "pencil")
                             }
-                            Button("מחק", role: .destructive) {
+
+                            Button(role: .destructive) {
                                 Task { await deleteMessage(msg) }
+                            } label: {
+                                Label("מחק", systemImage: "trash")
                             }
                         } label: {
                             Image(systemName: "ellipsis")
-                                .foregroundStyle(Color.white.opacity(0.9))
-                                .padding(.horizontal, 6)
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(Color.white.opacity(0.88))
+                                .frame(width: 28, height: 28)
+                                .background(
+                                    Circle()
+                                        .fill(Color.white.opacity(0.10))
+                                )
                         }
+                        .buttonStyle(.plain)
                     }
 
-                    Spacer()
+                    Spacer(minLength: 0)
 
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(msg.authorName.isEmpty ? msg.authorEmail : msg.authorName)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Color.white.opacity(0.90))
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(Color.white.opacity(0.92))
+                            .lineLimit(1)
+
                         Text(formatDate(msg.createdAt))
-                            .font(.caption2)
-                            .foregroundStyle(Color.white.opacity(0.70))
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color.white.opacity(0.66))
                     }
                 }
 
                 if !msg.text.isEmpty {
                     Text(msg.text)
-                        .font(.body)
+                        .font(.system(size: 16, weight: .regular))
                         .foregroundStyle(.white)
                         .multilineTextAlignment(.trailing)
-                        .frame(maxWidth: 290, alignment: .trailing)
+                        .frame(maxWidth: 260, alignment: .trailing)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
-                if let urlStr = msg.mediaUrl, let type = msg.mediaType, let url = URL(string: urlStr) {
+                if let urlStr = msg.mediaUrl,
+                   let type = msg.mediaType,
+                   let url = URL(string: urlStr) {
+
                     if type == "image" {
                         AsyncImage(url: url) { phase in
                             switch phase {
                             case .empty:
-                                ProgressView().tint(.white).frame(height: 160)
+                                ProgressView()
+                                    .tint(.white)
+                                    .frame(width: 260, height: 160)
+
                             case .success(let image):
-                                image.resizable()
+                                image
+                                    .resizable()
                                     .scaledToFill()
-                                    .frame(maxWidth: 290)
-                                    .frame(height: 180)
+                                    .frame(width: 260, height: 180)
                                     .clipped()
+
                             default:
                                 Text("שגיאה בטעינת תמונה")
-                                    .font(.footnote)
+                                    .font(.footnote.weight(.semibold))
                                     .foregroundStyle(Color.white.opacity(0.85))
-                                    .frame(height: 120)
+                                    .frame(width: 260, height: 120)
                             }
                         }
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
                     } else if type == "video" {
                         Button {
                             UIApplication.shared.open(url)
                         } label: {
                             HStack(spacing: 10) {
                                 Image(systemName: "video.fill")
-                                Text("פתח סרטון")
-                                    .font(.body.weight(.bold))
-                                Spacer()
+                                    .font(.system(size: 18, weight: .bold))
+
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text("סרטון מצורף")
+                                        .font(.system(size: 15, weight: .heavy))
+
+                                    Text("לחיצה לפתיחה בנגן")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(Color.white.opacity(0.72))
+                                }
+
+                                Spacer(minLength: 0)
+
                                 Image(systemName: "chevron.left")
+                                    .font(.caption.weight(.bold))
                             }
                             .foregroundStyle(.white)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
-                            .frame(maxWidth: 290)
-                            .background(Color.white.opacity(0.12))
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .frame(width: 260)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(Color.black.opacity(0.18))
+                            )
                         }
                         .buttonStyle(.plain)
                     }
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(bubble)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .padding(.vertical, 9)
+            .background(bubbleColor)
+            .clipShape(bubbleShape)
+            .overlay(
+                bubbleShape
+                    .stroke(Color.white.opacity(msg.isMine ? 0.10 : 0.08), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.12), radius: 4, x: 0, y: 2)
 
-            if !msg.isMine { Spacer(minLength: 24) }
+            if !msg.isMine {
+                Spacer(minLength: 42)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: msg.isMine ? .trailing : .leading)
     }
 
     private var composer: some View {
         VStack(spacing: 8) {
 
-            HStack(spacing: 8) {
+            HStack(alignment: .bottom, spacing: 8) {
 
                 #if canImport(FirebaseStorage)
-                VStack(spacing: 6) {
+                HStack(spacing: 6) {
                     PhotosPicker(selection: $imagePickerItem, matching: .images, photoLibrary: .shared()) {
                         Image(systemName: "photo.fill")
+                            .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(.white)
-                            .frame(width: 34, height: 34)
-                            .background(Circle().fill(Color.white.opacity(0.14)))
+                            .frame(width: 36, height: 36)
+                            .background(
+                                Circle()
+                                    .fill(Color.white.opacity(0.14))
+                            )
                     }
                     .buttonStyle(.plain)
 
                     PhotosPicker(selection: $videoPickerItem, matching: .videos, photoLibrary: .shared()) {
                         Image(systemName: "video.fill")
+                            .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(.white)
-                            .frame(width: 34, height: 34)
-                            .background(Circle().fill(Color.white.opacity(0.14)))
+                            .frame(width: 36, height: 36)
+                            .background(
+                                Circle()
+                                    .fill(Color.white.opacity(0.14))
+                            )
                     }
                     .buttonStyle(.plain)
                 }
                 #endif
 
-                ZStack(alignment: .trailing) {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color.black.opacity(0.30))
+                ZStack(alignment: .topTrailing) {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color.black.opacity(0.28))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+                        )
 
                     TextEditor(text: composerBinding)
                         .scrollContentBackground(.hidden)
                         .foregroundStyle(.white)
+                        .font(.system(size: 16, weight: .semibold))
                         .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .frame(minHeight: 44, maxHeight: 110)
+                        .padding(.vertical, 6)
+                        .frame(minHeight: 46, maxHeight: 112)
                         .multilineTextAlignment(.trailing)
 
                     if currentComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text(editingMessageId == nil ? "כתוב הודעה..." : "עריכת הודעה...")
-                            .foregroundStyle(Color.white.opacity(0.55))
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Color.white.opacity(0.52))
                             .padding(.trailing, 14)
-                            .padding(.top, 10)
+                            .padding(.top, 14)
+                            .allowsHitTesting(false)
                     }
                 }
 
                 Button {
                     Task { await sendOrUpdate() }
                 } label: {
-                    Image(systemName: "paperplane.fill")
+                    Image(systemName: editingMessageId == nil ? "paperplane.fill" : "checkmark")
+                        .font(.system(size: 18, weight: .heavy))
                         .foregroundStyle(.white)
                         .frame(width: 46, height: 46)
-                        .background(Capsule().fill(Color.white.opacity(0.18)))
+                        .background(
+                            Circle()
+                                .fill(canSend ? Color.white.opacity(0.22) : Color.white.opacity(0.10))
+                        )
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(canSend ? 0.16 : 0.06), lineWidth: 1)
+                        )
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSend)
-                .opacity(canSend ? 1.0 : 0.5)
+                .opacity(canSend ? 1.0 : 0.55)
+            }
+
+            if editingMessageId != nil {
+                HStack(spacing: 10) {
+                    Button {
+                        editingMessageId = nil
+                        editText = ""
+                    } label: {
+                        Text("ביטול עריכה")
+                            .font(.footnote.weight(.bold))
+                            .foregroundStyle(Color.white.opacity(0.92))
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
+
+                    Text("מצב עריכת הודעה")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color.white.opacity(0.76))
+                }
+                .padding(.horizontal, 6)
             }
 
             if let err = errorText, !err.isEmpty {
                 Text(err)
-                    .font(.footnote)
+                    .font(.footnote.weight(.semibold))
                     .foregroundStyle(Color(red: 1.0, green: 0.45, blue: 0.45))
                     .frame(maxWidth: .infinity, alignment: .trailing)
+                    .multilineTextAlignment(.trailing)
             }
         }
     }
@@ -475,61 +852,113 @@ struct ForumView: View {
 
     private func boot() {
         errorText = nil
+        stopListener()
+
+        canUseExtras = false
+        lockText = ""
 
         let ud = UserDefaults.standard
 
-        fullName = ud.string(forKey: "fullName") ?? ""
+        fullName =
+            ud.string(forKey: "fullName") ??
+            ud.string(forKey: "full_name") ??
+            ud.string(forKey: "name") ??
+            ud.string(forKey: "displayName") ??
+            ""
+
         email = ud.string(forKey: "email") ?? ""
+
+        guard Auth.auth().currentUser != nil else {
+            lockText = "יש להתחבר לאפליקציה כדי להשתמש בפורום הסניף."
+            return
+        }
 
         Task {
             await loadUserBranchAndGroup()
         }
-
-        let currentUser = Auth.auth().currentUser
-        let hasBranchAndGroup = !branch.isEmpty && !groupKey.isEmpty
-
-        canUseExtras = (currentUser != nil) && hasBranchAndGroup
-
-        if !canUseExtras {
-            if currentUser == nil {
-                lockText = "יש להתחבר לאפליקציה כדי להשתמש בפורום הסניף."
-            } else if !hasBranchAndGroup {
-                lockText = "לא אותרו סניף או קבוצה במשתמש.\nיש להשלים את פרטי הסניף והקבוצה כדי להשתמש בפורום."
-            } else {
-                lockText = "אין הרשאה לפתוח את הפורום."
-            }
-            return
-        }
-
-        startListener()
     }
 
     private func loadUserBranchAndGroup() async {
 
-        guard let uid = Auth.auth().currentUser?.uid else { return }
+        guard let uid = Auth.auth().currentUser?.uid else {
+            await MainActor.run {
+                canUseExtras = false
+                lockText = "יש להתחבר לאפליקציה כדי להשתמש בפורום הסניף."
+            }
+            return
+        }
 
         do {
             let snap = try await db.collection("users")
                 .document(uid)
                 .getDocument()
 
-            guard let data = snap.data() else { return }
+            let data = snap.data() ?? [:]
 
-            let branchVal = (data["branch"] as? String ?? "")
+            let branchesArray =
+                (data["branches"] as? [String])?
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty } ?? []
+
+            let branchVal =
+                branchesArray.first ??
+                ((data["branch"] as? String) ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let groupsArray =
+                (data["groups"] as? [String])?
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty } ?? []
+
+            let groupVal =
+                ((data["groupKey"] as? String) ??
+                 (data["age_group"] as? String) ??
+                 (data["ageGroup"] as? String) ??
+                 (data["group"] as? String) ??
+                 groupsArray.first ??
+                 "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
-            let groupVal = (data["groupKey"] as? String ?? "")
+            let nameVal =
+                ((data["fullName"] as? String) ??
+                 (data["full_name"] as? String) ??
+                 (data["name"] as? String) ??
+                 (data["displayName"] as? String) ??
+                 fullName)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let emailVal =
+                ((data["email"] as? String) ??
+                 Auth.auth().currentUser?.email ??
+                 email)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
             await MainActor.run {
                 branch = branchVal
                 groupKey = groupVal
+                fullName = nameVal
+                email = emailVal
+
+                let hasBranchAndGroup = !branchVal.isEmpty && !groupVal.isEmpty
+
+                canUseExtras = hasBranchAndGroup
+
+                if !hasBranchAndGroup {
+                    lockText = "לא אותרו סניף או קבוצה במשתמש.\nיש להשלים את פרטי הסניף והקבוצה כדי להשתמש בפורום."
+                    stopListener()
+                    return
+                }
+
+                lockText = ""
                 startListener()
             }
 
         } catch {
             await MainActor.run {
+                canUseExtras = false
+                lockText = "שגיאה בטעינת פרטי המשתמש."
                 errorText = "שגיאה בטעינת פרטי משתמש: \(error.localizedDescription)"
+                stopListener()
             }
         }
     }
@@ -542,12 +971,11 @@ struct ForumView: View {
     private func startListener() {
         stopListener()
 
-        guard !branch.isEmpty, !groupKey.isEmpty else { return }
+        guard !branch.isEmpty else { return }
 
         let query = db.collection("branches")
             .document(branch)
             .collection("messages")
-            .whereField("groupKey", isEqualTo: groupKey)
             .order(by: "createdAt", descending: false)
 
         listener = query.addSnapshotListener { snap, err in
@@ -561,8 +989,17 @@ struct ForumView: View {
             let list: [ForumUiMessage] = snap?.documents.compactMap { doc in
                 let data = doc.data()
 
-                let ts = (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
-                let authorName = data["authorName"] as? String ?? ""
+                guard let ts = (data["createdAt"] as? Timestamp)?.dateValue() else {
+                    return nil
+                }
+
+                let authorName =
+                    (data["authorName"] as? String) ??
+                    (data["fullName"] as? String) ??
+                    (data["name"] as? String) ??
+                    (data["displayName"] as? String) ??
+                    ""
+
                 let authorEmail = data["authorEmail"] as? String ?? ""
                 let authorUid = data["authorUid"] as? String
                 let txt = data["text"] as? String ?? ""
@@ -585,7 +1022,7 @@ struct ForumView: View {
                 return msg
             } ?? []
 
-            messages = list
+            messages = list.sorted { $0.createdAt < $1.createdAt }
         }
     }
 
@@ -799,6 +1236,7 @@ private struct ForumExerciseExplanationSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var explanationText: String = ""
+    @State private var explanationSourceText: String = ""
     @State private var isLoading = true
     @State private var errorText: String? = nil
 
@@ -811,40 +1249,86 @@ private struct ForumExerciseExplanationSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                header
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.97, green: 0.98, blue: 1.00),
+                        Color(red: 0.91, green: 0.95, blue: 1.00)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
 
-                if isLoading {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                } else {
-                    ScrollView {
-                        VStack(alignment: .trailing, spacing: 14) {
-                            Text(explanationText.isEmpty ? "אין כרגע הסבר לתרגיל הזה." : explanationText)
-                                .font(.body)
-                                .foregroundStyle(Color.primary)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                                .multilineTextAlignment(.trailing)
+                VStack(spacing: 14) {
+                    header
 
-                            if let errorText, !errorText.isEmpty {
-                                Text(errorText)
-                                    .font(.footnote)
-                                    .foregroundStyle(.red)
-                                    .frame(maxWidth: .infinity, alignment: .trailing)
-                            }
-
-                            infoCard
+                    if isLoading {
+                        VStack(spacing: 12) {
+                            ProgressView()
+                            Text("טוען הסבר...")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.secondary)
                         }
-                        .padding(16)
-                    }
-                }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ScrollView {
+                            VStack(alignment: .trailing, spacing: 14) {
+                                VStack(alignment: .trailing, spacing: 10) {
+                                    Text("הסבר")
+                                        .font(.system(size: 18, weight: .heavy))
+                                        .foregroundStyle(Color.black.opacity(0.82))
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
 
-                Button("סגור") {
-                    dismiss()
+                                    Text(explanationText.isEmpty ? "אין כרגע הסבר לתרגיל הזה." : explanationText)
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundStyle(Color.black.opacity(0.78))
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                                        .multilineTextAlignment(.trailing)
+                                        .lineSpacing(5)
+                                }
+                                .padding(16)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                        .fill(Color.white.opacity(0.94))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                        .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                                )
+
+                                if let errorText, !errorText.isEmpty {
+                                    Text(errorText)
+                                        .font(.footnote.weight(.semibold))
+                                        .foregroundStyle(.red)
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                                        .multilineTextAlignment(.trailing)
+                                }
+
+                                infoCard
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 8)
+                        }
+                    }
+
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("סגור")
+                            .font(.system(size: 17, weight: .heavy))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .fill(Color.blue.opacity(0.86))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
                 }
-                .buttonStyle(.bordered)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
             }
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showEditor) {
@@ -858,14 +1342,23 @@ private struct ForumExerciseExplanationSheet: View {
     }
 
     private var header: some View {
-        HStack {
-            HStack(spacing: 4) {
+        HStack(alignment: .center, spacing: 12) {
+            HStack(spacing: 8) {
                 Button {
                     toggleFavorite()
                 } label: {
                     Image(systemName: isFavorite ? "star.fill" : "star")
-                        .foregroundStyle(isFavorite ? Color.yellow : Color.gray)
-                        .frame(width: 36, height: 36)
+                        .font(.system(size: 17, weight: .heavy))
+                        .foregroundStyle(isFavorite ? Color.yellow : Color.gray.opacity(0.75))
+                        .frame(width: 40, height: 40)
+                        .background(
+                            Circle()
+                                .fill(Color.white.opacity(0.95))
+                        )
+                        .overlay(
+                            Circle()
+                                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                        )
                 }
                 .buttonStyle(.plain)
 
@@ -874,86 +1367,165 @@ private struct ForumExerciseExplanationSheet: View {
                     showEditor = true
                 } label: {
                     Image(systemName: "square.and.pencil")
+                        .font(.system(size: 17, weight: .heavy))
                         .foregroundStyle(Color.blue)
-                        .frame(width: 36, height: 36)
+                        .frame(width: 40, height: 40)
+                        .background(
+                            Circle()
+                                .fill(Color.white.opacity(0.95))
+                        )
+                        .overlay(
+                            Circle()
+                                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                        )
                 }
                 .buttonStyle(.plain)
             }
 
-            Spacer()
+            Spacer(minLength: 0)
 
-            VStack(alignment: .trailing, spacing: 2) {
+            VStack(alignment: .trailing, spacing: 4) {
                 Text(hit.displayName)
-                    .font(.title3.weight(.bold))
+                    .font(.system(size: 22, weight: .heavy))
+                    .foregroundStyle(Color.black.opacity(0.88))
                     .multilineTextAlignment(.trailing)
+                    .lineLimit(2)
 
-                Text("(\(hit.belt.heb)\(hit.topic.isEmpty ? "" : " · \(hit.topic)"))")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                Text("\(hit.belt.heb)\(hit.topic.isEmpty ? "" : " · \(hit.topic)")")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.52))
                     .multilineTextAlignment(.trailing)
+                    .lineLimit(2)
             }
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color.white.opacity(0.92))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+        )
         .padding(.horizontal, 16)
         .padding(.top, 16)
     }
 
     private var infoCard: some View {
-        VStack(alignment: .trailing, spacing: 6) {
-            Text("הסבר זה נשמר ב־Firestore כמסך אמת")
+        VStack(alignment: .trailing, spacing: 8) {
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+
+                Text("מסך אמת")
+                    .font(.footnote.weight(.heavy))
+                    .foregroundStyle(Color.black.opacity(0.76))
+
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Color.green.opacity(0.85))
+            }
+
+            Text(explanationSourceText.isEmpty
+                 ? "ההסבר מוצג מתוך נתוני האפליקציה."
+                 : "מקור ההסבר: \(explanationSourceText)")
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.black.opacity(0.55))
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .multilineTextAlignment(.trailing)
 
             if !branch.isEmpty || !groupKey.isEmpty {
                 Text("פורום: \(branch) / \(groupKey)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.black.opacity(0.46))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .multilineTextAlignment(.trailing)
             }
         }
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .trailing)
-        .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(.secondarySystemBackground))
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(0.92))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.black.opacity(0.06), lineWidth: 1)
         )
     }
 
     private var explanationEditorSheet: some View {
         NavigationStack {
             VStack(spacing: 16) {
+                VStack(alignment: .trailing, spacing: 8) {
+                    Text("עריכת הסבר")
+                        .font(.system(size: 22, weight: .heavy))
+                        .foregroundStyle(Color.black.opacity(0.86))
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+
+                    Text(hit.displayName)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+
                 TextEditor(text: $draftText)
                     .padding(12)
-                    .frame(minHeight: 260)
+                    .frame(minHeight: 280)
+                    .scrollContentBackground(.hidden)
                     .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
                             .fill(Color(.secondarySystemBackground))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(Color.black.opacity(0.06), lineWidth: 1)
                     )
                     .multilineTextAlignment(.trailing)
 
                 if let errorText, !errorText.isEmpty {
                     Text(errorText)
-                        .font(.footnote)
+                        .font(.footnote.weight(.semibold))
                         .foregroundStyle(.red)
                         .frame(maxWidth: .infinity, alignment: .trailing)
+                        .multilineTextAlignment(.trailing)
                 }
 
-                HStack {
-                    Button("בטל") {
+                HStack(spacing: 12) {
+                    Button {
                         showEditor = false
+                    } label: {
+                        Text("בטל")
+                            .font(.system(size: 16, weight: .heavy))
+                            .foregroundStyle(Color.black.opacity(0.72))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 46)
+                            .background(
+                                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                                    .fill(Color.black.opacity(0.06))
+                            )
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
 
-                    Spacer()
-
-                    Button("שמור") {
+                    Button {
                         Task { await saveExplanation() }
+                    } label: {
+                        Text("שמור")
+                            .font(.system(size: 16, weight: .heavy))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 46)
+                            .background(
+                                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                                    .fill(Color.blue.opacity(0.86))
+                            )
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.plain)
                 }
 
                 Spacer()
             }
             .padding(16)
-            .navigationTitle("עריכת הסבר")
             .navigationBarTitleDisplayMode(.inline)
         }
     }
@@ -965,22 +1537,136 @@ private struct ForumExerciseExplanationSheet: View {
     private func loadExplanation() async {
         isLoading = true
         errorText = nil
+        explanationSourceText = ""
 
         do {
             let snap = try await db.collection("exercise_explanations")
                 .document(documentId)
                 .getDocument()
 
-            if let data = snap.data() {
-                explanationText = data["text"] as? String ?? ""
-            } else {
-                explanationText = ""
+            let firestoreText = (snap.data()?["text"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !firestoreText.isEmpty {
+                explanationText = cleanExplanationText(firestoreText)
+                explanationSourceText = "Firestore"
+                isLoading = false
+                return
             }
+
+            let sharedText = findExplanationForHit(
+                belt: hit.belt,
+                rawItem: hit.item,
+                topic: hit.topic
+            )
+
+            explanationText = sharedText
+            explanationSourceText = "Shared Explanations"
+
         } catch {
-            errorText = "שגיאה בטעינת הסבר: \(error.localizedDescription)"
+            let sharedText = findExplanationForHit(
+                belt: hit.belt,
+                rawItem: hit.item,
+                topic: hit.topic
+            )
+
+            explanationText = sharedText
+            explanationSourceText = "Shared Explanations"
+            errorText = "Firestore לא החזיר הסבר, מוצג הסבר מקומי מהאפליקציה."
         }
 
         isLoading = false
+    }
+
+    private func findExplanationForHit(
+        belt: Belt,
+        rawItem: String,
+        topic: String
+    ) -> String {
+        let explanations = Explanations()
+
+        let raw = rawItem.trimmingCharacters(in: .whitespacesAndNewlines)
+        let display = hit.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let cleanDisplay = cleanExplanationKey(display)
+        let cleanRaw = cleanExplanationKey(raw)
+
+        let beforeParentheses = cleanDisplay
+            .components(separatedBy: "(")
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? cleanDisplay
+
+        let afterDoubleColon = raw
+            .components(separatedBy: "::")
+            .last?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? raw
+
+        let afterColon = raw
+            .components(separatedBy: ":")
+            .last?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? raw
+
+        let candidates = [
+            raw,
+            display,
+            cleanRaw,
+            cleanDisplay,
+            beforeParentheses,
+            afterDoubleColon,
+            afterColon,
+            topic.trimmingCharacters(in: .whitespacesAndNewlines)
+        ]
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+        .reduce(into: [String]()) { result, item in
+            if !result.contains(item) {
+                result.append(item)
+            }
+        }
+
+        for candidate in candidates {
+            let value = explanations.get(belt: belt, item: candidate)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if isRealExplanation(value) {
+                return cleanExplanationText(value)
+            }
+        }
+
+        return "אין כרגע הסבר לתרגיל הזה."
+    }
+
+    private func cleanExplanationKey(_ raw: String) -> String {
+        raw
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: "—", with: "-")
+            .replacingOccurrences(of: "־", with: "-")
+            .replacingOccurrences(of: "  ", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func cleanExplanationText(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmed.contains("::") {
+            return trimmed
+                .components(separatedBy: "::")
+                .dropFirst()
+                .joined(separator: "::")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return trimmed
+    }
+
+    private func isRealExplanation(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmed.isEmpty { return false }
+        if trimmed.hasPrefix("הסבר מפורט על") { return false }
+        if trimmed.hasPrefix("אין כרגע") { return false }
+
+        return true
     }
 
     private func saveExplanation() async {

@@ -16,6 +16,36 @@ struct BeltQuestionsByTopicView: View {
     @EnvironmentObject private var nav: AppNavModel
     private let catalog = CatalogData.shared.data
 
+    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
+    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+
+    private var isEnglish: Bool {
+        let values = [
+            kmiAppLanguageCode.lowercased(),
+            appLanguageRaw.lowercased(),
+            initialLanguageCode.lowercased()
+        ]
+
+        return values.contains("en") || values.contains("english")
+    }
+
+    private var screenLayoutDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
+    private var primaryTextAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var horizontalTextAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
     @State private var pickedMainTopic: MainTopic? = nil
     @State private var goSubTopics: Bool = false
     @State private var pickedSectionedSubject: SubjectTopic? = nil
@@ -236,42 +266,42 @@ struct BeltQuestionsByTopicView: View {
     
     private struct TopicRowCard: View {
         let title: String
-        let rightAccent: Color
+        let accent: Color
         let subtitleTop: String?
         let subtitleBottom: String
+        let isEnglish: Bool
+
+        private var textAlignment: TextAlignment {
+            isEnglish ? .leading : .trailing
+        }
+
+        private var frameAlignment: Alignment {
+            isEnglish ? .leading : .trailing
+        }
+
+        private var stackAlignment: HorizontalAlignment {
+            isEnglish ? .leading : .trailing
+        }
 
         var body: some View {
             HStack(spacing: 14) {
-                VStack(alignment: .trailing, spacing: 7) {
-                    Text(title)
-                        .font(.system(size: 20, weight: .heavy))
-                        .foregroundStyle(Color.black.opacity(0.84))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .multilineTextAlignment(.trailing)
-                        .lineLimit(2)
+                if isEnglish {
+                    accentBar
 
-                    if let top = subtitleTop, !top.isEmpty {
-                        Text(top)
-                            .font(.system(size: 14, weight: .heavy))
-                            .foregroundStyle(Color.purple.opacity(0.82))
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                            .multilineTextAlignment(.trailing)
-                    }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color.black.opacity(0.30))
 
-                    Text(subtitleBottom)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.black.opacity(0.56))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .multilineTextAlignment(.trailing)
+                    textBlock
+                } else {
+                    textBlock
+
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color.black.opacity(0.30))
+
+                    accentBar
                 }
-
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color.black.opacity(0.30))
-
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(rightAccent)
-                    .frame(width: 8)
             }
             .padding(.horizontal, 15)
             .padding(.vertical, 11)
@@ -286,6 +316,37 @@ struct BeltQuestionsByTopicView: View {
             )
             .shadow(color: Color.black.opacity(0.04), radius: 4, x: 0, y: 2)
             .scaleEffect(1.0)
+        }
+
+        private var textBlock: some View {
+            VStack(alignment: stackAlignment, spacing: 7) {
+                Text(title)
+                    .font(.system(size: 20, weight: .heavy))
+                    .foregroundStyle(Color.black.opacity(0.84))
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
+                    .lineLimit(2)
+
+                if let top = subtitleTop, !top.isEmpty {
+                    Text(top)
+                        .font(.system(size: 14, weight: .heavy))
+                        .foregroundStyle(Color.purple.opacity(0.82))
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                        .multilineTextAlignment(textAlignment)
+                }
+
+                Text(subtitleBottom)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.56))
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
+            }
+        }
+
+        private var accentBar: some View {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(accent)
+                .frame(width: 8)
         }
     }
 
@@ -595,7 +656,31 @@ struct BeltQuestionsByTopicView: View {
     }
 
     private func displayTitle(for topic: MainTopic) -> String {
-        topic.titleHeb
+        let cleanId = topic.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanTitle = topic.titleHeb.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard isEnglish else { return cleanTitle }
+
+        switch cleanId {
+        case "defenses_root":
+            return "Defenses"
+        case "hands_root":
+            return "Hand Techniques"
+        case "releases_root":
+            return "Releases"
+        case "throws_root":
+            return "Throws"
+        case "topic_kawalr":
+            return "Cavalier"
+        case "kicks_root":
+            return "Kicks"
+        default:
+            if let titleFromId = KmiEnglishTitleResolver.englishTitle(for: cleanId) {
+                return titleFromId
+            }
+
+            return KmiEnglishTitleResolver.title(for: cleanTitle, isEnglish: true)
+        }
     }
 
     private func itemsForSection(
@@ -738,12 +823,23 @@ struct BeltQuestionsByTopicView: View {
     private func subtitleLineTop(for topic: MainTopic) -> String? {
         if topic.id == "releases_root" {
             let count = (HardSectionsCatalog.shared.sectionsForSubject(subjectId: "releases") ?? []).count
-            return count > 0 ? "\(count) תתי נושאים" : nil
+            guard count > 0 else { return nil }
+
+            if isEnglish {
+                return count == 1 ? "1 sub-topic" : "\(count) sub-topics"
+            } else {
+                return "\(count) תתי נושאים"
+            }
         }
 
         let count = topic.subjects.count
         guard count > 1 else { return nil }
-        return "\(count) תתי נושאים"
+
+        if isEnglish {
+            return count == 1 ? "1 sub-topic" : "\(count) sub-topics"
+        } else {
+            return "\(count) תתי נושאים"
+        }
     }
 
     private func totalExercisesCount(for topic: MainTopic) -> Int {
@@ -754,7 +850,12 @@ struct BeltQuestionsByTopicView: View {
 
     private func subtitleLineBottom(for topic: MainTopic) -> String {
         let total = totalExercisesCount(for: topic)
-        return "\(total) תרגילים"
+
+        if isEnglish {
+            return total == 1 ? "1 exercise" : "\(total) exercises"
+        } else {
+            return "\(total) תרגילים"
+        }
     }
 
     private func triggerTapHaptic() {
@@ -770,8 +871,8 @@ struct BeltQuestionsByTopicView: View {
             VStack(spacing: 0) {
 
                 SegmentedTabs(
-                    leftTitle: "לפי נושא",
-                    rightTitle: "לפי חגורה",
+                    leftTitle: tr("לפי נושא", "By Topic"),
+                    rightTitle: tr("לפי חגורה", "By Belt"),
                     selected: .left,
                     onSelect: { sel in
                         if sel == .right {
@@ -794,12 +895,13 @@ struct BeltQuestionsByTopicView: View {
                             .padding(.top, 0)
 
                         WhiteCard {
-                            VStack(alignment: .trailing, spacing: 14) {
+                            VStack(alignment: isEnglish ? .leading : .trailing, spacing: 14) {
 
-                                Text("נושאים (קטגוריות)")
+                                Text(tr("נושאים (קטגוריות)", "Topics (Categories)"))
                                     .font(.system(size: 24, weight: .heavy))
                                     .foregroundStyle(Color.black.opacity(0.84))
-                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                                    .multilineTextAlignment(primaryTextAlignment)
 
                                 VStack(spacing: 11) {
                                     ForEach(Array(mainTopics.enumerated()), id: \.offset) { _, topic in
@@ -822,19 +924,21 @@ struct BeltQuestionsByTopicView: View {
                                         } label: {
                                             TopicRowCard(
                                                 title: displayTitle(for: topic),
-                                                rightAccent: accentForTopic(topic),
+                                                accent: accentForTopic(topic),
                                                 subtitleTop: subtitleLineTop(for: topic),
-                                                subtitleBottom: subtitleLineBottom(for: topic)
+                                                subtitleBottom: subtitleLineBottom(for: topic),
+                                                isEnglish: isEnglish
                                             )
                                         }
                                         .buttonStyle(.plain)
                                     }
 
                                     if mainTopics.isEmpty {
-                                        Text("אין נושאים להצגה")
+                                        Text(tr("אין נושאים להצגה", "No topics to display"))
                                             .font(.system(size: 16, weight: .semibold))
                                             .foregroundStyle(Color.black.opacity(0.55))
                                             .frame(maxWidth: .infinity, alignment: .center)
+                                            .multilineTextAlignment(.center)
                                             .padding(.vertical, 14)
                                     }
                                 }
@@ -851,6 +955,7 @@ struct BeltQuestionsByTopicView: View {
                 }
             }
         }
+        .environment(\.layoutDirection, screenLayoutDirection)
         .navigationBarTitleDisplayMode(.inline)
 
         // navigation לקטלוג הוסר – אין שימוש במסך "כל התרגילים"
@@ -905,6 +1010,92 @@ private struct SubjectSubTopicsListView: View {
     let onPickSubject: (SubjectTopic) -> Void
 
     @Environment(\.dismiss) private var dismiss
+
+    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
+    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+
+    private var isEnglish: Bool {
+        let values = [
+            kmiAppLanguageCode.lowercased(),
+            appLanguageRaw.lowercased(),
+            initialLanguageCode.lowercased()
+        ]
+
+        return values.contains("en") || values.contains("english")
+    }
+
+    private var screenLayoutDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
+    private func exercisesCountText(_ count: Int) -> String {
+        if isEnglish {
+            return count == 1 ? "1 exercise" : "\(count) exercises"
+        } else {
+            return "\(count) תרגילים"
+        }
+    }
+
+    private func uiSubjectTitle(_ subject: SubjectTopic) -> String {
+        let cleanId = subject.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanTitle = subject.titleHeb.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard isEnglish else { return cleanTitle }
+
+        switch cleanId {
+        case "def_internal_punch":
+            return "Internal Defenses"
+        case "def_external_punch":
+            return "External Defenses"
+        case "kicks_hard":
+            return "Kick Defenses"
+        case "releases_hands_hair_shirt":
+            return "Releases from Hand / Hair / Shirt Grabs"
+        case "releases_chokes":
+            return "Choke Releases"
+        case "releases_hugs":
+            return "Hug Releases"
+        default:
+            if let titleFromId = KmiEnglishTitleResolver.englishTitle(for: cleanId) {
+                return titleFromId
+            }
+
+            return KmiEnglishTitleResolver.title(for: cleanTitle, isEnglish: true)
+        }
+    }
+
+    private func uiMainTopicTitle(_ topic: MainTopic) -> String {
+        let cleanId = topic.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanTitle = topic.titleHeb.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard isEnglish else { return cleanTitle }
+
+        switch cleanId {
+        case "defenses_root":
+            return "Defenses"
+        case "hands_root":
+            return "Hand Techniques"
+        case "releases_root":
+            return "Releases"
+        case "throws_root":
+            return "Throws"
+        case "topic_kawalr":
+            return "Cavalier"
+        case "kicks_root":
+            return "Kicks"
+        default:
+            if let titleFromId = KmiEnglishTitleResolver.englishTitle(for: cleanId) {
+                return titleFromId
+            }
+
+            return KmiEnglishTitleResolver.title(for: cleanTitle, isEnglish: true)
+        }
+    }
 
     private func toSharedSubject(_ local: SubjectTopic) -> Shared.SubjectTopic {
         Shared.SubjectTopic(
@@ -1098,46 +1289,77 @@ private struct SubjectSubTopicsListView: View {
     
     private struct SubTopicRowCard: View {
         let title: String
-        let rightAccent: Color
+        let accent: Color
         let subtitleBottom: String
+        let isEnglish: Bool
+
+        private var textAlignment: TextAlignment {
+            isEnglish ? .leading : .trailing
+        }
+
+        private var frameAlignment: Alignment {
+            isEnglish ? .leading : .trailing
+        }
+
+        private var stackAlignment: HorizontalAlignment {
+            isEnglish ? .leading : .trailing
+        }
 
         var body: some View {
             HStack(spacing: 14) {
-                VStack(alignment: .trailing, spacing: 7) {
-                    Text(title)
-                        .font(.system(size: 20, weight: .heavy))
-                        .foregroundStyle(Color.black.opacity(0.84))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .multilineTextAlignment(.trailing)
-                        .lineLimit(2)
+                if isEnglish {
+                    accentBar
 
-                    Text(subtitleBottom)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.black.opacity(0.55))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .multilineTextAlignment(.trailing)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color.black.opacity(0.30))
+
+                    textBlock
+                } else {
+                    textBlock
+
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color.black.opacity(0.30))
+
+                    accentBar
                 }
-
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color.black.opacity(0.30))
-
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(rightAccent)
-                    .frame(width: 8)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 15)
+            .padding(.horizontal, 15)
+            .padding(.vertical, 11)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: 17, style: .continuous)
                     .fill(Color.white.opacity(0.94))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: 17, style: .continuous)
                     .stroke(Color.black.opacity(0.05), lineWidth: 1)
             )
             .shadow(color: Color.black.opacity(0.04), radius: 4, x: 0, y: 2)
+        }
+
+        private var textBlock: some View {
+            VStack(alignment: stackAlignment, spacing: 7) {
+                Text(title)
+                    .font(.system(size: 20, weight: .heavy))
+                    .foregroundStyle(Color.black.opacity(0.84))
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
+                    .lineLimit(2)
+
+                Text(subtitleBottom)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.56))
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
+            }
+        }
+
+        private var accentBar: some View {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(accent)
+                .frame(width: 8)
         }
     }
 
@@ -1147,11 +1369,15 @@ private struct SubjectSubTopicsListView: View {
 
             ScrollView {
                 WhiteCard {
-                    VStack(alignment: .trailing, spacing: 12) {
-                        Text("תתי נושאים")
+                    VStack(alignment: isEnglish ? .leading : .trailing, spacing: 12) {
+                        Text(tr("תתי נושאים", "Sub-topics"))
                             .font(.system(size: 22, weight: .heavy))
                             .foregroundStyle(Color.black.opacity(0.84))
-                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: isEnglish ? .leading : .trailing
+                            )
+                            .multilineTextAlignment(isEnglish ? .leading : .trailing)
 
                         VStack(spacing: 12) {
                             ForEach(Array(mainTopic.subjects.enumerated()), id: \.offset) { _, subject in
@@ -1164,9 +1390,10 @@ private struct SubjectSubTopicsListView: View {
                                     }
                                 } label: {
                                     SubTopicRowCard(
-                                        title: subject.titleHeb,
-                                        rightAccent: accentForTitle(subject.titleHeb),
-                                        subtitleBottom: "\(totalExercisesCount(for: subject)) תרגילים"
+                                        title: uiSubjectTitle(subject),
+                                        accent: accentForTitle(subject.titleHeb),
+                                        subtitleBottom: exercisesCountText(totalExercisesCount(for: subject)),
+                                        isEnglish: isEnglish
                                     )
                                 }
                                 .buttonStyle(.plain)
@@ -1180,7 +1407,8 @@ private struct SubjectSubTopicsListView: View {
                 .padding(.top, 12)
             }
         }
-        .navigationTitle(mainTopic.titleHeb)
+        .environment(\.layoutDirection, screenLayoutDirection)
+        .navigationTitle(uiMainTopicTitle(mainTopic))
         .navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -1190,6 +1418,85 @@ private struct SubjectSectionsListView: View {
     let belt: Belt
     let subject: SubjectTopic
     let onPickSection: (String) -> Void
+
+    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
+    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+
+    private var isEnglish: Bool {
+        let values = [
+            kmiAppLanguageCode.lowercased(),
+            appLanguageRaw.lowercased(),
+            initialLanguageCode.lowercased()
+        ]
+
+        return values.contains("en") || values.contains("english")
+    }
+
+    private var screenLayoutDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
+    private var primaryTextAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var horizontalTextAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
+    private func exercisesCountText(_ count: Int) -> String {
+        if isEnglish {
+            return count == 1 ? "1 exercise" : "\(count) exercises"
+        } else {
+            return "\(count) תרגילים"
+        }
+    }
+
+    private func uiSubjectTitle(_ subject: SubjectTopic) -> String {
+        let cleanId = subject.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanTitle = subject.titleHeb.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard isEnglish else { return cleanTitle }
+
+        switch cleanId {
+        case "def_internal_punch":
+            return "Internal Defenses"
+        case "def_external_punch":
+            return "External Defenses"
+        case "kicks_hard":
+            return "Kick Defenses"
+        case "releases_hands_hair_shirt":
+            return "Releases from Hand / Hair / Shirt Grabs"
+        case "releases_chokes":
+            return "Choke Releases"
+        case "releases_hugs":
+            return "Hug Releases"
+        default:
+            if let titleFromId = KmiEnglishTitleResolver.englishTitle(for: cleanId) {
+                return titleFromId
+            }
+
+            return KmiEnglishTitleResolver.title(for: cleanTitle, isEnglish: true)
+        }
+    }
+
+    private func uiSectionTitle(_ section: HardSectionsCatalog.Section) -> String {
+        let cleanId = section.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanTitle = section.title.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard isEnglish else { return cleanTitle }
+
+        if let titleFromId = KmiEnglishTitleResolver.englishTitle(for: cleanId) {
+            return titleFromId
+        }
+
+        return KmiEnglishTitleResolver.title(for: cleanTitle, isEnglish: true)
+    }
 
     private func toSharedSubject(_ local: SubjectTopic) -> Shared.SubjectTopic {
         Shared.SubjectTopic(
@@ -1401,33 +1708,41 @@ private struct SubjectSectionsListView: View {
 
     private struct SectionRowCard: View {
         let title: String
-        let rightAccent: Color
+        let accent: Color
         let subtitleBottom: String
+        let isEnglish: Bool
+
+        private var textAlignment: TextAlignment {
+            isEnglish ? .leading : .trailing
+        }
+
+        private var frameAlignment: Alignment {
+            isEnglish ? .leading : .trailing
+        }
+
+        private var stackAlignment: HorizontalAlignment {
+            isEnglish ? .leading : .trailing
+        }
 
         var body: some View {
             HStack(spacing: 14) {
-                VStack(alignment: .trailing, spacing: 7) {
-                    Text(title)
-                        .font(.system(size: 20, weight: .heavy))
-                        .foregroundStyle(Color.black.opacity(0.84))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .multilineTextAlignment(.trailing)
-                        .lineLimit(2)
+                if isEnglish {
+                    accentBar
 
-                    Text(subtitleBottom)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.black.opacity(0.55))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .multilineTextAlignment(.trailing)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color.black.opacity(0.30))
+
+                    textBlock
+                } else {
+                    textBlock
+
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color.black.opacity(0.30))
+
+                    accentBar
                 }
-
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color.black.opacity(0.30))
-
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(rightAccent)
-                    .frame(width: 8)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 15)
@@ -1443,6 +1758,29 @@ private struct SubjectSectionsListView: View {
             .shadow(color: Color.black.opacity(0.04), radius: 4, x: 0, y: 2)
             .scaleEffect(1.0)
         }
+
+        private var textBlock: some View {
+            VStack(alignment: stackAlignment, spacing: 7) {
+                Text(title)
+                    .font(.system(size: 20, weight: .heavy))
+                    .foregroundStyle(Color.black.opacity(0.84))
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
+                    .lineLimit(2)
+
+                Text(subtitleBottom)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.55))
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
+            }
+        }
+
+        private var accentBar: some View {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(accent)
+                .frame(width: 8)
+        }
     }
     
     var body: some View {
@@ -1451,11 +1789,12 @@ private struct SubjectSectionsListView: View {
 
             ScrollView {
                 WhiteCard {
-                    VStack(alignment: .trailing, spacing: 12) {
-                        Text("תתי נושאים")
+                    VStack(alignment: isEnglish ? .leading : .trailing, spacing: 12) {
+                        Text(tr("תתי נושאים", "Sub-topics"))
                             .font(.system(size: 22, weight: .heavy))
                             .foregroundStyle(Color.black.opacity(0.84))
-                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                            .multilineTextAlignment(primaryTextAlignment)
 
                         VStack(spacing: 12) {
                             ForEach(Array(sections.enumerated()), id: \.element.id) { _, section in
@@ -1467,9 +1806,10 @@ private struct SubjectSectionsListView: View {
                                     onPickSection(section.id)
                                 } label: {
                                     SectionRowCard(
-                                        title: title,
-                                        rightAccent: accentForTitle(title),
-                                        subtitleBottom: "\(count) תרגילים"
+                                        title: uiSectionTitle(section),
+                                        accent: accentForTitle(title),
+                                        subtitleBottom: exercisesCountText(count),
+                                        isEnglish: isEnglish
                                     )
                                 }
                                 .buttonStyle(.plain)
@@ -1483,7 +1823,8 @@ private struct SubjectSectionsListView: View {
                 .padding(.top, 12)
             }
         }
-        .navigationTitle(subject.titleHeb)
+        .environment(\.layoutDirection, screenLayoutDirection)
+        .navigationTitle(uiSubjectTitle(subject))
         .navigationBarTitleDisplayMode(.inline)
     }
 }

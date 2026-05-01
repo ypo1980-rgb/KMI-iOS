@@ -366,7 +366,6 @@ enum ExerciseTitlesEnItems {
         "שחרור מחניקה בשכיבה - ידיים כפופות": "Release From a Mounted Choke - Attacker's Hands are Bent",
         "שחרור מחניקה בשכיבה - ידיים ישרות": "Release From a Mounted Choke - Attacker's Hands are Straight",
         "שחרור מחניקה צמודה בשכיבה": "Release From a Mounted Choke While Pressed Tightly",
-        "שחרור מחניקה מהצד בשכיבה": "Release From a Choke From the Side on the Ground",
 
         "הגנה מאיום סכין להב לגורגרת": "Defence From a Knife Threat with the Blade to the Throat",
         "הגנה מאיום סכין מלפנים - חוד הסכין לגרוגרת": "Defence From a Knife Threat From the Front - Tip of the Knife to the Throat",
@@ -528,4 +527,8 @@ enum ExerciseTitlesEnItems {
         "מכה אופקית ובעיטת הגנה": "Horizontal Strike and a Defensive Kick",
         "מכה לצד ובעיטה לצד": "Side Strike and a Side Kick"
     ]
+
+    static func title(for value: String) -> String {
+        map[value] ?? value
+    }
 }

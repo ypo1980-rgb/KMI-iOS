@@ -5,6 +5,7 @@ import Shared
 struct BeltArcPicker: View {
     let belts: [Belt]
     @Binding var selectedBelt: Belt
+    let isEnglish: Bool
 
     private let big: CGFloat = 126
     private let small: CGFloat = 70
@@ -55,9 +56,13 @@ struct BeltArcPicker: View {
 
                     let isCenter = dist < 0.20
 
-                    BeltCircle(belt: belt, isCenter: isCenter)
-                        .frame(width: targetSize, height: targetSize)
-                        .scaleEffect(isCenter ? 1.0 : 0.82)
+                    BeltCircle(
+                        belt: belt,
+                        isCenter: isCenter,
+                        isEnglish: isEnglish
+                    )
+                    .frame(width: targetSize, height: targetSize)
+                    .scaleEffect(isCenter ? 1.0 : 0.82)
                         .opacity(targetAlpha)
                         .position(x: x, y: y + targetSize / 2)
                         .zIndex(isCenter ? 3 : 1)
@@ -180,6 +185,7 @@ struct BeltArcPicker: View {
     private struct BeltCircle: View {
         let belt: Belt
         let isCenter: Bool
+        let isEnglish: Bool
 
         var body: some View {
             let fill = BeltPalette.color(for: belt).opacity(0.96)
@@ -193,12 +199,44 @@ struct BeltArcPicker: View {
                     )
 
                 if isCenter {
-                    Text("חגורה\n\(cleanHeb(belt.heb))")
-                        .font(.system(size: 13, weight: .bold))
+                    Text(centerText(for: belt))
+                        .font(.system(size: isEnglish ? 12 : 13, weight: .bold))
+                        .lineSpacing(isEnglish ? 1 : 0)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(textColor(for: belt))
+                        .minimumScaleFactor(0.78)
+                        .lineLimit(2)
                         .padding(8)
                 }
+            }
+        }
+
+        private func centerText(for belt: Belt) -> String {
+            if isEnglish {
+                return "Belt\n\(englishBeltName(belt))"
+            }
+
+            return "חגורה\n\(cleanHeb(belt.heb))"
+        }
+
+        private func englishBeltName(_ belt: Belt) -> String {
+            switch belt {
+            case .white:
+                return "White"
+            case .yellow:
+                return "Yellow"
+            case .orange:
+                return "Orange"
+            case .green:
+                return "Green"
+            case .blue:
+                return "Blue"
+            case .brown:
+                return "Brown"
+            case .black:
+                return "Black"
+            default:
+                return "Belt"
             }
         }
 

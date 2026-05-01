@@ -19,6 +19,36 @@ struct SubjectAcrossBeltsView: View {
     // ✅ קטלוג מה-Shared (כמו בשאר המסכים)
     private let catalog = CatalogData.shared.data
 
+    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
+    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+
+    private var isEnglish: Bool {
+        let values = [
+            kmiAppLanguageCode.lowercased(),
+            appLanguageRaw.lowercased(),
+            initialLanguageCode.lowercased()
+        ]
+
+        return values.contains("en") || values.contains("english")
+    }
+
+    private var screenLayoutDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
+    private var primaryTextAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var horizontalTextAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
     // MARK: - Local UI models (במקום SubjectItemsResolver מה-KMP)
     private struct UiItem: Identifiable {
         let id: String
@@ -88,6 +118,132 @@ struct SubjectAcrossBeltsView: View {
             return nil
         }
     }
+
+    private func uiSubjectTitle() -> String {
+        let cleanId = subject.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanTitle = subject.titleHeb.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard isEnglish else { return cleanTitle }
+
+        if let resolvedFromId = KmiEnglishTitleResolver.englishTitle(for: cleanId) {
+            return resolvedFromId
+        }
+
+        return KmiEnglishTitleResolver.title(for: cleanTitle, isEnglish: true)
+    }
+
+    private func uiSectionTitle(_ title: String) -> String {
+        let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isEnglish else { return clean }
+
+        return KmiEnglishTitleResolver.title(for: clean, isEnglish: true)
+    }
+
+    private func sectionDirectlyMatchesForcedSelection(
+        _ section: HardSectionsCatalog.Section,
+        forcedClean: String
+    ) -> Bool {
+        let idClean = section.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let titleClean = section.title.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return idClean == forcedClean || titleClean == forcedClean
+    }
+
+    private func sectionTreeContainsForcedSelection(
+        _ section: HardSectionsCatalog.Section,
+        forcedClean: String
+    ) -> Bool {
+        if sectionDirectlyMatchesForcedSelection(section, forcedClean: forcedClean) {
+            return true
+        }
+
+        return section.subSections.contains {
+            sectionTreeContainsForcedSelection($0, forcedClean: forcedClean)
+        }
+    }
+
+    private func sectionMatchesForcedSelection(
+        _ section: HardSectionsCatalog.Section,
+        forced: String?
+    ) -> Bool {
+        guard let forced,
+              !forced.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return true
+        }
+
+        let forcedClean = forced.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return sectionTreeContainsForcedSelection(section, forcedClean: forcedClean)
+    }
+
+    private func findForcedSection(
+        in sections: [HardSectionsCatalog.Section],
+        forcedClean: String
+    ) -> HardSectionsCatalog.Section? {
+        for section in sections {
+            if sectionDirectlyMatchesForcedSelection(section, forcedClean: forcedClean) {
+                return section
+            }
+
+            if let childMatch = findForcedSection(
+                in: section.subSections,
+                forcedClean: forcedClean
+            ) {
+                return childMatch
+            }
+        }
+
+        return nil
+    }
+
+    private func displayTitleForForcedSection(_ forced: String) -> String {
+        let clean = forced.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let hardId = hardSubjectId(for: subject),
+           let hardSections = HardSectionsCatalog.shared.sectionsForSubject(subjectId: hardId),
+           let match = findForcedSection(in: hardSections, forcedClean: clean) {
+            return uiSectionTitle(match.title)
+        }
+
+        return uiSectionTitle(clean)
+    }
+
+    private func uiExerciseTitle(_ title: String) -> String {
+        let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return KmiEnglishTitleResolver.title(for: clean, isEnglish: isEnglish)
+    }
+
+    private func exercisesCountText(_ count: Int) -> String {
+        if isEnglish {
+            return count == 1 ? "1 exercise" : "\(count) exercises"
+        } else {
+            return "\(count) תרגילים"
+        }
+    }
+
+    private var hasAnyExercises: Bool {
+        belts.contains { belt in
+            !sections(for: belt).isEmpty
+        }
+    }
+
+    private func emptyExercisesMessage() -> String {
+        let subjectTitle = uiSubjectTitle()
+
+        if let forcedSectionTitle,
+           !forcedSectionTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let sectionTitle = displayTitleForForcedSection(forcedSectionTitle)
+
+            return isEnglish
+            ? "No exercises found for \"\(subjectTitle) / \(sectionTitle)\""
+            : "לא נמצאו תרגילים עבור \"\(subjectTitle) / \(sectionTitle)\""
+        }
+
+        return isEnglish
+        ? "No exercises found for \"\(subjectTitle)\""
+        : "לא נמצאו תרגילים עבור \"\(subjectTitle)\""
+    }
     
     private func containsAny(_ text: String, keywords: [String]) -> Bool {
         if keywords.isEmpty { return true }
@@ -130,12 +286,24 @@ struct SubjectAcrossBeltsView: View {
         _ sec: HardSectionsCatalog.Section,
         belt: Belt,
         into out: inout [UiSection],
-        parentPath: [String] = []
+        parentPath: [String] = [],
+        forcedClean: String? = nil
     ) {
         let currentPath = parentPath + [sec.title]
+
+        let shouldIncludeCurrentSection: Bool = {
+            guard let forcedClean,
+                  !forcedClean.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else {
+                return true
+            }
+
+            return sectionDirectlyMatchesForcedSelection(sec, forcedClean: forcedClean)
+        }()
+
         let items = HardSectionsCatalog.shared.itemsFor(sec, belt: belt)
 
-        if !items.isEmpty {
+        if shouldIncludeCurrentSection, !items.isEmpty {
             let uiItems = items.map { raw in
                 UiItem(
                     id: "\(belt.id)::\(sec.id)::\(raw)",
@@ -154,11 +322,18 @@ struct SubjectAcrossBeltsView: View {
         }
 
         for child in sec.subSections {
+            if let forcedClean,
+               !forcedClean.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               !sectionTreeContainsForcedSelection(child, forcedClean: forcedClean) {
+                continue
+            }
+
             appendHardSectionTree(
                 child,
                 belt: belt,
                 into: &out,
-                parentPath: currentPath
+                parentPath: currentPath,
+                forcedClean: forcedClean
             )
         }
     }
@@ -182,19 +357,25 @@ struct SubjectAcrossBeltsView: View {
            !hardSections.isEmpty {
 
             let filteredHardSections: [HardSectionsCatalog.Section]
-            if let forcedSectionTitle, !forcedSectionTitle.isEmpty {
-                filteredHardSections = hardSections.filter { $0.title == forcedSectionTitle }
+            if let forcedSectionTitle, !forcedSectionTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                filteredHardSections = hardSections.filter {
+                    sectionMatchesForcedSelection($0, forced: forcedSectionTitle)
+                }
             } else {
                 filteredHardSections = hardSections
             }
 
             var hardOut: [UiSection] = []
 
+            let forcedClean = forcedSectionTitle?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
             for sec in filteredHardSections {
                 appendHardSectionTree(
                     sec,
                     belt: belt,
-                    into: &hardOut
+                    into: &hardOut,
+                    forcedClean: forcedClean
                 )
             }
 
@@ -207,8 +388,12 @@ struct SubjectAcrossBeltsView: View {
             .resolveBySubject(belt: belt, subject: sharedSubject)
 
         let uiSections: [SubjectItemsResolver.UiSection]
-        if let forcedSectionTitle, !forcedSectionTitle.isEmpty {
-            uiSections = rawSections.filter { $0.title == forcedSectionTitle }
+        if let forcedSectionTitle, !forcedSectionTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let forcedClean = forcedSectionTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            uiSections = rawSections.filter { section in
+                section.title.trimmingCharacters(in: .whitespacesAndNewlines) == forcedClean
+            }
         } else {
             uiSections = rawSections
         }
@@ -250,15 +435,24 @@ struct SubjectAcrossBeltsView: View {
 
                         WhiteCard {
                             VStack(spacing: 8) {
-                                Text(subject.titleHeb)
+                                Text(uiSubjectTitle())
                                     .font(.title3.weight(.heavy))
                                     .foregroundStyle(Color.black.opacity(0.85))
                                     .frame(maxWidth: .infinity, alignment: .center)
+                                    .multilineTextAlignment(.center)
 
                                 if !subject.description.isEmpty {
                                     Text(subject.description)
                                         .font(.caption)
                                         .foregroundStyle(Color.black.opacity(0.55))
+                                        .multilineTextAlignment(.center)
+                                }
+
+                                if let forcedSectionTitle, !forcedSectionTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    Text(displayTitleForForcedSection(forcedSectionTitle))
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(Color.black.opacity(0.58))
+                                        .frame(maxWidth: .infinity, alignment: .center)
                                         .multilineTextAlignment(.center)
                                 }
                             }
@@ -268,14 +462,17 @@ struct SubjectAcrossBeltsView: View {
 
                         // ✅ קרוסלה אמיתית: Snap למרכז + מרכז מודגש
                         WhiteCard {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text("חגורות")
+                            VStack(alignment: isEnglish ? .leading : .trailing, spacing: 10) {
+                                Text(tr("חגורות", "Belts"))
                                     .font(.headline.weight(.bold))
                                     .foregroundStyle(Color.black.opacity(0.82))
+                                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                                    .multilineTextAlignment(primaryTextAlignment)
 
                                 BeltCarousel(
                                     belts: belts,
                                     selectedBelt: $selectedBelt,
+                                    isEnglish: isEnglish,
                                     hasContent: { b in !sections(for: b).isEmpty },
                                     onSelect: { b in
                                         withAnimation(.easeInOut(duration: 0.25)) {
@@ -288,6 +485,25 @@ struct SubjectAcrossBeltsView: View {
                             .padding(.horizontal, 12)
                         }
 
+                        if !hasAnyExercises {
+                            WhiteCard {
+                                VStack(spacing: 10) {
+                                    Image(systemName: "exclamationmark.circle.fill")
+                                        .font(.system(size: 28, weight: .semibold))
+                                        .foregroundStyle(Color.black.opacity(0.35))
+
+                                    Text(emptyExercisesMessage())
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundStyle(Color.black.opacity(0.62))
+                                        .frame(maxWidth: .infinity, alignment: .center)
+                                        .multilineTextAlignment(.center)
+                                        .padding(.horizontal, 10)
+                                }
+                                .padding(.vertical, 18)
+                                .padding(.horizontal, 12)
+                            }
+                        }
+
                         ForEach(belts, id: \.self) { belt in
 
                             let secs = sections(for: belt)
@@ -297,15 +513,27 @@ struct SubjectAcrossBeltsView: View {
                                 VStack(spacing: 12) {
 
                                     HStack {
-                                        Text("\(secs.reduce(0) { $0 + $1.items.count }) תרגילים")
-                                            .font(.system(size: 15, weight: .heavy))
-                                            .foregroundStyle(beltAccent(belt))
+                                        if isEnglish {
+                                            Text(beltTitleText(belt))
+                                                .font(.system(size: 18, weight: .heavy))
+                                                .foregroundStyle(beltAccent(belt))
 
-                                        Spacer()
+                                            Spacer()
 
-                                        Text(beltTitleText(belt))
-                                            .font(.system(size: 18, weight: .heavy))
-                                            .foregroundStyle(beltAccent(belt))
+                                            Text(exercisesCountText(secs.reduce(0) { $0 + $1.items.count }))
+                                                .font(.system(size: 15, weight: .heavy))
+                                                .foregroundStyle(beltAccent(belt))
+                                        } else {
+                                            Text(exercisesCountText(secs.reduce(0) { $0 + $1.items.count }))
+                                                .font(.system(size: 15, weight: .heavy))
+                                                .foregroundStyle(beltAccent(belt))
+
+                                            Spacer()
+
+                                            Text(beltTitleText(belt))
+                                                .font(.system(size: 18, weight: .heavy))
+                                                .foregroundStyle(beltAccent(belt))
+                                        }
                                     }
                                     .padding(.horizontal, 4)
 
@@ -320,8 +548,9 @@ struct SubjectAcrossBeltsView: View {
                                                     )
                                                 } label: {
                                                     BeltExerciseRowCard(
-                                                        title: it.displayName,
-                                                        accent: beltAccent(belt)
+                                                        title: uiExerciseTitle(it.displayName),
+                                                        accent: beltAccent(belt),
+                                                        isEnglish: isEnglish
                                                     )
                                                 }
                                                 .buttonStyle(.plain)
@@ -352,7 +581,8 @@ struct SubjectAcrossBeltsView: View {
                 }
             }
         }
-        .navigationTitle("לפי נושא")
+        .environment(\.layoutDirection, screenLayoutDirection)
+        .navigationTitle(tr("לפי נושא", "By Topic"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             for b in belts {
@@ -408,13 +638,22 @@ struct SubjectAcrossBeltsView: View {
 
     private func beltTitleText(_ belt: Belt) -> String {
         switch belt {
-        case .yellow: return "חגורה צהובה"
-        case .orange: return "חגורה כתומה"
-        case .green: return "חגורה ירוקה"
-        case .blue: return "חגורה כחולה"
-        case .brown: return "חגורה חומה"
-        case .black: return "חגורה שחורה"
-        default: return "חגורה"
+        case .white:
+            return isEnglish ? "White Belt" : "חגורה לבנה"
+        case .yellow:
+            return isEnglish ? "Yellow Belt" : "חגורה צהובה"
+        case .orange:
+            return isEnglish ? "Orange Belt" : "חגורה כתומה"
+        case .green:
+            return isEnglish ? "Green Belt" : "חגורה ירוקה"
+        case .blue:
+            return isEnglish ? "Blue Belt" : "חגורה כחולה"
+        case .brown:
+            return isEnglish ? "Brown Belt" : "חגורה חומה"
+        case .black:
+            return isEnglish ? "Black Belt" : "חגורה שחורה"
+        default:
+            return isEnglish ? "Belt" : "חגורה"
         }
     }
 }
@@ -422,24 +661,29 @@ struct SubjectAcrossBeltsView: View {
 private struct BeltExerciseRowCard: View {
     let title: String
     let accent: Color
+    let isEnglish: Bool
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var stackAlignment: HorizontalAlignment {
+        isEnglish ? .leading : .trailing
+    }
 
     var body: some View {
         HStack(spacing: 12) {
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 18, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(0.84))
-                    .multilineTextAlignment(.trailing)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+            if isEnglish {
+                accentBar
+                titleBlock
+            } else {
+                titleBlock
+                accentBar
             }
-
-            Image(systemName: "star")
-                .font(.system(size: 16, weight: .regular))
-                .foregroundStyle(Color.gray.opacity(0.75))
-
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(accent)
-                .frame(width: 6, height: 34)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 13)
@@ -450,8 +694,24 @@ private struct BeltExerciseRowCard: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.black.opacity(0.04), lineWidth: 1)
+                .stroke(accent.opacity(0.16), lineWidth: 1)
         )
+    }
+
+    private var titleBlock: some View {
+        VStack(alignment: stackAlignment, spacing: 4) {
+            Text(title)
+                .font(.system(size: 18, weight: .heavy))
+                .foregroundStyle(Color.black.opacity(0.84))
+                .multilineTextAlignment(textAlignment)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+        }
+    }
+
+    private var accentBar: some View {
+        RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .fill(accent)
+            .frame(width: 6, height: 34)
     }
 }
 
@@ -460,6 +720,7 @@ private struct BeltCarousel: View {
 
     let belts: [Belt]
     @Binding var selectedBelt: Belt
+    let isEnglish: Bool
     let hasContent: (Belt) -> Bool
     let onSelect: (Belt) -> Void
 
@@ -476,7 +737,8 @@ private struct BeltCarousel: View {
                             belt: b,
                             selectedBelt: $selectedBelt,
                             enabled: hasContent(b),
-                            midX: midX
+                            midX: midX,
+                            isEnglish: isEnglish
                         ) {
                             selectedBelt = b
                             scrollId = b
@@ -505,6 +767,7 @@ private struct BeltWheelItem: View {
     @Binding var selectedBelt: Belt
     let enabled: Bool
     let midX: CGFloat
+    let isEnglish: Bool
     let onTap: () -> Void
 
     private var isSelected: Bool { selectedBelt == belt }
@@ -538,10 +801,16 @@ private struct BeltWheelItem: View {
                     Circle()
                         .stroke(Color.black.opacity(0.18), lineWidth: 1)
 
-                    Text(beltShortHeb(belt))
-                        .font(isSelected ? .headline.weight(.heavy) : .subheadline.weight(.bold))
+                    Text(beltShortTitle(belt))
+                        .font(
+                            isEnglish
+                            ? (isSelected ? .subheadline.weight(.heavy) : .caption.weight(.bold))
+                            : (isSelected ? .headline.weight(.heavy) : .subheadline.weight(.bold))
+                        )
                         .foregroundStyle(textColor(for: belt))
-                        .padding(.horizontal, 8)
+                        .minimumScaleFactor(0.82)
+                        .lineLimit(1)
+                        .padding(.horizontal, 6)
                 }
                 .frame(width: 60, height: 60)
                 .opacity(enabled ? 1.0 : 0.30)
@@ -555,17 +824,31 @@ private struct BeltWheelItem: View {
         .frame(width: 64, height: 86) // ✅ רוחב קטן + גובה לקשת
     }
 
-    private func beltShortHeb(_ b: Belt) -> String {
-        // קצר כדי שייכנס לעיגול (אפשר לשנות)
+    private func beltShortTitle(_ b: Belt) -> String {
         switch b {
-        case .white: return "לבן"
-        case .yellow: return "צהוב"
-        case .orange: return "כתום"
-        case .green: return "ירוק"
-        case .blue: return "כחול"
-        case .brown: return "חום"
-        case .black: return "שחור"
-        default: return b.heb
+        case .white:
+            return isEnglish ? "WHT" : "לבן"
+
+        case .yellow:
+            return isEnglish ? "YLW" : "צהוב"
+
+        case .orange:
+            return isEnglish ? "ORG" : "כתום"
+
+        case .green:
+            return isEnglish ? "GRN" : "ירוק"
+
+        case .blue:
+            return isEnglish ? "BLU" : "כחול"
+
+        case .brown:
+            return isEnglish ? "BRN" : "חום"
+
+        case .black:
+            return isEnglish ? "BLK" : "שחור"
+
+        default:
+            return b.heb
         }
     }
 

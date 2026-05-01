@@ -61,20 +61,22 @@ struct KMI_iOSApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ZStack {
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.01, green: 0.05, blue: 0.14),
-                        Color(red: 0.07, green: 0.10, blue: 0.23),
-                        Color(red: 0.11, green: 0.33, blue: 0.80)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
+            KmiAppEntryRootView {
+                ZStack {
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.01, green: 0.05, blue: 0.14),
+                            Color(red: 0.07, green: 0.10, blue: 0.23),
+                            Color(red: 0.11, green: 0.33, blue: 0.80)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .ignoresSafeArea()
 
-                BirthdayGate {
-                    AuthGateView()
+                    BirthdayGate {
+                        AuthGateView()
+                    }
                 }
             }
         }

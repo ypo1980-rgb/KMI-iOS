@@ -5,6 +5,74 @@ import Shared
 struct BeltQuestionsByBeltView: View {
     
     let belt: Belt
+
+    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
+    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+
+    private var isEnglish: Bool {
+        let values = [
+            kmiAppLanguageCode.lowercased(),
+            appLanguageRaw.lowercased(),
+            initialLanguageCode.lowercased()
+        ]
+
+        return values.contains("en") || values.contains("english")
+    }
+
+    private var screenLayoutDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
+    private func uiTopicTitle(_ title: String) -> String {
+        KmiEnglishTitleTranslator.topicTitle(title, isEnglish: isEnglish)
+    }
+
+    private func uiExerciseTitle(_ title: String) -> String {
+        KmiEnglishTitleTranslator.exerciseTitle(title, isEnglish: isEnglish)
+    }
+
+    private func exercisesCountText(_ count: Int) -> String {
+        if isEnglish {
+            return count == 1 ? "1 exercise" : "\(count) exercises"
+        } else {
+            return count == 1 ? "תרגיל 1" : "\(count) תרגילים"
+        }
+    }
+
+    private func subTopicsAndExercisesText(subTopicsCount: Int, exercisesCount: Int) -> String {
+        if isEnglish {
+            let subText = subTopicsCount == 1 ? "1 sub-topic" : "\(subTopicsCount) sub-topics"
+            return "\(subText) • \(exercisesCountText(exercisesCount))"
+        } else {
+            return "\(subTopicsCount) תתי נושאים • \(exercisesCountText(exercisesCount))"
+        }
+    }
+
+    private func beltDisplayTitle(_ belt: Belt) -> String {
+        if !isEnglish {
+            return belt.heb
+        }
+
+        switch belt {
+        case .white:
+            return "White"
+        case .yellow:
+            return "Yellow"
+        case .orange:
+            return "Orange"
+        case .green:
+            return "Green"
+        case .blue:
+            return "Blue"
+        case .brown:
+            return "Brown"
+        case .black:
+            return "Black"
+        default:
+            return belt.heb
+        }
+    }
     
     @State private var selectedExerciseRoute: BeltTopicExerciseRoute? = nil
     @State private var selectedLinkedTopicRoute: LinkedTopicRoute? = nil
@@ -137,9 +205,12 @@ struct BeltQuestionsByBeltView: View {
             
             let subtitle: String? = {
                 if subCount > 0 {
-                    return "\(subCount) תתי נושאים • \(itemCount) תרגילים"
+                    return subTopicsAndExercisesText(
+                        subTopicsCount: subCount,
+                        exercisesCount: itemCount
+                    )
                 } else {
-                    return "\(itemCount) תרגילים"
+                    return exercisesCountText(itemCount)
                 }
             }()
             
@@ -289,7 +360,10 @@ struct BeltQuestionsByBeltView: View {
             
             BeltQuickMenuOverlay(
                 isPresented: $quickMenuOpen,
-                beltTitle: "\(selectedBelt.heb)\nחגורה",
+                isEnglish: isEnglish,
+                beltTitle: isEnglish
+                    ? "\(beltDisplayTitle(selectedBelt))\nBelt"
+                    : "\(selectedBelt.heb)\nחגורה",
                 beltFill: BeltPaletteByBeltScreen.color(for: selectedBelt),
                 onWeakPoints: {
                     print("🟣 QUICK TAP: weakPoints | belt =", selectedBelt.heb)
@@ -323,6 +397,7 @@ struct BeltQuestionsByBeltView: View {
             )
             .zIndex(1000)
         }
+        .environment(\.layoutDirection, screenLayoutDirection)
         .onAppear {
             guard !didInitializeSelectedBelt else { return }
 
@@ -419,8 +494,8 @@ struct BeltQuestionsByBeltView: View {
     private var byBeltContent: some View {
   VStack(spacing: 0) {
       SegmentedTabs(
-          leftTitle: "לפי נושא",
-          rightTitle: "לפי חגורה",
+          leftTitle: isEnglish ? "By Topic" : "לפי נושא",
+          rightTitle: isEnglish ? "By Belt" : "לפי חגורה",
           selected: (tab == .byTopic ? .left : .right),
           onSelect: { sel in
               if sel == .left {
@@ -438,7 +513,7 @@ struct BeltQuestionsByBeltView: View {
       GeometryReader { geo in
           WhiteCard {
               VStack(spacing: 12) {
-                  Text("נושאים בחגורה")
+                  Text(isEnglish ? "Belt Topics" : "נושאים בחגורה")
                       .font(.headline.weight(.bold))
                       .foregroundStyle(Color.black.opacity(0.85))
                       .frame(maxWidth: .infinity, alignment: .center)
@@ -483,18 +558,25 @@ struct BeltQuestionsByBeltView: View {
                                           Spacer(minLength: 0)
 
                                           VStack(alignment: .trailing, spacing: 4) {
-                                              Text(entry.title)
+                                              Text(uiTopicTitle(entry.title))
                                                   .font(.system(size: 18, weight: .heavy))
                                                   .foregroundStyle(Color.white)
-                                                  .frame(maxWidth: .infinity, alignment: .trailing)
-                                                  .multilineTextAlignment(.trailing)
+                                                  .frame(
+                                                      maxWidth: .infinity,
+                                                      alignment: isEnglish ? .leading : .trailing
+                                                  )
+                                                  .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                                            
 
                                               if let subtitle = entry.subtitle, !subtitle.isEmpty {
                                                   Text(subtitle)
                                                       .font(.system(size: 14, weight: .heavy))
                                                       .foregroundStyle(Color.white.opacity(0.92))
-                                                      .frame(maxWidth: .infinity, alignment: .trailing)
-                                                      .multilineTextAlignment(.trailing)
+                                                      .frame(
+                                                          maxWidth: .infinity,
+                                                          alignment: isEnglish ? .leading : .trailing
+                                                      )
+                                                      .multilineTextAlignment(isEnglish ? .leading : .trailing)
                                               }
                                           }
                                       }
@@ -519,17 +601,23 @@ struct BeltQuestionsByBeltView: View {
                                                   } label: {
                                                       HStack {
                                                           VStack(alignment: .trailing, spacing: 4) {
-                                                              Text(sub)
+                                                              Text(uiTopicTitle(sub))
                                                                   .font(.system(size: 16, weight: .heavy))
                                                                   .foregroundStyle(Color.white.opacity(0.98))
-                                                                  .frame(maxWidth: .infinity, alignment: .trailing)
-                                                                  .multilineTextAlignment(.trailing)
+                                                                  .frame(
+                                                                      maxWidth: .infinity,
+                                                                      alignment: isEnglish ? .leading : .trailing
+                                                                  )
+                                                                  .multilineTextAlignment(isEnglish ? .leading : .trailing)
 
-                                                              Text("\(itemCount) תרגילים")
+                                                              Text(exercisesCountText(itemCount))
                                                                   .font(.system(size: 13, weight: .heavy))
                                                                   .foregroundStyle(Color.white.opacity(0.88))
-                                                                  .frame(maxWidth: .infinity, alignment: .trailing)
-                                                                  .multilineTextAlignment(.trailing)
+                                                                  .frame(
+                                                                      maxWidth: .infinity,
+                                                                      alignment: isEnglish ? .leading : .trailing
+                                                                  )
+                                                                  .multilineTextAlignment(isEnglish ? .leading : .trailing)
                                                           }
 
                                                           Spacer(minLength: 0)
@@ -558,7 +646,7 @@ struct BeltQuestionsByBeltView: View {
                                                       )
                                                   } label: {
                                                       HStack {
-                                                          Text("כל הנושא")
+                                                          Text(isEnglish ? "Full topic" : "כל הנושא")
                                                               .font(.system(size: 16, weight: .heavy))
                                                               .foregroundStyle(Color.white.opacity(0.98))
 
@@ -680,6 +768,7 @@ private struct SubjectPill: View {
 private struct BeltQuickMenuOverlay: View {
     @Binding var isPresented: Bool
 
+    let isEnglish: Bool
     let beltTitle: String
     let beltFill: Color
 
@@ -736,15 +825,48 @@ private struct BeltQuickMenuOverlay: View {
                 if isOpen {
                     VStack(alignment: .leading, spacing: 12) {
 
-                        QuickPill(title: "נקודות תורפה", systemImage: "exclamationmark.triangle.fill", onTap: { closeThen(onWeakPoints) })
-                        QuickPill(title: "כל הרשימות", systemImage: "line.3.horizontal", onTap: { closeThen(onAllLists) })
-                        QuickPill(title: "תרגול", systemImage: "figure.walk", onTap: { closeThen(onPractice) })
-                        QuickPill(title: "מסך סיכום", systemImage: "list.bullet.clipboard", onTap: { closeThen(onSummary) })
-                        QuickPill(title: "עוזר קולי", systemImage: "mic.fill", onTap: { closeThen(onVoice) })
-                        QuickPill(title: "מבחן מסכם", systemImage: "checkmark.seal.fill", onTap: { closeThen(onFinalExam) })
+                        QuickPill(
+                            title: isEnglish ? "Weak Points" : "נקודות תורפה",
+                            systemImage: "exclamationmark.triangle.fill",
+                            onTap: { closeThen(onWeakPoints) }
+                        )
+
+                        QuickPill(
+                            title: isEnglish ? "All Lists" : "כל הרשימות",
+                            systemImage: "line.3.horizontal",
+                            onTap: { closeThen(onAllLists) }
+                        )
+
+                        QuickPill(
+                            title: isEnglish ? "Practice" : "תרגול",
+                            systemImage: "figure.walk",
+                            onTap: { closeThen(onPractice) }
+                        )
+
+                        QuickPill(
+                            title: isEnglish ? "Summary" : "מסך סיכום",
+                            systemImage: "list.bullet.clipboard",
+                            onTap: { closeThen(onSummary) }
+                        )
+
+                        QuickPill(
+                            title: isEnglish ? "Voice Assistant" : "עוזר קולי",
+                            systemImage: "mic.fill",
+                            onTap: { closeThen(onVoice) }
+                        )
+
+                        QuickPill(
+                            title: isEnglish ? "Final Exam" : "מבחן מסכם",
+                            systemImage: "checkmark.seal.fill",
+                            onTap: { closeThen(onFinalExam) }
+                        )
 
                         if let onInternalExam {
-                            QuickPill(title: "מבחן פנימי", systemImage: "person.badge.key.fill", onTap: { closeThen(onInternalExam) })
+                            QuickPill(
+                                title: isEnglish ? "Internal Exam" : "מבחן פנימי",
+                                systemImage: "person.badge.key.fill",
+                                onTap: { closeThen(onInternalExam) }
+                            )
                         }
                     }
                     .padding(.leading, 18)

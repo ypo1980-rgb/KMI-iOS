@@ -102,7 +102,13 @@ enum ExerciseTitlesEnAliases {
         "גלגול לגובה — ימין": "High Roll - Right",
         "גלגול לגובה — שמאל": "High Roll - Left",
         "גלגול ללא ידיים — ימין": "Forward Roll without Hands - Right",
-        "גלגול ללא ידיים — שמאל": "Forward Roll without Hands - Left"
+        "גלגול ללא ידיים — שמאל": "Forward Roll without Hands - Left",
+
+        // ---------------------------------------------------------
+        // Yellow belt - Android/iOS naming compatibility
+        // ---------------------------------------------------------
+
+        "בעיטה רגילה למפסעה": "Regular Kick to the Groin"
     ]
 
     static func title(for value: String) -> String {

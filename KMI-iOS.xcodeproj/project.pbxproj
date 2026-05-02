@@ -25,7 +25,6 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Assistant/AssistantTrainingDataSourceAdapter.swift,
-				Screens/Untitled.swift,
 			);
 			target = 7E6CF5202F3907D90061115C /* KMI-iOS */;
 		};

@@ -352,6 +352,10 @@ struct KmiSideDrawer: View {
                 onOpenPayments: {
                     showFormsPayments = false
                     onClose()
+
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
+                        AppNavModel.sharedInstance?.push(.membershipPayment)
+                    }
                 }
             )
             .presentationDetents([.medium])

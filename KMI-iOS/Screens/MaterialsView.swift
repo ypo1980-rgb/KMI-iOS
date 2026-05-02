@@ -193,6 +193,7 @@ struct MaterialsView: View {
         .environment(\.layoutDirection, screenLayoutDirection)
         .onAppear {
             loadState()
+            debugPrintCurrentMaterials()
         }
         .sheet(item: $selectedInfoRow) { row in
             MaterialsInfoSheet(
@@ -405,6 +406,30 @@ struct MaterialsView: View {
         }
 
         refreshToken = UUID()
+    }
+
+    private func debugPrintCurrentMaterials() {
+        #if DEBUG
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("📚 KMI_MATERIALS_DEBUG")
+        print("isEnglish =", isEnglish)
+        print("kmi_app_language =", kmiAppLanguageCode)
+        print("app_language =", appLanguageRaw)
+        print("initial_language_code =", initialLanguageCode)
+        print("selected_language_code =", selectedLanguageCode)
+        print("belt =", belt.id, "|", belt.heb)
+        print("topicTitle =", topicTitle)
+        print("subTopicTitle =", subTopicTitle ?? "nil")
+        print("rows.count =", rows.count)
+
+        for (index, row) in rows.enumerated() {
+            print("\(index + 1). raw =", row.rawItem)
+            print("   display =", row.displayName)
+            print("   id =", row.id)
+        }
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        #endif
     }
 
     private func speak(_ text: String) {

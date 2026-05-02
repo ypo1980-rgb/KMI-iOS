@@ -187,6 +187,10 @@ enum AppRoute: Hashable {
     case subscription
     case subscriptionPlans
 
+    // ✅ Payments
+    case membershipPayment
+    case paymentsReport
+
     case settings
     case exercisesMarks(belt: Belt, topic: String, subTopic: String?)
     // ⭐️ Admin
@@ -446,6 +450,58 @@ struct ContentView: View {
                                 },
                                 onOpenHome: {
                                     nav.popToRoot()
+                                }
+                            )
+                            .navigationBarBackButtonHidden(true)
+                        }
+
+                    // ✅ Membership payment
+                    case .membershipPayment:
+                        KmiRootLayout(title: "תשלום דמי חבר", nav: nav, selectedIcon: .home) {
+                            MembershipPaymentView(
+                                isEnglish: false,
+                                onClose: {
+                                    nav.pop()
+                                },
+                                onReadFullPolicy: {
+                                    // בשלב הבא נחבר למסך מדיניות מלא / מסמך מדיניות
+                                },
+                                onContinueToPayment: { formData in
+                                    #if DEBUG
+                                    print("💳 MEMBERSHIP_PAYMENT continue")
+                                    print("💳 trainee =", formData.traineeFirstName, formData.traineeLastName)
+                                    print("💳 branch =", formData.traineeBranch)
+                                    print("💳 payer =", formData.payerFirstName, formData.payerLastName)
+                                    print("💳 amount =", formData.amount)
+                                    #endif
+
+                                    // בשלב הבא נחבר לסליקה אמיתית / קישור תשלום / StoreKit / ספק סליקה
+                                }
+                            )
+                            .navigationBarBackButtonHidden(true)
+                        }
+
+                    // ✅ Payments report
+                    case .paymentsReport:
+                        KmiRootLayout(title: "דו״ח תשלומים", nav: nav, selectedIcon: .home) {
+                            PaymentsReportView(
+                                isEnglish: false,
+                                onClose: {
+                                    nav.pop()
+                                },
+                                onOpenTrainees: {
+                                    nav.push(.coachTrainees)
+                                },
+                                onSaveManualPayment: { traineeId, amount, method, notes in
+                                    #if DEBUG
+                                    print("💰 PAYMENTS_REPORT manual update")
+                                    print("💰 traineeId =", traineeId)
+                                    print("💰 amount =", amount)
+                                    print("💰 method =", method.rawValue)
+                                    print("💰 notes =", notes)
+                                    #endif
+
+                                    // בשלב הבא נחבר לשמירה אמיתית ב-Firebase / Firestore
                                 }
                             )
                             .navigationBarBackButtonHidden(true)

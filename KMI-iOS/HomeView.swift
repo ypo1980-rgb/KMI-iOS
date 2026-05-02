@@ -95,6 +95,14 @@ struct HomeView: View {
         resolvedUserRole == "coach"
     }
     
+    private var isAdminUser: Bool {
+        Auth.auth().currentUser?.email?.lowercased() == "ypo1980@gmail.com"
+    }
+    
+    private var canOpenPaymentsReport: Bool {
+        isCoachUser || isAdminUser
+    }
+    
     private var freeSessionsUid: String {
         Auth.auth().currentUser?.uid ?? "demo_ios"
     }
@@ -285,6 +293,42 @@ struct HomeView: View {
                         isEnglish: isEnglish
                     )
                     .padding(.horizontal, 18)
+                    
+                    Button {
+                        nav.push(.membershipPayment)
+                    } label: {
+                        HomePaymentActionCard(
+                            title: tr("תשלום דמי חבר", "Membership Payment"),
+                            subtitle: tr(
+                                "מעבר למסך תשלום דמי חבר לעמותה",
+                                "Open association membership payment"
+                            ),
+                            systemImage: "creditcard.fill",
+                            isEnglish: isEnglish,
+                            style: .blue
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 18)
+                    
+                    if canOpenPaymentsReport {
+                        Button {
+                            nav.push(.paymentsReport)
+                        } label: {
+                            HomePaymentActionCard(
+                                title: tr("דו״ח תשלומים", "Payments Report"),
+                                subtitle: tr(
+                                    "מעקב דמי חבר לפי מתאמנים וסניפים",
+                                    "Track membership payments by trainees and branches"
+                                ),
+                                systemImage: "chart.bar.doc.horizontal.fill",
+                                isEnglish: isEnglish,
+                                style: .coach
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 18)
+                    }
                     
                     Button {
                         let target = BeltFlow.nextBeltForUser(
@@ -867,6 +911,93 @@ private struct CoachMessagesCard: View {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .stroke(Color.white.opacity(0.18), lineWidth: 1)
         )
+    }
+}
+
+// MARK: - Home Payment Action Card
+private struct HomePaymentActionCard: View {
+    enum CardStyle {
+        case blue
+        case coach
+    }
+    
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let isEnglish: Bool
+    let style: CardStyle
+    
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+    
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+    
+    private var stackAlignment: HorizontalAlignment {
+        isEnglish ? .leading : .trailing
+    }
+    
+    private var gradientColors: [Color] {
+        switch style {
+        case .blue:
+            return [
+                Color(red: 0.20, green: 0.28, blue: 0.48),
+                Color(red: 0.12, green: 0.18, blue: 0.34)
+            ]
+        case .coach:
+            return [
+                Color(red: 0.45, green: 0.08, blue: 0.08),
+                Color(red: 0.24, green: 0.05, blue: 0.06)
+            ]
+        }
+    }
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 46, height: 46)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.white.opacity(0.12))
+                )
+            
+            VStack(alignment: stackAlignment, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
+                
+                Text(subtitle)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.70))
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
+            }
+            
+            Image(systemName: isEnglish ? "chevron.right" : "chevron.left")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.white.opacity(0.65))
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(
+            LinearGradient(
+                colors: gradientColors,
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.14), radius: 8, x: 0, y: 5)
     }
 }
 

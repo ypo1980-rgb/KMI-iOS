@@ -45,7 +45,7 @@ private struct ForumExerciseHit: Identifiable, Hashable {
     var displayName: String {
         item
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .ifEmpty("תרגיל")
+            .ifEmpty("Exercise")
     }
 }
 
@@ -74,6 +74,10 @@ private struct MovieFile: Transferable {
 struct ForumView: View {
 
     let onClose: () -> Void
+
+    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
+    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
 
     @State private var errorText: String? = nil
 
@@ -121,6 +125,44 @@ struct ForumView: View {
         endPoint: .bottom
     )
 
+    private var isEnglish: Bool {
+        let values = [
+            kmiAppLanguageCode.lowercased(),
+            appLanguageRaw.lowercased(),
+            initialLanguageCode.lowercased()
+        ]
+
+        return values.contains("en") || values.contains("english")
+    }
+
+    private var layoutDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var stackAlignment: HorizontalAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var backChevronName: String {
+        isEnglish ? "chevron.left" : "chevron.right"
+    }
+
+    private var forwardChevronName: String {
+        isEnglish ? "chevron.right" : "chevron.left"
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+    
     var body: some View {
         ZStack {
             gradient.ignoresSafeArea()
@@ -144,24 +186,26 @@ struct ForumView: View {
             ForumExerciseExplanationSheet(
                 hit: hit,
                 branch: branch,
-                groupKey: groupKey
+                groupKey: groupKey,
+                isEnglish: isEnglish
             )
         }
         .sheet(isPresented: $showParticipantsSheet) {
             participantsSheet
         }
 
-        #if canImport(FirebaseStorage)
-        .onChange(of: imagePickerItem) { _, newItem in
-            guard let newItem else { return }
-            Task { await loadPickedImage(newItem) }
-        }
-        .onChange(of: videoPickerItem) { _, newItem in
-            guard let newItem else { return }
-            Task { await loadPickedVideo(newItem) }
-        }
-        #endif
-    }
+#if canImport(FirebaseStorage)
+.onChange(of: imagePickerItem) { _, newItem in
+    guard let newItem else { return }
+    Task { await loadPickedImage(newItem) }
+}
+.onChange(of: videoPickerItem) { _, newItem in
+    guard let newItem else { return }
+    Task { await loadPickedVideo(newItem) }
+}
+#endif
+.environment(\.layoutDirection, layoutDirection)
+}
 
     // MARK: - UI
 
@@ -180,12 +224,12 @@ struct ForumView: View {
                         .foregroundStyle(Color.white.opacity(0.94))
                 }
 
-                Text("גישה לפורום")
+                Text(tr("גישה לפורום", "Forum Access"))
                     .font(.system(size: 24, weight: .heavy))
                     .foregroundStyle(Color.white)
                     .multilineTextAlignment(.center)
 
-                Text(lockText.isEmpty ? "מסך הפורום זמין למנויים בלבד." : lockText)
+                Text(lockText.isEmpty ? tr("מסך הפורום זמין למנויים בלבד.", "The forum is available to subscribers only.") : lockText)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Color.white.opacity(0.86))
                     .multilineTextAlignment(.center)
@@ -193,7 +237,7 @@ struct ForumView: View {
                     .padding(.horizontal, 8)
 
                 Button(action: onClose) {
-                    Text("סגור")
+                    Text(tr("סגור", "Close"))
                         .font(.system(size: 17, weight: .heavy))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
@@ -242,12 +286,12 @@ struct ForumView: View {
                         .foregroundStyle(Color.white.opacity(0.94))
                 }
 
-                Text("לא אותרו סניף או קבוצה")
+                Text(tr("לא אותרו סניף או קבוצה", "Branch or group not found"))
                     .font(.system(size: 24, weight: .heavy))
                     .foregroundStyle(Color.white)
                     .multilineTextAlignment(.center)
 
-                Text("ודאו שפרטי הסניף והקבוצה מוגדרים בפרופיל המשתמש.")
+                Text(tr("ודאו שפרטי הסניף והקבוצה מוגדרים בפרופיל המשתמש.", "Please make sure your branch and group are set in your profile."))
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Color.white.opacity(0.86))
                     .multilineTextAlignment(.center)
@@ -255,7 +299,7 @@ struct ForumView: View {
                     .padding(.horizontal, 8)
 
                 Button(action: onClose) {
-                    Text("סגור")
+                    Text(tr("סגור", "Close"))
                         .font(.system(size: 17, weight: .heavy))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
@@ -292,50 +336,35 @@ struct ForumView: View {
     private var chatView: some View {
         VStack(spacing: 10) {
 
-            VStack(alignment: .trailing, spacing: 8) {
+            VStack(alignment: stackAlignment, spacing: 8) {
                 HStack(spacing: 10) {
-                    Button(action: onClose) {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 16, weight: .heavy))
-                            .foregroundStyle(Color.white.opacity(0.92))
-                            .frame(width: 38, height: 38)
-                            .background(
-                                Circle()
-                                    .fill(Color.white.opacity(0.12))
-                            )
-                            .overlay(
-                                Circle()
-                                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                            )
+                    if isEnglish {
+                        Button(action: onClose) {
+                            forumCircleIcon(backChevronName)
+                        }
+                        .buttonStyle(.plain)
+
+                        VStack(alignment: stackAlignment, spacing: 3) {
+                            forumHeaderTexts
+                        }
+
+                        Spacer(minLength: 0)
+
+                        forumCircleIcon("bubble.left.and.bubble.right.fill")
+                    } else {
+                        forumCircleIcon("bubble.left.and.bubble.right.fill")
+
+                        Spacer(minLength: 0)
+
+                        VStack(alignment: stackAlignment, spacing: 3) {
+                            forumHeaderTexts
+                        }
+
+                        Button(action: onClose) {
+                            forumCircleIcon(backChevronName)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
-
-                    Spacer(minLength: 0)
-
-                    VStack(alignment: .trailing, spacing: 3) {
-                        Text("פורום הסניף")
-                            .font(.system(size: 20, weight: .heavy))
-                            .foregroundStyle(.white)
-
-                        Text("סניף: \(branch)  •  קבוצה: \(groupKey)")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Color.white.opacity(0.82))
-                            .multilineTextAlignment(.trailing)
-                            .lineLimit(2)
-                    }
-
-                    Image(systemName: "bubble.left.and.bubble.right.fill")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Color.white.opacity(0.92))
-                        .frame(width: 38, height: 38)
-                        .background(
-                            Circle()
-                                .fill(Color.white.opacity(0.12))
-                        )
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                        )
                 }
 
                 Rectangle()
@@ -403,7 +432,11 @@ if attachedMediaType != nil {
 
         Spacer(minLength: 0)
 
-        Text(attachedMediaType == "image" ? "תמונה מצורפת לשליחה" : "סרטון מצורף לשליחה")
+        Text(
+            attachedMediaType == "image"
+            ? tr("תמונה מצורפת לשליחה", "Image attached")
+            : tr("סרטון מצורף לשליחה", "Video attached")
+        )
             .font(.footnote.weight(.bold))
             .foregroundStyle(Color.white.opacity(0.90))
             .lineLimit(1)
@@ -432,6 +465,42 @@ if attachedMediaType != nil {
         }
     }
 
+    private var forumHeaderTexts: some View {
+        VStack(alignment: stackAlignment, spacing: 3) {
+            Text(tr("פורום הסניף", "Branch Forum"))
+                .font(.system(size: 20, weight: .heavy))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .multilineTextAlignment(textAlignment)
+
+            Text(
+                isEnglish
+                ? "Branch: \(branch)  •  Group: \(groupKey)"
+                : "סניף: \(branch)  •  קבוצה: \(groupKey)"
+            )
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(Color.white.opacity(0.82))
+            .frame(maxWidth: .infinity, alignment: frameAlignment)
+            .multilineTextAlignment(textAlignment)
+            .lineLimit(2)
+        }
+    }
+
+    private func forumCircleIcon(_ systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 16, weight: .heavy))
+            .foregroundStyle(Color.white.opacity(0.92))
+            .frame(width: 38, height: 38)
+            .background(
+                Circle()
+                    .fill(Color.white.opacity(0.12))
+            )
+            .overlay(
+                Circle()
+                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            )
+    }
+    
     private var forumParticipants: [ForumParticipantUi] {
         let grouped = Dictionary(grouping: messages) { msg in
             msg.authorUid ??
@@ -458,7 +527,7 @@ if attachedMediaType != nil {
             let currentName = fullName
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .ifEmpty(email)
-                .ifEmpty("אני")
+                .ifEmpty(tr("אני", "Me"))
 
             participants.append(
                 ForumParticipantUi(
@@ -484,13 +553,13 @@ if attachedMediaType != nil {
             showParticipantsSheet = true
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: "chevron.left")
+                Image(systemName: forwardChevronName)
                     .font(.caption.weight(.heavy))
                     .foregroundStyle(Color.white.opacity(0.72))
 
                 Spacer(minLength: 0)
 
-                Text("משתתפים בפורום (\(forumParticipants.count))")
+                Text(isEnglish ? "Forum participants (\(forumParticipants.count))" : "משתתפים בפורום (\(forumParticipants.count))")
                     .font(.footnote.weight(.bold))
                     .foregroundStyle(Color.white.opacity(0.92))
                     .lineLimit(1)
@@ -520,7 +589,7 @@ if attachedMediaType != nil {
                 ForEach(forumParticipants) { participant in
                     HStack(spacing: 12) {
                         if participant.isMe {
-                            Text("אני")
+                            Text(tr("אני", "Me"))
                                 .font(.caption.weight(.bold))
                                 .foregroundStyle(Color.blue)
                                 .padding(.horizontal, 8)
@@ -535,7 +604,7 @@ if attachedMediaType != nil {
 
                         Text(participant.name)
                             .font(.body.weight(.semibold))
-                            .multilineTextAlignment(.trailing)
+                            .multilineTextAlignment(textAlignment)
                             .frame(maxWidth: .infinity, alignment: .trailing)
 
                         Circle()
@@ -552,11 +621,11 @@ if attachedMediaType != nil {
                 }
             }
             .listStyle(.plain)
-            .navigationTitle("משתתפים בפורום (\(forumParticipants.count))")
+            .navigationTitle(isEnglish ? "Forum participants (\(forumParticipants.count))" : "משתתפים בפורום (\(forumParticipants.count))")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("סגור") {
+                    Button(tr("סגור", "Close")) {
                         showParticipantsSheet = false
                     }
                 }
@@ -571,12 +640,18 @@ if attachedMediaType != nil {
 
         let bubbleShape = RoundedRectangle(cornerRadius: 18, style: .continuous)
 
+        let mineAlignment: Alignment = isEnglish ? .trailing : .leading
+        let otherAlignment: Alignment = isEnglish ? .leading : .trailing
+        let bubbleAlignment: Alignment = msg.isMine ? mineAlignment : otherAlignment
+        let innerAlignment: HorizontalAlignment = isEnglish ? .leading : .trailing
+        let innerTextAlignment: TextAlignment = isEnglish ? .leading : .trailing
+
         return HStack(alignment: .bottom, spacing: 0) {
-            if msg.isMine {
+            if msg.isMine == isEnglish {
                 Spacer(minLength: 42)
             }
 
-            VStack(alignment: .trailing, spacing: 6) {
+            VStack(alignment: innerAlignment, spacing: 6) {
 
                 HStack(alignment: .top, spacing: 8) {
                     if msg.isMine {
@@ -590,13 +665,13 @@ if attachedMediaType != nil {
                                 clearAttachment()
                                 #endif
                             } label: {
-                                Label("ערוך", systemImage: "pencil")
+                                Label(tr("ערוך", "Edit"), systemImage: "pencil")
                             }
 
                             Button(role: .destructive) {
                                 Task { await deleteMessage(msg) }
                             } label: {
-                                Label("מחק", systemImage: "trash")
+                                Label(tr("מחק", "Delete"), systemImage: "trash")
                             }
                         } label: {
                             Image(systemName: "ellipsis")
@@ -613,15 +688,19 @@ if attachedMediaType != nil {
 
                     Spacer(minLength: 0)
 
-                    VStack(alignment: .trailing, spacing: 2) {
+                    VStack(alignment: innerAlignment, spacing: 2) {
                         Text(msg.authorName.isEmpty ? msg.authorEmail : msg.authorName)
                             .font(.caption.weight(.bold))
                             .foregroundStyle(Color.white.opacity(0.92))
                             .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: bubbleAlignment)
+                            .multilineTextAlignment(innerTextAlignment)
 
                         Text(formatDate(msg.createdAt))
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(Color.white.opacity(0.66))
+                            .frame(maxWidth: .infinity, alignment: bubbleAlignment)
+                            .multilineTextAlignment(innerTextAlignment)
                     }
                 }
 
@@ -629,8 +708,8 @@ if attachedMediaType != nil {
                     Text(msg.text)
                         .font(.system(size: 16, weight: .regular))
                         .foregroundStyle(.white)
-                        .multilineTextAlignment(.trailing)
-                        .frame(maxWidth: 260, alignment: .trailing)
+                        .multilineTextAlignment(innerTextAlignment)
+                        .frame(maxWidth: 260, alignment: bubbleAlignment)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -654,7 +733,7 @@ if attachedMediaType != nil {
                                     .clipped()
 
                             default:
-                                Text("שגיאה בטעינת תמונה")
+                                Text(tr("שגיאה בטעינת תמונה", "Failed to load image"))
                                     .font(.footnote.weight(.semibold))
                                     .foregroundStyle(Color.white.opacity(0.85))
                                     .frame(width: 260, height: 120)
@@ -671,17 +750,17 @@ if attachedMediaType != nil {
                                     .font(.system(size: 18, weight: .bold))
 
                                 VStack(alignment: .trailing, spacing: 2) {
-                                    Text("סרטון מצורף")
+                                    Text(tr("סרטון מצורף", "Attached video"))
                                         .font(.system(size: 15, weight: .heavy))
 
-                                    Text("לחיצה לפתיחה בנגן")
+                                    Text(tr("לחיצה לפתיחה בנגן", "Tap to open in player"))
                                         .font(.caption.weight(.semibold))
                                         .foregroundStyle(Color.white.opacity(0.72))
                                 }
 
                                 Spacer(minLength: 0)
 
-                                Image(systemName: "chevron.left")
+                                Image(systemName: forwardChevronName)
                                     .font(.caption.weight(.bold))
                             }
                             .foregroundStyle(.white)
@@ -707,11 +786,11 @@ if attachedMediaType != nil {
             )
             .shadow(color: Color.black.opacity(0.12), radius: 4, x: 0, y: 2)
 
-            if !msg.isMine {
+            if msg.isMine != isEnglish {
                 Spacer(minLength: 42)
             }
         }
-        .frame(maxWidth: .infinity, alignment: msg.isMine ? .trailing : .leading)
+        .frame(maxWidth: .infinity, alignment: bubbleAlignment)
     }
 
     private var composer: some View {
@@ -747,7 +826,7 @@ if attachedMediaType != nil {
                 }
                 #endif
 
-                ZStack(alignment: .topTrailing) {
+                ZStack(alignment: isEnglish ? .topLeading : .topTrailing) {
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
                         .fill(Color.black.opacity(0.28))
                         .overlay(
@@ -762,13 +841,13 @@ if attachedMediaType != nil {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .frame(minHeight: 46, maxHeight: 112)
-                        .multilineTextAlignment(.trailing)
+                        .multilineTextAlignment(textAlignment)
 
                     if currentComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(editingMessageId == nil ? "כתוב הודעה..." : "עריכת הודעה...")
+                        Text(editingMessageId == nil ? tr("כתוב הודעה...", "Write a message...") : tr("עריכת הודעה...", "Editing message..."))
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(Color.white.opacity(0.52))
-                            .padding(.trailing, 14)
+                            .padding(isEnglish ? .leading : .trailing, 14)
                             .padding(.top, 14)
                             .allowsHitTesting(false)
                     }
@@ -801,7 +880,7 @@ if attachedMediaType != nil {
                         editingMessageId = nil
                         editText = ""
                     } label: {
-                        Text("ביטול עריכה")
+                        Text(tr("ביטול עריכה", "Cancel edit"))
                             .font(.footnote.weight(.bold))
                             .foregroundStyle(Color.white.opacity(0.92))
                     }
@@ -809,7 +888,7 @@ if attachedMediaType != nil {
 
                     Spacer()
 
-                    Text("מצב עריכת הודעה")
+                    Text(tr("מצב עריכת הודעה", "Editing message"))
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Color.white.opacity(0.76))
                 }
@@ -820,8 +899,8 @@ if attachedMediaType != nil {
                 Text(err)
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(Color(red: 1.0, green: 0.45, blue: 0.45))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
             }
         }
     }
@@ -869,7 +948,7 @@ if attachedMediaType != nil {
         email = ud.string(forKey: "email") ?? ""
 
         guard Auth.auth().currentUser != nil else {
-            lockText = "יש להתחבר לאפליקציה כדי להשתמש בפורום הסניף."
+            lockText = tr("יש להתחבר לאפליקציה כדי להשתמש בפורום הסניף.", "Please sign in to use the branch forum.")
             return
         }
 
@@ -883,10 +962,30 @@ if attachedMediaType != nil {
         guard let uid = Auth.auth().currentUser?.uid else {
             await MainActor.run {
                 canUseExtras = false
-                lockText = "יש להתחבר לאפליקציה כדי להשתמש בפורום הסניף."
+                lockText = tr("יש להתחבר לאפליקציה כדי להשתמש בפורום הסניף.", "Please sign in to use the branch forum.")
             }
             return
         }
+
+        let defaults = UserDefaults.standard
+
+        let localBranch =
+            (
+                defaults.string(forKey: "active_branch") ??
+                defaults.string(forKey: "branch") ??
+                defaults.string(forKey: "kmi.user.branch") ??
+                ""
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let localGroup =
+            (
+                defaults.string(forKey: "active_group") ??
+                defaults.string(forKey: "group") ??
+                defaults.string(forKey: "kmi.user.group") ??
+                ""
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
         do {
             let snap = try await db.collection("users")
@@ -900,17 +999,19 @@ if attachedMediaType != nil {
                     .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                     .filter { !$0.isEmpty } ?? []
 
-            let branchVal =
+            let firestoreBranch =
                 branchesArray.first ??
                 ((data["branch"] as? String) ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let branchVal = firestoreBranch.isEmpty ? localBranch : firestoreBranch
 
             let groupsArray =
                 (data["groups"] as? [String])?
                     .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                     .filter { !$0.isEmpty } ?? []
 
-            let groupVal =
+            let firestoreGroup =
                 ((data["groupKey"] as? String) ??
                  (data["age_group"] as? String) ??
                  (data["ageGroup"] as? String) ??
@@ -918,6 +1019,8 @@ if attachedMediaType != nil {
                  groupsArray.first ??
                  "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let groupVal = firestoreGroup.isEmpty ? localGroup : firestoreGroup
 
             let nameVal =
                 ((data["fullName"] as? String) ??
@@ -944,7 +1047,10 @@ if attachedMediaType != nil {
                 canUseExtras = hasBranchAndGroup
 
                 if !hasBranchAndGroup {
-                    lockText = "לא אותרו סניף או קבוצה במשתמש.\nיש להשלים את פרטי הסניף והקבוצה כדי להשתמש בפורום."
+                    lockText = tr(
+                        "לא אותרו סניף או קבוצה במשתמש.\nיש להשלים את פרטי הסניף והקבוצה כדי להשתמש בפורום.",
+                        "No branch or group was found for this user.\nPlease complete your branch and group details to use the forum."
+                    )
                     stopListener()
                     return
                 }
@@ -956,8 +1062,8 @@ if attachedMediaType != nil {
         } catch {
             await MainActor.run {
                 canUseExtras = false
-                lockText = "שגיאה בטעינת פרטי המשתמש."
-                errorText = "שגיאה בטעינת פרטי משתמש: \(error.localizedDescription)"
+                lockText = tr("שגיאה בטעינת פרטי המשתמש.", "Failed to load user details.")
+                errorText = tr("שגיאה בטעינת פרטי משתמש: \(error.localizedDescription)", "Failed to load user details: \(error.localizedDescription)")
                 stopListener()
             }
         }
@@ -971,16 +1077,24 @@ if attachedMediaType != nil {
     private func startListener() {
         stopListener()
 
-        guard !branch.isEmpty else { return }
+        guard !branch.isEmpty, !groupKey.isEmpty else { return }
 
         let query = db.collection("branches")
             .document(branch)
             .collection("messages")
+            .whereField("groupKey", isEqualTo: groupKey)
             .order(by: "createdAt", descending: false)
 
         listener = query.addSnapshotListener { snap, err in
             if let err {
-                errorText = "שגיאה בטעינת הודעות: \(err.localizedDescription)"
+                errorText = tr("שגיאה בטעינת הודעות: \(err.localizedDescription)", "Failed to load messages: \(err.localizedDescription)")
+
+                #if DEBUG
+                print("🟣 FORUM listener error =", err.localizedDescription)
+                print("🟣 FORUM branch =", branch)
+                print("🟣 FORUM groupKey =", groupKey)
+                #endif
+
                 return
             }
 
@@ -1097,7 +1211,7 @@ if attachedMediaType != nil {
 
         } catch {
             await MainActor.run {
-                errorText = "שגיאה בשמירה: \(error.localizedDescription)"
+                errorText = tr("שגיאה בשמירה: \(error.localizedDescription)", "Failed to save: \(error.localizedDescription)")
             }
         }
     }
@@ -1112,7 +1226,7 @@ if attachedMediaType != nil {
                 .delete()
         } catch {
             await MainActor.run {
-                errorText = "שגיאה במחיקה: \(error.localizedDescription)"
+                errorText = tr("שגיאה במחיקה: \(error.localizedDescription)", "Failed to delete: \(error.localizedDescription)")
             }
         }
     }
@@ -1156,7 +1270,12 @@ if attachedMediaType != nil {
                 }
             }
         } catch {
-            await MainActor.run { errorText = "שגיאה בטעינת תמונה: \(error.localizedDescription)" }
+            await MainActor.run {
+                errorText = tr(
+                    "שגיאה בטעינת תמונה: \(error.localizedDescription)",
+                    "Failed to load image: \(error.localizedDescription)"
+                )
+            }
         }
     }
 
@@ -1170,7 +1289,12 @@ if attachedMediaType != nil {
                 }
             }
         } catch {
-            await MainActor.run { errorText = "שגיאה בטעינת וידאו: \(error.localizedDescription)" }
+            await MainActor.run {
+                errorText = tr(
+                    "שגיאה בטעינת וידאו: \(error.localizedDescription)",
+                    "Failed to load video: \(error.localizedDescription)"
+                )
+            }
         }
     }
 
@@ -1219,8 +1343,8 @@ if attachedMediaType != nil {
 
     private func formatDate(_ d: Date) -> String {
         let df = DateFormatter()
-        df.locale = Locale(identifier: "he_IL")
-        df.dateFormat = "dd/MM HH:mm"
+        df.locale = Locale(identifier: isEnglish ? "en_US_POSIX" : "he_IL")
+        df.dateFormat = isEnglish ? "MM/dd HH:mm" : "dd/MM HH:mm"
         return df.string(from: d)
     }
 }
@@ -1232,6 +1356,23 @@ private struct ForumExerciseExplanationSheet: View {
     let hit: ForumExerciseHit
     let branch: String
     let groupKey: String
+    let isEnglish: Bool
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var stackAlignment: HorizontalAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
 
     @Environment(\.dismiss) private var dismiss
 
@@ -1266,25 +1407,25 @@ private struct ForumExerciseExplanationSheet: View {
                     if isLoading {
                         VStack(spacing: 12) {
                             ProgressView()
-                            Text("טוען הסבר...")
+                            Text(tr("טוען הסבר...", "Loading explanation..."))
                                 .font(.footnote.weight(.semibold))
                                 .foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         ScrollView {
-                            VStack(alignment: .trailing, spacing: 14) {
-                                VStack(alignment: .trailing, spacing: 10) {
-                                    Text("הסבר")
+                            VStack(alignment: stackAlignment, spacing: 14) {
+                                VStack(alignment: stackAlignment, spacing: 10) {
+                                    Text(tr("הסבר", "Explanation"))
                                         .font(.system(size: 18, weight: .heavy))
                                         .foregroundStyle(Color.black.opacity(0.82))
-                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                                        .frame(maxWidth: .infinity, alignment: frameAlignment)
 
-                                    Text(explanationText.isEmpty ? "אין כרגע הסבר לתרגיל הזה." : explanationText)
+                                    Text(explanationText.isEmpty ? tr("אין כרגע הסבר לתרגיל הזה.", "There is no explanation for this exercise yet.") : explanationText)
                                         .font(.system(size: 16, weight: .semibold))
                                         .foregroundStyle(Color.black.opacity(0.78))
-                                        .frame(maxWidth: .infinity, alignment: .trailing)
-                                        .multilineTextAlignment(.trailing)
+                                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                                        .multilineTextAlignment(textAlignment)
                                         .lineSpacing(5)
                                 }
                                 .padding(16)
@@ -1302,7 +1443,7 @@ private struct ForumExerciseExplanationSheet: View {
                                         .font(.footnote.weight(.semibold))
                                         .foregroundStyle(.red)
                                         .frame(maxWidth: .infinity, alignment: .trailing)
-                                        .multilineTextAlignment(.trailing)
+                                        .multilineTextAlignment(textAlignment)
                                 }
 
                                 infoCard
@@ -1315,7 +1456,7 @@ private struct ForumExerciseExplanationSheet: View {
                     Button {
                         dismiss()
                     } label: {
-                        Text("סגור")
+                        Text(tr("סגור", "Close"))
                             .font(.system(size: 17, weight: .heavy))
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
@@ -1384,17 +1525,19 @@ private struct ForumExerciseExplanationSheet: View {
 
             Spacer(minLength: 0)
 
-            VStack(alignment: .trailing, spacing: 4) {
+            VStack(alignment: stackAlignment, spacing: 4) {
                 Text(hit.displayName)
                     .font(.system(size: 22, weight: .heavy))
                     .foregroundStyle(Color.black.opacity(0.88))
-                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
                     .lineLimit(2)
 
-                Text("\(hit.belt.heb)\(hit.topic.isEmpty ? "" : " · \(hit.topic)")")
+                Text("\(isEnglish ? hit.belt.id.capitalized : hit.belt.heb)\(hit.topic.isEmpty ? "" : " · \(hit.topic)")")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color.black.opacity(0.52))
-                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
                     .lineLimit(2)
             }
         }
@@ -1413,37 +1556,56 @@ private struct ForumExerciseExplanationSheet: View {
     }
 
     private var infoCard: some View {
-        VStack(alignment: .trailing, spacing: 8) {
+        VStack(alignment: stackAlignment, spacing: 8) {
             HStack(spacing: 8) {
-                Spacer(minLength: 0)
+                if !isEnglish {
+                    Spacer(minLength: 0)
+                }
 
-                Text("מסך אמת")
+                Text(tr("מסך אמת", "Live Screen"))
                     .font(.footnote.weight(.heavy))
                     .foregroundStyle(Color.black.opacity(0.76))
 
                 Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(Color.green.opacity(0.85))
+
+                if isEnglish {
+                    Spacer(minLength: 0)
+                }
             }
 
-            Text(explanationSourceText.isEmpty
-                 ? "ההסבר מוצג מתוך נתוני האפליקציה."
-                 : "מקור ההסבר: \(explanationSourceText)")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Color.black.opacity(0.55))
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .multilineTextAlignment(.trailing)
+            Text(
+                explanationSourceText.isEmpty
+                ? tr(
+                    "ההסבר מוצג מתוך נתוני האפליקציה.",
+                    "The explanation is shown from the app data."
+                )
+                : (
+                    isEnglish
+                    ? "Explanation source: \(explanationSourceText)"
+                    : "מקור ההסבר: \(explanationSourceText)"
+                )
+            )
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(Color.black.opacity(0.55))
+            .frame(maxWidth: .infinity, alignment: frameAlignment)
+            .multilineTextAlignment(textAlignment)
 
             if !branch.isEmpty || !groupKey.isEmpty {
-                Text("פורום: \(branch) / \(groupKey)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.black.opacity(0.46))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .multilineTextAlignment(.trailing)
+                Text(
+                    isEnglish
+                    ? "Forum: \(branch) / \(groupKey)"
+                    : "פורום: \(branch) / \(groupKey)"
+                )
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.black.opacity(0.46))
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .multilineTextAlignment(textAlignment)
             }
         }
         .padding(14)
-        .frame(maxWidth: .infinity, alignment: .trailing)
+        .frame(maxWidth: .infinity, alignment: frameAlignment)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(Color.white.opacity(0.92))
@@ -1458,7 +1620,7 @@ private struct ForumExerciseExplanationSheet: View {
         NavigationStack {
             VStack(spacing: 16) {
                 VStack(alignment: .trailing, spacing: 8) {
-                    Text("עריכת הסבר")
+                    Text(tr("עריכת הסבר", "Edit Explanation"))
                         .font(.system(size: 22, weight: .heavy))
                         .foregroundStyle(Color.black.opacity(0.86))
                         .frame(maxWidth: .infinity, alignment: .trailing)
@@ -1488,14 +1650,14 @@ private struct ForumExerciseExplanationSheet: View {
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.red)
                         .frame(maxWidth: .infinity, alignment: .trailing)
-                        .multilineTextAlignment(.trailing)
+                        .multilineTextAlignment(textAlignment)
                 }
 
                 HStack(spacing: 12) {
                     Button {
                         showEditor = false
                     } label: {
-                        Text("בטל")
+                        Text(tr("בטל", "Cancel"))
                             .font(.system(size: 16, weight: .heavy))
                             .foregroundStyle(Color.black.opacity(0.72))
                             .frame(maxWidth: .infinity)
@@ -1510,7 +1672,7 @@ private struct ForumExerciseExplanationSheet: View {
                     Button {
                         Task { await saveExplanation() }
                     } label: {
-                        Text("שמור")
+                        Text(tr("שמור", "Save"))
                             .font(.system(size: 16, weight: .heavy))
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
@@ -1572,7 +1734,10 @@ private struct ForumExerciseExplanationSheet: View {
 
             explanationText = sharedText
             explanationSourceText = "Shared Explanations"
-            errorText = "Firestore לא החזיר הסבר, מוצג הסבר מקומי מהאפליקציה."
+            errorText = tr(
+                "Firestore לא החזיר הסבר, מוצג הסבר מקומי מהאפליקציה.",
+                "Firestore did not return an explanation, showing a local app explanation."
+            )
         }
 
         isLoading = false
@@ -1633,7 +1798,7 @@ private struct ForumExerciseExplanationSheet: View {
             }
         }
 
-        return "אין כרגע הסבר לתרגיל הזה."
+        return tr("אין כרגע הסבר לתרגיל הזה.", "There is no explanation for this exercise yet.")
     }
 
     private func cleanExplanationKey(_ raw: String) -> String {
@@ -1692,7 +1857,10 @@ private struct ForumExerciseExplanationSheet: View {
             explanationText = trimmed
             showEditor = false
         } catch {
-            errorText = "שגיאה בשמירת הסבר: \(error.localizedDescription)"
+            errorText = tr(
+                "שגיאה בשמירת הסבר: \(error.localizedDescription)",
+                "Failed to save explanation: \(error.localizedDescription)"
+            )
         }
     }
 

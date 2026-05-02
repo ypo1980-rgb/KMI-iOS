@@ -183,12 +183,14 @@ enum AppRoute: Hashable {
     case aboutItzik
     case aboutAvi
     case forum
+    case editProfile
 
     case subscription
     case subscriptionPlans
 
     // ✅ Payments
     case membershipPayment
+    case membershipCheckout(formData: MembershipPaymentFormData)
     case paymentsReport
 
     case settings
@@ -297,6 +299,119 @@ struct ContentView: View {
         return clean.isEmpty ? "default_group" : clean
     }
 
+    private var membershipPaymentPrefill: MembershipPaymentPrefill {
+        let defaults = UserDefaults.standard
+        let firebaseUser = Auth.auth().currentUser
+
+        let displayName = (firebaseUser?.displayName ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let storedFullName = (defaults.string(forKey: "fullName") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let authFullName = auth.userFullName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let resolvedFullName: String = {
+            if !authFullName.isEmpty { return authFullName }
+            if !storedFullName.isEmpty { return storedFullName }
+            if !displayName.isEmpty { return displayName }
+            return ""
+        }()
+
+        let splitName = splitFullNameForPayment(resolvedFullName)
+
+        let email = (firebaseUser?.email ?? defaults.string(forKey: "email") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let phone = firstExistingDefaultValue([
+            "phone",
+            "phoneNumber",
+            "mobilePhone",
+            "user_phone",
+            "traineePhone"
+        ])
+
+        let idNumber = firstExistingDefaultValue([
+            "idNumber",
+            "id_number",
+            "traineeIdNumber",
+            "tz",
+            "user_id_number"
+        ])
+
+        let birthDate = firstExistingDefaultValue([
+            "birthDate",
+            "birth_date",
+            "traineeBirthDate",
+            "dateOfBirth",
+            "dob"
+        ])
+
+        let authBranch = auth.userBranch
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let storedActiveBranch = (defaults.string(forKey: "active_branch") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let storedBranch = (defaults.string(forKey: "branch") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let resolvedBranch: String = {
+            if !authBranch.isEmpty { return authBranch }
+            if !storedActiveBranch.isEmpty { return storedActiveBranch }
+            if !storedBranch.isEmpty { return storedBranch }
+            return ""
+        }()
+
+        return MembershipPaymentPrefill(
+            traineeFirstName: splitName.firstName,
+            traineeLastName: splitName.lastName,
+            traineeIdNumber: idNumber,
+            traineeBirthDate: birthDate,
+            traineeEmail: email,
+            traineePhone: phone,
+            traineeBranch: resolvedBranch,
+            traineeOtherBranch: "",
+            payerFirstName: splitName.firstName,
+            payerLastName: splitName.lastName,
+            payerEmail: email,
+            payerPhone: phone
+        )
+    }
+
+    private func firstExistingDefaultValue(_ keys: [String]) -> String {
+        for key in keys {
+            let value = (UserDefaults.standard.string(forKey: key) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !value.isEmpty {
+                return value
+            }
+        }
+
+        return ""
+    }
+
+    private func splitFullNameForPayment(_ fullName: String) -> (firstName: String, lastName: String) {
+        let parts = fullName
+            .split(separator: " ")
+            .map(String.init)
+
+        guard !parts.isEmpty else {
+            return ("", "")
+        }
+
+        if parts.count == 1 {
+            return (parts[0], "")
+        }
+
+        let firstName = parts.first ?? ""
+        let lastName = parts.dropFirst().joined(separator: " ")
+
+        return (firstName, lastName)
+    }
+
     var body: some View {
         DeviceGateRootView {
             NavigationStack(path: $nav.path) {
@@ -379,6 +494,79 @@ struct ContentView: View {
                                 .navigationBarBackButtonHidden(true)
                         }
 
+                    case .editProfile:
+                        KmiRootLayout(
+                            title: "עריכת פרופיל",
+                            nav: nav,
+                            selectedIcon: .settings,
+                            onPickSearchResult: { key in
+                                NotificationCenter.default.post(
+                                    name: Notification.Name("KMI_GLOBAL_SEARCH_PICK"),
+                                    object: key
+                                )
+                            }
+                        ) {
+                            RegisterFormView(
+                                prefillPhone: firstExistingDefaultValue([
+                                    "phone",
+                                    "phoneNumber",
+                                    "mobilePhone",
+                                    "user_phone",
+                                    "traineePhone"
+                                ]),
+                                prefillEmail: (
+                                    Auth.auth().currentUser?.email ??
+                                    UserDefaults.standard.string(forKey: "email") ??
+                                    ""
+                                ),
+                                initialRole: isCoachUser ? .coach : .trainee,
+                                screenTitle: "עריכת פרופיל",
+                                submitTitle: "שמירת שינויים",
+                                submittingTitle: "שומר שינויים...",
+                                onBack: {
+                                    nav.pop()
+                                },
+                                onSubmit: { formState in
+                                    #if DEBUG
+                                    print("✏️ EDIT_PROFILE submit")
+                                    print("✏️ fullName =", formState.fullName)
+                                    print("✏️ phone =", formState.phone)
+                                    print("✏️ email =", formState.email)
+                                    print("✏️ region =", formState.region)
+                                    print("✏️ branches =", Array(formState.branches))
+                                    print("✏️ groups =", Array(formState.groups))
+                                    #endif
+
+                                    let defaults = UserDefaults.standard
+
+                                    defaults.set(formState.fullName, forKey: "fullName")
+                                    defaults.set(formState.phone, forKey: "phone")
+                                    defaults.set(formState.email, forKey: "email")
+                                    defaults.set(formState.region, forKey: "region")
+                                    defaults.set(Array(formState.branches), forKey: "branches")
+                                    defaults.set(Array(formState.groups), forKey: "groups")
+                                    defaults.set(formState.activeBranch, forKey: "active_branch")
+                                    defaults.set(formState.activeGroup, forKey: "active_group")
+                                    defaults.set(formState.username, forKey: "username")
+                                    defaults.set(formState.gender, forKey: "gender")
+                                    defaults.set(formState.birthDay, forKey: "birthDay")
+                                    defaults.set(formState.birthMonth, forKey: "birthMonth")
+                                    defaults.set(formState.birthYear, forKey: "birthYear")
+                                    defaults.set(formState.belt, forKey: "current_belt")
+                                    defaults.set(formState.wantsSms, forKey: "wantsSms")
+                                    defaults.set(formState.acceptsTerms, forKey: "acceptsTerms")
+                                    defaults.synchronize()
+
+                                    auth.reloadProfileIfSignedIn()
+                                    nav.pop()
+                                },
+                                onReadMoreTerms: {
+                                    // אפשר לחבר בהמשך למסך תנאי שימוש / מדיניות פרטיות
+                                }
+                            )
+                            .navigationBarBackButtonHidden(true)
+                        }
+
                 // ✅ תרגילים לפי חגורה
                 case .beltQuestionsByBelt(let belt):
                     KmiRootLayout(title: "תרגילים לפי חגורה", nav: nav, selectedIcon: .home) {
@@ -455,32 +643,61 @@ struct ContentView: View {
                             .navigationBarBackButtonHidden(true)
                         }
 
-                    // ✅ Membership payment
-                    case .membershipPayment:
-                        KmiRootLayout(title: "תשלום דמי חבר", nav: nav, selectedIcon: .home) {
-                            MembershipPaymentView(
-                                isEnglish: false,
-                                onClose: {
-                                    nav.pop()
-                                },
-                                onReadFullPolicy: {
-                                    // בשלב הבא נחבר למסך מדיניות מלא / מסמך מדיניות
-                                },
-                                onContinueToPayment: { formData in
-                                    #if DEBUG
-                                    print("💳 MEMBERSHIP_PAYMENT continue")
-                                    print("💳 trainee =", formData.traineeFirstName, formData.traineeLastName)
-                                    print("💳 branch =", formData.traineeBranch)
-                                    print("💳 payer =", formData.payerFirstName, formData.payerLastName)
-                                    print("💳 amount =", formData.amount)
-                                    #endif
+                        // ✅ Membership payment
+                        case .membershipPayment:
+                            KmiRootLayout(title: "תשלום דמי חבר", nav: nav, selectedIcon: .home) {
+                                MembershipPaymentView(
+                                    isEnglish: false,
+                                    prefill: membershipPaymentPrefill,
+                                    onClose: {
+                                        nav.pop()
+                                    },
+                                    onReadFullPolicy: {
+                                        // בשלב הבא נחבר למסך מדיניות מלא / מסמך מדיניות
+                                    },
+                                    onContinueToPayment: { formData in
+                                        #if DEBUG
+                                        print("💳 MEMBERSHIP_PAYMENT continue")
+                                        print("💳 trainee =", formData.traineeFirstName, formData.traineeLastName)
+                                        print("💳 idNumber =", formData.traineeIdNumber)
+                                        print("💳 birthDate =", formData.traineeBirthDate)
+                                        print("💳 email =", formData.traineeEmail)
+                                        print("💳 phone =", formData.traineePhone)
+                                        print("💳 branch =", formData.traineeBranch)
+                                        print("💳 payer =", formData.payerFirstName, formData.payerLastName)
+                                        print("💳 payerEmail =", formData.payerEmail)
+                                        print("💳 payerPhone =", formData.payerPhone)
+                                        print("💳 amount =", formData.amount)
+                                        #endif
 
-                                    // בשלב הבא נחבר לסליקה אמיתית / קישור תשלום / StoreKit / ספק סליקה
-                                }
-                            )
-                            .navigationBarBackButtonHidden(true)
-                        }
+                                        nav.push(.membershipCheckout(formData: formData))
+                                    }
+                                )
+                                .navigationBarBackButtonHidden(true)
+                            }
 
+                        // ✅ Membership checkout
+                        case .membershipCheckout(let formData):
+                            KmiRootLayout(title: "פרטי תשלום", nav: nav, selectedIcon: .home) {
+                                MembershipCheckoutView(
+                                    isEnglish: false,
+                                    formData: formData,
+                                    onBack: {
+                                        nav.pop()
+                                    },
+                                    onPaymentCompleted: {
+                                        #if DEBUG
+                                        print("✅ MEMBERSHIP_PAYMENT completed")
+                                        print("✅ trainee =", formData.traineeFirstName, formData.traineeLastName)
+                                        print("✅ amount =", formData.amount)
+                                        #endif
+
+                                        nav.popToRoot()
+                                    }
+                                )
+                                .navigationBarBackButtonHidden(true)
+                            }
+                        
                     // ✅ Payments report
                     case .paymentsReport:
                         KmiRootLayout(title: "דו״ח תשלומים", nav: nav, selectedIcon: .home) {

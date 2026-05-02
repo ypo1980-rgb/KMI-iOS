@@ -85,6 +85,11 @@ struct HomeView: View {
         if !active.isEmpty { return active }
         return storedGroup.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    private var isAbroadUser: Bool {
+        TrainingCatalogIOS.isAbroadRegion(resolvedRegion) ||
+        TrainingCatalogIOS.isAbroadBranch(resolvedBranch)
+    }
     
     private var resolvedUserRole: String {
         let value = storedUserRole.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -93,14 +98,6 @@ struct HomeView: View {
     
     private var isCoachUser: Bool {
         resolvedUserRole == "coach"
-    }
-    
-    private var isAdminUser: Bool {
-        Auth.auth().currentUser?.email?.lowercased() == "ypo1980@gmail.com"
-    }
-    
-    private var canOpenPaymentsReport: Bool {
-        isCoachUser || isAdminUser
     }
     
     private var freeSessionsUid: String {
@@ -172,7 +169,11 @@ struct HomeView: View {
     
     // ✅ fallback ישיר לפי הנתונים שכבר מוצגים בכרטיס העליון
     private var fallbackUpcomingTrainings: [TrainingData] {
-        TrainingCatalogIOS.upcomingFor(
+        if isAbroadUser {
+            return []
+        }
+
+        return TrainingCatalogIOS.upcomingFor(
             region: resolvedRegion,
             branch: resolvedBranch,
             group: resolvedGroup,
@@ -181,10 +182,20 @@ struct HomeView: View {
     }
     
     private var effectiveUpcomingTrainings: [TrainingData] {
-        trainingsVm.upcomingTrainings.isEmpty ? fallbackUpcomingTrainings : trainingsVm.upcomingTrainings
+        if isAbroadUser {
+            return []
+        }
+
+        return trainingsVm.upcomingTrainings.isEmpty
+            ? fallbackUpcomingTrainings
+            : trainingsVm.upcomingTrainings
     }
     
     private var effectiveStatusMessage: String? {
+        if isAbroadUser {
+            return nil
+        }
+
         if !trainingsVm.upcomingTrainings.isEmpty {
             return trainingsVm.statusMessage
         }
@@ -215,14 +226,27 @@ struct HomeView: View {
                     .padding(.top, 10)
                     
                     WeekHeaderPill(
-                        title: isCoachUser
-                        ? tr("אימונים לשבוע הקרוב – מאמן", "Trainings for the upcoming week – Coach")
-                        : tr("אימונים לשבוע הקרוב", "Trainings for the upcoming week"),
-                        subtitle: currentWeekSubtitle
+                        title: isAbroadUser
+                        ? tr("מידע על הסניף המקומי", "Local Branch Information")
+                        : (
+                            isCoachUser
+                            ? tr("אימונים לשבוע הקרוב – מאמן", "Trainings for the upcoming week – Coach")
+                            : tr("אימונים לשבוע הקרוב", "Trainings for the upcoming week")
+                        ),
+                        subtitle: isAbroadUser
+                        ? tr("זמני האימונים מתעדכנים מול המאמן המקומי", "Training times are managed by the local coach")
+                        : currentWeekSubtitle
                     )
                     .padding(.top, 10)
                     
-                    if effectiveUpcomingTrainings.isEmpty {
+                    if isAbroadUser {
+                        HomeAbroadBranchNotice(
+                            region: resolvedRegion,
+                            branch: resolvedBranch,
+                            isEnglish: isEnglish
+                        )
+                        .padding(.top, 6)
+                    } else if effectiveUpcomingTrainings.isEmpty {
                         if let statusMessage = effectiveStatusMessage {
                             emptyBlock(message: statusMessage)
                                 .padding(.top, 6)
@@ -282,53 +306,27 @@ struct HomeView: View {
                             value: effectiveUpcomingTrainings
                         )
                     }
+                    
                     Spacer(minLength: 22)
                     
                     CoachMessagesCard(
-                        title: isCoachUser
-                        ? tr("הודעות למאמן", "Coach Messages")
-                        : tr("הודעות מהמאמן", "Messages from the Coach"),
+                        title: isAbroadUser
+                        ? tr("עדכונים מהסניף המקומי", "Local Branch Updates")
+                        : (
+                            isCoachUser
+                            ? tr("הודעות למאמן", "Coach Messages")
+                            : tr("הודעות מהמאמן", "Messages from the Coach")
+                        ),
                         message: tr("אין הודעות בשלב זה", "No messages at this time"),
-                        meta: tr("הודעות חדשות יוצגו כאן בהמשך", "New messages will appear here"),
+                        meta: isAbroadUser
+                        ? tr(
+                            "עדכונים מסניפי חו״ל יוצגו כאן לאחר חיבור המאמן המקומי",
+                            "Updates from international branches will appear here after the local coach is connected"
+                        )
+                        : tr("הודעות חדשות יוצגו כאן בהמשך", "New messages will appear here"),
                         isEnglish: isEnglish
                     )
                     .padding(.horizontal, 18)
-                    
-                    Button {
-                        nav.push(.membershipPayment)
-                    } label: {
-                        HomePaymentActionCard(
-                            title: tr("תשלום דמי חבר", "Membership Payment"),
-                            subtitle: tr(
-                                "מעבר למסך תשלום דמי חבר לעמותה",
-                                "Open association membership payment"
-                            ),
-                            systemImage: "creditcard.fill",
-                            isEnglish: isEnglish,
-                            style: .blue
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 18)
-                    
-                    if canOpenPaymentsReport {
-                        Button {
-                            nav.push(.paymentsReport)
-                        } label: {
-                            HomePaymentActionCard(
-                                title: tr("דו״ח תשלומים", "Payments Report"),
-                                subtitle: tr(
-                                    "מעקב דמי חבר לפי מתאמנים וסניפים",
-                                    "Track membership payments by trainees and branches"
-                                ),
-                                systemImage: "chart.bar.doc.horizontal.fill",
-                                isEnglish: isEnglish,
-                                style: .coach
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 18)
-                    }
                     
                     Button {
                         let target = BeltFlow.nextBeltForUser(
@@ -336,27 +334,11 @@ struct HomeView: View {
                         )
                         nav.push(.beltQuestionsByBelt(belt: target))
                     } label: {
-                        Text(buttonTitleForBelt())
-                            .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
-                            .frame(
-                                maxWidth: .infinity,
-                                alignment: isEnglish ? .leading : .trailing
-                            )
-                            .multilineTextAlignment(isEnglish ? .leading : .trailing)
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 16)
-                            .background(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .fill(Color.white.opacity(0.18))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .stroke(
-                                        Color.white.opacity(0.25),
-                                        lineWidth: 1
-                                    )
-                            )
+                        HomePremiumExerciseButton(
+                            title: buttonTitleForBelt(),
+                            subtitle: buttonSubtitleForBelt(),
+                            isEnglish: isEnglish
+                        )
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 18)
@@ -376,50 +358,62 @@ struct HomeView: View {
                     }
                 
                 VStack(spacing: 10) {
-                    Button {
-                        closeFab()
-                        goMonthly = true
-                    } label: {
-                        FabMenuRow(
-                            title: tr("לוח אימונים חודשי", "Monthly Calendar"),
-                            systemImage: "calendar",
-                            isEnglish: isEnglish
-                        )
-                    }
-                    
-                    Button {
-                        closeFab()
-                        
-                        let formatter = DateFormatter()
-                        formatter.locale = Locale(identifier: "en_US_POSIX")
-                        formatter.dateFormat = "yyyy-MM-dd"
-                        let todayIso = formatter.string(from: Date())
-                        
-                        nav.push(.trainingSummary(pickedDateIso: todayIso))
-                    } label: {
-                        FabMenuRow(
-                            title: tr("סיכום אימון", "Training Summary"),
-                            systemImage: "square.and.pencil",
-                            isEnglish: isEnglish
-                        )
-                    }
-                    
-                    Button {
-                        closeFab()
-                        nav.push(
-                            .freeSessions(
-                                branch: freeSessionsBranch,
-                                groupKey: freeSessionsGroupKey,
-                                uid: freeSessionsUid,
-                                name: freeSessionsName
+                    if isAbroadUser {
+                        Button {
+                            closeFab()
+                        } label: {
+                            FabMenuRow(
+                                title: tr("יש להתעדכן מול המאמן המקומי", "Check with the local coach"),
+                                systemImage: "globe.europe.africa.fill",
+                                isEnglish: isEnglish
                             )
-                        )
-                    } label: {
-                        FabMenuRow(
-                            title: tr("אימונים חופשיים", "Free Sessions"),
-                            systemImage: "plus",
-                            isEnglish: isEnglish
-                        )
+                        }
+                    } else {
+                        Button {
+                            closeFab()
+                            goMonthly = true
+                        } label: {
+                            FabMenuRow(
+                                title: tr("לוח אימונים חודשי", "Monthly Calendar"),
+                                systemImage: "calendar",
+                                isEnglish: isEnglish
+                            )
+                        }
+                        
+                        Button {
+                            closeFab()
+                            
+                            let formatter = DateFormatter()
+                            formatter.locale = Locale(identifier: "en_US_POSIX")
+                            formatter.dateFormat = "yyyy-MM-dd"
+                            let todayIso = formatter.string(from: Date())
+                            
+                            nav.push(.trainingSummary(pickedDateIso: todayIso))
+                        } label: {
+                            FabMenuRow(
+                                title: tr("סיכום אימון", "Training Summary"),
+                                systemImage: "square.and.pencil",
+                                isEnglish: isEnglish
+                            )
+                        }
+                        
+                        Button {
+                            closeFab()
+                            nav.push(
+                                .freeSessions(
+                                    branch: freeSessionsBranch,
+                                    groupKey: freeSessionsGroupKey,
+                                    uid: freeSessionsUid,
+                                    name: freeSessionsName
+                                )
+                            )
+                        } label: {
+                            FabMenuRow(
+                                title: tr("אימונים חופשיים", "Free Sessions"),
+                                systemImage: "plus",
+                                isEnglish: isEnglish
+                            )
+                        }
                     }
                     
                     if isCoachUser {
@@ -434,15 +428,17 @@ struct HomeView: View {
                             )
                         }
                         
-                        Button {
-                            closeFab()
-                            nav.push(.attendance)
-                        } label: {
-                            FabMenuRow(
-                                title: tr("דו״ח נוכחות", "Attendance Report"),
-                                systemImage: "person.text.rectangle",
-                                isEnglish: isEnglish
-                            )
+                        if !isAbroadUser {
+                            Button {
+                                closeFab()
+                                nav.push(.attendance)
+                            } label: {
+                                FabMenuRow(
+                                    title: tr("דו״ח נוכחות", "Attendance Report"),
+                                    systemImage: "person.text.rectangle",
+                                    isEnglish: isEnglish
+                                )
+                            }
                         }
                     }
                 }
@@ -491,41 +487,41 @@ struct HomeView: View {
             pickedExercise = ExerciseSelection.fromSearchKey(key)
         }
         .task {
-            trainingsVm.loadForCurrentUser(auth: auth)
+            reloadTrainingsIfNeeded()
         }
         .refreshable {
-            trainingsVm.loadForCurrentUser(auth: auth)
+            reloadTrainingsIfNeeded()
         }
         .onChange(of: auth.userRegion) { _, _ in
-            trainingsVm.loadForCurrentUser(auth: auth)
+            reloadTrainingsIfNeeded()
         }
         .onChange(of: auth.userBranch) { _, _ in
-            trainingsVm.loadForCurrentUser(auth: auth)
+            reloadTrainingsIfNeeded()
         }
         .onChange(of: auth.userGroup) { _, _ in
-            trainingsVm.loadForCurrentUser(auth: auth)
+            reloadTrainingsIfNeeded()
         }
         .onChange(of: storedRegion) { _, _ in
-            trainingsVm.loadForCurrentUser(auth: auth)
+            reloadTrainingsIfNeeded()
         }
         .onChange(of: storedActiveBranch) { _, _ in
-            trainingsVm.loadForCurrentUser(auth: auth)
+            reloadTrainingsIfNeeded()
         }
         .onChange(of: storedBranch) { _, _ in
-            trainingsVm.loadForCurrentUser(auth: auth)
+            reloadTrainingsIfNeeded()
         }
         .onChange(of: storedActiveGroup) { _, _ in
-            trainingsVm.loadForCurrentUser(auth: auth)
+            reloadTrainingsIfNeeded()
         }
         .onChange(of: storedGroup) { _, _ in
-            trainingsVm.loadForCurrentUser(auth: auth)
+            reloadTrainingsIfNeeded()
         }
         .onReceive(
             NotificationCenter.default.publisher(
                 for: UIApplication.willEnterForegroundNotification
             )
         ) { _ in
-            trainingsVm.loadForCurrentUser(auth: auth)
+            reloadTrainingsIfNeeded()
         }
         .navigationDestination(isPresented: $goMonthly) {
             MonthlyTrainingBoardView()
@@ -708,6 +704,10 @@ struct HomeView: View {
     // MARK: - Belt CTA
     
     private func buttonTitleForBelt() -> String {
+        if isAbroadUser {
+            return isEnglish ? "Open Exercise Library" : "מעבר לספריית התרגילים"
+        }
+
         let next = BeltFlow.nextBeltForUser(registeredBelt: resolvedBelt)
         
         if isEnglish {
@@ -715,6 +715,18 @@ struct HomeView: View {
         } else {
             return "מעבר לתרגילים – \(beltHeb(next))"
         }
+    }
+
+    private func buttonSubtitleForBelt() -> String {
+        if isAbroadUser {
+            return isEnglish
+                ? "The training library is available for all branches"
+                : "ספריית התרגילים זמינה לכל הסניפים"
+        }
+
+        return isEnglish
+            ? "Practice according to your next belt"
+            : "תרגול לפי החגורה הבאה שלך"
     }
     
     private func beltHeb(_ belt: Belt) -> String {
@@ -744,6 +756,19 @@ struct HomeView: View {
     }
     
     // MARK: - Helpers
+
+    private func reloadTrainingsIfNeeded() {
+        if isAbroadUser {
+            #if DEBUG
+            print("🌍 HOME: skip loading trainings for abroad branch")
+            print("🌍 HOME: region =", resolvedRegion)
+            print("🌍 HOME: branch =", resolvedBranch)
+            #endif
+            return
+        }
+
+        trainingsVm.loadForCurrentUser(auth: auth)
+    }
     
     private func closeFab() {
         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
@@ -819,6 +844,217 @@ struct HomeView: View {
                 .stroke(Color.white.opacity(0.20), lineWidth: 1)
         )
         .padding(.horizontal, 18)
+    }
+}
+
+private struct HomeAbroadBranchNotice: View {
+    let region: String
+    let branch: String
+    let isEnglish: Bool
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var stackAlignment: HorizontalAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
+    private var branchLine: String {
+        let cleanRegion = region.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if cleanRegion.isEmpty && cleanBranch.isEmpty {
+            return tr("סניף חו״ל", "Abroad branch")
+        }
+
+        return [cleanRegion, cleanBranch]
+            .filter { !$0.isEmpty }
+            .joined(separator: " • ")
+    }
+
+    var body: some View {
+        VStack(alignment: stackAlignment, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "globe.europe.africa.fill")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(.white)
+
+                Text(tr("סניף חו״ל", "International Branch"))
+                    .font(.system(size: 20, weight: .heavy))
+                    .foregroundStyle(.white)
+
+                Spacer(minLength: 0)
+            }
+            .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+
+            Text(branchLine)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.white.opacity(0.92))
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .multilineTextAlignment(textAlignment)
+
+            Text(
+                tr(
+                    "לסניף זה אין כרגע מידע על אימונים שבועיים באפליקציה.",
+                    "This branch does not currently have a weekly training schedule in the app."
+                )
+            )
+            .font(.system(size: 17, weight: .heavy))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, alignment: frameAlignment)
+            .multilineTextAlignment(textAlignment)
+
+            Text(
+                tr(
+                    "ניתן להתעדכן בזמני האימונים מול המאמן המקומי או הנהלת הסניף.",
+                    "Please check training times with the local coach or branch management."
+                )
+            )
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.82))
+            .frame(maxWidth: .infinity, alignment: frameAlignment)
+            .multilineTextAlignment(textAlignment)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 22)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color.white.opacity(0.16))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.white.opacity(0.22), lineWidth: 1)
+        )
+        .padding(.horizontal, 18)
+    }
+}
+
+private struct HomePremiumExerciseButton: View {
+    let title: String
+    let subtitle: String
+    let isEnglish: Bool
+
+    private var rowDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var stackAlignment: HorizontalAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var chevronName: String {
+        isEnglish ? "chevron.right" : "chevron.left"
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Color.white.opacity(0.20))
+
+                Circle()
+                    .stroke(Color.white.opacity(0.28), lineWidth: 1)
+
+                Image(systemName: "figure.martial.arts")
+                    .font(.system(size: 22, weight: .heavy))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 48, height: 48)
+
+            VStack(alignment: stackAlignment, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 18, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
+                    .lineLimit(2)
+
+                Text(subtitle)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.82))
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
+                    .lineLimit(2)
+            }
+
+            Image(systemName: chevronName)
+                .font(.system(size: 16, weight: .black))
+                .foregroundStyle(.white.opacity(0.92))
+                .frame(width: 34, height: 34)
+                .background(
+                    Circle()
+                        .fill(Color.white.opacity(0.16))
+                )
+        }
+        .environment(\.layoutDirection, rowDirection)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 15)
+        .frame(maxWidth: .infinity)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.10, green: 0.52, blue: 0.98),
+                                Color(red: 0.08, green: 0.76, blue: 0.86),
+                                Color(red: 0.18, green: 0.36, blue: 0.94)
+                            ],
+                            startPoint: isEnglish ? .leading : .trailing,
+                            endPoint: isEnglish ? .trailing : .leading
+                        )
+                    )
+
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.28),
+                                Color.white.opacity(0.06),
+                                Color.clear
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.28), lineWidth: 1)
+        )
+        .shadow(
+            color: Color.black.opacity(0.22),
+            radius: 16,
+            x: 0,
+            y: 10
+        )
+        .overlay(alignment: .topLeading) {
+            Circle()
+                .fill(Color.white.opacity(0.18))
+                .frame(width: 74, height: 74)
+                .blur(radius: 16)
+                .offset(x: isEnglish ? -18 : 18, y: -28)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 }
 
@@ -911,93 +1147,6 @@ private struct CoachMessagesCard: View {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .stroke(Color.white.opacity(0.18), lineWidth: 1)
         )
-    }
-}
-
-// MARK: - Home Payment Action Card
-private struct HomePaymentActionCard: View {
-    enum CardStyle {
-        case blue
-        case coach
-    }
-    
-    let title: String
-    let subtitle: String
-    let systemImage: String
-    let isEnglish: Bool
-    let style: CardStyle
-    
-    private var textAlignment: TextAlignment {
-        isEnglish ? .leading : .trailing
-    }
-    
-    private var frameAlignment: Alignment {
-        isEnglish ? .leading : .trailing
-    }
-    
-    private var stackAlignment: HorizontalAlignment {
-        isEnglish ? .leading : .trailing
-    }
-    
-    private var gradientColors: [Color] {
-        switch style {
-        case .blue:
-            return [
-                Color(red: 0.20, green: 0.28, blue: 0.48),
-                Color(red: 0.12, green: 0.18, blue: 0.34)
-            ]
-        case .coach:
-            return [
-                Color(red: 0.45, green: 0.08, blue: 0.08),
-                Color(red: 0.24, green: 0.05, blue: 0.06)
-            ]
-        }
-    }
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 46, height: 46)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color.white.opacity(0.12))
-                )
-            
-            VStack(alignment: stackAlignment, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .multilineTextAlignment(textAlignment)
-                
-                Text(subtitle)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.70))
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .multilineTextAlignment(textAlignment)
-            }
-            
-            Image(systemName: isEnglish ? "chevron.right" : "chevron.left")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.white.opacity(0.65))
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity)
-        .background(
-            LinearGradient(
-                colors: gradientColors,
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.14), radius: 8, x: 0, y: 5)
     }
 }
 

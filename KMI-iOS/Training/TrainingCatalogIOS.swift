@@ -41,6 +41,90 @@ enum TrainingCatalogIOS {
         ]
     ]
 
+    private static let abroadBranchesByCountry: [String: [String]] = [
+        "USA": [
+            "Smithfield (RI) 🇺🇸 – Kevin Notch",
+            "East Greenwich (RI) 🇺🇸 – Kevin Notch"
+        ],
+        "Canada": [
+            "Concord – Sergey Baskin",
+            "Thunder Bay – Aviran Ben Sason"
+        ],
+        "Australia": [
+            "Perth – David Reznik"
+        ],
+        "Mexico": [
+            "Hermosillo – Oscar Monge",
+            "Guanajuato – Alberto Carrillo Moreno"
+        ],
+        "Poland": [
+            "Szczecin – Maciej Narkiewicz-Jodko"
+        ],
+        "Turkey": [
+            "Istanbul (Beyoglu) – Ibrahim Tokgoz",
+            "Istanbul (Kartal) – Burak Korkmaz, Tugay Akay"
+        ],
+        "Italy": [
+            "Carrara – Alessio Palagi",
+            "Massa – Alessio Palagi",
+            "Milan – Koren Mor",
+            "Castiglione del Lago (Perugia) – Gimmy Fattoni",
+            "Città della Pieve (PG) – Gimmy Fattoni",
+            "Perugia – Italy CKA – Gimmy Fattoni",
+            "Fabro (TR) – Futura Fitness Club – Gimmy Fattoni"
+        ],
+        "Ireland": [
+            "Ballina – Kevin Martin"
+        ],
+        "Korea": [
+            "Daegu – Younmin Jeong"
+        ]
+    ]
+
+    private static let abroadAddressByBranch: [String: String] = [
+        "Smithfield (RI) 🇺🇸 – Kevin Notch": "970 Douglas Pike, Smithfield, RI 02917, USA",
+        "East Greenwich (RI) 🇺🇸 – Kevin Notch": "3725 Post Rd, East Greenwich, RI 02818, USA",
+        "Concord – Sergey Baskin": "411 Confederation Pkwy Unit #12, Concord, ON L4K 0A8, Canada",
+        "Thunder Bay – Aviran Ben Sason": "766 Sprague St, Thunder Bay, ON, Canada",
+        "Perth – David Reznik": "Perth, Australia",
+        "Hermosillo – Oscar Monge": "Hermosillo, Sonora, Mexico",
+        "Guanajuato – Alberto Carrillo Moreno": "Viznagas 6, San Isidro, Guanajuato, Mexico",
+        "Szczecin – Maciej Narkiewicz-Jodko": "Szczecin, Poland",
+        "Istanbul (Beyoglu) – Ibrahim Tokgoz": "İstiklal Caddesi No:108 Aznavur Pasajı Kat:5, Beyoğlu, Istanbul, Turkey",
+        "Istanbul (Kartal) – Burak Korkmaz, Tugay Akay": "Esentepe Mahallesi, Gülpınar Sk. No:16, Kartal, Istanbul, Turkey",
+        "Carrara – Alessio Palagi": "Viale XX Settembre 177/D, Carrara, Italy",
+        "Massa – Alessio Palagi": "Via Degli Unni 1, Massa, Italy",
+        "Milan – Koren Mor": "Via Leopardi 24, Milan, Italy",
+        "Castiglione del Lago (Perugia) – Gimmy Fattoni": "Via Piana 17/M, Castiglione del Lago, Perugia, Italy",
+        "Città della Pieve (PG) – Gimmy Fattoni": "Città della Pieve, PG, Cardete, Italy",
+        "Perugia – Italy CKA – Gimmy Fattoni": "Via Piccolpasso 9/13, Perugia, Italy",
+        "Fabro (TR) – Futura Fitness Club – Gimmy Fattoni": "Via Monte Biaco 4, Fabro TR, Italy",
+        "Ballina – Kevin Martin": "Sean Duffy Community Center, Ballina, Ireland",
+        "Daegu – Younmin Jeong": "Ansim-ro, Dong-gu, Daegu, Korea"
+    ]
+
+    static func abroadRegions() -> [String] {
+        [
+            "USA",
+            "Canada",
+            "Australia",
+            "Mexico",
+            "Poland",
+            "Turkey",
+            "Italy",
+            "Ireland",
+            "Korea"
+        ]
+    }
+
+    static func isAbroadRegion(_ region: String) -> Bool {
+        abroadBranchesByCountry.keys.contains(region)
+    }
+
+    static func isAbroadBranch(_ branch: String) -> Bool {
+        abroadAddressByBranch.keys.contains(branch)
+    }
+    
     private static let inactiveRegions: Set<String> = [
         "מרכז",
         "ירושלים",
@@ -74,7 +158,28 @@ enum TrainingCatalogIOS {
         "רעננה – מרכז קהילתי לב הפארק": ["בוגרים"],
         "הרצליה – מרכז קהילתי נוף ים": ["בוגרים"],
         "כפר סבא – היכל התרבות": ["בוגרים"],
-        "הוד השרון – מרכז ספורט עירוני": ["בוגרים"]
+        "הוד השרון – מרכז ספורט עירוני": ["בוגרים"],
+
+        // MARK: - Abroad branches
+        "Smithfield (RI) 🇺🇸 – Kevin Notch": ["בוגרים"],
+        "East Greenwich (RI) 🇺🇸 – Kevin Notch": ["בוגרים"],
+        "Concord – Sergey Baskin": ["בוגרים"],
+        "Thunder Bay – Aviran Ben Sason": ["בוגרים"],
+        "Perth – David Reznik": ["בוגרים"],
+        "Hermosillo – Oscar Monge": ["בוגרים"],
+        "Guanajuato – Alberto Carrillo Moreno": ["בוגרים"],
+        "Szczecin – Maciej Narkiewicz-Jodko": ["בוגרים"],
+        "Istanbul (Beyoglu) – Ibrahim Tokgoz": ["בוגרים"],
+        "Istanbul (Kartal) – Burak Korkmaz, Tugay Akay": ["בוגרים"],
+        "Carrara – Alessio Palagi": ["בוגרים"],
+        "Massa – Alessio Palagi": ["בוגרים"],
+        "Milan – Koren Mor": ["בוגרים"],
+        "Castiglione del Lago (Perugia) – Gimmy Fattoni": ["בוגרים"],
+        "Città della Pieve (PG) – Gimmy Fattoni": ["בוגרים"],
+        "Perugia – Italy CKA – Gimmy Fattoni": ["בוגרים"],
+        "Fabro (TR) – Futura Fitness Club – Gimmy Fattoni": ["בוגרים"],
+        "Ballina – Kevin Martin": ["בוגרים"],
+        "Daegu – Younmin Jeong": ["בוגרים"]
     ]
 
     static let slots: [TrainingSlot] = [
@@ -209,15 +314,28 @@ enum TrainingCatalogIOS {
     }
 
     static func branchesFor(region: String) -> [String] {
+        if let abroadBranches = abroadBranchesByCountry[region] {
+            return abroadBranches
+        }
+
         guard isRegionActive(region) else { return [] }
-        return (branchesByRegionRaw[region] ?? []).filter { !inactiveBranches.contains($0) }
+
+        return (branchesByRegionRaw[region] ?? [])
+            .filter { !inactiveBranches.contains($0) }
     }
 
     static func addressFor(_ branchOrAddress: String) -> String {
-        if branchOrAddress.contains(",") || branchOrAddress.rangeOfCharacter(from: .decimalDigits) != nil {
-            return branchOrAddress
+        let clean = branchOrAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let abroadAddress = abroadAddressByBranch[clean] {
+            return abroadAddress
         }
-        return addressByBranch[branchOrAddress] ?? branchOrAddress
+
+        if clean.contains(",") || clean.rangeOfCharacter(from: .decimalDigits) != nil {
+            return clean
+        }
+
+        return addressByBranch[clean] ?? clean
     }
 
     static func placeFor(_ branch: String) -> String {

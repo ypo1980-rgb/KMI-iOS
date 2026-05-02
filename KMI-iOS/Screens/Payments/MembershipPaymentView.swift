@@ -15,7 +15,7 @@ struct MembershipPaymentPrefill {
     var payerPhone: String = ""
 }
 
-struct MembershipPaymentFormData {
+struct MembershipPaymentFormData: Hashable {
     let traineeFirstName: String
     let traineeLastName: String
     let traineeIdNumber: String
@@ -220,21 +220,15 @@ struct MembershipPaymentView: View {
                         .tint(.purple)
                     }
 
-                    Button(action: continuePayment) {
-                        Label(isEnglish ? "Continue to Payment" : "המשך לתשלום", systemImage: "creditcard.fill")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.purple)
-                    .disabled(!isFormValid)
-                    .opacity(isFormValid ? 1.0 : 0.55)
-                    .padding(.bottom, 28)
+                    Color.clear
+                        .frame(height: 12)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
             }
+        }
+        .safeAreaInset(edge: .bottom) {
+            bottomPaymentBar
         }
         .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
     }
@@ -315,6 +309,60 @@ struct MembershipPaymentView: View {
         .shadow(color: .black.opacity(0.22), radius: 10, y: 6)
     }
 
+    private var bottomPaymentBar: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(Color.white.opacity(0.08))
+                .frame(height: 1)
+
+            VStack(spacing: 10) {
+                Button(action: continuePayment) {
+                    Label(
+                        isEnglish ? "Continue to Payment" : "המשך לתשלום",
+                        systemImage: "creditcard.fill"
+                    )
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 15)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(isFormValid ? Color.purple : Color.white.opacity(0.14))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(
+                            isFormValid ? Color.purple.opacity(0.25) : Color.white.opacity(0.10),
+                            lineWidth: 1
+                        )
+                )
+                .opacity(isFormValid ? 1.0 : 0.92)
+                .disabled(!isFormValid)
+
+                if !isFormValid {
+                    Text(
+                        isEnglish
+                        ? "Complete all required fields and approve the policy to continue."
+                        : "יש למלא את כל השדות הנדרשים ולאשר את המדיניות כדי להמשיך."
+                    )
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
+                    .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
+            .background(
+                Color(red: 0.08, green: 0.12, blue: 0.24)
+                    .opacity(0.96)
+            )
+        }
+    }
+    
     private var branchPicker: some View {
         Menu {
             ForEach(branchOptions, id: \.self) { option in

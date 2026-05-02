@@ -6,6 +6,9 @@ struct RegisterFormView: View {
     let prefillPhone: String
     let prefillEmail: String
     let initialRole: UserRole
+    let screenTitle: String
+    let submitTitle: String
+    let submittingTitle: String
     let onBack: () -> Void
     let onSubmit: (RegistrationFormState) -> Void
     let onReadMoreTerms: () -> Void
@@ -19,13 +22,25 @@ struct RegisterFormView: View {
     @AppStorage("active_branch") private var storedActiveBranch: String = ""
     @AppStorage("active_group") private var storedActiveGroup: String = ""
 
-    private let regions = ["השרון", "מרכז", "צפון", "דרום", "ירושלים"]
+    private let israelRegions = ["השרון", "מרכז", "צפון", "דרום", "ירושלים"]
+
+    private var regions: [String] {
+        isAbroadSelection ? TrainingCatalogIOS.abroadRegions() : israelRegions
+    }
+
+    private var isCurrentRegionAbroad: Bool {
+        TrainingCatalogIOS.isAbroadRegion(s.region)
+    }
     
     private var branchesOptions: [String] {
         TrainingCatalogIOS.branchesFor(region: s.region)
     }
 
     private var groupsOptions: [String] {
+        if isAbroadSelection || isCurrentRegionAbroad {
+            return ["בוגרים"]
+        }
+
         let selectedBranches = s.branches.isEmpty ? branchesOptions : Array(s.branches)
 
         let all = selectedBranches.flatMap { branch in
@@ -37,6 +52,7 @@ struct RegisterFormView: View {
 
     private let belts = ["ללא", "צהובה", "כתומה", "ירוקה", "כחולה", "חומה", "שחורה"]
 
+    @State private var isAbroadSelection: Bool = false
     @State private var showBranchesSheet = false
     @State private var showGroupsSheet = false
 
@@ -97,6 +113,9 @@ struct RegisterFormView: View {
         prefillPhone: String = "",
         prefillEmail: String = "",
         initialRole: UserRole = .trainee,
+        screenTitle: String = "טופס רישום",
+        submitTitle: String = "סיום רישום",
+        submittingTitle: String = "שומר...",
         onBack: @escaping () -> Void,
         onSubmit: @escaping (RegistrationFormState) -> Void,
         onReadMoreTerms: @escaping () -> Void = {}
@@ -104,6 +123,9 @@ struct RegisterFormView: View {
         self.prefillPhone = prefillPhone
         self.prefillEmail = prefillEmail
         self.initialRole = initialRole
+        self.screenTitle = screenTitle
+        self.submitTitle = submitTitle
+        self.submittingTitle = submittingTitle
         self.onBack = onBack
         self.onSubmit = onSubmit
         self.onReadMoreTerms = onReadMoreTerms
@@ -166,21 +188,26 @@ struct RegisterFormView: View {
                         field(title: "שם משתמש", text: $s.username, keyboard: .default)
 
                         passwordField
-                        regionPicker
                     }
                     
                     card {
+                        branchScopePicker
+
+                        regionPicker
+
                         multiSelectRow(
-                            title: "סניפים (עד 3)",
+                            title: isAbroadSelection ? "סניפים בחו״ל (עד 3)" : "סניפים בארץ (עד 3)",
                             valueText: displayedBranchValue,
                             onTap: { showBranchesSheet = true }
                         )
 
-                        multiSelectRow(
-                            title: "קבוצות (עד 3)",
-                            valueText: displayedGroupValue,
-                            onTap: { showGroupsSheet = true }
-                        )
+                        if !isAbroadSelection {
+                            multiSelectRow(
+                                title: "קבוצות (עד 3)",
+                                valueText: displayedGroupValue,
+                                onTap: { showGroupsSheet = true }
+                            )
+                        }
 
                         if s.role != .coach {
                             beltPicker
@@ -193,53 +220,7 @@ struct RegisterFormView: View {
                         termsRow
                     }
 
-                    if let err = validationError {
-                        Text(err)
-                            .foregroundStyle(.red)
-                            .font(.subheadline)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    Button {
-                        guard !isSubmitting, validationError == nil else { return }
-                        isSubmitting = true
-
-                        // ✅ snapshot מלא של הטופס לפני שליחה
-                        let submitted = s
-                        print("📝 RegisterFormView: captured snapshot before submit")
-                        print("📝 submitted.fullName =", submitted.fullName)
-                        print("📝 submitted.phone =", submitted.phone)
-                        print("📝 submitted.email =", submitted.email)
-                        print("📝 submitted.region =", submitted.region)
-                        print("📝 submitted.branches =", Array(submitted.branches))
-                        print("📝 submitted.groups =", Array(submitted.groups))
-
-                        DispatchQueue.main.async {
-                            print("📝 RegisterFormView: calling onSubmit(snapshot)")
-                            onSubmit(submitted)
-                        }
-
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                            isSubmitting = false
-                        }
-                    } label: {
-                        HStack {
-                            if isSubmitting {
-                                ProgressView()
-                                    .tint(.white)
-                            }
-
-                            Text(isSubmitting ? "שומר..." : "סיום רישום")
-                                .font(.headline)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color.purple.opacity(0.9))
-                    .disabled(validationError != nil || isSubmitting)
-
-                    Spacer(minLength: 24)
+                    Spacer(minLength: 110)
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 10)
@@ -247,7 +228,7 @@ struct RegisterFormView: View {
         }
         .sheet(isPresented: $showBranchesSheet) {
             MultiSelectSheet(
-                title: "בחר סניפים (עד 3)",
+                title: isAbroadSelection ? "בחר סניפים בחו״ל (עד 3)" : "בחר סניפים בארץ (עד 3)",
                 options: branchesOptions,
                 maxSelected: 3,
                 selected: $s.branches
@@ -262,6 +243,9 @@ struct RegisterFormView: View {
                 selected: $s.groups
             )
             .presentationDetents([.medium, .large])
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            submitBottomBar
         }
         .onChange(of: s.region) { oldRegion, newRegion in
             print("🧭 region changed ->", newRegion)
@@ -311,6 +295,14 @@ struct RegisterFormView: View {
             displayedBranchValue = s.activeBranch
             storedActiveBranch = s.activeBranch
 
+            if isAbroadSelection || isCurrentRegionAbroad {
+                s.groups = ["בוגרים"]
+                s.activeGroup = "בוגרים"
+                displayedGroupValue = "בוגרים"
+                storedActiveGroup = "בוגרים"
+                return
+            }
+
             let validGroups = Set(
                 Array(newBranches).flatMap { branch in
                     TrainingCatalogIOS.ageGroupsByBranch[branch] ?? []
@@ -341,6 +333,11 @@ struct RegisterFormView: View {
         .onAppear {
             didFinishInitialLoad = false
             loadSavedProfileIfNeeded()
+
+            if TrainingCatalogIOS.isAbroadRegion(s.region) ||
+                s.branches.contains(where: { TrainingCatalogIOS.isAbroadBranch($0) }) {
+                isAbroadSelection = true
+            }
 
             let defaults = UserDefaults.standard
 
@@ -421,7 +418,7 @@ struct RegisterFormView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             }
             Spacer()
-            Text("טופס רישום")
+            Text(screenTitle)
                 .font(.title2).bold()
                 .foregroundStyle(.white)
             Spacer()
@@ -474,6 +471,81 @@ struct RegisterFormView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
+    private var submitBottomBar: some View {
+        VStack(spacing: 10) {
+            if let err = validationError {
+                Text(err)
+                    .foregroundStyle(.red)
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .multilineTextAlignment(.center)
+            }
+
+            Button {
+                guard !isSubmitting, validationError == nil else { return }
+                isSubmitting = true
+
+                // ✅ snapshot מלא של הטופס לפני שליחה
+                let submitted = s
+                print("📝 RegisterFormView: captured snapshot before submit")
+                print("📝 submitted.fullName =", submitted.fullName)
+                print("📝 submitted.phone =", submitted.phone)
+                print("📝 submitted.email =", submitted.email)
+                print("📝 submitted.region =", submitted.region)
+                print("📝 submitted.branches =", Array(submitted.branches))
+                print("📝 submitted.groups =", Array(submitted.groups))
+
+                DispatchQueue.main.async {
+                    print("📝 RegisterFormView: calling onSubmit(snapshot)")
+                    onSubmit(submitted)
+                }
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    isSubmitting = false
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    if isSubmitting {
+                        ProgressView()
+                            .tint(.white)
+                    }
+
+                    Text(isSubmitting ? submittingTitle : submitTitle)
+                        .font(.headline)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Color.purple.opacity(0.9))
+            .disabled(validationError != nil || isSubmitting)
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 10)
+        .background(
+            ZStack {
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.78),
+                        Color.white.opacity(0.60)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            .ignoresSafeArea(edges: .bottom)
+        )
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.black.opacity(0.06))
+                .frame(height: 1)
+        }
+    }
+    
     private var dobRow: some View {
         HStack(spacing: 10) {
             dobField("יום", $s.birthDay, maxLen: 2)
@@ -522,12 +594,12 @@ struct RegisterFormView: View {
 
     private var regionPicker: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("אזור")
+            Text(isAbroadSelection ? "מדינה" : "אזור")
                 .font(.subheadline)
                 .foregroundStyle(.gray)
 
             Picker("", selection: $s.region) {
-                Text("בחר אזור").tag("")
+                Text(isAbroadSelection ? "בחר מדינה" : "בחר אזור").tag("")
                 ForEach(regions, id: \.self) { region in
                     Text(region).tag(region)
                 }
@@ -537,6 +609,52 @@ struct RegisterFormView: View {
             .padding(12)
             .background(Color.black.opacity(0.04))
             .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    private var branchScopePicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("מיקום הסניף")
+                .font(.subheadline)
+                .foregroundStyle(.gray)
+
+            HStack(spacing: 8) {
+                Button {
+                    guard isAbroadSelection else { return }
+
+                    isAbroadSelection = false
+                    resetBranchSelectionAfterScopeChange()
+                } label: {
+                    Text("ישראל")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(!isAbroadSelection ? Color.blue.opacity(0.88) : Color.black.opacity(0.06))
+                        )
+                        .foregroundStyle(!isAbroadSelection ? .white : .primary)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    guard !isAbroadSelection else { return }
+
+                    isAbroadSelection = true
+                    resetBranchSelectionAfterScopeChange()
+                } label: {
+                    Text("חו״ל")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(isAbroadSelection ? Color.blue.opacity(0.88) : Color.black.opacity(0.06))
+                        )
+                        .foregroundStyle(isAbroadSelection ? .white : .primary)
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
@@ -633,9 +751,17 @@ struct RegisterFormView: View {
         if s.password.count < 6 { return "סיסמה חייבת להכיל לפחות 6 תווים" }
         if !s.acceptsTerms { return "חובה לאשר תנאי שימוש ומדיניות פרטיות" }
 
-        if s.region.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "חובה לבחור אזור" }
-        if s.branches.isEmpty { return "חובה לבחור לפחות סניף אחד" }
-        if s.groups.isEmpty { return "חובה לבחור לפחות קבוצה אחת" }
+        if s.region.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return isAbroadSelection ? "חובה לבחור מדינה" : "חובה לבחור אזור"
+        }
+
+        if s.branches.isEmpty {
+            return isAbroadSelection ? "חובה לבחור לפחות סניף אחד בחו״ל" : "חובה לבחור לפחות סניף אחד בארץ"
+        }
+
+        if !isAbroadSelection && s.groups.isEmpty {
+            return "חובה לבחור לפחות קבוצה אחת"
+        }
 
         if s.role == .coach, !isWhitelistedCoach {
             return "הרישום כמאמן מותר רק למאמנים מורשים"
@@ -654,6 +780,20 @@ struct RegisterFormView: View {
         }
 
         return cleaned.sorted().joined(separator: " + ")
+    }
+
+    private func resetBranchSelectionAfterScopeChange() {
+        s.region = ""
+        s.branches.removeAll()
+        s.groups.removeAll()
+        s.activeBranch = ""
+        s.activeGroup = ""
+
+        displayedBranchValue = ""
+        displayedGroupValue = ""
+
+        storedActiveBranch = ""
+        storedActiveGroup = ""
     }
 
     private func loadSavedProfileIfNeeded() {

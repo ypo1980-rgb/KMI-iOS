@@ -53,6 +53,10 @@ struct KmiSideDrawer: View {
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
     @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
 
+    @AppStorage("region") private var storedRegion: String = ""
+    @AppStorage("branch") private var storedBranch: String = ""
+    @AppStorage("active_branch") private var storedActiveBranch: String = ""
+
     let onClose: () -> Void
     let onSelect: (KmiDrawerItem) -> Void
 
@@ -76,6 +80,42 @@ struct KmiSideDrawer: View {
 
     private var closeIconName: String {
         "xmark"
+    }
+
+    private var resolvedRegion: String {
+        let authRegion = auth.userRegion
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !authRegion.isEmpty {
+            return authRegion
+        }
+
+        return storedRegion
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var resolvedBranch: String {
+        let authBranch = auth.userBranch
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !authBranch.isEmpty {
+            return authBranch
+        }
+
+        let active = storedActiveBranch
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !active.isEmpty {
+            return active
+        }
+
+        return storedBranch
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isAbroadUser: Bool {
+        TrainingCatalogIOS.isAbroadRegion(resolvedRegion) ||
+        TrainingCatalogIOS.isAbroadBranch(resolvedBranch)
     }
 
     private func toggleLanguage() {
@@ -130,14 +170,19 @@ struct KmiSideDrawer: View {
         var items: [KmiDrawerItem] = []
 
         if isCoach {
+            if !isAbroadUser {
+                items.append(
+                    .init(
+                        routeKey: .attendance,
+                        titleHe: "דו״ח נוכחות",
+                        titleEn: "Attendance Report",
+                        subtitleHe: nil,
+                        subtitleEn: nil
+                    )
+                )
+            }
+
             items.append(contentsOf: [
-                .init(
-                    routeKey: .attendance,
-                    titleHe: "דו״ח נוכחות",
-                    titleEn: "Attendance Report",
-                    subtitleHe: nil,
-                    subtitleEn: nil
-                ),
                 .init(
                     routeKey: .coachBroadcast,
                     titleHe: "שליחת הודעה",
@@ -387,6 +432,23 @@ struct KmiSideDrawer: View {
 
             case .formsPayments:
                 showFormsPayments = true
+                return
+
+            case .attendance:
+                guard !isAbroadUser else {
+                    onClose()
+                    return
+                }
+
+                onSelect(it)
+                return
+
+            case .editProfile:
+                onClose()
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
+                    AppNavModel.sharedInstance?.push(.editProfile)
+                }
                 return
 
             case .logout:

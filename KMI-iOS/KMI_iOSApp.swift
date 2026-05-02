@@ -10,15 +10,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        if FirebaseApp.app() == nil {
-            FirebaseApp.configure()
-            print("✅ Firebase configured from AppDelegate")
-        }
-
-        KmiPushManager.shared.configure()
-
         let center = UNUserNotificationCenter.current()
         center.delegate = self
+
+        // לא מעכבים את הצגת המסך הראשון בגלל הרשאות / Push.
+        // ההגדרה תופעל מיד אחרי שהאפליקציה מתחילה להציג UI.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            KmiPushManager.shared.configure()
+        }
 
         return true
     }
@@ -68,25 +67,49 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 struct KMI_iOSApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
 
+    init() {
+        if FirebaseApp.app() == nil {
+            FirebaseApp.configure()
+            print("✅ Firebase configured from KMI_iOSApp.init")
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
-            KmiAppEntryRootView {
-                ZStack {
-                    LinearGradient(
-                        colors: [
-                            Color(red: 0.01, green: 0.05, blue: 0.14),
-                            Color(red: 0.07, green: 0.10, blue: 0.23),
-                            Color(red: 0.11, green: 0.33, blue: 0.80)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .ignoresSafeArea()
+            ZStack {
+                KmiLaunchBackground()
 
+                KmiAppEntryRootView {
                     BirthdayGate {
                         AuthGateView()
                     }
                 }
+            }
+            .background(Color.white.ignoresSafeArea())
+        }
+    }
+}
+
+private struct KmiLaunchBackground: View {
+    var body: some View {
+        ZStack {
+            Color.white
+                .ignoresSafeArea()
+
+            if let image = UIImage(named: "app_icon.png") {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 130, height: 130)
+            } else if let image = UIImage(named: "app_icon") {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 130, height: 130)
+            } else {
+                Text("K.M.I")
+                    .font(.system(size: 32, weight: .black, design: .rounded))
+                    .foregroundStyle(.black)
             }
         }
     }

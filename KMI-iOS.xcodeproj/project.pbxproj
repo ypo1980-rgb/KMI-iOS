@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		7E6CD4862F5434CD00BE189A /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7E6CD4852F5434CD00BE189A /* FirebaseCore */; };
 		7E6CD4882F5434D700BE189A /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 7E6CD4872F5434D700BE189A /* FirebaseAuth */; };
+		7E6D2C3E2FA6473A00EB82B2 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 7E6D2C3D2FA6473A00EB82B2 /* LaunchScreen.storyboard */; };
 		7E7B0F3E2F587F88000D9087 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 7E7B0F3D2F587F88000D9087 /* FirebaseFirestore */; };
 		7E7F771D2FA493C90048059D /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 7E7F771C2FA493C90048059D /* GoogleSignIn */; };
 		7E7F771F2FA493C90048059D /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 7E7F771E2FA493C90048059D /* GoogleSignInSwift */; };
@@ -17,6 +18,7 @@
 /* Begin PBXFileReference section */
 		7E6CD48C2F543C5900BE189A /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		7E6CF5212F3907D90061115C /* KMI-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "KMI-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7E6D2C3D2FA6473A00EB82B2 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		7E72F6B52F52D55F0072144E /* Shared.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Shared.xcframework; path = ../StudioProjects/KMI/shared/build/XCFrameworks/release/Shared.xcframework; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -25,6 +27,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Assistant/AssistantTrainingDataSourceAdapter.swift,
+				LaunchScreen.storyboard,
 			);
 			target = 7E6CF5202F3907D90061115C /* KMI-iOS */;
 		};
@@ -60,6 +63,7 @@
 		7E6CF5182F3907D90061115C = {
 			isa = PBXGroup;
 			children = (
+				7E6D2C3D2FA6473A00EB82B2 /* LaunchScreen.storyboard */,
 				7E8E72EC2F4A3AB20099E4E5 /* KMI-iOS */,
 				7E8E72D52F4A0A310099E4E5 /* Frameworks */,
 				7E6CF5222F3907D90061115C /* Products */,
@@ -157,6 +161,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7E6D2C3E2FA6473A00EB82B2 /* LaunchScreen.storyboard in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -330,7 +335,7 @@
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UILaunchStoryboardName = "";
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen.storyboard;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -368,7 +373,7 @@
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UILaunchStoryboardName = "";
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen.storyboard;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (

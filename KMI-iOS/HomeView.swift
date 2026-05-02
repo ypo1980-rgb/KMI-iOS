@@ -23,10 +23,11 @@ struct HomeView: View {
     
     @State private var fabOpen: Bool = false
     @StateObject private var trainingsVm = HomeTrainingsViewModel()
+
+    @State private var goVoiceAssistant: Bool = false
     @State private var goMonthly: Bool = false
-    @State private var goSummary: Bool = false
-    @State private var goFree: Bool = false
     @State private var goCard: Bool = false
+
     @State private var selectedTraining: TrainingData? = nil
     @State private var showNavigationSheet: Bool = false
     
@@ -287,6 +288,7 @@ struct HomeView: View {
                             ForEach(effectiveUpcomingTrainings) { training in
                                 TrainingCardView(
                                     training: training,
+                                    isEnglish: isEnglish,
                                     onNavigateTap: {
                                         closeFab()
                                         selectedTraining = training
@@ -358,6 +360,18 @@ struct HomeView: View {
                     }
                 
                 VStack(spacing: 10) {
+
+                    Button {
+                        closeFab()
+                        goVoiceAssistant = true
+                    } label: {
+                        FabMenuRow(
+                            title: tr("עוזר קולי", "Voice Assistant"),
+                            systemImage: "mic.fill",
+                            isEnglish: isEnglish
+                        )
+                    }
+
                     if isAbroadUser {
                         Button {
                             closeFab()
@@ -379,15 +393,15 @@ struct HomeView: View {
                                 isEnglish: isEnglish
                             )
                         }
-                        
+
                         Button {
                             closeFab()
-                            
+
                             let formatter = DateFormatter()
                             formatter.locale = Locale(identifier: "en_US_POSIX")
                             formatter.dateFormat = "yyyy-MM-dd"
                             let todayIso = formatter.string(from: Date())
-                            
+
                             nav.push(.trainingSummary(pickedDateIso: todayIso))
                         } label: {
                             FabMenuRow(
@@ -396,7 +410,7 @@ struct HomeView: View {
                                 isEnglish: isEnglish
                             )
                         }
-                        
+
                         Button {
                             closeFab()
                             nav.push(
@@ -415,7 +429,20 @@ struct HomeView: View {
                             )
                         }
                     }
-                    
+
+                    Button {
+                        closeFab()
+                        goCard = true
+                    } label: {
+                        FabMenuRow(
+                            title: isCoachUser
+                            ? tr("כרטיס מאמן", "Coach Card")
+                            : tr("כרטיס אישי", "My Card"),
+                            systemImage: isCoachUser ? "checkmark.seal.fill" : "person.crop.circle.fill",
+                            isEnglish: isEnglish
+                        )
+                    }
+
                     if isCoachUser {
                         Button {
                             closeFab()
@@ -427,7 +454,7 @@ struct HomeView: View {
                                 isEnglish: isEnglish
                             )
                         }
-                        
+
                         if !isAbroadUser {
                             Button {
                                 closeFab()
@@ -523,8 +550,17 @@ struct HomeView: View {
         ) { _ in
             reloadTrainingsIfNeeded()
         }
+        .navigationDestination(isPresented: $goVoiceAssistant) {
+            VoiceAssistantView()
+                .navigationBarBackButtonHidden(true)
+        }
         .navigationDestination(isPresented: $goMonthly) {
             MonthlyTrainingBoardView()
+                .navigationBarBackButtonHidden(true)
+        }
+        .navigationDestination(isPresented: $goCard) {
+            MyProfileView()
+                .navigationBarBackButtonHidden(true)
         }
         .navigationDestination(item: $pickedExercise) { selection in
             ExerciseDetailView(
@@ -570,6 +606,17 @@ struct HomeView: View {
             let clean = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
             return clean.isEmpty ? (isEnglish ? "User" : "משתמש") : clean
         }
+
+        private var locationLine: String {
+            [
+                TrainingCatalogIOS.displayRegion(region, isEnglish: isEnglish),
+                TrainingCatalogIOS.displayBranch(branch, isEnglish: isEnglish),
+                TrainingCatalogIOS.displayGroup(group, isEnglish: isEnglish)
+            ]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " • ")
+        }
         
         private var textAlignment: TextAlignment {
             isEnglish ? .leading : .trailing
@@ -607,8 +654,8 @@ struct HomeView: View {
                         .frame(maxWidth: .infinity, alignment: frameAlignment)
                         .multilineTextAlignment(textAlignment)
                     
-                    if !region.isEmpty || !branch.isEmpty || !group.isEmpty {
-                        Text([region, branch, group].filter { !$0.isEmpty }.joined(separator: " • "))
+                    if !locationLine.isEmpty {
+                        Text(locationLine)
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.88))
                             .frame(maxWidth: .infinity, alignment: frameAlignment)
@@ -876,9 +923,13 @@ private struct HomeAbroadBranchNotice: View {
             return tr("סניף חו״ל", "Abroad branch")
         }
 
-        return [cleanRegion, cleanBranch]
-            .filter { !$0.isEmpty }
-            .joined(separator: " • ")
+        return [
+            TrainingCatalogIOS.displayRegion(cleanRegion, isEnglish: isEnglish),
+            TrainingCatalogIOS.displayBranch(cleanBranch, isEnglish: isEnglish)
+        ]
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+        .joined(separator: " • ")
     }
 
     var body: some View {
@@ -1190,33 +1241,6 @@ private struct FabMenuRow: View {
             )
         }
         .frame(height: rowHeight)
-    }
-}
-
-// MARK: - Placeholder
-private struct PlaceholderScreen: View {
-    let title: String
-
-    var body: some View {
-        ZStack {
-            KmiGradientBackground(forceTraineeStyle: false)
-
-            VStack(spacing: 14) {
-                Image(systemName: "hammer.fill")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(.white)
-
-                Text(title)
-                    .font(.system(size: 22, weight: .heavy))
-                    .foregroundStyle(.white)
-
-                Text("המסך הזה עדיין בשלב חיבור מצד iOS")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.88))
-            }
-            .padding(24)
-        }
-        .navigationBarBackButtonHidden(true)
     }
 }
 

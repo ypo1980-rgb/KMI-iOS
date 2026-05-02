@@ -22,14 +22,17 @@ struct AuthGateView: View {
 
     var body: some View {
         ZStack {
-            KmiGradientBackground(forceTraineeStyle: true)
+            if !didFinishInitialAuthCheck && auth.isLoading {
+                Color.white
+                    .ignoresSafeArea()
+            } else {
+                KmiGradientBackground(forceTraineeStyle: true)
+            }
 
             Group {
                 if !didFinishInitialAuthCheck && auth.isLoading {
 
-                    ProgressView()
-                        .tint(.white)
-                        .scaleEffect(1.2)
+                    KmiBootLoadingView()
 
                 } else if auth.isSignedIn {
 

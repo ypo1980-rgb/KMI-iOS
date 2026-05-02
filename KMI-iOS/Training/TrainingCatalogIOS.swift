@@ -305,6 +305,185 @@ enum TrainingCatalogIOS {
         )
     ]
 
+    // MARK: - Display Localization
+
+    static func displayRegion(_ value: String, isEnglish: Bool) -> String {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isEnglish else { return clean }
+
+        switch clean {
+        case "השרון":
+            return "Hasharon"
+        case "מרכז":
+            return "Central Israel"
+        case "ירושלים":
+            return "Jerusalem"
+        case "צפון":
+            return "North"
+        case "דרום":
+            return "South"
+        default:
+            return clean
+        }
+    }
+
+    static func displayBranch(_ value: String, isEnglish: Bool) -> String {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isEnglish else { return clean }
+
+        switch clean {
+        case "נתניה – מרכז קהילתי אופק":
+            return "Netanya – Ofek Community Center"
+        case "נתניה – מרכז קהילתי סוקולוב":
+            return "Netanya – Sokolov Community Center"
+        case "נתניה – נורדאו":
+            return "Netanya – Nordau"
+        case "עזריאל – מושב עזריאל":
+            return "Azriel – Moshav Azriel"
+        case "רעננה – מרכז קהילתי לב הפארק":
+            return "Ra'anana – Lev HaPark Community Center"
+        case "הרצליה – מרכז קהילתי נוף ים":
+            return "Herzliya – Nof Yam Community Center"
+        case "כפר סבא – היכל התרבות":
+            return "Kfar Saba – Culture Hall"
+        case "הוד השרון – מרכז ספורט עירוני":
+            return "Hod Hasharon – Municipal Sports Center"
+
+        case "תל אביב – מרכז קהילתי דובנוב":
+            return "Tel Aviv – Dubnov Community Center"
+        case "תל אביב – מרכז קהילתי יד אליהו":
+            return "Tel Aviv – Yad Eliyahu Community Center"
+        case "פתח תקווה – מתנ\"ס עמישב":
+            return "Petah Tikva – Amishav Community Center"
+
+        case "ירושלים – מרכז קהילתי רמות ספיר":
+            return "Jerusalem – Ramot Sapir Community Center"
+        case "ירושלים – מרכז קהילתי קריית יובל":
+            return "Jerusalem – Kiryat Yovel Community Center"
+
+        case "חיפה / נשר – מתנ\"ס בת לזר":
+            return "Haifa / Nesher – Bat Lazar Community Center"
+        case "קריית אתא – ביה\"ס אלונים":
+            return "Kiryat Ata – Alonim School"
+        case "קריית ביאליק – רח' דפנה 52":
+            return "Kiryat Bialik – 52 Dafna St"
+        case "כרמיאל – אשכול פיס":
+            return "Karmiel – Eshkol Pais"
+        case "עכו – אשכול פיס":
+            return "Acre – Eshkol Pais"
+        case "עפולה – חטיבה תשע 25":
+            return "Afula – 25 Hativa Tesha"
+        case "יאנוח – יאנוח":
+            return "Yanuh – Yanuh"
+        case "ג'וליס – ג'וליס":
+            return "Julis – Julis"
+
+        case "אשקלון – מרכז קהילתי שמשון":
+            return "Ashkelon – Shimshon Community Center"
+        case "באר שבע – מרכז קהילתי נווה זאב":
+            return "Beer Sheva – Neve Ze'ev Community Center"
+        case "אשדוד – מתנ\"ס רובע י\"ב":
+            return "Ashdod – District 12 Community Center"
+
+        default:
+            return clean
+        }
+    }
+
+    static func displayGroup(_ value: String, isEnglish: Bool) -> String {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isEnglish else { return clean }
+
+        switch clean {
+        case "גן חובה - כיתה א", "גן חובה - כיתה א'":
+            return "Kindergarten – Grade 1"
+        case "כיתה ב' - כיתה ה'":
+            return "Grades 2–5"
+        case "כיתה ו' - כיתה ח'":
+            return "Grades 6–8"
+        case "נוער + בוגרים":
+            return "Youth + Adults"
+        case "בוגרים":
+            return "Adults"
+        case "ילדים":
+            return "Kids"
+        case "נוער":
+            return "Youth"
+        case "טרום חובה וחובה":
+            return "Pre-K + Kindergarten"
+        case "כיתה א' - כיתה ב'":
+            return "Grades 1–2"
+        case "כיתה ג' - כיתה ו'":
+            return "Grades 3–6"
+        case "ילדים (גן חובה עד כיתה ב')":
+            return "Kids: Kindergarten – Grade 2"
+        case "כיתה ג' - כיתה ז'":
+            return "Grades 3–7"
+        default:
+            return clean
+        }
+    }
+
+    static func displayPlace(_ value: String, isEnglish: Bool) -> String {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isEnglish else { return clean }
+
+        switch clean {
+        case "מרכז קהילתי סוקולוב":
+            return "Sokolov Community Center"
+        case "מרכז קהילתי אופק":
+            return "Ofek Community Center"
+        case "נורדאו":
+            return "Nordau"
+        case "מושב עזריאל":
+            return "Moshav Azriel"
+        default:
+            return clean
+        }
+    }
+
+    static func displayAddress(_ value: String, isEnglish: Bool) -> String {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isEnglish else { return clean }
+
+        switch clean {
+        case "רחוב נחום סוקולוב 25, נתניה":
+            return "25 Nahum Sokolov St, Netanya"
+        case "רחוב אבא אחימאיר 6, נתניה":
+            return "6 Abba Ahimeir St, Netanya"
+        case "אריה לוין 3, נתניה":
+            return "3 Aryeh Levin St, Netanya"
+        case "מושב עזריאל, מאחורי מכולת המושב":
+            return "Moshav Azriel, behind the local grocery store"
+        case "רעננה – מרכז קהילתי לב הפארק":
+            return "Ra'anana – Lev HaPark Community Center"
+        case "הרצליה – מרכז קהילתי נוף ים":
+            return "Herzliya – Nof Yam Community Center"
+        case "כפר סבא – היכל התרבות":
+            return "Kfar Saba – Culture Hall"
+        case "הוד השרון – מרכז ספורט עירוני":
+            return "Hod Hasharon – Municipal Sports Center"
+        default:
+            return clean
+        }
+    }
+
+    static func displayCoach(_ value: String, isEnglish: Bool) -> String {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isEnglish else { return clean }
+
+        switch clean {
+        case "אדם הולצמן":
+            return "Adam Holtzman"
+        case "יוני מלסה":
+            return "Yoni Malsa"
+        case "רבקה מסיקה":
+            return "Rivka Masika"
+        default:
+            return clean
+        }
+    }
+    
     static func isRegionActive(_ region: String) -> Bool {
         !inactiveRegions.contains(region)
     }

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import Shared
 import AVFoundation
 
@@ -14,15 +15,33 @@ struct MaterialsView: View {
     @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
     @AppStorage("selected_language_code") private var selectedLanguageCode: String = "he"
 
-    private var isEnglish: Bool {
-        let values = [
-            kmiAppLanguageCode.lowercased(),
-            appLanguageRaw.lowercased(),
-            initialLanguageCode.lowercased(),
-            selectedLanguageCode.lowercased()
+    private var effectiveLanguageCode: String {
+        let orderedValues = [
+            kmiAppLanguageCode,
+            selectedLanguageCode,
+            appLanguageRaw,
+            initialLanguageCode
         ]
 
-        return values.contains("en") || values.contains("english")
+        for raw in orderedValues {
+            let clean = raw
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            if clean == "he" || clean == "hebrew" || clean == "עברית" {
+                return "he"
+            }
+
+            if clean == "en" || clean == "english" {
+                return "en"
+            }
+        }
+
+        return "he"
+    }
+
+    private var isEnglish: Bool {
+        effectiveLanguageCode == "en"
     }
 
     private var screenLayoutDirection: LayoutDirection {
@@ -43,6 +62,25 @@ struct MaterialsView: View {
 
     var onSummary: (Belt, String, String?) -> Void = { _, _, _ in }
     var onPractice: (Belt, String) -> Void = { _, _ in }
+    var onOpenSubscription: () -> Void = {}
+
+    private var hasFullAccessForPractice: Bool {
+        let defaults = UserDefaults.standard
+        let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
+
+        let accessUntil = Int64(defaults.integer(forKey: "sub_access_until"))
+
+        return defaults.bool(forKey: "has_full_access") ||
+        defaults.bool(forKey: "full_access") ||
+        defaults.bool(forKey: "subscription_active") ||
+        defaults.bool(forKey: "is_subscribed") ||
+        defaults.bool(forKey: "google_subscription_verified") ||
+        accessUntil > nowMillis
+    }
+
+    private var isPracticeLocked: Bool {
+        !hasFullAccessForPractice
+    }
 
     fileprivate enum RowMark: String {
         case mastered
@@ -51,6 +89,8 @@ struct MaterialsView: View {
 
     private struct ExerciseRow: Identifiable, Hashable {
         let id: String
+        let canonicalId: String
+        let statusId: String
         let rawItem: String
         let displayName: String
     }
@@ -68,44 +108,81 @@ struct MaterialsView: View {
 
     @State private var speechSynth = AVSpeechSynthesizer()
 
+    private var topicUi: String {
+        let clean = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? "כללי" : clean
+    }
+
+    private var subTopicUi: String? {
+        guard let subTopicTitle else { return nil }
+        let clean = subTopicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? nil : clean
+    }
+
+    private var topicKey: String {
+        if let subTopicUi {
+            return "\(topicUi)__\(subTopicUi)"
+        }
+
+        return topicUi
+    }
+
     private var scopeKey: String {
-        let topic = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sub = subTopicTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return "\(belt.id)||\(topic)||\(sub)"
+        "\(belt.id)||\(topicUi)||\(subTopicUi ?? "")"
+    }
+
+    private func normalizeStatusPart(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\u{200F}", with: "")
+            .replacingOccurrences(of: "\u{200E}", with: "")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func canonicalIdForStorage(rawItem: String) -> String {
+        let item = rawItem.trimmingCharacters(in: .whitespacesAndNewlines)
+        return "\(belt.id)||\(topicUi)||\(subTopicUi ?? "")||\(item)"
+    }
+
+    private func statusIdForStorage(index: Int, rawItem: String) -> String {
+        let cleanItem = normalizeStatusPart(rawItem)
+        return "status_\(belt.id)_\(topicKey)_\(index)_\(cleanItem)"
     }
 
     private var rows: [ExerciseRow] {
-        let topic = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sub = subTopicTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
-
         let all = ContentRepo.shared.getAllItemsFor(
             belt: belt,
-            topicTitle: topic,
-            subTopicTitle: (sub?.isEmpty == false ? sub : nil)
+            topicTitle: topicUi,
+            subTopicTitle: subTopicUi
         )
 
-        var seen = Set<String>()
+        var seenStatusIds = Set<String>()
+
         return all
-            .map { raw in
-                ExerciseRow(
-                    id: canonicalId(for: raw),
+            .enumerated()
+            .map { index, raw in
+                let canonical = canonicalIdForStorage(rawItem: raw)
+                let status = statusIdForStorage(index: index, rawItem: raw)
+
+                return ExerciseRow(
+                    id: status,
+                    canonicalId: canonical,
+                    statusId: status,
                     rawItem: raw,
                     displayName: displayName(for: raw)
                 )
             }
             .filter { row in
-                seen.insert(row.id).inserted
+                seenStatusIds.insert(row.statusId).inserted
             }
     }
 
     private var headerTitle: String {
-        let topicClean = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let topicDisplay = KmiEnglishTitleResolver.title(for: topicClean, isEnglish: isEnglish)
+        let topicDisplay = KmiEnglishTitleResolver.title(for: topicUi, isEnglish: isEnglish)
 
-        if let subTopicTitle,
-           !subTopicTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let subClean = subTopicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-            let subDisplay = KmiEnglishTitleResolver.title(for: subClean, isEnglish: isEnglish)
+        if let subTopicUi {
+            let subDisplay = KmiEnglishTitleResolver.title(for: subTopicUi, isEnglish: isEnglish)
             return "\(topicDisplay) – \(subDisplay)"
         }
 
@@ -114,7 +191,7 @@ struct MaterialsView: View {
 
     var body: some View {
         ZStack {
-            KmiGradientBackground(forceTraineeStyle: false)
+            MaterialsScreenSoftBackground(belt: belt)
 
             VStack(spacing: 0) {
                 MaterialsHeaderCard(
@@ -126,62 +203,66 @@ struct MaterialsView: View {
                         dismiss()
                     }
                 )
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
+
+                Divider()
+                    .background(BeltPaletteByMaterials.color(for: belt).opacity(0.14))
 
                 ScrollView {
-                    WhiteCard {
-                        VStack(spacing: 0) {
-                            ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
-                                MaterialsExerciseRow(
-                                    title: row.displayName,
-                                    isFavorite: favorites.contains(row.id),
-                                    isExcluded: excluded.contains(row.id),
-                                    mark: currentMark(for: row.id),
-                                    hasNote: !(notes[row.id]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
-                                    isEnglish: isEnglish,
-                                    onToggleFavorite: {
-                                        toggleFavorite(row.id)
-                                    },
-                                    onToggleExcluded: {
-                                        toggleExcluded(row.id)
-                                    },
-                                    onShowInfo: {
-                                        selectedInfoRow = row
-                                    },
-                                    onEditNote: {
-                                        noteDraft = notes[row.id] ?? ""
-                                        selectedNoteRow = row
-                                    },
-                                    onMarkDone: {
-                                        toggleMark(.mastered, for: row.id)
-                                    },
-                                    onMarkNotDone: {
-                                        toggleMark(.unknown, for: row.id)
-                                    }
-                                )
-
-                                if idx != rows.count - 1 {
-                                    Divider().opacity(0.22)
+                    VStack(spacing: 0) {
+                        ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
+                            MaterialsExerciseRow(
+                                title: row.displayName,
+                                beltColor: BeltPaletteByMaterials.color(for: belt),
+                                isFavorite: favorites.contains(row.canonicalId),
+                                isExcluded: excluded.contains(row.canonicalId),
+                                mark: currentMark(for: row.statusId),
+                                hasNote: !(notes[row.canonicalId]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                                isEnglish: isEnglish,
+                                onToggleFavorite: {
+                                    toggleFavorite(row.canonicalId)
+                                },
+                                onToggleExcluded: {
+                                    toggleExcluded(row.canonicalId)
+                                },
+                                onShowInfo: {
+                                    selectedInfoRow = row
+                                },
+                                onEditNote: {
+                                    noteDraft = notes[row.canonicalId] ?? ""
+                                    selectedNoteRow = row
+                                },
+                                onCycleMark: {
+                                    cycleMark(for: row.statusId)
                                 }
+                            )
+
+                            if idx != rows.count - 1 {
+                                Divider()
+                                    .background(BeltPaletteByMaterials.color(for: belt).opacity(0.30))
+                                    .padding(.horizontal, 8)
                             }
                         }
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 8)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                    .padding(.bottom, 16)
+                    .padding(.top, 4)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 10)
                     .id(refreshToken)
                 }
+                .background(MaterialsBeltLightBackground(belt: belt))
 
                 MaterialsBottomBar(
+                    belt: belt,
                     isEnglish: isEnglish,
+                    isPracticeLocked: isPracticeLocked,
                     onPractice: {
-                        onPractice(belt, topicTitle)
+                        if isPracticeLocked {
+                            onOpenSubscription()
+                        } else {
+                            onPractice(belt, topicUi)
+                        }
                     },
                     onSummary: {
-                        onSummary(belt, topicTitle, subTopicTitle)
+                        onSummary(belt, topicUi, subTopicUi)
                     },
                     onReset: {
                         resetCurrentScope()
@@ -199,91 +280,77 @@ struct MaterialsView: View {
             MaterialsInfoSheet(
                 title: row.displayName,
                 text: explanationText(for: row),
-                isFavorite: favorites.contains(row.id),
+                isFavorite: favorites.contains(row.canonicalId),
                 isEnglish: isEnglish,
+                accentColor: BeltPaletteByMaterials.color(for: belt),
                 onToggleFavorite: {
-                    toggleFavorite(row.id)
+                    toggleFavorite(row.canonicalId)
                 },
                 onSpeak: {
                     speak(explanationText(for: row))
+                },
+                onEditNote: {
+                    noteDraft = notes[row.canonicalId] ?? ""
+                    selectedInfoRow = nil
+
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                        selectedNoteRow = row
+                    }
                 }
             )
             .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
         .sheet(item: $selectedNoteRow) { row in
-            NavigationStack {
-                VStack(spacing: 16) {
-                    Text(row.displayName)
-                        .font(.headline)
-                        .multilineTextAlignment(primaryTextAlignment)
-                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-
-                    TextEditor(text: $noteDraft)
-                        .frame(minHeight: 180)
-                        .padding(8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Color.white.opacity(0.9))
-                        )
-
-                    HStack(spacing: 12) {
-                        Button(tr("מחק", "Delete")) {
-                            noteDraft = ""
-                            saveNote("", for: row.id)
-                            selectedNoteRow = nil
-                        }
-                        .buttonStyle(.bordered)
-
-                        Button(tr("שמור", "Save")) {
-                            saveNote(noteDraft, for: row.id)
-                            selectedNoteRow = nil
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-
-                    Spacer()
+            MaterialsPremiumNoteSheet(
+                title: row.displayName,
+                noteText: $noteDraft,
+                isEnglish: isEnglish,
+                onCancel: {
+                    selectedNoteRow = nil
+                },
+                onSave: {
+                    saveNote(noteDraft, for: row.canonicalId)
+                    selectedNoteRow = nil
+                },
+                onDelete: {
+                    noteDraft = ""
+                    saveNote("", for: row.canonicalId)
+                    selectedNoteRow = nil
                 }
-                .padding(16)
-                .navigationTitle("הערה לתרגיל")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button("סגור") {
-                            selectedNoteRow = nil
-                        }
-                    }
-                }
-            }
+            )
             .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
     }
 
     // MARK: - Helpers
 
     private func canonicalId(for rawItem: String) -> String {
-        let topic = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sub = subTopicTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let item = rawItem.trimmingCharacters(in: .whitespacesAndNewlines)
-        return "\(belt.id)||\(topic)||\(sub)||\(item)"
+        canonicalIdForStorage(rawItem: rawItem)
     }
 
     private func displayName(for rawItem: String) -> String {
         var text = rawItem.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let topic = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.hasPrefix("\(topic)::") {
-            text = String(text.dropFirst("\(topic)::".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("\(topicUi)::") {
+            text = String(text.dropFirst("\(topicUi)::".count)).trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        if let subTopicTitle {
-            let sub = subTopicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-            if text.hasPrefix("\(sub)::") {
-                text = String(text.dropFirst("\(sub)::".count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            }
+        if let subTopicUi, text.hasPrefix("\(subTopicUi)::") {
+            text = String(text.dropFirst("\(subTopicUi)::".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if text.hasPrefix(topicUi) {
+            text = String(text.dropFirst(topicUi.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "-–—: "))
         }
 
         let clean = text
-            .replacingOccurrences(of: "  ", with: " ")
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: "—", with: "-")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         return KmiEnglishTitleResolver.title(for: clean, isEnglish: isEnglish)
@@ -319,21 +386,21 @@ struct MaterialsView: View {
         var loadedNotes: [String: String] = [:]
 
         for row in rows {
-            if UserDefaults.standard.bool(forKey: favoriteKey(for: row.id)) {
-                loadedFavorites.insert(row.id)
+            if UserDefaults.standard.bool(forKey: favoriteKey(for: row.canonicalId)) {
+                loadedFavorites.insert(row.canonicalId)
             }
 
-            if UserDefaults.standard.bool(forKey: excludedKey(for: row.id)) {
-                loadedExcluded.insert(row.id)
+            if UserDefaults.standard.bool(forKey: excludedKey(for: row.canonicalId)) {
+                loadedExcluded.insert(row.canonicalId)
             }
 
-            if let raw = UserDefaults.standard.string(forKey: markKey(for: row.id)) {
-                loadedMarks[row.id] = RowMark(rawValue: raw)
+            if let raw = UserDefaults.standard.string(forKey: markKey(for: row.statusId)) {
+                loadedMarks[row.statusId] = RowMark(rawValue: raw)
             } else {
-                loadedMarks[row.id] = nil
+                loadedMarks[row.statusId] = nil
             }
 
-            loadedNotes[row.id] = UserDefaults.standard.string(forKey: noteKey(for: row.id)) ?? ""
+            loadedNotes[row.canonicalId] = UserDefaults.standard.string(forKey: noteKey(for: row.canonicalId)) ?? ""
         }
 
         favorites = loadedFavorites
@@ -369,8 +436,18 @@ struct MaterialsView: View {
         return nil
     }
 
-    private func toggleMark(_ mark: RowMark, for id: String) {
-        let next: RowMark? = (currentMark(for: id) == mark) ? nil : mark
+    private func cycleMark(for id: String) {
+        let next: RowMark?
+
+        switch currentMark(for: id) {
+        case nil:
+            next = .mastered
+        case .mastered:
+            next = .unknown
+        case .unknown:
+            next = nil
+        }
+
         marks[id] = next
 
         let key = markKey(for: id)
@@ -399,10 +476,10 @@ struct MaterialsView: View {
         notes.removeAll()
 
         for row in rows {
-            UserDefaults.standard.set(false, forKey: favoriteKey(for: row.id))
-            UserDefaults.standard.set(false, forKey: excludedKey(for: row.id))
-            UserDefaults.standard.removeObject(forKey: markKey(for: row.id))
-            UserDefaults.standard.removeObject(forKey: noteKey(for: row.id))
+            UserDefaults.standard.set(false, forKey: favoriteKey(for: row.canonicalId))
+            UserDefaults.standard.set(false, forKey: excludedKey(for: row.canonicalId))
+            UserDefaults.standard.removeObject(forKey: markKey(for: row.statusId))
+            UserDefaults.standard.removeObject(forKey: noteKey(for: row.canonicalId))
         }
 
         refreshToken = UUID()
@@ -417,6 +494,7 @@ struct MaterialsView: View {
         print("app_language =", appLanguageRaw)
         print("initial_language_code =", initialLanguageCode)
         print("selected_language_code =", selectedLanguageCode)
+        print("effectiveLanguageCode =", effectiveLanguageCode)
         print("belt =", belt.id, "|", belt.heb)
         print("topicTitle =", topicTitle)
         print("subTopicTitle =", subTopicTitle ?? "nil")
@@ -425,7 +503,8 @@ struct MaterialsView: View {
         for (index, row) in rows.enumerated() {
             print("\(index + 1). raw =", row.rawItem)
             print("   display =", row.displayName)
-            print("   id =", row.id)
+            print("   canonicalId =", row.canonicalId)
+            print("   statusId =", row.statusId)
         }
 
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -451,6 +530,60 @@ struct MaterialsView: View {
     }
 }
 
+private struct MaterialsScreenSoftBackground: View {
+    let belt: Belt
+
+    var body: some View {
+        LinearGradient(
+            colors: [
+                Color.white.opacity(0.98),
+                BeltPaletteByMaterials.color(for: belt).opacity(0.10),
+                Color.white.opacity(0.94)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .ignoresSafeArea()
+    }
+}
+
+private struct MaterialsBeltLightBackground: View {
+    let belt: Belt
+
+    var body: some View {
+        LinearGradient(
+            colors: [
+                Color.white.opacity(0.92),
+                BeltPaletteByMaterials.color(for: belt).opacity(0.08),
+                Color.white.opacity(0.90)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+}
+
+private func materialsBeltImageName(for belt: Belt) -> String {
+    switch belt {
+    case .white:
+        return "belt_white"
+    case .yellow:
+        return "belt_yellow"
+    case .orange:
+        return "belt_orange"
+    case .green:
+        return "belt_green"
+    case .blue:
+        return "belt_blue"
+    case .brown:
+        return "belt_brown"
+    case .black:
+        return "belt_black"
+    default:
+        return "belt_orange"
+    }
+}
+
 // MARK: - Header
 
 private struct MaterialsHeaderCard: View {
@@ -460,42 +593,62 @@ private struct MaterialsHeaderCard: View {
     let isEnglish: Bool
     let onBack: () -> Void
 
+    private var titleAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var titleFrameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var materialTitle: String {
+        isEnglish ? "Material: \(title)" : "חומר: \(title)"
+    }
+
     var body: some View {
-        WhiteCard {
-            HStack(spacing: 12) {
-                Button(action: onBack) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 42, height: 42)
-                        .background(Circle().fill(Color.black.opacity(0.22)))
-                }
-                .buttonStyle(.plain)
+        HStack(spacing: 10) {
+            if isEnglish {
+                beltBadge
 
-                Spacer()
+                Text(materialTitle)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.20, green: 0.25, blue: 0.33))
+                    .multilineTextAlignment(titleAlignment)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                    .frame(maxWidth: .infinity, alignment: titleFrameAlignment)
+            } else {
+                Text(materialTitle)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.20, green: 0.25, blue: 0.33))
+                    .multilineTextAlignment(titleAlignment)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                    .frame(maxWidth: .infinity, alignment: titleFrameAlignment)
 
-                VStack(spacing: 4) {
-                    Text(title)
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(Color.black.opacity(0.85))
-                        .multilineTextAlignment(.center)
-
-                    Text(isEnglish ? (count == 1 ? "1 exercise" : "\(count) exercises") : "\(count) תרגילים")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.black.opacity(0.60))
-                }
-
-                Spacer()
-
-                Circle()
-                    .fill(BeltPaletteByMaterials.color(for: belt))
-                    .frame(width: 42, height: 42)
-                    .overlay(
-                        Circle().stroke(Color.white.opacity(0.7), lineWidth: 2)
-                    )
+                beltBadge
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+        }
+        .environment(\.layoutDirection, .leftToRight)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(Color.clear)
+    }
+
+    private var beltBadge: some View {
+        ZStack {
+            Circle()
+                .fill(Color.white.opacity(0.70))
+                .frame(width: 42, height: 42)
+                .overlay(
+                    Circle()
+                        .stroke(BeltPaletteByMaterials.color(for: belt).opacity(0.18), lineWidth: 1)
+                )
+
+            Image(materialsBeltImageName(for: belt))
+                .resizable()
+                .scaledToFit()
+                .frame(width: 32, height: 32)
         }
     }
 }
@@ -504,11 +657,18 @@ private struct MaterialsHeaderCard: View {
 
 private struct MaterialsExerciseRow: View {
     let title: String
+    let beltColor: Color
     let isFavorite: Bool
     let isExcluded: Bool
     let mark: MaterialsView.RowMark?
     let hasNote: Bool
     let isEnglish: Bool
+
+    let onToggleFavorite: () -> Void
+    let onToggleExcluded: () -> Void
+    let onShowInfo: () -> Void
+    let onEditNote: () -> Void
+    let onCycleMark: () -> Void
 
     private var textAlignment: TextAlignment {
         isEnglish ? .leading : .trailing
@@ -518,136 +678,360 @@ private struct MaterialsExerciseRow: View {
         isEnglish ? .leading : .trailing
     }
 
-    private var stackAlignment: HorizontalAlignment {
-        isEnglish ? .leading : .trailing
+    var body: some View {
+        HStack(spacing: 8) {
+            menuButton
+
+            Text(title)
+                .font(.system(size: 15.5, weight: .semibold))
+                .foregroundStyle(isExcluded ? Color.gray : Color(red: 0.07, green: 0.09, blue: 0.15))
+                .multilineTextAlignment(textAlignment)
+                .lineLimit(4)
+                .minimumScaleFactor(0.84)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .padding(.horizontal, 4)
+
+            markButtons
+        }
+        .environment(\.layoutDirection, .leftToRight)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .frame(minHeight: 58)
+        .background(Color.clear)
+        .contentShape(Rectangle())
     }
 
-    let onToggleFavorite: () -> Void
-    let onToggleExcluded: () -> Void
-    let onShowInfo: () -> Void
-    let onEditNote: () -> Void
-    let onMarkDone: () -> Void
-    let onMarkNotDone: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Menu {
-                Button(
-                    isFavorite
-                    ? (isEnglish ? "Remove from favorites" : "הסר ממועדפים")
-                    : (isEnglish ? "Add to favorites" : "הוסף למועדפים"),
-                    action: onToggleFavorite
-                )
-
-                Button(
-                    isExcluded
-                    ? (isEnglish ? "Cancel exclusion" : "בטל החרגה")
-                    : (isEnglish ? "Exclude from practice" : "החרג מתרגול"),
-                    action: onToggleExcluded
-                )
-
-                Button(
-                    isEnglish ? "Exercise info" : "מידע על התרגיל",
-                    action: onShowInfo
-                )
-
-                Button(
-                    hasNote
-                    ? (isEnglish ? "Edit / delete note" : "ערוך / מחק הערה")
-                    : (isEnglish ? "Add note" : "הוסף הערה"),
-                    action: onEditNote
-                )
-            } label: {
-                Image(systemName: "ellipsis.circle.fill")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(Color.black.opacity(0.75))
-                    .frame(width: 38, height: 38)
+    private var menuButton: some View {
+        Menu {
+            Section {
+                Text(isEnglish
+                     ? "What does “Exclude” mean?\nRemoves this exercise from practice for the selected topic."
+                     : "מה זה “החרג”?\nמנטרל את התרגיל מהתרגול של הנושא הנבחר.")
+                .font(.caption)
             }
 
-            VStack(alignment: stackAlignment, spacing: 2) {
-                Text(title)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(isExcluded ? Color.gray : Color.black.opacity(0.84))
-                    .multilineTextAlignment(textAlignment)
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+            Button(
+                isEnglish ? "Info" : "מידע",
+                action: onShowInfo
+            )
 
-                HStack(spacing: 8) {
-                    if hasNote {
-                        Image(systemName: "note.text")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(Color.black.opacity(0.5))
-                    }
+            Button(
+                isFavorite
+                ? (isEnglish ? "Remove from favorites" : "הסר ממועדפים")
+                : (isEnglish ? "Add to favorites" : "הוסף למועדפים"),
+                action: onToggleFavorite
+            )
 
-                    if isFavorite {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.yellow)
-                    }
+            Button(
+                isExcluded
+                ? (isEnglish ? "Cancel exclusion" : "בטל החרגה")
+                : (isEnglish ? "Exclude from practice" : "החרג (מנטרל מהתרגול)"),
+                action: onToggleExcluded
+            )
 
-                    if isExcluded {
-                        Text(isEnglish ? "Excluded" : "מוחרג")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(.red.opacity(0.75))
-                    }
+            Button(
+                hasNote
+                ? (isEnglish ? "Edit / delete note" : "ערוך / מחק הערה")
+                : (isEnglish ? "Add exercise note" : "הוסף הערה לתרגיל"),
+                action: onEditNote
+            )
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Circle()
+                    .fill(Color(red: 0.38, green: 0.44, blue: 0.48))
+                    .frame(width: 27, height: 27)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                    )
+                    .shadow(color: Color.black.opacity(0.12), radius: 3, x: 0, y: 2)
+
+                Text("i")
+                    .font(.system(size: 15, weight: .black))
+                    .foregroundStyle(Color.white)
+
+                if isFavorite || isExcluded || hasNote {
+                    Circle()
+                        .fill(statusDotColor)
+                        .frame(width: 8, height: 8)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.92), lineWidth: 1)
+                        )
+                        .offset(x: 2, y: -2)
                 }
-                .frame(maxWidth: .infinity, alignment: frameAlignment)
             }
-
-            HStack(spacing: 10) {
-                MaterialsMarkCircleButton(
-                    systemName: "xmark",
-                    isSelected: mark == .unknown,
-                    selectedFill: Color.red.opacity(0.75),
-                    unselectedFill: Color.red.opacity(0.18),
-                    onTap: onMarkNotDone
-                )
-
-                MaterialsMarkCircleButton(
-                    systemName: "checkmark",
-                    isSelected: mark == .mastered,
-                    selectedFill: Color.green.opacity(0.75),
-                    unselectedFill: Color.green.opacity(0.18),
-                    onTap: onMarkDone
-                )
-            }
+            .frame(width: 29, height: 29)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.38))
+        .buttonStyle(.plain)
+        .frame(width: 31)
+    }
+
+    private var statusDotColor: Color {
+        if isExcluded {
+            return Color.red.opacity(0.88)
+        }
+
+        if hasNote {
+            return Color.blue.opacity(0.88)
+        }
+
+        if isFavorite {
+            return Color.orange.opacity(0.90)
+        }
+
+        return Color.clear
+    }
+
+    private var markButtons: some View {
+        MaterialsSingleMarkCircleButton(
+            mark: mark,
+            onTap: onCycleMark
         )
-        .padding(.vertical, 4)
+        .frame(width: 44)
     }
 }
 
-private struct MaterialsMarkCircleButton: View {
-    let systemName: String
-    let isSelected: Bool
-    let selectedFill: Color
-    let unselectedFill: Color
+private struct MaterialsSingleMarkCircleButton: View {
+    let mark: MaterialsView.RowMark?
     let onTap: () -> Void
 
+    @State private var pressed: Bool = false
+
+    private var fillColor: Color {
+        switch mark {
+        case .mastered:
+            return Color.green.opacity(0.76)
+        case .unknown:
+            return Color.red.opacity(0.76)
+        case nil:
+            return Color.white.opacity(0.96)
+        }
+    }
+
+    private var strokeColor: Color {
+        switch mark {
+        case .mastered, .unknown:
+            return Color.white.opacity(0.36)
+        case nil:
+            return Color.black.opacity(0.18)
+        }
+    }
+
+    private var iconName: String? {
+        switch mark {
+        case .mastered:
+            return "checkmark"
+        case .unknown:
+            return "xmark"
+        case nil:
+            return nil
+        }
+    }
+
+    private var accessibilityTitle: String {
+        switch mark {
+        case .mastered:
+            return "Known"
+        case .unknown:
+            return "Unknown"
+        case nil:
+            return "Not marked"
+        }
+    }
+
     var body: some View {
-        Button(action: onTap) {
+        Button {
+            withAnimation(.easeOut(duration: 0.10)) {
+                pressed = true
+            }
+
+            onTap()
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                withAnimation(.easeOut(duration: 0.12)) {
+                    pressed = false
+                }
+            }
+        } label: {
             ZStack {
                 Circle()
-                    .fill(isSelected ? selectedFill : unselectedFill)
-                    .frame(width: 38, height: 38)
+                    .fill(fillColor)
+                    .frame(width: 40, height: 40)
+                    .overlay(
+                        Circle()
+                            .stroke(strokeColor, lineWidth: 1)
+                    )
+                    .shadow(
+                        color: Color.black.opacity(mark == nil ? 0.14 : 0.12),
+                        radius: 4,
+                        x: 0,
+                        y: 2
+                    )
 
-                Image(systemName: systemName)
-                    .font(.system(size: 16, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(isSelected ? 0.95 : 0.55))
+                if let iconName {
+                    Image(systemName: iconName)
+                        .font(.system(size: 16, weight: .black))
+                        .foregroundStyle(Color.white)
+                }
             }
+            .scaleEffect(pressed ? 0.92 : 1.0)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityTitle)
+    }
+}
+
+// MARK: - Premium Note Sheet
+
+private struct MaterialsPremiumNoteSheet: View {
+    let title: String
+    @Binding var noteText: String
+    let isEnglish: Bool
+    let onCancel: () -> Void
+    let onSave: () -> Void
+    let onDelete: () -> Void
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var hasNote: Bool {
+        !noteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color.white,
+                    Color(red: 0.97, green: 0.95, blue: 1.00),
+                    Color.white
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                VStack(alignment: isEnglish ? .leading : .trailing, spacing: 6) {
+                    Text(isEnglish ? "Exercise Note" : "הערה על התרגיל")
+                        .font(.system(size: 24, weight: .black))
+                        .foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.24))
+                        .multilineTextAlignment(textAlignment)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+
+                    Text(isEnglish ? "Write a personal note that will stay attached to this exercise." : "כתוב הערה אישית שתישמר לתרגיל הזה")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.39, green: 0.45, blue: 0.55))
+                        .multilineTextAlignment(textAlignment)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+
+                    Text(title)
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Color(red: 0.23, green: 0.20, blue: 0.38))
+                        .multilineTextAlignment(textAlignment)
+                        .lineLimit(2)
+                        .padding(.top, 4)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                }
+
+                TextEditor(text: $noteText)
+                    .font(.system(size: 17, weight: .semibold))
+                    .multilineTextAlignment(textAlignment)
+                    .frame(minHeight: 150, maxHeight: 220)
+                    .padding(12)
+                    .scrollContentBackground(.hidden)
+                    .background(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .fill(Color.white.opacity(0.96))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .stroke(Color(red: 0.49, green: 0.34, blue: 0.76).opacity(0.18), lineWidth: 1)
+                    )
+                    .shadow(color: Color.black.opacity(0.08), radius: 7, x: 0, y: 4)
+                    .overlay(alignment: isEnglish ? .topLeading : .topTrailing) {
+                        if noteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(isEnglish ? "Write a free note" : "הקלד הערה חופשית")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(Color(red: 0.58, green: 0.64, blue: 0.72))
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 20)
+                                .allowsHitTesting(false)
+                        }
+                    }
+
+                HStack(spacing: 12) {
+                    Button {
+                        onCancel()
+                    } label: {
+                        Text(isEnglish ? "Cancel" : "בטל")
+                            .font(.system(size: 16, weight: .black))
+                            .foregroundStyle(Color(red: 0.43, green: 0.36, blue: 0.65))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(Color.white.opacity(0.78))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .stroke(Color(red: 0.49, green: 0.34, blue: 0.76).opacity(0.24), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        onSave()
+                    } label: {
+                        Text(isEnglish ? "Save" : "שמור")
+                            .font(.system(size: 16, weight: .black))
+                            .foregroundStyle(Color.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(Color(red: 0.36, green: 0.25, blue: 0.65))
+                            )
+                            .shadow(color: Color(red: 0.36, green: 0.25, blue: 0.65).opacity(0.24), radius: 8, x: 0, y: 5)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if hasNote {
+                    Button {
+                        onDelete()
+                    } label: {
+                        Text(isEnglish ? "Delete note" : "מחק הערה")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(Color(red: 0.70, green: 0.15, blue: 0.12))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 22)
+            .padding(.bottom, 16)
+        }
+        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
     }
 }
 
 // MARK: - Bottom bar
 
 private struct MaterialsBottomBar: View {
+    let belt: Belt
     let isEnglish: Bool
+    let isPracticeLocked: Bool
     let onPractice: () -> Void
     let onSummary: () -> Void
     let onReset: () -> Void
@@ -655,34 +1039,69 @@ private struct MaterialsBottomBar: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
-                MaterialsActionButton(
-                    title: isEnglish ? "Practice" : "תרגול",
-                    fill: Color(red: 0.44, green: 0.39, blue: 1.0),
-                    onTap: onPractice
-                )
+                if isEnglish {
+                    MaterialsActionButton(
+                        title: isPracticeLocked ? "🔒 Practice" : "Practice",
+                        fill: isPracticeLocked
+                        ? Color(red: 0.60, green: 0.48, blue: 0.13)
+                        : BeltPaletteByMaterials.color(for: belt).opacity(0.92),
+                        systemImage: isPracticeLocked ? "lock.fill" : nil,
+                        onTap: onPractice
+                    )
 
-                MaterialsActionButton(
-                    title: isEnglish ? "Reset" : "איפוס",
-                    fill: Color.red.opacity(0.82),
-                    onTap: onReset
-                )
-            }
+                    MaterialsActionButton(
+                        title: "Reset",
+                        fill: Color(red: 0.70, green: 0.15, blue: 0.12),
+                        systemImage: nil,
+                        onTap: onReset
+                    )
+                } else {
+                    MaterialsActionButton(
+                        title: "איפוס",
+                        fill: Color(red: 0.70, green: 0.15, blue: 0.12),
+                        systemImage: nil,
+                        onTap: onReset
+                    )
 
-            HStack(spacing: 12) {
-                MaterialsActionButton(
-                    title: isEnglish ? "Summary Screen" : "מסך סיכום",
-                    fill: Color(red: 0.44, green: 0.39, blue: 1.0),
-                    onTap: onSummary
-                )
+                    MaterialsActionButton(
+                        title: isPracticeLocked ? "🔒 תרגול" : "תרגול",
+                        fill: isPracticeLocked
+                        ? Color(red: 0.60, green: 0.48, blue: 0.13)
+                        : BeltPaletteByMaterials.color(for: belt).opacity(0.92),
+                        systemImage: isPracticeLocked ? "lock.fill" : nil,
+                        onTap: onPractice
+                    )
+                }
             }
+            .environment(\.layoutDirection, .leftToRight)
+
+            MaterialsActionButton(
+                title: isEnglish ? "Summary Screen" : "מסך סיכום",
+                fill: Color(red: 0.12, green: 0.16, blue: 0.24),
+                systemImage: nil,
+                onTap: onSummary
+            )
         }
         .padding(.horizontal, 16)
-        .padding(.top, 10)
-        .padding(.bottom, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 14)
         .background(
-            RoundedRectangle(cornerRadius: 0, style: .continuous)
-                .fill(Color(white: 0.88))
-                .ignoresSafeArea(edges: .bottom)
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(0.96),
+                    BeltPaletteByMaterials.color(for: belt).opacity(0.10),
+                    Color.white.opacity(0.94)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea(edges: .bottom)
+        )
+        .overlay(
+            Rectangle()
+                .fill(BeltPaletteByMaterials.color(for: belt).opacity(0.14))
+                .frame(height: 1),
+            alignment: .top
         )
     }
 }
@@ -690,19 +1109,54 @@ private struct MaterialsBottomBar: View {
 private struct MaterialsActionButton: View {
     let title: String
     let fill: Color
+    let systemImage: String?
     let onTap: () -> Void
 
+    @State private var pressed: Bool = false
+
+    private var contentColor: Color {
+        fill.luminance < 0.50 ? Color.white : Color.black
+    }
+
     var body: some View {
-        Button(action: onTap) {
-            Text(title)
-                .font(.system(size: 18, weight: .heavy))
-                .foregroundStyle(Color.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 54)
-                .background(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(fill)
-                )
+        Button {
+            withAnimation(.easeOut(duration: 0.10)) {
+                pressed = true
+            }
+
+            onTap()
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
+                withAnimation(.easeOut(duration: 0.12)) {
+                    pressed = false
+                }
+            }
+        } label: {
+            HStack(spacing: 7) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 14, weight: .black))
+                }
+
+                Text(title)
+                    .font(.system(size: 16, weight: .bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                    .multilineTextAlignment(.center)
+            }
+            .foregroundStyle(contentColor)
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(fill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.white.opacity(0.24), lineWidth: 1)
+            )
+            .shadow(color: fill.opacity(0.22), radius: 6, x: 0, y: 4)
+            .scaleEffect(pressed ? 0.96 : 1.0)
         }
         .buttonStyle(.plain)
     }
@@ -715,10 +1169,10 @@ private struct MaterialsInfoSheet: View {
     let text: String
     let isFavorite: Bool
     let isEnglish: Bool
+    let accentColor: Color
     let onToggleFavorite: () -> Void
     let onSpeak: () -> Void
-
-    @Environment(\.dismiss) private var dismiss
+    let onEditNote: () -> Void
 
     private var textAlignment: TextAlignment {
         isEnglish ? .leading : .trailing
@@ -729,45 +1183,131 @@ private struct MaterialsInfoSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                Text(title)
-                    .font(.headline.weight(.bold))
-                    .multilineTextAlignment(textAlignment)
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(0.99),
+                    accentColor.opacity(0.06),
+                    Color.white.opacity(0.96)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
 
-                ScrollView {
-                    Text(text)
-                        .font(.body)
+            VStack(spacing: 14) {
+                VStack(alignment: isEnglish ? .leading : .trailing, spacing: 8) {
+                    Text(title)
+                        .font(.system(size: 22, weight: .black))
+                        .foregroundStyle(Color(red: 0.11, green: 0.14, blue: 0.20))
+                        .multilineTextAlignment(textAlignment)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+
+                    Text(isEnglish ? "Detailed explanation" : "הסבר מפורט")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color(red: 0.39, green: 0.45, blue: 0.55))
                         .multilineTextAlignment(textAlignment)
                         .frame(maxWidth: .infinity, alignment: frameAlignment)
                 }
 
-                HStack(spacing: 12) {
-                    Button(isFavorite ? (isEnglish ? "Remove favorite" : "הסר ממועדפים") : (isEnglish ? "Add favorite" : "הוסף למועדפים")) {
-                        onToggleFavorite()
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button(isEnglish ? "Play" : "השמע") {
-                        onSpeak()
-                    }
-                    .buttonStyle(.borderedProminent)
+                ScrollView {
+                    Text(text)
+                        .font(.system(size: 16.5, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.10, green: 0.12, blue: 0.17))
+                        .lineSpacing(5)
+                        .multilineTextAlignment(textAlignment)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                        .padding(16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .fill(Color.white.opacity(0.96))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .stroke(accentColor.opacity(0.16), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.07), radius: 8, x: 0, y: 4)
                 }
 
-                Spacer()
-            }
-            .padding(16)
-            .navigationTitle(isEnglish ? "Exercise info" : "מידע על התרגיל")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(isEnglish ? "Close" : "סגור") {
-                        dismiss()
-                    }
+                HStack(spacing: 10) {
+                    MaterialsInfoActionButton(
+                        title: isEnglish ? "Speak" : "הקראה",
+                        systemName: "speaker.wave.2.fill",
+                        fill: Color(red: 0.12, green: 0.16, blue: 0.24),
+                        onTap: onSpeak
+                    )
+
+                    MaterialsInfoActionButton(
+                        title: isFavorite
+                        ? (isEnglish ? "Favorite" : "מועדף")
+                        : (isEnglish ? "Favorite" : "מועדף"),
+                        systemName: isFavorite ? "star.fill" : "star",
+                        fill: Color.orange.opacity(0.92),
+                        onTap: onToggleFavorite
+                    )
                 }
+
+                MaterialsInfoActionButton(
+                    title: isEnglish ? "Edit / add note" : "ערוך / הוסף הערה",
+                    systemName: "note.text",
+                    fill: accentColor.opacity(0.92),
+                    onTap: onEditNote
+                )
             }
+            .padding(.horizontal, 18)
+            .padding(.top, 22)
+            .padding(.bottom, 16)
         }
+        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+    }
+}
+
+private struct MaterialsInfoActionButton: View {
+    let title: String
+    let systemName: String
+    let fill: Color
+    let onTap: () -> Void
+
+    @State private var pressed: Bool = false
+
+    var body: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.10)) {
+                pressed = true
+            }
+
+            onTap()
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
+                withAnimation(.easeOut(duration: 0.12)) {
+                    pressed = false
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: systemName)
+                    .font(.system(size: 14, weight: .black))
+
+                Text(title)
+                    .font(.system(size: 15, weight: .black))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+            }
+            .foregroundStyle(Color.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(fill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
+            )
+            .shadow(color: fill.opacity(0.20), radius: 7, x: 0, y: 4)
+            .scaleEffect(pressed ? 0.96 : 1.0)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -803,5 +1343,19 @@ private enum BeltPaletteByMaterials {
             topicTitle: "שחרורים",
             subTopicTitle: nil
         )
+    }
+}
+
+private extension Color {
+    var luminance: Double {
+        let uiColor = UIColor(self)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+
+        return 0.2126 * Double(red) + 0.7152 * Double(green) + 0.0722 * Double(blue)
     }
 }

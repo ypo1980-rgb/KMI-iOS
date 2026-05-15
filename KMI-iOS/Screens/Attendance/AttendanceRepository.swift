@@ -175,12 +175,6 @@ final class AttendanceRepository {
             endIsoExclusive: endIsoExclusive
         )
 
-        let members = loadMembers(
-            ownerUid: ownerUid,
-            branchName: branchName,
-            groupKey: groupKey
-        )
-
         return days
             .sorted(by: >)
             .map { dateIso in
@@ -191,21 +185,16 @@ final class AttendanceRepository {
                     dateIso: dateIso
                 )
 
-                let byMemberId = Dictionary(uniqueKeysWithValues: records.map { ($0.memberId, $0) })
-
-                let statuses = members.map { member in
-                    byMemberId[member.id]?.status ?? .unknown
-                }
-
-                let present = statuses.filter { $0 == .present }.count
-                let excused = statuses.filter { $0 == .excused }.count
-                let absent = statuses.filter { $0 == .absent }.count
-                let unknown = statuses.filter { $0 == .unknown }.count
+                let present = records.filter { $0.status == .present }.count
+                let excused = records.filter { $0.status == .excused }.count
+                let absent = records.filter { $0.status == .absent }.count
+                let unknown = records.filter { $0.status == .unknown }.count
+                let total = records.count
 
                 return AttendanceSavedReport(
                     id: dateIso,
                     dateIso: dateIso,
-                    totalMembers: members.count,
+                    totalMembers: total,
                     presentCount: present,
                     excusedCount: excused,
                     absentCount: absent,
@@ -236,9 +225,20 @@ final class AttendanceRepository {
             )
         }
 
-        let averagePercent = Int(reports.map { $0.percentPresent }.reduce(0, +) / reports.count)
-        let averagePresent = Int(reports.map { $0.presentCount }.reduce(0, +) / reports.count)
-        let averageTotal = Int(reports.map { $0.totalMembers }.reduce(0, +) / reports.count)
+        let averagePercent = Int(
+            (Double(reports.map { $0.percentPresent }.reduce(0, +)) / Double(reports.count))
+                .rounded()
+        )
+
+        let averagePresent = Int(
+            (Double(reports.map { $0.presentCount }.reduce(0, +)) / Double(reports.count))
+                .rounded()
+        )
+
+        let averageTotal = Int(
+            (Double(reports.map { $0.totalMembers }.reduce(0, +)) / Double(reports.count))
+                .rounded()
+        )
 
         return AttendanceGroupStatsSummary(
             averagePercent: averagePercent,
@@ -256,6 +256,7 @@ final class AttendanceRepository {
         today: Date = Date()
     ) -> AttendanceMemberStats {
         let calendar = Calendar.current
+        let isEnglish = Self.isEnglishLanguage()
 
         let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: today)) ?? today
         let yearBack = calendar.date(byAdding: .year, value: -1, to: today) ?? today
@@ -282,6 +283,7 @@ final class AttendanceRepository {
         var streakOpen = true
 
         var lastSessions: [String] = []
+        var bestDayCounts: [Int: Int] = [:]
 
         for dateIso in days {
             let records = loadRecords(
@@ -308,8 +310,16 @@ final class AttendanceRepository {
                 if isPresent { yearPresent += 1 }
             }
 
+            if isPresent,
+               let date = Self.date(fromIso: dateIso) {
+                let weekday = calendar.component(.weekday, from: date)
+                bestDayCounts[weekday, default: 0] += 1
+            }
+
             if lastSessions.count < 8 {
-                lastSessions.append("\(dateIso) – \(record.status.heb)")
+                let dateText = Self.displayDateString(fromIso: dateIso, isEnglish: isEnglish)
+                let statusText = Self.localizedStatus(record.status, isEnglish: isEnglish)
+                lastSessions.append("\(dateText) – \(statusText)")
             }
 
             if isPresent {
@@ -322,15 +332,109 @@ final class AttendanceRepository {
         let monthlyPercent = monthTotal > 0 ? Int((Double(monthPresent) / Double(monthTotal)) * 100.0) : 0
         let yearlyPercent = yearTotal > 0 ? Int((Double(yearPresent) / Double(yearTotal)) * 100.0) : 0
 
+        let bestDays = bestDayCounts
+            .sorted { lhs, rhs in
+                if lhs.value == rhs.value {
+                    return lhs.key < rhs.key
+                }
+
+                return lhs.value > rhs.value
+            }
+            .prefix(6)
+            .map { weekday, _ in
+                Self.localizedWeekday(weekday, isEnglish: isEnglish)
+            }
+
         return AttendanceMemberStats(
             monthlyPercent: monthlyPercent,
             yearlyPercent: yearlyPercent,
             streakDays: streakDays,
-            bestDays: [],
+            bestDays: Array(bestDays),
             lastSessions: lastSessions
         )
     }
 
+    private static func isEnglishLanguage() -> Bool {
+        let defaults = UserDefaults.standard
+
+        let values = [
+            defaults.string(forKey: "kmi_app_language"),
+            defaults.string(forKey: "app_language"),
+            defaults.string(forKey: "initial_language_code"),
+            defaults.string(forKey: "initial_language_selected_code"),
+            defaults.string(forKey: "kmi.language.code")
+        ]
+        .compactMap { $0 }
+        .map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+        }
+
+        if values.contains("en") || values.contains("english") {
+            return true
+        }
+
+        if values.contains("he") || values.contains("hebrew") {
+            return false
+        }
+
+        return Locale.preferredLanguages.first?
+            .lowercased()
+            .hasPrefix("en") == true
+    }
+
+    private static func localizedStatus(_ status: AttendanceStatus, isEnglish: Bool) -> String {
+        switch status {
+        case .present:
+            return isEnglish ? "Present" : "הגיע"
+        case .excused:
+            return isEnglish ? "Excused" : "מוצדק"
+        case .absent:
+            return isEnglish ? "Absent" : "לא הגיע"
+        case .unknown:
+            return isEnglish ? "Not marked" : "לא סומן"
+        }
+    }
+
+    private static func localizedWeekday(_ weekday: Int, isEnglish: Bool) -> String {
+        switch weekday {
+        case 1:
+            return isEnglish ? "Sun" : "ראשון"
+        case 2:
+            return isEnglish ? "Mon" : "שני"
+        case 3:
+            return isEnglish ? "Tue" : "שלישי"
+        case 4:
+            return isEnglish ? "Wed" : "רביעי"
+        case 5:
+            return isEnglish ? "Thu" : "חמישי"
+        case 6:
+            return isEnglish ? "Fri" : "שישי"
+        case 7:
+            return isEnglish ? "Sat" : "שבת"
+        default:
+            return isEnglish ? "Day" : "יום"
+        }
+    }
+
+    private static func date(fromIso iso: String) -> Date? {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f.date(from: iso)
+    }
+
+    private static func displayDateString(fromIso iso: String, isEnglish: Bool) -> String {
+        guard let date = date(fromIso: iso) else {
+            return iso
+        }
+
+        let f = DateFormatter()
+        f.locale = isEnglish ? Locale(identifier: "en_US") : Locale(identifier: "he_IL")
+        f.dateFormat = isEnglish ? "MMM d, yyyy" : "dd/MM/yyyy"
+        return f.string(from: date)
+    }
+    
     private static func isoString(_ date: Date) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")

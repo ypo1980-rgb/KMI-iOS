@@ -216,7 +216,7 @@ struct SubjectAcrossBeltsView: View {
 
     private func exercisesCountText(_ count: Int) -> String {
         if isEnglish {
-            return count == 1 ? "1 exercise" : "\(count) exercises"
+            return "exercises \(count)"
         } else {
             return "\(count) תרגילים"
         }
@@ -243,6 +243,63 @@ struct SubjectAcrossBeltsView: View {
         return isEnglish
         ? "No exercises found for \"\(subjectTitle)\""
         : "לא נמצאו תרגילים עבור \"\(subjectTitle)\""
+    }
+
+    private var totalExercisesAcrossBelts: Int {
+        belts.reduce(0) { partial, belt in
+            partial + sections(for: belt).reduce(0) { $0 + $1.items.count }
+        }
+    }
+
+    private var visibleBeltsCount: Int {
+        belts.filter { !sections(for: $0).isEmpty }.count
+    }
+
+    private func heroSubtitleText() -> String {
+        if isEnglish {
+            return "\(exercisesCountText(totalExercisesAcrossBelts)) · \(visibleBeltsCount) belts"
+        }
+
+        return "\(exercisesCountText(totalExercisesAcrossBelts)) · \(visibleBeltsCount) חגורות"
+    }
+
+    private func subjectSymbolName() -> String {
+        let id = subject.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let title = subject.titleHeb.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if id.contains("internal") || title.contains("פנימ") {
+            return "arrow.down.left.and.arrow.up.right"
+        }
+
+        if id.contains("external") || title.contains("חיצונ") {
+            return "arrow.up.forward.and.arrow.down.backward"
+        }
+
+        if id.contains("knife") || title.contains("סכין") {
+            return "shield.lefthalf.filled"
+        }
+
+        if id.contains("gun") || title.contains("אקדח") {
+            return "scope"
+        }
+
+        if id.contains("stick") || title.contains("מקל") || title.contains("רובה") {
+            return "figure.fencing"
+        }
+
+        if id.contains("release") || title.contains("שחרור") || title.contains("חביקה") {
+            return "hand.raised.fill"
+        }
+
+        if id.contains("kick") || title.contains("בעיטה") {
+            return "figure.kickboxing"
+        }
+
+        if id.contains("hand") || id.contains("punch") || title.contains("יד") || title.contains("מרפק") {
+            return "hand.tap.fill"
+        }
+
+        return "list.bullet.rectangle.fill"
     }
     
     private func containsAny(_ text: String, keywords: [String]) -> Bool {
@@ -424,6 +481,31 @@ struct SubjectAcrossBeltsView: View {
 
         return out
     }
+
+    private var heroIcon: some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.purple.opacity(0.20),
+                        Color.purple.opacity(0.08),
+                        Color.white.opacity(0.92)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .frame(width: 58, height: 54)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.purple.opacity(0.20), lineWidth: 1)
+            )
+            .overlay(
+                Image(systemName: subjectSymbolName())
+                    .font(.system(size: 23, weight: .heavy))
+                    .foregroundStyle(Color.purple.opacity(0.78))
+            )
+    }
     
     var body: some View {
         ZStack {
@@ -434,40 +516,114 @@ struct SubjectAcrossBeltsView: View {
                     VStack(spacing: 12) {
 
                         WhiteCard {
-                            VStack(spacing: 8) {
-                                Text(uiSubjectTitle())
-                                    .font(.title3.weight(.heavy))
-                                    .foregroundStyle(Color.black.opacity(0.85))
-                                    .frame(maxWidth: .infinity, alignment: .center)
-                                    .multilineTextAlignment(.center)
+                            VStack(alignment: isEnglish ? .leading : .trailing, spacing: 12) {
+                                HStack(spacing: 12) {
+                                    if isEnglish {
+                                        heroIcon
+
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(uiSubjectTitle())
+                                                .font(.system(size: 23, weight: .heavy))
+                                                .foregroundStyle(Color.black.opacity(0.86))
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                                .multilineTextAlignment(.leading)
+                                                .lineLimit(2)
+
+                                            Text(heroSubtitleText())
+                                                .font(.system(size: 13, weight: .bold))
+                                                .foregroundStyle(Color.black.opacity(0.52))
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                                .multilineTextAlignment(.leading)
+                                        }
+                                    } else {
+                                        VStack(alignment: .trailing, spacing: 4) {
+                                            Text(uiSubjectTitle())
+                                                .font(.system(size: 23, weight: .heavy))
+                                                .foregroundStyle(Color.black.opacity(0.86))
+                                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                                .multilineTextAlignment(.trailing)
+                                                .lineLimit(2)
+
+                                            Text(heroSubtitleText())
+                                                .font(.system(size: 13, weight: .bold))
+                                                .foregroundStyle(Color.black.opacity(0.52))
+                                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                                .multilineTextAlignment(.trailing)
+                                        }
+
+                                        heroIcon
+                                    }
+                                }
 
                                 if !subject.description.isEmpty {
                                     Text(subject.description)
-                                        .font(.caption)
-                                        .foregroundStyle(Color.black.opacity(0.55))
-                                        .multilineTextAlignment(.center)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(Color.black.opacity(0.56))
+                                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                                        .multilineTextAlignment(primaryTextAlignment)
                                 }
 
-                                if let forcedSectionTitle, !forcedSectionTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                if let forcedSectionTitle,
+                                   !forcedSectionTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                     Text(displayTitleForForcedSection(forcedSectionTitle))
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(Color.black.opacity(0.58))
-                                        .frame(maxWidth: .infinity, alignment: .center)
-                                        .multilineTextAlignment(.center)
+                                        .font(.system(size: 13, weight: .heavy))
+                                        .foregroundStyle(Color.purple.opacity(0.78))
+                                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                                        .multilineTextAlignment(primaryTextAlignment)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(Color.purple.opacity(0.09))
+                                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                                 }
                             }
-                            .padding(.vertical, 10)
+                            .padding(.vertical, 12)
                             .padding(.horizontal, 12)
                         }
 
                         // ✅ קרוסלה אמיתית: Snap למרכז + מרכז מודגש
                         WhiteCard {
                             VStack(alignment: isEnglish ? .leading : .trailing, spacing: 10) {
-                                Text(tr("חגורות", "Belts"))
-                                    .font(.headline.weight(.bold))
-                                    .foregroundStyle(Color.black.opacity(0.82))
-                                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                                    .multilineTextAlignment(primaryTextAlignment)
+                                HStack(spacing: 10) {
+                                    if isEnglish {
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(tr("חגורות", "Belts"))
+                                                .font(.system(size: 19, weight: .heavy))
+                                                .foregroundStyle(Color.black.opacity(0.84))
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                            Text(tr("בחר חגורה להצגת התרגילים", "Choose a belt to view exercises"))
+                                                .font(.system(size: 12, weight: .bold))
+                                                .foregroundStyle(Color.black.opacity(0.50))
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                        }
+
+                                        Image(systemName: "circle.grid.3x3.fill")
+                                            .font(.system(size: 17, weight: .heavy))
+                                            .foregroundStyle(Color.purple.opacity(0.72))
+                                            .frame(width: 36, height: 36)
+                                            .background(Color.purple.opacity(0.10))
+                                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    } else {
+                                        Image(systemName: "circle.grid.3x3.fill")
+                                            .font(.system(size: 17, weight: .heavy))
+                                            .foregroundStyle(Color.purple.opacity(0.72))
+                                            .frame(width: 36, height: 36)
+                                            .background(Color.purple.opacity(0.10))
+                                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                                        VStack(alignment: .trailing, spacing: 3) {
+                                            Text(tr("חגורות", "Belts"))
+                                                .font(.system(size: 19, weight: .heavy))
+                                                .foregroundStyle(Color.black.opacity(0.84))
+                                                .frame(maxWidth: .infinity, alignment: .trailing)
+
+                                            Text(tr("בחר חגורה להצגת התרגילים", "Choose a belt to view exercises"))
+                                                .font(.system(size: 12, weight: .bold))
+                                                .foregroundStyle(Color.black.opacity(0.50))
+                                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                        }
+                                    }
+                                }
 
                                 BeltCarousel(
                                     belts: belts,
@@ -487,20 +643,45 @@ struct SubjectAcrossBeltsView: View {
 
                         if !hasAnyExercises {
                             WhiteCard {
-                                VStack(spacing: 10) {
-                                    Image(systemName: "exclamationmark.circle.fill")
-                                        .font(.system(size: 28, weight: .semibold))
-                                        .foregroundStyle(Color.black.opacity(0.35))
+                                VStack(spacing: 12) {
+                                    RoundedRectangle(cornerRadius: 17, style: .continuous)
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [
+                                                    Color.purple.opacity(0.16),
+                                                    Color.purple.opacity(0.06),
+                                                    Color.white.opacity(0.92)
+                                                ],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
+                                        )
+                                        .frame(width: 58, height: 54)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 17, style: .continuous)
+                                                .stroke(Color.purple.opacity(0.16), lineWidth: 1)
+                                        )
+                                        .overlay(
+                                            Image(systemName: "doc.text.magnifyingglass")
+                                                .font(.system(size: 24, weight: .heavy))
+                                                .foregroundStyle(Color.purple.opacity(0.72))
+                                        )
+
+                                    Text(tr("לא נמצאו תרגילים", "No exercises found"))
+                                        .font(.system(size: 18, weight: .heavy))
+                                        .foregroundStyle(Color.black.opacity(0.82))
+                                        .frame(maxWidth: .infinity, alignment: .center)
+                                        .multilineTextAlignment(.center)
 
                                     Text(emptyExercisesMessage())
-                                        .font(.system(size: 16, weight: .semibold))
-                                        .foregroundStyle(Color.black.opacity(0.62))
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(Color.black.opacity(0.58))
                                         .frame(maxWidth: .infinity, alignment: .center)
                                         .multilineTextAlignment(.center)
                                         .padding(.horizontal, 10)
                                 }
-                                .padding(.vertical, 18)
-                                .padding(.horizontal, 12)
+                                .padding(.vertical, 20)
+                                .padding(.horizontal, 14)
                             }
                         }
 
@@ -512,48 +693,37 @@ struct SubjectAcrossBeltsView: View {
 
                                 VStack(spacing: 12) {
 
-                                    HStack {
-                                        if isEnglish {
-                                            Text(beltTitleText(belt))
-                                                .font(.system(size: 18, weight: .heavy))
-                                                .foregroundStyle(beltAccent(belt))
-
-                                            Spacer()
-
-                                            Text(exercisesCountText(secs.reduce(0) { $0 + $1.items.count }))
-                                                .font(.system(size: 15, weight: .heavy))
-                                                .foregroundStyle(beltAccent(belt))
-                                        } else {
-                                            Text(exercisesCountText(secs.reduce(0) { $0 + $1.items.count }))
-                                                .font(.system(size: 15, weight: .heavy))
-                                                .foregroundStyle(beltAccent(belt))
-
-                                            Spacer()
-
-                                            Text(beltTitleText(belt))
-                                                .font(.system(size: 18, weight: .heavy))
-                                                .foregroundStyle(beltAccent(belt))
-                                        }
-                                    }
-                                    .padding(.horizontal, 4)
+                                    beltSectionHeader(
+                                        belt,
+                                        count: secs.reduce(0) { $0 + $1.items.count }
+                                    )
 
                                     VStack(spacing: 10) {
                                         ForEach(secs) { sec in
-                                            ForEach(sec.items) { it in
-                                                NavigationLink {
-                                                    ExerciseDetailView(
-                                                        belt: belt,
-                                                        topicTitle: it.topicTitle,
-                                                        item: it.displayName
-                                                    )
-                                                } label: {
-                                                    BeltExerciseRowCard(
-                                                        title: uiExerciseTitle(it.displayName),
-                                                        accent: beltAccent(belt),
-                                                        isEnglish: isEnglish
+                                            VStack(spacing: 8) {
+                                                if secs.count > 1 {
+                                                    sectionTitlePill(
+                                                        sec.title,
+                                                        accent: beltAccent(belt)
                                                     )
                                                 }
-                                                .buttonStyle(.plain)
+
+                                                ForEach(sec.items) { it in
+                                                    NavigationLink {
+                                                        ExerciseDetailView(
+                                                            belt: belt,
+                                                            topicTitle: it.topicTitle,
+                                                            item: it.displayName
+                                                        )
+                                                    } label: {
+                                                        BeltExerciseRowCard(
+                                                            title: uiExerciseTitle(it.displayName),
+                                                            accent: beltAccent(belt),
+                                                            isEnglish: isEnglish
+                                                        )
+                                                    }
+                                                    .buttonStyle(.plain)
+                                                }
                                             }
                                         }
                                     }
@@ -561,14 +731,23 @@ struct SubjectAcrossBeltsView: View {
                                 .padding(.vertical, 14)
                                 .padding(.horizontal, 14)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                        .fill(beltCardFill(belt))
+                                    RoundedRectangle(cornerRadius: 23, style: .continuous)
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [
+                                                    beltCardFill(belt),
+                                                    Color.white.opacity(0.94)
+                                                ],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
+                                        )
                                 )
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                        .stroke(beltAccent(belt).opacity(0.18), lineWidth: 1)
+                                    RoundedRectangle(cornerRadius: 23, style: .continuous)
+                                        .stroke(beltAccent(belt).opacity(0.20), lineWidth: 1)
                                 )
-                                .shadow(color: Color.black.opacity(0.05), radius: 6, x: 0, y: 3)
+                                .shadow(color: beltAccent(belt).opacity(0.10), radius: 8, x: 0, y: 4)
                                 .id(beltAnchorId(belt))
                             }
                         }
@@ -592,6 +771,113 @@ struct SubjectAcrossBeltsView: View {
                 }
             }
         }
+    }
+
+    private func beltSectionHeader(_ belt: Belt, count: Int) -> some View {
+        HStack(spacing: 10) {
+            if isEnglish {
+                beltHeaderIcon(belt)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(beltTitleText(belt))
+                        .font(.system(size: 19, weight: .heavy))
+                        .foregroundStyle(beltAccent(belt))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Text(exercisesCountText(count))
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Color.black.opacity(0.52))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(beltTitleText(belt))
+                        .font(.system(size: 19, weight: .heavy))
+                        .foregroundStyle(beltAccent(belt))
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+
+                    Text(exercisesCountText(count))
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Color.black.opacity(0.52))
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+
+                beltHeaderIcon(belt)
+            }
+        }
+        .padding(.horizontal, 4)
+        .padding(.bottom, 2)
+    }
+
+    private func beltHeaderIcon(_ belt: Belt) -> some View {
+        Circle()
+            .fill(beltAccent(belt).opacity(0.16))
+            .frame(width: 38, height: 38)
+            .overlay(
+                Circle()
+                    .stroke(beltAccent(belt).opacity(0.22), lineWidth: 1)
+            )
+            .overlay(
+                Text(beltShortBadgeText(belt))
+                    .font(.system(size: 12, weight: .black))
+                    .foregroundStyle(beltAccent(belt))
+                    .minimumScaleFactor(0.75)
+            )
+    }
+
+    private func beltShortBadgeText(_ belt: Belt) -> String {
+        switch belt {
+        case .white:
+            return isEnglish ? "W" : "ל"
+        case .yellow:
+            return isEnglish ? "Y" : "צ"
+        case .orange:
+            return isEnglish ? "O" : "כ"
+        case .green:
+            return isEnglish ? "G" : "י"
+        case .blue:
+            return isEnglish ? "B" : "כח"
+        case .brown:
+            return isEnglish ? "BR" : "ח"
+        case .black:
+            return isEnglish ? "BL" : "ש"
+        default:
+            return isEnglish ? "B" : "ח"
+        }
+    }
+
+    private func sectionTitlePill(_ title: String, accent: Color) -> some View {
+        HStack(spacing: 8) {
+            if isEnglish {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 12, weight: .heavy))
+                    .foregroundStyle(accent)
+
+                Text(uiSectionTitle(title))
+                    .font(.system(size: 12, weight: .heavy))
+                    .foregroundStyle(Color.black.opacity(0.64))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
+            } else {
+                Text(uiSectionTitle(title))
+                    .font(.system(size: 12, weight: .heavy))
+                    .foregroundStyle(Color.black.opacity(0.64))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .multilineTextAlignment(.trailing)
+
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 12, weight: .heavy))
+                    .foregroundStyle(accent)
+            }
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 7)
+        .background(accent.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(accent.opacity(0.14), lineWidth: 1)
+        )
     }
 
     private func beltAnchorId(_ belt: Belt) -> String {
@@ -679,39 +965,76 @@ private struct BeltExerciseRowCard: View {
         HStack(spacing: 12) {
             if isEnglish {
                 accentBar
+                visualBlock
                 titleBlock
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.black.opacity(0.28))
             } else {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.black.opacity(0.28))
+
                 titleBlock
+                visualBlock
                 accentBar
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 13)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.92))
+                .fill(Color.white.opacity(0.93))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(accent.opacity(0.16), lineWidth: 1)
+                .stroke(accent.opacity(0.18), lineWidth: 1)
         )
+        .shadow(color: Color.black.opacity(0.035), radius: 4, x: 0, y: 2)
     }
 
     private var titleBlock: some View {
         VStack(alignment: stackAlignment, spacing: 4) {
             Text(title)
-                .font(.system(size: 18, weight: .heavy))
+                .font(.system(size: 17, weight: .heavy))
                 .foregroundStyle(Color.black.opacity(0.84))
                 .multilineTextAlignment(textAlignment)
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .lineLimit(2)
         }
+    }
+
+    private var visualBlock: some View {
+        RoundedRectangle(cornerRadius: 13, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        accent.opacity(0.18),
+                        accent.opacity(0.08),
+                        Color.white.opacity(0.92)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .stroke(accent.opacity(0.20), lineWidth: 1)
+            )
+            .overlay(
+                Image(systemName: "figure.martial.arts")
+                    .font(.system(size: 19, weight: .heavy))
+                    .foregroundStyle(accent)
+            )
+            .frame(width: 50, height: 44)
     }
 
     private var accentBar: some View {
         RoundedRectangle(cornerRadius: 5, style: .continuous)
             .fill(accent)
-            .frame(width: 6, height: 34)
+            .frame(width: 6, height: 44)
     }
 }
 

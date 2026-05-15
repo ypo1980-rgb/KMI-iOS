@@ -5,8 +5,13 @@ struct SubscriptionPlansScreen: View {
 
     let onBack: () -> Void
     let onOpenHome: () -> Void
+    var onOpenAssociationMembership: (() -> Void)? = nil
 
     @StateObject private var repo = BillingRepository()
+
+    @State private var purchaseMessage: String? = nil
+    @State private var didStartPurchaseFlow: Bool = false
+    @State private var unavailableProductMessage: String? = nil
 
     @AppStorage("is_association_member") private var isAssociationMember: Bool = false
 
@@ -74,8 +79,8 @@ struct SubscriptionPlansScreen: View {
                 if !repo.state.connected || !repo.state.productsLoaded || repo.state.error != nil {
                     Text(
                         tr(
-                            "סטטוס רכישה: מחובר=\(repo.state.connected), מוצרים נטענו=\(repo.state.productsLoaded)\n\(repo.state.error ?? "")",
-                            "Billing status: connected=\(repo.state.connected), productsLoaded=\(repo.state.productsLoaded)\n\(repo.state.error ?? "")"
+                            "סטטוס רכישה: מחובר=\(repo.state.connected), מוצרים נטענו=\(repo.state.productsLoaded)\nמוצרים: \(repo.state.loadedProductIds.joined(separator: ", "))\n\(repo.state.error ?? "")",
+                            "Billing status: connected=\(repo.state.connected), productsLoaded=\(repo.state.productsLoaded)\nProducts: \(repo.state.loadedProductIds.joined(separator: ", "))\n\(repo.state.error ?? "")"
                         )
                     )
                     .font(.footnote.weight(.semibold))
@@ -87,6 +92,12 @@ struct SubscriptionPlansScreen: View {
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
                             .fill(Color.orange.opacity(0.12))
                     )
+                }
+
+                tariffCard
+
+                if !isAssociationMember {
+                    joinAssociationCard
                 }
 
                 PlanCard(
@@ -121,9 +132,16 @@ struct SubscriptionPlansScreen: View {
                     buyTitle: tr("רכישה חודשית", "Buy monthly"),
                     loadingTitle: tr("טוען...", "Loading..."),
                     unavailableTitle: tr("המוצר עדיין לא נטען", "Product not loaded yet"),
+                    unavailableMessage: tr(
+                        "המנוי החודשי עדיין לא זמין לבודק הזה. ודא שהמוצר מוגדר ב-App Store Connect או בקובץ StoreKit Configuration.",
+                        "The monthly subscription is not available for this tester yet. Make sure the product is configured in App Store Connect or in the StoreKit Configuration file."
+                    ),
+                    onUnavailable: { message in
+                        unavailableProductMessage = message
+                    },
                     onBuy: {
                         Task {
-                            await repo.purchase(productId: monthlyProductId.rawValue)
+                            await buyPlan(monthlyProductId)
                         }
                     }
                 )
@@ -160,9 +178,16 @@ struct SubscriptionPlansScreen: View {
                     buyTitle: tr("רכישה שנתית", "Buy yearly"),
                     loadingTitle: tr("טוען...", "Loading..."),
                     unavailableTitle: tr("המוצר עדיין לא נטען", "Product not loaded yet"),
+                    unavailableMessage: tr(
+                        "המנוי השנתי עדיין לא זמין לבודק הזה. ודא שהמוצר מוגדר ב-App Store Connect או בקובץ StoreKit Configuration.",
+                        "The yearly subscription is not available for this tester yet. Make sure the product is configured in App Store Connect or in the StoreKit Configuration file."
+                    ),
+                    onUnavailable: { message in
+                        unavailableProductMessage = message
+                    },
                     onBuy: {
                         Task {
-                            await repo.purchase(productId: yearlyProductId.rawValue)
+                            await buyPlan(yearlyProductId)
                         }
                     }
                 )
@@ -174,6 +199,32 @@ struct SubscriptionPlansScreen: View {
                         .multilineTextAlignment(.center)
                         .padding(.top, 4)
                 }
+
+                if let purchaseMessage, !purchaseMessage.isEmpty {
+                    Text(purchaseMessage)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color.green)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color.green.opacity(0.12))
+                        )
+                }
+
+                Button {
+                    Task {
+                        await restorePurchases()
+                    }
+                } label: {
+                    Text(tr("שחזור רכישות", "Restore purchases"))
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(repo.state.isLoading)
 
                 Button(action: onBack) {
                     Text(tr("חזרה למסך ניהול המנוי", "Back to subscription screen"))
@@ -191,8 +242,297 @@ struct SubscriptionPlansScreen: View {
         .task {
             repo.start()
         }
+        .alert(
+            tr("המוצר לא זמין", "Product unavailable"),
+            isPresented: Binding(
+                get: { unavailableProductMessage != nil },
+                set: { if !$0 { unavailableProductMessage = nil } }
+            )
+        ) {
+            Button(tr("אישור", "Confirm")) {
+                unavailableProductMessage = nil
+            }
+        } message: {
+            Text(unavailableProductMessage ?? "")
+        }
     }
 
+    private func buyPlan(_ productId: BillingRepository.ProductId) async {
+        didStartPurchaseFlow = true
+        purchaseMessage = nil
+
+        await repo.purchase(productId: productId.rawValue)
+
+        if let error = repo.state.error, !error.isEmpty {
+            purchaseMessage = nil
+            return
+        }
+
+        let active =
+            UserDefaults.standard.bool(forKey: "has_full_access") ||
+            UserDefaults.standard.bool(forKey: "full_access") ||
+            UserDefaults.standard.bool(forKey: "subscription_active") ||
+            UserDefaults.standard.bool(forKey: "is_subscribed")
+
+        purchaseMessage = active
+        ? tr(
+            "הרכישה אומתה בהצלחה. התכנים הנעולים פתוחים כעת.",
+            "Purchase verified successfully. Locked content is now open."
+        )
+        : tr(
+            "אם הרכישה הושלמה בהצלחה, הגישה תתעדכן מיד לאחר אימות מול Apple.",
+            "If the purchase completed successfully, access will update after Apple verification."
+        )
+    }
+
+    private func restorePurchases() async {
+        didStartPurchaseFlow = false
+        purchaseMessage = nil
+
+        await repo.restorePurchases()
+
+        if let error = repo.state.error, !error.isEmpty {
+            purchaseMessage = nil
+            return
+        }
+
+        let active =
+            UserDefaults.standard.bool(forKey: "has_full_access") ||
+            UserDefaults.standard.bool(forKey: "full_access") ||
+            UserDefaults.standard.bool(forKey: "subscription_active") ||
+            UserDefaults.standard.bool(forKey: "is_subscribed")
+
+        purchaseMessage = active
+        ? tr(
+            "נמצא מנוי פעיל. התכנים הנעולים פתוחים כעת.",
+            "An active subscription was found. Locked content is now open."
+        )
+        : tr(
+            "לא נמצא מנוי פעיל לשחזור.",
+            "No active subscription was found to restore."
+        )
+    }
+    
+    private var tariffCard: some View {
+        VStack(spacing: 12) {
+            Text(tr("תעריפון האפליקציה", "App pricing"))
+                .font(.title2.weight(.heavy))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .multilineTextAlignment(.center)
+
+            Text(
+                tr(
+                    "השוואת מחירים בין משתמש רגיל לבין חבר עמותת ק.מ.י",
+                    "Price comparison between regular users and K.M.I. association members"
+                )
+            )
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.78))
+            .frame(maxWidth: .infinity, alignment: .center)
+            .multilineTextAlignment(.center)
+
+            VStack(spacing: 10) {
+                tariffRow(
+                    label: tr("סוג משתמש", "User type"),
+                    monthly: tr("חודשי", "Monthly"),
+                    yearly: tr("שנתי", "Yearly"),
+                    isHeader: true,
+                    highlight: false
+                )
+
+                tariffDivider
+
+                tariffRow(
+                    label: tr("משתמש רגיל", "Regular user"),
+                    monthly: "₪25",
+                    yearly: "₪250",
+                    isHeader: false,
+                    highlight: false
+                )
+
+                tariffDivider
+
+                tariffRow(
+                    label: tr("חבר עמותת ק.מ.י", "K.M.I. member"),
+                    monthly: "₪20",
+                    yearly: "₪200",
+                    isHeader: false,
+                    highlight: true
+                )
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.white.opacity(0.08))
+            )
+
+            VStack(spacing: 4) {
+                Text(tr("חבר עמותת ק.מ.י חוסך ₪50 בשנה", "K.M.I. members save ₪50 per year"))
+                    .font(.body.weight(.bold))
+                    .foregroundStyle(Color(red: 0.53, green: 0.94, blue: 0.67))
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .multilineTextAlignment(.center)
+
+                Text(
+                    tr(
+                        "הנחת חבר עמותה תינתן לאחר אימות סטטוס החברות.",
+                        "Member pricing will be applied after membership verification."
+                    )
+                )
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.92))
+                .frame(maxWidth: .infinity, alignment: .center)
+                .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color(red: 0.02, green: 0.37, blue: 0.27).opacity(0.32))
+            )
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color(red: 0.07, green: 0.09, blue: 0.15))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.16), radius: 12, x: 0, y: 7)
+    }
+
+    private func tariffRow(
+        label: String,
+        monthly: String,
+        yearly: String,
+        isHeader: Bool,
+        highlight: Bool
+    ) -> some View {
+        let textColor: Color = {
+            if isHeader { return .white }
+            if highlight { return Color(red: 0.53, green: 0.94, blue: 0.67) }
+            return Color.white.opacity(0.96)
+        }()
+
+        let fontWeight: Font.Weight = isHeader ? .heavy : .semibold
+
+        return HStack(spacing: 10) {
+            if isEnglish {
+                Text(label)
+                    .font(.body.weight(fontWeight))
+                    .foregroundStyle(textColor)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(monthly)
+                    .font(.body.weight(fontWeight))
+                    .foregroundStyle(textColor)
+                    .frame(width: 72, alignment: .center)
+
+                Text(yearly)
+                    .font(.body.weight(fontWeight))
+                    .foregroundStyle(textColor)
+                    .frame(width: 72, alignment: .center)
+            } else {
+                Text(yearly)
+                    .font(.body.weight(fontWeight))
+                    .foregroundStyle(textColor)
+                    .frame(width: 72, alignment: .center)
+
+                Text(monthly)
+                    .font(.body.weight(fontWeight))
+                    .foregroundStyle(textColor)
+                    .frame(width: 72, alignment: .center)
+
+                Text(label)
+                    .font(.body.weight(fontWeight))
+                    .foregroundStyle(textColor)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+    }
+
+    private var tariffDivider: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.12))
+            .frame(height: 1)
+    }
+    
+    private var joinAssociationCard: some View {
+        Button {
+            onOpenAssociationMembership?()
+        } label: {
+            HStack(spacing: 12) {
+                if isEnglish {
+                    associationIcon
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Join K.M.I. association")
+                            .font(.headline.weight(.heavy))
+                            .foregroundStyle(Color.black.opacity(0.86))
+
+                        Text("Association members receive discounted app subscription pricing.")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Color.black.opacity(0.58))
+                            .multilineTextAlignment(.leading)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 15, weight: .heavy))
+                        .foregroundStyle(Color.purple.opacity(0.72))
+                } else {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 15, weight: .heavy))
+                        .foregroundStyle(Color.purple.opacity(0.72))
+
+                    Spacer()
+
+                    VStack(alignment: .trailing, spacing: 5) {
+                        Text("הצטרפות לעמותת ק.מ.י")
+                            .font(.headline.weight(.heavy))
+                            .foregroundStyle(Color.black.opacity(0.86))
+
+                        Text("חברי עמותה מקבלים מחיר מוזל למנוי האפליקציה.")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Color.black.opacity(0.58))
+                            .multilineTextAlignment(.trailing)
+                    }
+
+                    associationIcon
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Color.white)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.purple.opacity(0.16), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 5)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var associationIcon: some View {
+        ZStack {
+            Circle()
+                .fill(Color.purple.opacity(0.12))
+
+            Text("👑")
+                .font(.system(size: 20))
+        }
+        .frame(width: 44, height: 44)
+    }
+    
     private var plansHeroCard: some View {
         VStack(spacing: 8) {
             Text(tr("תוכניות מנוי", "Subscription plans"))
@@ -295,6 +635,8 @@ private struct PlanCard: View {
     let buyTitle: String
     let loadingTitle: String
     let unavailableTitle: String
+    let unavailableMessage: String
+    let onUnavailable: (String) -> Void
     let onBuy: () -> Void
 
     private var stackAlignment: HorizontalAlignment {
@@ -311,6 +653,10 @@ private struct PlanCard: View {
         }
 
         return buyTitle
+    }
+
+    private var buttonOpacity: Double {
+        isLoading ? 0.70 : 1.0
     }
 
     var body: some View {
@@ -369,7 +715,14 @@ private struct PlanCard: View {
                 }
             }
 
-            Button(action: onBuy) {
+            Button {
+                if !isProductLoaded {
+                    onUnavailable(unavailableMessage)
+                    return
+                }
+
+                onBuy()
+            } label: {
                 HStack(spacing: 8) {
                     if isEnglish {
                         Image(systemName: "lock.fill")
@@ -398,8 +751,8 @@ private struct PlanCard: View {
                 )
             }
             .buttonStyle(.plain)
-            .disabled(isLoading || !isProductLoaded)
-            .opacity((isLoading || !isProductLoaded) ? 0.70 : 1.0)
+            .disabled(isLoading)
+            .opacity(buttonOpacity)
         }
         .padding(18)
         .frame(maxWidth: .infinity)
@@ -428,6 +781,7 @@ private struct PlanCard: View {
 #Preview {
     SubscriptionPlansScreen(
         onBack: {},
-        onOpenHome: {}
+        onOpenHome: {},
+        onOpenAssociationMembership: {}
     )
 }

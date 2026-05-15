@@ -7,11 +7,23 @@ enum AttendanceStatus: String, Codable, CaseIterable, Hashable {
     case unknown = "UNKNOWN"
 
     var heb: String {
+        localized(isEnglish: false)
+    }
+
+    var en: String {
+        localized(isEnglish: true)
+    }
+
+    func localized(isEnglish: Bool) -> String {
         switch self {
-        case .present: return "הגיע"
-        case .absent: return "לא הגיע"
-        case .excused: return "מוצדק"
-        case .unknown: return "לא סומן"
+        case .present:
+            return isEnglish ? "Present" : "הגיע"
+        case .absent:
+            return isEnglish ? "Absent" : "לא הגיע"
+        case .excused:
+            return isEnglish ? "Excused" : "מוצדק"
+        case .unknown:
+            return isEnglish ? "Not marked" : "לא סומן"
         }
     }
 
@@ -96,27 +108,75 @@ struct AttendanceRowUi: Identifiable, Hashable {
 }
 
 struct AttendanceUiState {
+    private var isEnglish: Bool {
+        let defaults = UserDefaults.standard
+        
+        let values = [
+            defaults.string(forKey: "kmi_app_language"),
+            defaults.string(forKey: "app_language"),
+            defaults.string(forKey: "initial_language_code"),
+            defaults.string(forKey: "initial_language_selected_code"),
+            defaults.string(forKey: "kmi.language.code")
+        ]
+            .compactMap { $0 }
+            .map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+            }
+        
+        if values.contains("en") || values.contains("english") {
+            return true
+        }
+        
+        if values.contains("he") || values.contains("hebrew") {
+            return false
+        }
+        
+        return Locale.preferredLanguages.first?
+            .lowercased()
+            .hasPrefix("en") == true
+    }
+    
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+    
+    private func displayDate(_ iso: String) -> String {
+        let input = DateFormatter()
+        input.locale = Locale(identifier: "en_US_POSIX")
+        input.dateFormat = "yyyy-MM-dd"
+        
+        guard let date = input.date(from: iso) else {
+            return iso
+        }
+        
+        let output = DateFormatter()
+        output.locale = isEnglish ? Locale(identifier: "en_US") : Locale(identifier: "he_IL")
+        output.dateFormat = isEnglish ? "MMM d, yyyy" : "dd/MM/yyyy"
+        return output.string(from: date)
+    }
+    
     var ownerUid: String
-
+    
     var dateIso: String
     var branchName: String
     var groupKey: String
     var coachName: String
-
+    
     var members: [AttendanceMember] = []
     var recordsByMemberId: [String: AttendanceRecord] = [:]
-
+    
     var isSaving: Bool = false
     var lastMessage: String? = nil
     var lastMessageIsError: Bool = false
     var messageEventId: Int64 = 0
-
+    
     var newMemberName: String = ""
     var newMemberPhone: String = ""
     var newMemberNotes: String = ""
-
+    
     var reportDaysInMonth: Set<String> = []
-
+    
     var rows: [AttendanceRowUi] {
         members
             .map { member in
@@ -137,10 +197,10 @@ struct AttendanceUiState {
                 return $0.status.sortOrder < $1.status.sortOrder
             }
     }
-
+    
     var summary: AttendanceDaySummary {
         let statuses = members.map { recordsByMemberId[$0.id]?.status ?? .unknown }
-
+        
         return AttendanceDaySummary(
             totalMembers: members.count,
             presentCount: statuses.filter { $0 == .present }.count,
@@ -149,52 +209,52 @@ struct AttendanceUiState {
             unknownCount: statuses.filter { $0 == .unknown }.count
         )
     }
-
+    
     var shareText: String {
         var lines: [String] = []
-
-        lines.append("דו״ח נוכחות")
-        lines.append("תאריך: \(dateIso)")
-
+        
+        lines.append(tr("דו״ח נוכחות", "Attendance Report"))
+        lines.append("\(tr("תאריך", "Date")): \(displayDate(dateIso))")
+        
         if !branchName.trimmed().isEmpty {
-            lines.append("סניף: \(branchName.trimmed())")
+            lines.append("\(tr("סניף", "Branch")): \(branchName.trimmed())")
         }
-
+        
         if !groupKey.trimmed().isEmpty {
-            lines.append("קבוצה: \(groupKey.trimmed())")
+            lines.append("\(tr("קבוצה", "Group")): \(groupKey.trimmed())")
         }
-
+        
         if !coachName.trimmed().isEmpty {
-            lines.append("מאמן: \(coachName.trimmed())")
+            lines.append("\(tr("מאמן", "Coach")): \(coachName.trimmed())")
         }
-
+        
         lines.append("")
-        lines.append("סיכום:")
-        lines.append("סה״כ מתאמנים: \(summary.totalMembers)")
-        lines.append("הגיעו: \(summary.presentCount)")
-        lines.append("מוצדק: \(summary.excusedCount)")
-        lines.append("לא הגיעו: \(summary.absentCount)")
-        lines.append("לא סומנו: \(summary.unknownCount)")
-        lines.append("אחוז נוכחות: \(summary.attendancePercent)%")
+        lines.append("\(tr("סיכום", "Summary")):")
+        lines.append("\(tr("סה״כ מתאמנים", "Total trainees")): \(summary.totalMembers)")
+        lines.append("\(tr("הגיעו", "Present")): \(summary.presentCount)")
+        lines.append("\(tr("מוצדק", "Excused")): \(summary.excusedCount)")
+        lines.append("\(tr("לא הגיעו", "Absent")): \(summary.absentCount)")
+        lines.append("\(tr("לא סומנו", "Not marked")): \(summary.unknownCount)")
+        lines.append("\(tr("אחוז נוכחות", "Attendance rate")): \(summary.attendancePercent)%")
         lines.append("")
-
+        
         if rows.isEmpty {
-            lines.append("אין מתאמנים ברשימה")
+            lines.append(tr("אין מתאמנים ברשימה", "No trainees in the list"))
         } else {
-            lines.append("פירוט:")
+            lines.append("\(tr("פירוט", "Details")):")
             for row in rows {
-                lines.append("- \(row.memberName): \(row.status.heb)")
-
+                lines.append("- \(row.memberName): \(row.status.localized(isEnglish: isEnglish))")
+                
                 if !row.phone.trimmed().isEmpty {
-                    lines.append("  טלפון: \(row.phone.trimmed())")
+                    lines.append("  \(tr("טלפון", "Phone")): \(row.phone.trimmed())")
                 }
-
+                
                 if !row.attendanceNote.trimmed().isEmpty {
-                    lines.append("  הערת נוכחות: \(row.attendanceNote.trimmed())")
+                    lines.append("  \(tr("הערת נוכחות", "Attendance note")): \(row.attendanceNote.trimmed())")
                 }
             }
         }
-
+        
         return lines.joined(separator: "\n")
     }
 }

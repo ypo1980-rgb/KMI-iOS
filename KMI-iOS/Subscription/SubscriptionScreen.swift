@@ -11,6 +11,8 @@ struct SubscriptionScreen: View {
     @State private var isAdmin: Bool = KmiAccess.isAdmin()
     @State private var showDevDialog = false
     @State private var devCode = ""
+    @State private var uiRefreshTick: Int = 0
+    @State private var restoreMessage: String? = nil
 
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
@@ -46,11 +48,65 @@ struct SubscriptionScreen: View {
         isEnglish ? en : he
     }
 
+    private var currentMillis: Int64 {
+        Int64(Date().timeIntervalSince1970 * 1000)
+    }
+
+    private var savedAccessUntil: Int64 {
+        let value = UserDefaults.standard.object(forKey: "sub_access_until")
+
+        if let int64 = value as? Int64 {
+            return int64
+        }
+
+        if let int = value as? Int {
+            return Int64(int)
+        }
+
+        if let double = value as? Double {
+            return Int64(double)
+        }
+
+        return Int64(UserDefaults.standard.integer(forKey: "sub_access_until"))
+    }
+
+    private var savedProductId: String? {
+        let fromDefaults = UserDefaults.standard.string(forKey: "sub_product")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let fromDefaults, !fromDefaults.isEmpty {
+            return fromDefaults
+        }
+
+        return repo.state.productId
+    }
+
+    private var effectiveActive: Bool {
+        let timeActive = savedAccessUntil > currentMillis
+        let accessFlags =
+            KmiAccess.hasFullAccess() ||
+            UserDefaults.standard.bool(forKey: "subscription_active") ||
+            UserDefaults.standard.bool(forKey: "is_subscribed") ||
+            UserDefaults.standard.bool(forKey: "has_full_access") ||
+            UserDefaults.standard.bool(forKey: "full_access")
+
+        return timeActive && accessFlags
+    }
+
+    private func formatDateMillis(_ millis: Int64) -> String {
+        guard millis > 0 else {
+            return "-"
+        }
+
+        let date = Date(timeIntervalSince1970: Double(millis) / 1000.0)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd/MM/yyyy HH:mm"
+        return formatter.string(from: date)
+    }
+
     var body: some View {
-        VStack(spacing: 16) {
-            if isAdmin {
-                adminCard
-            } else {
+        ScrollView {
+            VStack(spacing: 16) {
                 subscriptionHeroCard
                 statusCard
 
@@ -58,17 +114,32 @@ struct SubscriptionScreen: View {
                     title: tr("רכוש / הארך מנוי", "Buy / renew subscription"),
                     onTap: onOpenPlans
                 )
-                
-                Button(action: {
-                    Task { await repo.restorePurchases() }
-                }) {
-                    Text(tr("שחזור רכישות", "Restore purchases"))
+
+                Button {
+                    Task {
+                        await restorePurchasesFromStore()
+                    }
+                } label: {
+                    Text(repo.state.isLoading ? tr("טוען...", "Loading...") : tr("שחזור רכישות", "Restore purchases"))
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
                 }
                 .buttonStyle(.bordered)
-                .disabled(repo.state.isLoading || !repo.state.connected)
+                .disabled(repo.state.isLoading)
+
+                if let restoreMessage, !restoreMessage.isEmpty {
+                    Text(restoreMessage)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color.green)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .multilineTextAlignment(.center)
+                        .padding(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(Color.green.opacity(0.10))
+                        )
+                }
 
                 Button(action: {
                     showDevDialog = true
@@ -76,13 +147,12 @@ struct SubscriptionScreen: View {
                     Text(tr("כניסת מנהל / קוד מפתח", "Admin / tester access code"))
                         .font(.subheadline.weight(.semibold))
                 }
-                    .buttonStyle(.plain)
-                    .padding(.top, 4)
-                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
 
-                Spacer()
+                Spacer(minLength: 8)
 
-            Button(action: onOpenHome) {
+                Button(action: onOpenHome) {
                 Text(tr("חזרה למסך הבית", "Back to home"))
                     .font(.headline)
                     .frame(maxWidth: .infinity)
@@ -90,29 +160,35 @@ struct SubscriptionScreen: View {
             }
             .buttonStyle(.bordered)
 
-        Button(action: onBack) {
-            Text(tr("סגור", "Close"))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+                Button(action: onBack) {
+                    Text(tr("סגור", "Close"))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(16)
         }
-        .buttonStyle(.plain)
-        }
-        .padding(16)
         .environment(\.layoutDirection, screenLayoutDirection)
         .task {
             isAdmin = KmiAccess.isAdmin()
             KmiAccess.ensureTrialStarted()
             repo.start()
         }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("KMI_ACCESS_CHANGED"))) { _ in
+            uiRefreshTick += 1
+            isAdmin = KmiAccess.isAdmin()
+        }
         .alert(tr("קוד גישה", "Access code"), isPresented: $showDevDialog) {
             SecureField(tr("קוד גישה", "Access code"), text: $devCode)
 
-            Button(tr("אישור", "OK")) {
+            Button(tr("אישור", "Confirm")) {
                 let code = devCode.trimmingCharacters(in: .whitespacesAndNewlines)
 
                 if KmiAccess.tryDevUnlock(code: code) {
                     // גישת מפתח מלאה בלי להפוך את המשתמש למנהל.
                     isAdmin = KmiAccess.isAdmin()
+                    uiRefreshTick += 1
                     repo.start()
                 }
 
@@ -130,6 +206,24 @@ struct SubscriptionScreen: View {
         }
     }
 
+    private func restorePurchasesFromStore() async {
+        restoreMessage = nil
+
+        await repo.restorePurchases()
+
+        uiRefreshTick += 1
+        isAdmin = KmiAccess.isAdmin()
+
+        if let error = repo.state.error, !error.isEmpty {
+            restoreMessage = nil
+            return
+        }
+
+        restoreMessage = effectiveActive
+        ? tr("נמצא מנוי פעיל. התכנים הנעולים פתוחים כעת.", "An active subscription was found. Locked content is now open.")
+        : tr("לא נמצא מנוי פעיל לשחזור.", "No active subscription was found to restore.")
+    }
+    
     private var subscriptionHeroCard: some View {
         VStack(spacing: 8) {
             Text(tr("מנוי KMI", "KMI Subscription"))
@@ -329,9 +423,12 @@ struct SubscriptionScreen: View {
     }
 
     private var statusCard: some View {
-        let active = hasEffectiveFullAccess || repo.state.active
+        let _ = uiRefreshTick
+        let active = effectiveActive
+        let productId = savedProductId
+        let accessUntil = savedAccessUntil
 
-        return VStack(alignment: horizontalStackAlignment, spacing: 12) {
+        return VStack(alignment: horizontalStackAlignment, spacing: 14) {
             HStack(spacing: 12) {
                 if isEnglish {
                     statusIcon(active: active)
@@ -343,39 +440,67 @@ struct SubscriptionScreen: View {
             }
             .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
 
-            if KmiAccess.isAdmin() {
-                Text(tr("גישה מלאה: מנהל מערכת", "Full access: administrator"))
-                    .font(.body.weight(.semibold))
+            Text(
+                active
+                ? tr("כל התכנים באפליקציה פתוחים עבורך כעת.", "All app content is currently unlocked for you.")
+                : tr("כדי לפתוח את כל התכנים, יש לבחור מסלול מנוי פעיל.", "To unlock all content, choose an active subscription plan.")
+            )
+            .font(.body.weight(.semibold))
+            .foregroundStyle(Color.black.opacity(0.70))
+            .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+            .multilineTextAlignment(primaryTextAlignment)
+
+            Divider()
+
+            VStack(alignment: horizontalStackAlignment, spacing: 10) {
+                Text(tr("פרטי המנוי", "Subscription details"))
+                    .font(.headline.weight(.heavy))
+                    .foregroundStyle(Color.black.opacity(0.80))
                     .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
                     .multilineTextAlignment(primaryTextAlignment)
-            } else if KmiAccess.hasDevUnlock() {
-                Text(tr("גישה מלאה: קוד בודק פעיל", "Full access: tester code active"))
-                    .font(.body.weight(.semibold))
-                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                    .multilineTextAlignment(primaryTextAlignment)
-            } else if KmiAccess.hasFullAccess() {
-                Text(tr("גישה מלאה: פעילה", "Full access: active"))
-                    .font(.body.weight(.semibold))
-                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                    .multilineTextAlignment(primaryTextAlignment)
-            } else if KmiAccess.isTrialActive() {
-                Text(tr(
-                    "ניסיון פעיל: \(KmiAccess.trialDaysLeft()) ימים נותרו",
-                    "Trial active: \(KmiAccess.trialDaysLeft()) days left"
-                ))
-                .font(.body.weight(.semibold))
-                .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                .multilineTextAlignment(primaryTextAlignment)
-            } else {
-                Text(tr("גישה מלאה: כבויה", "Full access: off"))
-                    .font(.body.weight(.semibold))
-                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                    .multilineTextAlignment(primaryTextAlignment)
+
+                detailsRow(
+                    label: tr("סטטוס", "Status"),
+                    value: active ? tr("פעיל", "Active") : tr("לא פעיל", "Inactive"),
+                    valueColor: active ? Color.green : Color.red
+                )
+
+                detailsRow(
+                    label: tr("מסלול", "Plan"),
+                    value: planDisplayName(productId),
+                    valueColor: Color.black.opacity(0.82)
+                )
+
+                detailsRow(
+                    label: tr("מזהה מוצר", "Product ID"),
+                    value: productId ?? "-",
+                    valueColor: Color.black.opacity(0.66)
+                )
+
+                detailsRow(
+                    label: tr("תוקף עד", "Valid until"),
+                    value: accessUntil > 0 ? formatDateMillis(accessUntil) : "-",
+                    valueColor: Color.black.opacity(0.66)
+                )
+
+                if let token = repo.state.purchaseToken, !token.isEmpty {
+                    detailsRow(
+                        label: tr("מזהה רכישה", "Purchase ID"),
+                        value: token,
+                        valueColor: Color.black.opacity(0.55)
+                    )
+                }
             }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white.opacity(0.62))
+            )
 
             if KmiAccess.hasDevUnlock() {
                 Button(action: {
                     KmiAccess.clearDevUnlock()
+                    uiRefreshTick += 1
                     repo.start()
                 }) {
                     Text(tr("בטל גישת בודק", "Disable tester access"))
@@ -384,30 +509,6 @@ struct SubscriptionScreen: View {
                         .padding(.vertical, 10)
                 }
                 .buttonStyle(.bordered)
-            }
-
-            Text("\(tr("מסלול", "Plan")): \(planDisplayName(repo.state.productId))")
-                .font(.body)
-                .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                .multilineTextAlignment(primaryTextAlignment)
-
-            if let productId = repo.state.productId,
-               !productId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text("\(tr("מזהה מוצר", "Product ID")): \(productId)")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                    .multilineTextAlignment(primaryTextAlignment)
-            }
-
-            if let token = repo.state.purchaseToken, !token.isEmpty {
-                Text("\(tr("מזהה רכישה", "Purchase ID")): \(token)")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                    .multilineTextAlignment(primaryTextAlignment)
             }
 
             if let error = repo.state.error, !error.isEmpty {
@@ -431,6 +532,40 @@ struct SubscriptionScreen: View {
         .shadow(color: Color.black.opacity(0.07), radius: 10, x: 0, y: 5)
     }
 
+    private func detailsRow(
+        label: String,
+        value: String,
+        valueColor: Color
+    ) -> some View {
+        HStack(spacing: 10) {
+            if isEnglish {
+                Text(label)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.black.opacity(0.50))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(value)
+                    .font(.subheadline.weight(.heavy))
+                    .foregroundStyle(valueColor)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.82)
+                    .multilineTextAlignment(.trailing)
+            } else {
+                Text(value)
+                    .font(.subheadline.weight(.heavy))
+                    .foregroundStyle(valueColor)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.82)
+                    .multilineTextAlignment(.leading)
+
+                Text(label)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.black.opacity(0.50))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+    }
+    
     private var adminCard: some View {
         VStack(alignment: horizontalStackAlignment, spacing: 12) {
             Text(tr("מצב מנוי: מנהל מערכת", "Subscription status: administrator"))

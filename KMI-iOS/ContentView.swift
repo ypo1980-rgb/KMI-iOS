@@ -247,22 +247,94 @@ struct ContentView: View {
     @EnvironmentObject private var auth: AuthViewModel
     @StateObject private var nav = AppNavModel()
 
-    private var effectiveRole: String {
-        let loginRole = UserDefaults.standard.string(forKey: "user_role")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
+    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
 
-        if let loginRole, !loginRole.isEmpty {
-            return loginRole
+    private var isEnglish: Bool {
+        let values = [
+            kmiAppLanguageCode.lowercased(),
+            appLanguageRaw.lowercased(),
+            initialLanguageCode.lowercased()
+        ]
+
+        return values.contains("en") || values.contains("english")
+    }
+
+    private func beltTitleForUi(_ belt: Belt) -> String {
+        switch belt {
+        case .white:
+            return tr("חגורה לבנה", "White Belt")
+        case .yellow:
+            return tr("חגורה צהובה", "Yellow Belt")
+        case .orange:
+            return tr("חגורה כתומה", "Orange Belt")
+        case .green:
+            return tr("חגורה ירוקה", "Green Belt")
+        case .blue:
+            return tr("חגורה כחולה", "Blue Belt")
+        case .brown:
+            return tr("חגורה חומה", "Brown Belt")
+        case .black:
+            return tr("חגורה שחורה", "Black Belt")
+        default:
+            return tr("חגורה", "Belt")
         }
+    }
+    
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
 
-        return auth.userRole
+    private func normalizeRole(_ value: String) -> String {
+        value
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
     }
 
+    private func isCoachRole(_ value: String) -> Bool {
+        let role = normalizeRole(value)
+
+        return role == "coach" ||
+               role == "trainer" ||
+               role == "instructor" ||
+               role == "מאמן" ||
+               role == "coach_user" ||
+               role == "kmi_coach"
+    }
+
+    private var effectiveRole: String {
+        let defaults = UserDefaults.standard
+
+        let profileRole = normalizeRole(auth.userRole)
+
+        let storedCandidates = [
+            defaults.string(forKey: "user_role"),
+            defaults.string(forKey: "role"),
+            defaults.string(forKey: "userRole"),
+            defaults.string(forKey: "profile_role")
+        ]
+        .compactMap { $0 }
+        .map { normalizeRole($0) }
+        .filter { !$0.isEmpty }
+
+        if isCoachRole(profileRole) {
+            return profileRole
+        }
+
+        if let coachStoredRole = storedCandidates.first(where: { isCoachRole($0) }) {
+            return coachStoredRole
+        }
+
+        if let firstStoredRole = storedCandidates.first {
+            return firstStoredRole
+        }
+
+        return profileRole
+    }
+
     private var isCoachUser: Bool {
-        effectiveRole == "coach" || effectiveRole == "trainer" || effectiveRole == "מאמן"
+        isCoachRole(effectiveRole)
     }
 
     private var isAdminUser: Bool {
@@ -562,6 +634,20 @@ struct ContentView: View {
                                     defaults.set(formState.belt, forKey: "current_belt")
                                     defaults.set(formState.wantsSms, forKey: "wantsSms")
                                     defaults.set(formState.acceptsTerms, forKey: "acceptsTerms")
+
+                                    let resolvedRole: String = {
+                                        if formState.role == .coach {
+                                            return "coach"
+                                        } else {
+                                            return "trainee"
+                                        }
+                                    }()
+
+                                    defaults.set(resolvedRole, forKey: "user_role")
+                                    defaults.set(resolvedRole, forKey: "role")
+                                    defaults.set(resolvedRole, forKey: "userRole")
+                                    defaults.set(resolvedRole, forKey: "profile_role")
+
                                     defaults.synchronize()
 
                                     auth.reloadProfileIfSignedIn()
@@ -574,20 +660,20 @@ struct ContentView: View {
                             .navigationBarBackButtonHidden(true)
                         }
 
-                // ✅ תרגילים לפי חגורה
-                case .beltQuestionsByBelt(let belt):
-                    KmiRootLayout(title: "תרגילים לפי חגורה", nav: nav, selectedIcon: .home) {
-                        BeltQuestionsByBeltView(belt: belt)
-                            .navigationBarBackButtonHidden(true)
-                    }
-
-                    // ✅ תרגילים לפי נושא
-                    case .beltQuestionsByTopic(let belt):
-                        KmiRootLayout(title: "תרגילים לפי נושא", nav: nav, selectedIcon: .home) {
-                            BeltQuestionsByTopicView(belt: belt)
-                                .navigationBarBackButtonHidden(true)
-                        }
-
+                        // ✅ תרגילים לפי חגורה
+                        case .beltQuestionsByBelt(let belt):
+                            KmiRootLayout(title: beltTitleForUi(belt), nav: nav, selectedIcon: .home) {
+                                BeltQuestionsByBeltView(belt: belt)
+                                    .navigationBarBackButtonHidden(true)
+                            }
+                        
+                        // ✅ תרגילים לפי נושא
+                        case .beltQuestionsByTopic(let belt):
+                            KmiRootLayout(title: beltTitleForUi(belt), nav: nav, selectedIcon: .home) {
+                                BeltQuestionsByTopicView(belt: belt)
+                                    .navigationBarBackButtonHidden(true)
+                            }
+                        
                     // ✅ נושא חוצה חגורות
                     case .topicAcrossBelts(let topicTitle, let subTopicTitle):
                         KmiRootLayout(title: topicTitle, nav: nav, selectedIcon: .home) {
@@ -825,29 +911,97 @@ struct ContentView: View {
                         }
                         
                     case .attendance:
-                        KmiRootLayout(title: "דו״ח נוכחות", nav: nav, selectedIcon: .home) {
+                        let resolvedAttendanceBranch: String = {
+                            let authBranch = auth.userBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                            if !authBranch.isEmpty {
+                                return authBranch
+                            }
+
+                            let storedActiveBranch = firstExistingDefaultValue([
+                                "active_branch",
+                                "activeBranch",
+                                "branch",
+                                "user_branch",
+                                "traineeBranch"
+                            ])
+
+                            return storedActiveBranch
+                        }()
+
+                        let resolvedAttendanceGroup: String = {
+                            let authGroup = auth.userGroup.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                            if !authGroup.isEmpty {
+                                return authGroup
+                            }
+
+                            let storedGroup = firstExistingDefaultValue([
+                                "active_group",
+                                "activeGroup",
+                                "group",
+                                "groupKey",
+                                "ageGroup",
+                                "user_group",
+                                "traineeGroup"
+                            ])
+
+                            return storedGroup
+                        }()
+
+                        let resolvedAttendanceCoachName: String = {
+                            let authName = auth.userFullName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                            if !authName.isEmpty {
+                                return authName
+                            }
+
+                            let storedName = firstExistingDefaultValue([
+                                "fullName",
+                                "displayName",
+                                "coachName",
+                                "username"
+                            ])
+
+                            return storedName
+                        }()
+
+                        KmiRootLayout(title: "נוכחות", nav: nav, selectedIcon: .home) {
                             AttendanceView(
                                 ownerUid: Auth.auth().currentUser?.uid ?? "demo_ios",
                                 initialDateIso: nil,
-                                initialBranchName: auth.userBranch.isEmpty ? "הסניף שלך כאן" : auth.userBranch,
-                                initialGroupKey: auth.userGroup.isEmpty ? "הקבוצה שלך כאן" : auth.userGroup,
-                                initialCoachName: auth.userFullName
+                                initialBranchName: resolvedAttendanceBranch,
+                                initialGroupKey: resolvedAttendanceGroup,
+                                initialCoachName: resolvedAttendanceCoachName,
+                                showsInternalTopStrip: false,
+                                onHomeTap: {
+                                    nav.popToRoot()
+                                },
+                                onSearchTap: {
+                                    NotificationCenter.default.post(
+                                        name: Notification.Name("KMI_OPEN_GLOBAL_SEARCH"),
+                                        object: nil
+                                    )
+                                },
+                                onSettingsTap: {
+                                    nav.push(.settings)
+                                },
+                                onAssistantTap: {
+                                    nav.push(.voiceAssistant)
+                                }
                             )
                             .navigationBarBackButtonHidden(true)
                             .onAppear {
                                 auth.reloadProfileIfSignedIn()
 
                                 #if DEBUG
-                                let attendanceUid = Auth.auth().currentUser?.uid ?? "demo_ios"
-                                let resolvedBranch = auth.userBranch.isEmpty ? "הסניף שלך כאן" : auth.userBranch
-                                let resolvedGroup = auth.userGroup.isEmpty ? "הקבוצה שלך כאן" : auth.userGroup
-
-                                print("🟣 ATTENDANCE_ROUTE uid =", attendanceUid)
+                                print("🟣 ATTENDANCE_ROUTE uid =", Auth.auth().currentUser?.uid ?? "demo_ios")
                                 print("🟣 ATTENDANCE_ROUTE auth.userFullName =", auth.userFullName)
                                 print("🟣 ATTENDANCE_ROUTE auth.userBranch =", auth.userBranch)
                                 print("🟣 ATTENDANCE_ROUTE auth.userGroup =", auth.userGroup)
-                                print("🟣 ATTENDANCE_ROUTE resolvedBranch =", resolvedBranch)
-                                print("🟣 ATTENDANCE_ROUTE resolvedGroup =", resolvedGroup)
+                                print("🟣 ATTENDANCE_ROUTE resolvedBranch =", resolvedAttendanceBranch)
+                                print("🟣 ATTENDANCE_ROUTE resolvedGroup =", resolvedAttendanceGroup)
+                                print("🟣 ATTENDANCE_ROUTE resolvedCoachName =", resolvedAttendanceCoachName)
                                 #endif
                             }
                         }

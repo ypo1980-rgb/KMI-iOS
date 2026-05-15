@@ -7,6 +7,39 @@ final class AttendanceViewModel: ObservableObject {
 
     private let repository: AttendanceRepository
 
+    private var isEnglish: Bool {
+        let defaults = UserDefaults.standard
+
+        let values = [
+            defaults.string(forKey: "kmi_app_language"),
+            defaults.string(forKey: "app_language"),
+            defaults.string(forKey: "initial_language_code"),
+            defaults.string(forKey: "initial_language_selected_code"),
+            defaults.string(forKey: "kmi.language.code")
+        ]
+        .compactMap { $0 }
+        .map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+        }
+
+        if values.contains("en") || values.contains("english") {
+            return true
+        }
+
+        if values.contains("he") || values.contains("hebrew") {
+            return false
+        }
+
+        return Locale.preferredLanguages.first?
+            .lowercased()
+            .hasPrefix("en") == true
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
     init(
         ownerUid: String,
         initialDateIso: String? = nil,
@@ -93,12 +126,18 @@ final class AttendanceViewModel: ObservableObject {
     func addMember(fullName: String, phone: String = "", notes: String = "") {
         let cleanName = fullName.trimmed()
         guard !cleanName.isEmpty else {
-            publishMessage("יש להזין שם מתאמן", isError: true)
+            publishMessage(
+                tr("יש להזין שם מתאמן", "Please enter a trainee name"),
+                isError: true
+            )
             return
         }
 
         if state.members.contains(where: { $0.fullName.trimmed().lowercased() == cleanName.lowercased() }) {
-            publishMessage("המתאמן כבר קיים ברשימה", isError: true)
+            publishMessage(
+                tr("המתאמן כבר קיים ברשימה", "This trainee already exists in the list"),
+                isError: true
+            )
             return
         }
 
@@ -117,14 +156,20 @@ final class AttendanceViewModel: ObservableObject {
         state.newMemberPhone = ""
         state.newMemberNotes = ""
 
-        publishMessage("המתאמן נוסף לרשימה", isError: false)
+        publishMessage(
+            tr("המתאמן נוסף לרשימה", "The trainee was added to the list"),
+            isError: false
+        )
     }
 
     func removeMember(memberId: String) {
         state.members.removeAll { $0.id == memberId }
         state.recordsByMemberId.removeValue(forKey: memberId)
         persistMembers()
-        publishMessage("המתאמן הוסר מהרשימה", isError: false)
+        publishMessage(
+            tr("המתאמן הוסר מהרשימה", "The trainee was removed from the list"),
+            isError: false
+        )
     }
 
     func saveReport() {
@@ -155,7 +200,10 @@ final class AttendanceViewModel: ObservableObject {
         state.isSaving = false
 
         reloadMonthMarkers()
-        publishMessage("דו״ח הנוכחות נשמר", isError: false)
+        publishMessage(
+            tr("דו״ח הנוכחות נשמר", "The attendance report was saved"),
+            isError: false
+        )
     }
 
     func loadSummaryDaysForMonth(year: Int, month1to12: Int) {
@@ -244,7 +292,13 @@ final class AttendanceViewModel: ObservableObject {
                     self.state.members = fallbackMembers
                     self.reloadRecordsOnly()
                     self.reloadMonthMarkers()
-                    self.publishMessage("לא נטענו מתאמנים אמיתיים, נטען גיבוי מקומי", isError: true)
+                    self.publishMessage(
+                        self.tr(
+                            "לא נטענו מתאמנים אמיתיים, נטען גיבוי מקומי",
+                            "Real trainees could not be loaded. Local backup was loaded."
+                        ),
+                        isError: true
+                    )
                 }
             }
         }

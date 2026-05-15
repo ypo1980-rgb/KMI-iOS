@@ -18,20 +18,56 @@ struct CoachBroadcastView: View {
     @State private var alertText: String?
     @State private var showAlert = false
 
-    private var isCoach: Bool {
-        let role = UserDefaults.standard.string(forKey: "user_role")?
+    private func normalizeRole(_ value: String) -> String {
+        value
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
+    }
 
-        if let role, !role.isEmpty {
-            return role == "coach" || role == "trainer" || role == "מאמן"
+    private func isCoachRole(_ value: String) -> Bool {
+        let role = normalizeRole(value)
+
+        return role == "coach" ||
+               role == "trainer" ||
+               role == "instructor" ||
+               role == "מאמן" ||
+               role == "coach_user" ||
+               role == "kmi_coach"
+    }
+
+    private var effectiveRole: String {
+        let defaults = UserDefaults.standard
+
+        let profileRole = normalizeRole(auth.userRole)
+
+        let storedCandidates = [
+            defaults.string(forKey: "user_role"),
+            defaults.string(forKey: "role"),
+            defaults.string(forKey: "userRole"),
+            defaults.string(forKey: "profile_role")
+        ]
+        .compactMap { $0 }
+        .map { normalizeRole($0) }
+        .filter { !$0.isEmpty }
+
+        // חשוב: אם אחד המקורות אומר מאמן — לא ניתקע על trainee ישן.
+        if isCoachRole(profileRole) {
+            return profileRole
         }
 
-        let fallback = auth.userRole
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+        if let coachStoredRole = storedCandidates.first(where: { isCoachRole($0) }) {
+            return coachStoredRole
+        }
 
-        return fallback == "coach" || fallback == "trainer" || fallback == "מאמן"
+        if let firstStoredRole = storedCandidates.first {
+            return firstStoredRole
+        }
+
+        return profileRole
+    }
+
+    private var isCoach: Bool {
+        isCoachRole(effectiveRole)
     }
 
     private var branchesByRegion: [String: [String]] {
@@ -132,7 +168,18 @@ struct CoachBroadcastView: View {
             }
         }
         .onAppear {
+            auth.reloadProfileIfSignedIn()
             preloadDefaults()
+
+            #if DEBUG
+            print("📣 COACH_BROADCAST auth.userRole =", auth.userRole)
+            print("📣 COACH_BROADCAST user_role =", UserDefaults.standard.string(forKey: "user_role") ?? "")
+            print("📣 COACH_BROADCAST role =", UserDefaults.standard.string(forKey: "role") ?? "")
+            print("📣 COACH_BROADCAST userRole =", UserDefaults.standard.string(forKey: "userRole") ?? "")
+            print("📣 COACH_BROADCAST profile_role =", UserDefaults.standard.string(forKey: "profile_role") ?? "")
+            print("📣 COACH_BROADCAST effectiveRole =", effectiveRole)
+            print("📣 COACH_BROADCAST isCoach =", isCoach)
+            #endif
         }
         .onChange(of: region) { _ in
             branch = ""

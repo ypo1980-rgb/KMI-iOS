@@ -51,6 +51,7 @@ struct BeltQuestionsByTopicView: View {
     @State private var pickedSectionedSubject: SubjectTopic? = nil
     @State private var pickedAcrossBeltsSubject: SubjectTopic? = nil
     @State private var pickedAcrossBeltsSubTopicTitle: String? = nil
+    @State private var showQuickActionsDialog: Bool = false
     
     private var mainTopics: [MainTopic] {
 
@@ -209,12 +210,6 @@ struct BeltQuestionsByTopicView: View {
             )
         }
 
-        if !handsRootSubjects.isEmpty {
-            out.append(
-                MainTopic(id: "hands_root", titleHeb: "עבודת ידיים", subjects: handsRootSubjects)
-            )
-        }
-
         if !releasesSubjects.isEmpty {
             out.append(
                 MainTopic(
@@ -224,10 +219,10 @@ struct BeltQuestionsByTopicView: View {
                 )
             )
         }
-        
-        if subjectHasVisibleContentInAnyBelt(rollsSubject) {
+
+        if !handsRootSubjects.isEmpty {
             out.append(
-                MainTopic(id: "topic_breakfalls_rolls", titleHeb: "בלימות וגלגולים", subjects: [rollsSubject])
+                MainTopic(id: "hands_root", titleHeb: "עבודת ידיים", subjects: handsRootSubjects)
             )
         }
 
@@ -239,7 +234,7 @@ struct BeltQuestionsByTopicView: View {
 
         if subjectHasVisibleContentInAnyBelt(groundSubject) {
             out.append(
-                MainTopic(id: "topic_ground_prep", titleHeb: "הכנה לעבודת קרקע", subjects: [groundSubject])
+                MainTopic(id: "topic_ground_prep", titleHeb: "עבודת קרקע", subjects: [groundSubject])
             )
         }
 
@@ -252,6 +247,12 @@ struct BeltQuestionsByTopicView: View {
         if subjectHasVisibleContentInAnyBelt(kicksSubject) {
             out.append(
                 MainTopic(id: "kicks_root", titleHeb: "בעיטות", subjects: [kicksSubject])
+            )
+        }
+
+        if subjectHasVisibleContentInAnyBelt(rollsSubject) {
+            out.append(
+                MainTopic(id: "topic_breakfalls_rolls", titleHeb: "בלימות וגלגולים", subjects: [rollsSubject])
             )
         }
 
@@ -270,6 +271,8 @@ struct BeltQuestionsByTopicView: View {
         let subtitleTop: String?
         let subtitleBottom: String
         let isEnglish: Bool
+        let symbolName: String
+        let isLocked: Bool
 
         private var textAlignment: TextAlignment {
             isEnglish ? .leading : .trailing
@@ -284,27 +287,27 @@ struct BeltQuestionsByTopicView: View {
         }
 
         var body: some View {
-            HStack(spacing: 14) {
+            HStack(spacing: 12) {
                 if isEnglish {
                     accentBar
+                    visualBlock
+                    textBlock
 
                     Image(systemName: "chevron.right")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(Color.black.opacity(0.30))
-
-                    textBlock
                 } else {
-                    textBlock
-
                     Image(systemName: "chevron.left")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(Color.black.opacity(0.30))
 
+                    textBlock
+                    visualBlock
                     accentBar
                 }
             }
-            .padding(.horizontal, 15)
-            .padding(.vertical, 11)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 17, style: .continuous)
@@ -312,44 +315,105 @@ struct BeltQuestionsByTopicView: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 17, style: .continuous)
-                    .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                    .stroke(isLocked ? Color.orange.opacity(0.38) : Color.black.opacity(0.05), lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.04), radius: 4, x: 0, y: 2)
-            .scaleEffect(1.0)
+            .shadow(color: Color.black.opacity(0.045), radius: 5, x: 0, y: 2)
         }
 
         private var textBlock: some View {
-            VStack(alignment: stackAlignment, spacing: 7) {
-                Text(title)
-                    .font(.system(size: 20, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(0.84))
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .multilineTextAlignment(textAlignment)
-                    .lineLimit(2)
+            VStack(alignment: stackAlignment, spacing: 6) {
+                HStack(spacing: 6) {
+                    if isEnglish {
+                        Text(title)
+                            .font(.system(size: 19, weight: .heavy))
+                            .foregroundStyle(Color.black.opacity(0.84))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(2)
+
+                        if isLocked {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 12, weight: .black))
+                                .foregroundStyle(Color.orange.opacity(0.95))
+                        }
+                    } else {
+                        if isLocked {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 12, weight: .black))
+                                .foregroundStyle(Color.orange.opacity(0.95))
+                        }
+
+                        Text(title)
+                            .font(.system(size: 19, weight: .heavy))
+                            .foregroundStyle(Color.black.opacity(0.84))
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .multilineTextAlignment(.trailing)
+                            .lineLimit(2)
+                    }
+                }
 
                 if let top = subtitleTop, !top.isEmpty {
                     Text(top)
-                        .font(.system(size: 14, weight: .heavy))
+                        .font(.system(size: 13, weight: .heavy))
                         .foregroundStyle(Color.purple.opacity(0.82))
                         .frame(maxWidth: .infinity, alignment: frameAlignment)
                         .multilineTextAlignment(textAlignment)
+                        .lineLimit(1)
                 }
 
                 Text(subtitleBottom)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color.black.opacity(0.56))
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
                     .multilineTextAlignment(textAlignment)
+                    .lineLimit(1)
             }
+        }
+
+        private var visualBlock: some View {
+            ZStack(alignment: .topTrailing) {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                accent.opacity(0.22),
+                                accent.opacity(0.08),
+                                Color.white.opacity(0.92)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(accent.opacity(0.26), lineWidth: 1)
+                    )
+
+                Image(systemName: symbolName)
+                    .font(.system(size: 22, weight: .heavy))
+                    .foregroundStyle(accent)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if isLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 9, weight: .black))
+                        .foregroundStyle(.white)
+                        .frame(width: 19, height: 19)
+                        .background(Color.orange.opacity(0.96))
+                        .clipShape(Circle())
+                        .offset(x: 5, y: -5)
+                }
+            }
+            .frame(width: 62, height: 52)
         }
 
         private var accentBar: some View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(accent)
-                .frame(width: 8)
+                .frame(width: 6, height: 52)
         }
     }
-
+    
     private func toSharedSubject(_ local: SubjectTopic) -> Shared.SubjectTopic {
         let normalizedTopicsByBelt: [Belt: [String]]
 
@@ -608,6 +672,63 @@ struct BeltQuestionsByTopicView: View {
         }
     }
     
+    private func isPremiumTopic(_ topic: MainTopic) -> Bool {
+        LockedContentPolicy.isTopicRestricted(topic.titleHeb) ||
+        LockedContentPolicy.isTopicRestricted(displayTitle(for: topic)) ||
+        topic.id.lowercased().contains("defense") ||
+        topic.id.lowercased().contains("release")
+    }
+
+    private func isTopicLocked(_ topic: MainTopic) -> Bool {
+        let accessMode = LockedContentPolicy.currentAccessMode()
+        return LockedContentPolicy.shouldShowLock(
+            accessMode: accessMode,
+            title: topic.titleHeb
+        ) || (
+            accessMode == .locked &&
+            isPremiumTopic(topic)
+        )
+    }
+
+    private func symbolForTopic(_ topic: MainTopic) -> String {
+        let id = topic.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let title = topic.titleHeb.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if id.contains("defense") || title.contains("הגנות") {
+            return "shield.fill"
+        }
+
+        if id.contains("release") || title.contains("שחרור") {
+            return "hand.raised.fill"
+        }
+
+        if id.contains("hand") || id.contains("punch") || title.contains("יד") || title.contains("מרפק") {
+            return "hand.tap.fill"
+        }
+
+        if id.contains("kick") || title.contains("בעיטות") {
+            return "figure.kickboxing"
+        }
+
+        if id.contains("roll") || title.contains("בלימות") || title.contains("גלגולים") {
+            return "arrow.triangle.2.circlepath"
+        }
+
+        if id.contains("ground") || title.contains("קרקע") {
+            return "figure.wrestling"
+        }
+
+        if id.contains("throw") || title.contains("הטלות") {
+            return "figure.martial.arts"
+        }
+
+        if id.contains("stance") || title.contains("עמידת") {
+            return "figure.stand"
+        }
+
+        return "list.bullet.rectangle.fill"
+    }
+    
     private func accentForTopic(_ topic: MainTopic) -> Color {
         guard let subject = topic.subjects.first else {
             return Color.black.opacity(0.25)
@@ -674,6 +795,12 @@ struct BeltQuestionsByTopicView: View {
             return "Cavalier"
         case "kicks_root":
             return "Kicks"
+        case "topic_ground_prep":
+            return "Groundwork"
+        case "topic_breakfalls_rolls":
+            return "Breakfalls and Rolls"
+        case "topic_ready_stance":
+            return "Ready Stance"
         default:
             if let titleFromId = KmiEnglishTitleResolver.englishTitle(for: cleanId) {
                 return titleFromId
@@ -826,7 +953,7 @@ struct BeltQuestionsByTopicView: View {
             guard count > 0 else { return nil }
 
             if isEnglish {
-                return count == 1 ? "1 sub-topic" : "\(count) sub-topics"
+                return "sub-topics \(count)"
             } else {
                 return "\(count) תתי נושאים"
             }
@@ -836,7 +963,7 @@ struct BeltQuestionsByTopicView: View {
         guard count > 1 else { return nil }
 
         if isEnglish {
-            return count == 1 ? "1 sub-topic" : "\(count) sub-topics"
+            return "sub-topics \(count)"
         } else {
             return "\(count) תתי נושאים"
         }
@@ -852,7 +979,7 @@ struct BeltQuestionsByTopicView: View {
         let total = totalExercisesCount(for: topic)
 
         if isEnglish {
-            return total == 1 ? "1 exercise" : "\(total) exercises"
+            return "exercises \(total)"
         } else {
             return "\(total) תרגילים"
         }
@@ -864,6 +991,177 @@ struct BeltQuestionsByTopicView: View {
         generator.impactOccurred()
     }
 
+    private func openTopic(_ topic: MainTopic) {
+        triggerTapHaptic()
+
+        if isTopicLocked(topic) {
+            nav.push(.subscriptionPlans)
+            return
+        }
+
+        pickedMainTopic = topic
+
+        if topic.id == "hands_root" || topic.subjects.count > 1 {
+            goSubTopics = true
+        } else if let subject = topic.subjects.first {
+            let sections = resolvedSections(for: subject)
+
+            if sections.count > 1 {
+                pickedSectionedSubject = subject
+            } else {
+                pickedAcrossBeltsSubject = subject
+                pickedAcrossBeltsSubTopicTitle = nil
+            }
+        }
+    }
+
+    private var quickViewButton: some View {
+        Button {
+            triggerTapHaptic()
+            showQuickActionsDialog = true
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 16, weight: .black))
+
+                Text(tr("מבט מהיר", "Quick View"))
+                    .font(.system(size: 18, weight: .black))
+            }
+            .foregroundStyle(Color.orange.opacity(0.92))
+            .frame(maxWidth: .infinity)
+            .frame(height: 60)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.white.opacity(0.96))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.orange.opacity(0.22), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 5)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var quickActionsDialog: some View {
+        ZStack {
+            Color.black.opacity(0.28)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    showQuickActionsDialog = false
+                }
+
+            VStack(spacing: 0) {
+                HStack {
+                    Button {
+                        showQuickActionsDialog = false
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Color.orange.opacity(0.86))
+                            .frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
+
+                    Text(tr("תפריט מהיר", "Quick menu"))
+                        .font(.system(size: 22, weight: .heavy))
+                        .foregroundStyle(Color.orange.opacity(0.92))
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
+                .padding(.bottom, 4)
+
+                quickActionRow(
+                    title: tr("נקודות תורפה", "Weak points"),
+                    icon: "exclamationmark.triangle",
+                    locked: true
+                ) {
+                    nav.push(.weakPoints(belt: belt))
+                }
+
+                quickActionRow(
+                    title: tr("תרגול", "Practice"),
+                    icon: "figure.martial.arts",
+                    locked: true
+                ) {
+                    nav.push(.practice(belt: belt, topicTitle: "__ALL__"))
+                }
+
+                quickActionRow(
+                    title: tr("עוזר קולי", "Voice assistant"),
+                    icon: "mic",
+                    locked: true
+                ) {
+                    nav.push(.voiceAssistant)
+                }
+            }
+            .padding(.bottom, 10)
+            .frame(width: 270)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color.white.opacity(0.96))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(Color.orange.opacity(0.34), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.22), radius: 18, x: 0, y: 10)
+        }
+        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+        .zIndex(50)
+    }
+
+    private func quickActionRow(
+        title: String,
+        icon: String,
+        locked: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            triggerTapHaptic()
+            showQuickActionsDialog = false
+
+            if locked {
+                nav.push(.subscription)
+            } else {
+                action()
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.orange.opacity(0.82))
+                    .frame(width: 28, height: 28)
+                    .background(Color.orange.opacity(0.12))
+                    .clipShape(Circle())
+
+                if locked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Color.orange.opacity(0.86))
+                }
+
+                Text(title)
+                    .font(.system(size: 17, weight: .heavy))
+                    .foregroundStyle(Color.orange.opacity(0.92))
+                    .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
+                    .multilineTextAlignment(isEnglish ? .leading : .trailing)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Color.white.opacity(0.001))
+        }
+        .buttonStyle(.plain)
+        .overlay(
+            Rectangle()
+                .fill(Color.orange.opacity(0.12))
+                .frame(height: 1),
+            alignment: .bottom
+        )
+    }
+    
     var body: some View {
         ZStack {
             KmiGradientBackground(forceTraineeStyle: false)
@@ -906,28 +1204,16 @@ struct BeltQuestionsByTopicView: View {
                                 VStack(spacing: 11) {
                                     ForEach(Array(mainTopics.enumerated()), id: \.offset) { _, topic in
                                         Button {
-                                            triggerTapHaptic()
-                                            pickedMainTopic = topic
-
-                                            if topic.id == "hands_root" || topic.subjects.count > 1 {
-                                                goSubTopics = true
-                                            } else if let subject = topic.subjects.first {
-                                                let sections = resolvedSections(for: subject)
-
-                                                if sections.count > 1 {
-                                                    pickedSectionedSubject = subject
-                                                } else {
-                                                    pickedAcrossBeltsSubject = subject
-                                                    pickedAcrossBeltsSubTopicTitle = nil
-                                                }
-                                            }
+                                            openTopic(topic)
                                         } label: {
                                             TopicRowCard(
                                                 title: displayTitle(for: topic),
                                                 accent: accentForTopic(topic),
                                                 subtitleTop: subtitleLineTop(for: topic),
                                                 subtitleBottom: subtitleLineBottom(for: topic),
-                                                isEnglish: isEnglish
+                                                isEnglish: isEnglish,
+                                                symbolName: symbolForTopic(topic),
+                                                isLocked: isTopicLocked(topic)
                                             )
                                         }
                                         .buttonStyle(.plain)
@@ -948,11 +1234,20 @@ struct BeltQuestionsByTopicView: View {
                         }
                         .padding(.horizontal, 18)
 
-                        Spacer(minLength: 18)
+                        quickViewButton
+                            .padding(.horizontal, 18)
+                            .padding(.top, 2)
+
+                        Spacer(minLength: 88)
                     }
                     .padding(.top, 6)
                     .padding(.bottom, 22)
                 }
+            }
+        }
+        .overlay {
+            if showQuickActionsDialog {
+                quickActionsDialog
             }
         }
         .environment(\.layoutDirection, screenLayoutDirection)
@@ -1035,7 +1330,7 @@ private struct SubjectSubTopicsListView: View {
 
     private func exercisesCountText(_ count: Int) -> String {
         if isEnglish {
-            return count == 1 ? "1 exercise" : "\(count) exercises"
+            return "exercises \(count)"
         } else {
             return "\(count) תרגילים"
         }
@@ -1129,6 +1424,45 @@ private struct SubjectSubTopicsListView: View {
         if t.contains("בלימות") || t.contains("גלגולים") { return Color.purple.opacity(0.78) }
 
         return Color.black.opacity(0.25)
+    }
+
+    private func symbolForSubject(_ subject: SubjectTopic) -> String {
+        let id = subject.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let title = subject.titleHeb.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if id.contains("internal") || title.contains("פנימ") {
+            return "arrow.down.left.and.arrow.up.right"
+        }
+
+        if id.contains("external") || title.contains("חיצונ") {
+            return "arrow.up.forward.and.arrow.down.backward"
+        }
+
+        if id.contains("knife") || title.contains("סכין") {
+            return "shield.lefthalf.filled"
+        }
+
+        if id.contains("gun") || title.contains("אקדח") {
+            return "scope"
+        }
+
+        if id.contains("stick") || title.contains("מקל") || title.contains("רובה") {
+            return "figure.fencing"
+        }
+
+        if id.contains("release") || title.contains("שחרור") || title.contains("חביקות") {
+            return "hand.raised.fill"
+        }
+
+        if id.contains("kick") || title.contains("בעיטה") {
+            return "figure.kickboxing"
+        }
+
+        if id.contains("hand") || id.contains("punch") || title.contains("יד") || title.contains("מרפק") {
+            return "hand.tap.fill"
+        }
+
+        return "list.bullet.rectangle.fill"
     }
 
     private func normalizedTopicKey(_ raw: String) -> String {
@@ -1292,6 +1626,7 @@ private struct SubjectSubTopicsListView: View {
         let accent: Color
         let subtitleBottom: String
         let isEnglish: Bool
+        let symbolName: String
 
         private var textAlignment: TextAlignment {
             isEnglish ? .leading : .trailing
@@ -1306,27 +1641,27 @@ private struct SubjectSubTopicsListView: View {
         }
 
         var body: some View {
-            HStack(spacing: 14) {
+            HStack(spacing: 12) {
                 if isEnglish {
                     accentBar
+                    visualBlock
+                    textBlock
 
                     Image(systemName: "chevron.right")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(Color.black.opacity(0.30))
-
-                    textBlock
                 } else {
-                    textBlock
-
                     Image(systemName: "chevron.left")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(Color.black.opacity(0.30))
 
+                    textBlock
+                    visualBlock
                     accentBar
                 }
             }
-            .padding(.horizontal, 15)
-            .padding(.vertical, 11)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 17, style: .continuous)
@@ -1336,30 +1671,56 @@ private struct SubjectSubTopicsListView: View {
                 RoundedRectangle(cornerRadius: 17, style: .continuous)
                     .stroke(Color.black.opacity(0.05), lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.04), radius: 4, x: 0, y: 2)
+            .shadow(color: Color.black.opacity(0.045), radius: 5, x: 0, y: 2)
         }
 
         private var textBlock: some View {
             VStack(alignment: stackAlignment, spacing: 7) {
                 Text(title)
-                    .font(.system(size: 20, weight: .heavy))
+                    .font(.system(size: 19, weight: .heavy))
                     .foregroundStyle(Color.black.opacity(0.84))
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
                     .multilineTextAlignment(textAlignment)
                     .lineLimit(2)
 
                 Text(subtitleBottom)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color.black.opacity(0.56))
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
                     .multilineTextAlignment(textAlignment)
+                    .lineLimit(1)
             }
+        }
+
+        private var visualBlock: some View {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            accent.opacity(0.22),
+                            accent.opacity(0.08),
+                            Color.white.opacity(0.92)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(accent.opacity(0.26), lineWidth: 1)
+                )
+                .overlay(
+                    Image(systemName: symbolName)
+                        .font(.system(size: 22, weight: .heavy))
+                        .foregroundStyle(accent)
+                )
+                .frame(width: 62, height: 52)
         }
 
         private var accentBar: some View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(accent)
-                .frame(width: 8)
+                .frame(width: 6, height: 52)
         }
     }
 
@@ -1369,15 +1730,50 @@ private struct SubjectSubTopicsListView: View {
 
             ScrollView {
                 WhiteCard {
-                    VStack(alignment: isEnglish ? .leading : .trailing, spacing: 12) {
-                        Text(tr("תתי נושאים", "Sub-topics"))
-                            .font(.system(size: 22, weight: .heavy))
-                            .foregroundStyle(Color.black.opacity(0.84))
-                            .frame(
-                                maxWidth: .infinity,
-                                alignment: isEnglish ? .leading : .trailing
-                            )
-                            .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                    VStack(alignment: isEnglish ? .leading : .trailing, spacing: 14) {
+                        HStack(spacing: 10) {
+                            if isEnglish {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(uiMainTopicTitle(mainTopic))
+                                        .font(.system(size: 22, weight: .heavy))
+                                        .foregroundStyle(Color.black.opacity(0.84))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .multilineTextAlignment(.leading)
+
+                                    Text(tr("בחר תת נושא", "Choose a sub-topic"))
+                                        .font(.system(size: 13, weight: .bold))
+                                        .foregroundStyle(Color.black.opacity(0.50))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+
+                                Image(systemName: "square.grid.2x2.fill")
+                                    .font(.system(size: 18, weight: .heavy))
+                                    .foregroundStyle(Color.purple.opacity(0.72))
+                                    .frame(width: 38, height: 38)
+                                    .background(Color.purple.opacity(0.10))
+                                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                            } else {
+                                Image(systemName: "square.grid.2x2.fill")
+                                    .font(.system(size: 18, weight: .heavy))
+                                    .foregroundStyle(Color.purple.opacity(0.72))
+                                    .frame(width: 38, height: 38)
+                                    .background(Color.purple.opacity(0.10))
+                                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+
+                                VStack(alignment: .trailing, spacing: 3) {
+                                    Text(uiMainTopicTitle(mainTopic))
+                                        .font(.system(size: 22, weight: .heavy))
+                                        .foregroundStyle(Color.black.opacity(0.84))
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                                        .multilineTextAlignment(.trailing)
+
+                                    Text(tr("בחר תת נושא", "Choose a sub-topic"))
+                                        .font(.system(size: 13, weight: .bold))
+                                        .foregroundStyle(Color.black.opacity(0.50))
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                                }
+                            }
+                        }
 
                         VStack(spacing: 12) {
                             ForEach(Array(mainTopic.subjects.enumerated()), id: \.offset) { _, subject in
@@ -1393,7 +1789,8 @@ private struct SubjectSubTopicsListView: View {
                                         title: uiSubjectTitle(subject),
                                         accent: accentForTitle(subject.titleHeb),
                                         subtitleBottom: exercisesCountText(totalExercisesCount(for: subject)),
-                                        isEnglish: isEnglish
+                                        isEnglish: isEnglish,
+                                        symbolName: symbolForSubject(subject)
                                     )
                                 }
                                 .buttonStyle(.plain)
@@ -1451,7 +1848,7 @@ private struct SubjectSectionsListView: View {
 
     private func exercisesCountText(_ count: Int) -> String {
         if isEnglish {
-            return count == 1 ? "1 exercise" : "\(count) exercises"
+            return "exercises \(count)"
         } else {
             return "\(count) תרגילים"
         }
@@ -1677,6 +2074,45 @@ private struct SubjectSectionsListView: View {
         return Color.black.opacity(0.25)
     }
 
+    private func symbolForSection(_ section: HardSectionsCatalog.Section) -> String {
+        let id = section.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let title = section.title.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if id.contains("internal") || title.contains("פנימ") {
+            return "arrow.down.left.and.arrow.up.right"
+        }
+
+        if id.contains("external") || title.contains("חיצונ") {
+            return "arrow.up.forward.and.arrow.down.backward"
+        }
+
+        if id.contains("knife") || title.contains("סכין") {
+            return "shield.lefthalf.filled"
+        }
+
+        if id.contains("gun") || title.contains("אקדח") {
+            return "scope"
+        }
+
+        if id.contains("stick") || title.contains("מקל") || title.contains("רובה") {
+            return "figure.fencing"
+        }
+
+        if id.contains("release") || title.contains("שחרור") || title.contains("חביקות") {
+            return "hand.raised.fill"
+        }
+
+        if id.contains("kick") || title.contains("בעיטה") {
+            return "figure.kickboxing"
+        }
+
+        if id.contains("hand") || id.contains("punch") || title.contains("יד") || title.contains("מרפק") {
+            return "hand.tap.fill"
+        }
+
+        return "list.bullet.rectangle.fill"
+    }
+    
     private func itemsForSection(
         _ section: HardSectionsCatalog.Section,
         belt: Belt
@@ -1711,6 +2147,7 @@ private struct SubjectSectionsListView: View {
         let accent: Color
         let subtitleBottom: String
         let isEnglish: Bool
+        let symbolName: String
 
         private var textAlignment: TextAlignment {
             isEnglish ? .leading : .trailing
@@ -1725,61 +2162,86 @@ private struct SubjectSectionsListView: View {
         }
 
         var body: some View {
-            HStack(spacing: 14) {
+            HStack(spacing: 12) {
                 if isEnglish {
                     accentBar
+                    visualBlock
+                    textBlock
 
                     Image(systemName: "chevron.right")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(Color.black.opacity(0.30))
-
-                    textBlock
                 } else {
-                    textBlock
-
                     Image(systemName: "chevron.left")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(Color.black.opacity(0.30))
 
+                    textBlock
+                    visualBlock
                     accentBar
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 15)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: 17, style: .continuous)
                     .fill(Color.white.opacity(0.94))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: 17, style: .continuous)
                     .stroke(Color.black.opacity(0.05), lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.04), radius: 4, x: 0, y: 2)
-            .scaleEffect(1.0)
+            .shadow(color: Color.black.opacity(0.045), radius: 5, x: 0, y: 2)
         }
 
         private var textBlock: some View {
             VStack(alignment: stackAlignment, spacing: 7) {
                 Text(title)
-                    .font(.system(size: 20, weight: .heavy))
+                    .font(.system(size: 19, weight: .heavy))
                     .foregroundStyle(Color.black.opacity(0.84))
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
                     .multilineTextAlignment(textAlignment)
                     .lineLimit(2)
 
                 Text(subtitleBottom)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.black.opacity(0.55))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.56))
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
                     .multilineTextAlignment(textAlignment)
+                    .lineLimit(1)
             }
+        }
+
+        private var visualBlock: some View {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            accent.opacity(0.22),
+                            accent.opacity(0.08),
+                            Color.white.opacity(0.92)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(accent.opacity(0.26), lineWidth: 1)
+                )
+                .overlay(
+                    Image(systemName: symbolName)
+                        .font(.system(size: 22, weight: .heavy))
+                        .foregroundStyle(accent)
+                )
+                .frame(width: 62, height: 52)
         }
 
         private var accentBar: some View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(accent)
-                .frame(width: 8)
+                .frame(width: 6, height: 52)
         }
     }
     
@@ -1789,12 +2251,50 @@ private struct SubjectSectionsListView: View {
 
             ScrollView {
                 WhiteCard {
-                    VStack(alignment: isEnglish ? .leading : .trailing, spacing: 12) {
-                        Text(tr("תתי נושאים", "Sub-topics"))
-                            .font(.system(size: 22, weight: .heavy))
-                            .foregroundStyle(Color.black.opacity(0.84))
-                            .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                            .multilineTextAlignment(primaryTextAlignment)
+                    VStack(alignment: isEnglish ? .leading : .trailing, spacing: 14) {
+                        HStack(spacing: 10) {
+                            if isEnglish {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(uiSubjectTitle(subject))
+                                        .font(.system(size: 22, weight: .heavy))
+                                        .foregroundStyle(Color.black.opacity(0.84))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .multilineTextAlignment(.leading)
+
+                                    Text(tr("בחר תת נושא", "Choose a sub-topic"))
+                                        .font(.system(size: 13, weight: .bold))
+                                        .foregroundStyle(Color.black.opacity(0.50))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+
+                                Image(systemName: "square.grid.2x2.fill")
+                                    .font(.system(size: 18, weight: .heavy))
+                                    .foregroundStyle(Color.purple.opacity(0.72))
+                                    .frame(width: 38, height: 38)
+                                    .background(Color.purple.opacity(0.10))
+                                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                            } else {
+                                Image(systemName: "square.grid.2x2.fill")
+                                    .font(.system(size: 18, weight: .heavy))
+                                    .foregroundStyle(Color.purple.opacity(0.72))
+                                    .frame(width: 38, height: 38)
+                                    .background(Color.purple.opacity(0.10))
+                                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+
+                                VStack(alignment: .trailing, spacing: 3) {
+                                    Text(uiSubjectTitle(subject))
+                                        .font(.system(size: 22, weight: .heavy))
+                                        .foregroundStyle(Color.black.opacity(0.84))
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                                        .multilineTextAlignment(.trailing)
+
+                                    Text(tr("בחר תת נושא", "Choose a sub-topic"))
+                                        .font(.system(size: 13, weight: .bold))
+                                        .foregroundStyle(Color.black.opacity(0.50))
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                                }
+                            }
+                        }
 
                         VStack(spacing: 12) {
                             ForEach(Array(sections.enumerated()), id: \.element.id) { _, section in
@@ -1809,7 +2309,8 @@ private struct SubjectSectionsListView: View {
                                         title: uiSectionTitle(section),
                                         accent: accentForTitle(title),
                                         subtitleBottom: exercisesCountText(count),
-                                        isEnglish: isEnglish
+                                        isEnglish: isEnglish,
+                                        symbolName: symbolForSection(section)
                                     )
                                 }
                                 .buttonStyle(.plain)

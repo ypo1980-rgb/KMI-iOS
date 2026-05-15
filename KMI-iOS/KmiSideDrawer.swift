@@ -235,26 +235,60 @@ struct KmiSideDrawer: View {
             }
     }
 
-    private var effectiveRole: String {
-        let loginRole = UserDefaults.standard.string(forKey: "user_role")?
+    private func normalizeRole(_ value: String) -> String {
+        value
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
+    }
 
-        if let loginRole, !loginRole.isEmpty {
-            print("DRAWER ROLE (from defaults) =", loginRole)
-            return loginRole
+    private func isCoachRole(_ value: String) -> Bool {
+        let role = normalizeRole(value)
+
+        return role == "coach" ||
+               role == "trainer" ||
+               role == "instructor" ||
+               role == "מאמן" ||
+               role == "coach_user" ||
+               role == "kmi_coach"
+    }
+
+    private var effectiveRole: String {
+        let defaults = UserDefaults.standard
+
+        let profileRole = normalizeRole(auth.userRole)
+
+        let storedCandidates = [
+            defaults.string(forKey: "user_role"),
+            defaults.string(forKey: "role"),
+            defaults.string(forKey: "userRole"),
+            defaults.string(forKey: "profile_role")
+        ]
+        .compactMap { $0 }
+        .map { normalizeRole($0) }
+        .filter { !$0.isEmpty }
+
+        // חשוב: אם אחד המקורות אומר מאמן — נעדיף מאמן ולא ניתקע על trainee ישן.
+        if isCoachRole(profileRole) {
+            print("DRAWER ROLE resolved coach from auth.userRole =", profileRole)
+            return profileRole
         }
 
-        let profileRole = auth.userRole
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+        if let coachStoredRole = storedCandidates.first(where: { isCoachRole($0) }) {
+            print("DRAWER ROLE resolved coach from defaults =", coachStoredRole)
+            return coachStoredRole
+        }
 
-        print("DRAWER ROLE (from profile) =", profileRole)
+        if let firstStoredRole = storedCandidates.first {
+            print("DRAWER ROLE resolved from defaults =", firstStoredRole)
+            return firstStoredRole
+        }
+
+        print("DRAWER ROLE resolved from profile =", profileRole)
         return profileRole
     }
 
     private var isCoach: Bool {
-        effectiveRole == "coach" || effectiveRole == "trainer" || effectiveRole == "מאמן"
+        isCoachRole(effectiveRole)
     }
 
     private var isAdminUser: Bool {

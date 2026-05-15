@@ -115,8 +115,13 @@ struct RegisterView: View {
     }
 
     private var coachDialogTitle: String {
-        let normalizedPhone = prefillPhone.filter { $0.isNumber }
-        let normalizedEmail = prefillEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedPhone =
+            submittedForm?.phone.filter { $0.isNumber } ??
+            prefillPhone.filter { $0.isNumber }
+
+        let normalizedEmail =
+            submittedForm?.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ??
+            prefillEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
         let nameFromPhone = CoachWhitelist.allowedPhones[normalizedPhone]
         let nameFromEmail = CoachWhitelist.allowedEmails[normalizedEmail]

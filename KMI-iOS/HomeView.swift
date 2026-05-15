@@ -1,5 +1,6 @@
 import SwiftUI
 import FirebaseAuth
+import FirebaseFirestore
 import Shared
 
 struct HomeView: View {
@@ -21,6 +22,15 @@ struct HomeView: View {
     @AppStorage("current_belt") private var storedCurrentBelt: String = ""
     @AppStorage("belt_current") private var storedUserCurrentBelt: String = ""
     
+    // Android parity: Home quick menu premium access flags
+    @AppStorage("has_full_access") private var hasFullAccessFlag: Bool = false
+    @AppStorage("full_access") private var fullAccessFlag: Bool = false
+    @AppStorage("subscription_active") private var subscriptionActiveFlag: Bool = false
+    @AppStorage("is_subscribed") private var isSubscribedFlag: Bool = false
+    @AppStorage("google_subscription_verified") private var googleSubscriptionVerifiedFlag: Bool = false
+    @AppStorage("sub_product") private var subscriptionProduct: String = ""
+    @AppStorage("sub_access_until") private var subscriptionAccessUntil: Double = 0
+    
     @State private var fabOpen: Bool = false
     @StateObject private var trainingsVm = HomeTrainingsViewModel()
 
@@ -33,6 +43,12 @@ struct HomeView: View {
     
     // Global search navigation
     @State private var pickedExercise: ExerciseSelection? = nil
+    
+    // Coach broadcast from Firestore — Android parity
+    @State private var lastCoachMessage: String = ""
+    @State private var lastCoachFrom: String = ""
+    @State private var lastCoachSentAt: Date? = nil
+    @State private var coachBroadcastListener: ListenerRegistration? = nil
     
     private let calendar = Calendar(identifier: .gregorian)
     
@@ -99,6 +115,40 @@ struct HomeView: View {
     
     private var isCoachUser: Bool {
         resolvedUserRole == "coach"
+    }
+    
+    private var hasFullAccess: Bool {
+        let nowMillis = Date().timeIntervalSince1970 * 1000
+        
+        let hasSubscriptionFlags =
+        googleSubscriptionVerifiedFlag ||
+        hasFullAccessFlag ||
+        fullAccessFlag ||
+        subscriptionActiveFlag ||
+        isSubscribedFlag ||
+        !subscriptionProduct.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        
+        // Same idea as Android HomeScreen:
+        // subscription flags open premium actions only while access time is valid.
+        if hasSubscriptionFlags && subscriptionAccessUntil > nowMillis {
+            return true
+        }
+        
+        return false
+    }
+    
+    private var lockSuffix: String {
+        hasFullAccess ? "" : " 🔒"
+    }
+    
+    private func runPremiumHomeAction(_ action: @escaping () -> Void) {
+        closeFab()
+        
+        if hasFullAccess {
+            action()
+        } else {
+            nav.push(.subscription)
+        }
     }
     
     private var freeSessionsUid: String {
@@ -208,6 +258,149 @@ struct HomeView: View {
         return trainingsVm.statusMessage
     }
     
+    private var resolvedCoachBroadcastName: String {
+        let clean = lastCoachFrom.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !clean.isEmpty {
+            return clean
+        }
+        return isEnglish ? "Coach" : "המאמן"
+    }
+    
+    private var resolvedCoachBroadcastMessage: String {
+        let clean = lastCoachMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        if clean.isEmpty {
+            return isEnglish
+                ? "No new messages right now"
+                : "אין הודעות חדשות כרגע"
+        }
+        
+        if clean.count > 140 {
+            return String(clean.prefix(140)) + "..."
+        }
+        
+        return clean
+    }
+    
+    private var resolvedCoachBroadcastTimeText: String {
+        guard let lastCoachSentAt else {
+            return ""
+        }
+        
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "he_IL")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "dd/MM/yyyy HH:mm"
+        return formatter.string(from: lastCoachSentAt)
+    }
+    
+    private var homeQuickMenuItems: [HomeQuickMenuItem] {
+        var items: [HomeQuickMenuItem] = [
+            HomeQuickMenuItem(
+                title: tr("עוזר קולי", "Voice Assistant") + lockSuffix,
+                systemImage: "mic.fill"
+            ) {
+                runPremiumHomeAction {
+                    goVoiceAssistant = true
+                }
+            }
+        ]
+        
+        if isAbroadUser {
+            items.append(
+                HomeQuickMenuItem(
+                    title: tr("יש להתעדכן מול המאמן המקומי", "Check with the local coach"),
+                    systemImage: "globe.europe.africa.fill"
+                ) {
+                    closeFab()
+                }
+            )
+        } else {
+            items.append(
+                HomeQuickMenuItem(
+                    title: tr("לוח אימונים חודשי", "Monthly Calendar") + lockSuffix,
+                    systemImage: "calendar"
+                ) {
+                    runPremiumHomeAction {
+                        goMonthly = true
+                    }
+                }
+            )
+            
+            items.append(
+                HomeQuickMenuItem(
+                    title: tr("סיכום אימון", "Training Summary") + lockSuffix,
+                    systemImage: "square.and.pencil"
+                ) {
+                    runPremiumHomeAction {
+                        let formatter = DateFormatter()
+                        formatter.locale = Locale(identifier: "en_US_POSIX")
+                        formatter.dateFormat = "yyyy-MM-dd"
+                        let todayIso = formatter.string(from: Date())
+                        
+                        nav.push(.trainingSummary(pickedDateIso: todayIso))
+                    }
+                }
+            )
+            
+            items.append(
+                HomeQuickMenuItem(
+                    title: tr("אימונים חופשיים", "Free Sessions") + lockSuffix,
+                    systemImage: "plus"
+                ) {
+                    runPremiumHomeAction {
+                        nav.push(
+                            .freeSessions(
+                                branch: freeSessionsBranch,
+                                groupKey: freeSessionsGroupKey,
+                                uid: freeSessionsUid,
+                                name: freeSessionsName
+                            )
+                        )
+                    }
+                }
+            )
+        }
+        
+        items.append(
+            HomeQuickMenuItem(
+                title: isCoachUser
+                ? tr("כרטיס מאמן", "Coach Card")
+                : tr("כרטיס אישי", "My Card"),
+                systemImage: isCoachUser ? "checkmark.seal.fill" : "person.crop.circle.fill"
+            ) {
+                closeFab()
+                goCard = true
+            }
+        )
+        
+        if isCoachUser {
+            items.append(
+                HomeQuickMenuItem(
+                    title: tr("מבחן פנימי", "Internal Exam"),
+                    systemImage: "checklist"
+                ) {
+                    closeFab()
+                    nav.push(.internalExam(belt: resolvedBelt))
+                }
+            )
+            
+            if !isAbroadUser {
+                items.append(
+                    HomeQuickMenuItem(
+                        title: tr("דו״ח נוכחות", "Attendance Report"),
+                        systemImage: "person.text.rectangle"
+                    ) {
+                        closeFab()
+                        nav.push(.attendance)
+                    }
+                )
+            }
+        }
+        
+        return items
+    }
+    
     var body: some View {
         ZStack {
             KmiGradientBackground(forceTraineeStyle: false)
@@ -224,7 +417,7 @@ struct HomeView: View {
                         beltText: isEnglish ? beltEn(resolvedBelt) : beltHeb(resolvedBelt),
                         isEnglish: isEnglish
                     )
-                    .padding(.top, 10)
+                    .padding(.top, 6)
                     
                     WeekHeaderPill(
                         title: isAbroadUser
@@ -248,41 +441,11 @@ struct HomeView: View {
                         )
                         .padding(.top, 6)
                     } else if effectiveUpcomingTrainings.isEmpty {
-                        if let statusMessage = effectiveStatusMessage {
-                            emptyBlock(message: statusMessage)
-                                .padding(.top, 6)
-                        } else {
-                            VStack(spacing: 14) {
-                                
-                                emptyBlock(
-                                    message: tr(
-                                        "לא נמצאו אימונים לשבוע הקרוב",
-                                        "No trainings were found for the upcoming week"
-                                    )
-                                )
-                                
-                                Button {
-                                    goMonthly = true
-                                } label: {
-                                    Label(
-                                        tr("הצג לוח אימונים חודשי", "Show monthly training board"),
-                                        systemImage: "calendar"
-                                    )
-                                    .font(.system(size: 16, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .padding(.vertical, 12)
-                                    .frame(maxWidth: .infinity)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                            .fill(Color.white.opacity(0.22))
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                                .padding(.horizontal, 18)
-                                
-                            }
-                            .padding(.top, 6)
-                        }
+                        emptyBlock(
+                            message: effectiveStatusMessage ??
+                            tr("אין אימונים קרובים", "No upcoming trainings")
+                        )
+                        .padding(.top, 6)
                     } else {
                         VStack(spacing: 12) {
                             ForEach(effectiveUpcomingTrainings) { training in
@@ -309,7 +472,7 @@ struct HomeView: View {
                         )
                     }
                     
-                    Spacer(minLength: 22)
+                    Spacer(minLength: 10)
                     
                     CoachMessagesCard(
                         title: isAbroadUser
@@ -319,13 +482,9 @@ struct HomeView: View {
                             ? tr("הודעות למאמן", "Coach Messages")
                             : tr("הודעות מהמאמן", "Messages from the Coach")
                         ),
-                        message: tr("אין הודעות בשלב זה", "No messages at this time"),
-                        meta: isAbroadUser
-                        ? tr(
-                            "עדכונים מסניפי חו״ל יוצגו כאן לאחר חיבור המאמן המקומי",
-                            "Updates from international branches will appear here after the local coach is connected"
-                        )
-                        : tr("הודעות חדשות יוצגו כאן בהמשך", "New messages will appear here"),
+                        coachName: resolvedCoachBroadcastName,
+                        message: resolvedCoachBroadcastMessage,
+                        sentAtText: resolvedCoachBroadcastTimeText,
                         isEnglish: isEnglish
                     )
                     .padding(.horizontal, 18)
@@ -343,140 +502,41 @@ struct HomeView: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 0)
                     
-                    Spacer(minLength: 120)
+                    Spacer(minLength: 92)
                 }
             }
             
             if fabOpen {
-                Color.black.opacity(0.18)
+                Color.black.opacity(0.24)
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                            fabOpen = false
-                        }
+                        closeFab()
                     }
                 
-                VStack(spacing: 10) {
-
-                    Button {
+                HomePremiumQuickMenuPanel(
+                    title: tr("תפריט מהיר", "Quick Menu"),
+                    isEnglish: isEnglish,
+                    items: homeQuickMenuItems,
+                    onClose: {
                         closeFab()
-                        goVoiceAssistant = true
-                    } label: {
-                        FabMenuRow(
-                            title: tr("עוזר קולי", "Voice Assistant"),
-                            systemImage: "mic.fill",
-                            isEnglish: isEnglish
-                        )
                     }
-
-                    if isAbroadUser {
-                        Button {
-                            closeFab()
-                        } label: {
-                            FabMenuRow(
-                                title: tr("יש להתעדכן מול המאמן המקומי", "Check with the local coach"),
-                                systemImage: "globe.europe.africa.fill",
-                                isEnglish: isEnglish
-                            )
-                        }
-                    } else {
-                        Button {
-                            closeFab()
-                            goMonthly = true
-                        } label: {
-                            FabMenuRow(
-                                title: tr("לוח אימונים חודשי", "Monthly Calendar"),
-                                systemImage: "calendar",
-                                isEnglish: isEnglish
-                            )
-                        }
-
-                        Button {
-                            closeFab()
-
-                            let formatter = DateFormatter()
-                            formatter.locale = Locale(identifier: "en_US_POSIX")
-                            formatter.dateFormat = "yyyy-MM-dd"
-                            let todayIso = formatter.string(from: Date())
-
-                            nav.push(.trainingSummary(pickedDateIso: todayIso))
-                        } label: {
-                            FabMenuRow(
-                                title: tr("סיכום אימון", "Training Summary"),
-                                systemImage: "square.and.pencil",
-                                isEnglish: isEnglish
-                            )
-                        }
-
-                        Button {
-                            closeFab()
-                            nav.push(
-                                .freeSessions(
-                                    branch: freeSessionsBranch,
-                                    groupKey: freeSessionsGroupKey,
-                                    uid: freeSessionsUid,
-                                    name: freeSessionsName
-                                )
-                            )
-                        } label: {
-                            FabMenuRow(
-                                title: tr("אימונים חופשיים", "Free Sessions"),
-                                systemImage: "plus",
-                                isEnglish: isEnglish
-                            )
-                        }
-                    }
-
-                    Button {
-                        closeFab()
-                        goCard = true
-                    } label: {
-                        FabMenuRow(
-                            title: isCoachUser
-                            ? tr("כרטיס מאמן", "Coach Card")
-                            : tr("כרטיס אישי", "My Card"),
-                            systemImage: isCoachUser ? "checkmark.seal.fill" : "person.crop.circle.fill",
-                            isEnglish: isEnglish
-                        )
-                    }
-
-                    if isCoachUser {
-                        Button {
-                            closeFab()
-                            nav.push(.internalExam(belt: resolvedBelt))
-                        } label: {
-                            FabMenuRow(
-                                title: tr("מבחן פנימי", "Internal Exam"),
-                                systemImage: "checklist",
-                                isEnglish: isEnglish
-                            )
-                        }
-
-                        if !isAbroadUser {
-                            Button {
-                                closeFab()
-                                nav.push(.attendance)
-                            } label: {
-                                FabMenuRow(
-                                    title: tr("דו״ח נוכחות", "Attendance Report"),
-                                    systemImage: "person.text.rectangle",
-                                    isEnglish: isEnglish
-                                )
-                            }
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
+                )
                 .frame(
                     maxWidth: .infinity,
                     maxHeight: .infinity,
                     alignment: isEnglish ? .bottomLeading : .bottomTrailing
                 )
-                .padding(isEnglish ? .leading : .trailing, 18)
-                .padding(.bottom, 88)
+                .padding(isEnglish ? .leading : .trailing, 16)
+                .padding(.bottom, 92)
+                .transition(
+                    .move(edge: .bottom)
+                    .combined(with: .opacity)
+                    .combined(with: .scale(scale: 0.96))
+                )
             }
             
             Button {
@@ -484,26 +544,16 @@ struct HomeView: View {
                     fabOpen.toggle()
                 }
             } label: {
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(0.92))
-                        .shadow(color: Color.black.opacity(0.18), radius: 10, x: 0, y: 6)
-                    
-                    Image(systemName: "plus")
-                        .font(.system(size: 22, weight: .heavy))
-                        .foregroundStyle(Color.black.opacity(0.65))
-                        .rotationEffect(.degrees(fabOpen ? 45 : 0))
-                }
-                .frame(width: 56, height: 56)
+                ModernHomeQuickFab(isOpen: fabOpen)
             }
             .buttonStyle(.plain)
             .frame(
                 maxWidth: .infinity,
                 maxHeight: .infinity,
-                alignment: isEnglish ? .bottomLeading : .bottomTrailing
+                alignment: isEnglish ? .bottomTrailing : .bottomLeading
             )
-            .padding(isEnglish ? .leading : .trailing, 26)
-            .padding(.bottom, 60)
+            .padding(isEnglish ? .trailing : .leading, 22)
+            .padding(.bottom, 18)
         }
         .onReceive(
             NotificationCenter.default.publisher(
@@ -515,6 +565,12 @@ struct HomeView: View {
         }
         .task {
             reloadTrainingsIfNeeded()
+        }
+        .onAppear {
+            startCoachBroadcastListener()
+        }
+        .onDisappear {
+            stopCoachBroadcastListener()
         }
         .refreshable {
             reloadTrainingsIfNeeded()
@@ -606,16 +662,40 @@ struct HomeView: View {
             let clean = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
             return clean.isEmpty ? (isEnglish ? "User" : "משתמש") : clean
         }
-
-        private var locationLine: String {
+        
+        private var branchLine: String {
             [
                 TrainingCatalogIOS.displayRegion(region, isEnglish: isEnglish),
-                TrainingCatalogIOS.displayBranch(branch, isEnglish: isEnglish),
-                TrainingCatalogIOS.displayGroup(group, isEnglish: isEnglish)
+                TrainingCatalogIOS.displayBranch(branch, isEnglish: isEnglish)
             ]
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-            .joined(separator: " • ")
+            .joined(separator: " · ")
+        }
+        
+        private var groupLine: String {
+            let cleanGroup = TrainingCatalogIOS
+                .displayGroup(group, isEnglish: isEnglish)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            if cleanGroup.isEmpty {
+                return ""
+            }
+            
+            return isEnglish ? "Group: \(cleanGroup)" : "קבוצה: \(cleanGroup)"
+        }
+        
+        private var beltLine: String {
+            if isCoach {
+                return ""
+            }
+            
+            let cleanBelt = beltText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if cleanBelt.isEmpty {
+                return ""
+            }
+            
+            return isEnglish ? "Belt: \(cleanBelt)" : "חגורה: \(cleanBelt)"
         }
         
         private var textAlignment: TextAlignment {
@@ -630,68 +710,107 @@ struct HomeView: View {
             isEnglish ? .leading : .trailing
         }
         
-        private var roleColor: Color {
-            isCoach ? Color(hex: 0xFF6A1B9A) : Color.white
+        private var rowDirection: LayoutDirection {
+            isEnglish ? .leftToRight : .rightToLeft
+        }
+        
+        private var accentColor: Color {
+            isCoach
+            ? Color(red: 0.50, green: 0.11, blue: 0.64)
+            : Color(red: 0.02, green: 0.45, blue: 0.78)
         }
         
         var body: some View {
             HStack(spacing: 12) {
-                Image(systemName: isCoach ? "checkmark.seal.fill" : "person.fill")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(roleColor)
-                    .frame(width: 34, height: 34)
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    accentColor.opacity(0.22),
+                                    accentColor.opacity(0.08)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    
+                    Circle()
+                        .stroke(accentColor.opacity(0.24), lineWidth: 1)
+                    
+                    Image(systemName: isCoach ? "checkmark.seal.fill" : "person.fill")
+                        .font(.system(size: 21, weight: .bold))
+                        .foregroundStyle(accentColor)
+                }
+                .frame(width: 44, height: 44)
                 
-                VStack(alignment: stackAlignment, spacing: 4) {
-                    Text(displayName)
-                        .font(.system(size: 20, weight: .heavy))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, alignment: frameAlignment)
-                        .multilineTextAlignment(textAlignment)
+                VStack(alignment: stackAlignment, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Text(displayName)
+                            .font(.system(size: 18, weight: .heavy))
+                            .foregroundStyle(Color.black.opacity(0.86))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                            .frame(maxWidth: .infinity, alignment: frameAlignment)
+                            .multilineTextAlignment(textAlignment)
+                        
+                        Text(roleTitle)
+                            .font(.system(size: 11, weight: .heavy))
+                            .foregroundStyle(accentColor)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                Capsule()
+                                    .fill(accentColor.opacity(0.12))
+                            )
+                    }
+                    .environment(\.layoutDirection, rowDirection)
                     
-                    Text(roleTitle)
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(roleColor.opacity(0.95))
-                        .frame(maxWidth: .infinity, alignment: frameAlignment)
-                        .multilineTextAlignment(textAlignment)
-                    
-                    if !locationLine.isEmpty {
-                        Text(locationLine)
+                    if !branchLine.isEmpty {
+                        Text(branchLine)
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.88))
+                            .foregroundStyle(Color.black.opacity(0.58))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
                             .frame(maxWidth: .infinity, alignment: frameAlignment)
                             .multilineTextAlignment(textAlignment)
                     }
                     
-                    if !beltText.isEmpty && !isCoach {
-                        Text(isEnglish ? "Belt \(beltText)" : "חגורה \(beltText)")
+                    if !groupLine.isEmpty {
+                        Text(groupLine)
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.88))
+                            .foregroundStyle(Color.black.opacity(0.66))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                            .frame(maxWidth: .infinity, alignment: frameAlignment)
+                            .multilineTextAlignment(textAlignment)
+                    }
+                    
+                    if !beltLine.isEmpty {
+                        Text(beltLine)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Color.black.opacity(0.70))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
                             .frame(maxWidth: .infinity, alignment: frameAlignment)
                             .multilineTextAlignment(textAlignment)
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .environment(\.layoutDirection, rowDirection)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(
-                        isCoach
-                        ? Color.black.opacity(0.40)
-                        : Color.white.opacity(0.16)
-                    )
+                    .fill(Color.white.opacity(0.92))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(
-                        isCoach
-                        ? Color.red.opacity(0.35)
-                        : Color.white.opacity(0.20),
-                        lineWidth: 1
-                    )
+                    .stroke(Color.white.opacity(0.32), lineWidth: 1)
             )
-            .padding(.horizontal, 18)
+            .shadow(color: Color.black.opacity(0.10), radius: 8, x: 0, y: 4)
+            .padding(.horizontal, 16)
         }
     }
     
@@ -752,7 +871,7 @@ struct HomeView: View {
     
     private func buttonTitleForBelt() -> String {
         if isAbroadUser {
-            return isEnglish ? "Open Exercise Library" : "מעבר לספריית התרגילים"
+            return isEnglish ? "Open exercise library" : "מעבר לספריית התרגילים"
         }
 
         let next = BeltFlow.nextBeltForUser(registeredBelt: resolvedBelt)
@@ -765,15 +884,7 @@ struct HomeView: View {
     }
 
     private func buttonSubtitleForBelt() -> String {
-        if isAbroadUser {
-            return isEnglish
-                ? "The training library is available for all branches"
-                : "ספריית התרגילים זמינה לכל הסניפים"
-        }
-
-        return isEnglish
-            ? "Practice according to your next belt"
-            : "תרגול לפי החגורה הבאה שלך"
+        ""
     }
     
     private func beltHeb(_ belt: Belt) -> String {
@@ -817,6 +928,63 @@ struct HomeView: View {
         trainingsVm.loadForCurrentUser(auth: auth)
     }
     
+    private func startCoachBroadcastListener() {
+        stopCoachBroadcastListener()
+        
+        guard let currentUid = Auth.auth().currentUser?.uid else {
+            lastCoachMessage = ""
+            lastCoachFrom = ""
+            lastCoachSentAt = nil
+            return
+        }
+        
+        coachBroadcastListener = Firestore.firestore()
+            .collection("coachBroadcasts")
+            .whereField("targetUids", arrayContains: currentUid)
+            .order(by: "createdAt", descending: true)
+            .limit(to: 1)
+            .addSnapshotListener { snapshot, error in
+                if let error {
+                    #if DEBUG
+                    print("❌ KMI_HOME_BROADCAST iOS listener failed:", error.localizedDescription)
+                    #endif
+                    return
+                }
+                
+                guard let doc = snapshot?.documents.first else {
+                    lastCoachMessage = ""
+                    lastCoachFrom = ""
+                    lastCoachSentAt = nil
+                    return
+                }
+                
+                lastCoachMessage =
+                    (doc.get("text") as? String) ??
+                    (doc.get("message") as? String) ??
+                    ""
+                
+                lastCoachFrom =
+                    (doc.get("coachName") as? String) ??
+                    (doc.get("coach_name") as? String) ??
+                    (isEnglish ? "Coach" : "המאמן")
+                
+                if let timestamp = doc.get("createdAt") as? Timestamp {
+                    lastCoachSentAt = timestamp.dateValue()
+                } else {
+                    lastCoachSentAt = nil
+                }
+                
+                #if DEBUG
+                print("✅ KMI_HOME_BROADCAST iOS latest:", doc.documentID, lastCoachMessage)
+                #endif
+            }
+    }
+    
+    private func stopCoachBroadcastListener() {
+        coachBroadcastListener?.remove()
+        coachBroadcastListener = nil
+    }
+    
     private func closeFab() {
         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
             fabOpen = false
@@ -839,58 +1007,24 @@ struct HomeView: View {
     }
     
     private func emptyBlock(message: String) -> some View {
-        VStack(
-            alignment: isEnglish ? .leading : .trailing,
-            spacing: 10
-        ) {
-            Image(systemName: "calendar.badge.exclamationmark")
-                .font(.system(size: 28, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.95))
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: isEnglish ? .leading : .trailing
-                )
-            
-            Text(message)
-                .font(.system(size: 18, weight: .heavy))
-                .foregroundStyle(.white)
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: isEnglish ? .leading : .trailing
-                )
-                .multilineTextAlignment(isEnglish ? .leading : .trailing)
-            
-            Text(
-                isCoachUser
-                ? tr(
-                    "האימונים יוצגו כאן לפי האזור, הסניף והקבוצה של המאמן",
-                    "Trainings will appear here according to the coach’s region, branch and group"
-                )
-                : tr(
-                    "האימונים יוצגו כאן לפי הסניף והקבוצה של המשתמש",
-                    "Trainings will appear here according to the user’s branch and group"
-                )
+        Text(message)
+            .font(.system(size: 18, weight: .heavy))
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .lineLimit(3)
+            .minimumScaleFactor(0.86)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 96)
+            .padding(.horizontal, 22)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(isCoachUser ? Color.black.opacity(0.36) : Color.white.opacity(0.14))
             )
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.88))
-            .frame(
-                maxWidth: .infinity,
-                alignment: isEnglish ? .leading : .trailing
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
             )
-            .multilineTextAlignment(isEnglish ? .leading : .trailing)
-        }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 24)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(isCoachUser ? Color.black.opacity(0.40) : Color.white.opacity(0.16))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.white.opacity(0.20), lineWidth: 1)
-        )
-        .padding(.horizontal, 18)
+            .padding(.horizontal, 18)
     }
 }
 
@@ -899,92 +1033,32 @@ private struct HomeAbroadBranchNotice: View {
     let branch: String
     let isEnglish: Bool
 
-    private var textAlignment: TextAlignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    private var frameAlignment: Alignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    private var stackAlignment: HorizontalAlignment {
-        isEnglish ? .leading : .trailing
-    }
-
     private func tr(_ he: String, _ en: String) -> String {
         isEnglish ? en : he
     }
 
-    private var branchLine: String {
-        let cleanRegion = region.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if cleanRegion.isEmpty && cleanBranch.isEmpty {
-            return tr("סניף חו״ל", "Abroad branch")
-        }
-
-        return [
-            TrainingCatalogIOS.displayRegion(cleanRegion, isEnglish: isEnglish),
-            TrainingCatalogIOS.displayBranch(cleanBranch, isEnglish: isEnglish)
-        ]
-        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        .filter { !$0.isEmpty }
-        .joined(separator: " • ")
-    }
-
     var body: some View {
-        VStack(alignment: stackAlignment, spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: "globe.europe.africa.fill")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(.white)
-
-                Text(tr("סניף חו״ל", "International Branch"))
-                    .font(.system(size: 20, weight: .heavy))
-                    .foregroundStyle(.white)
-
-                Spacer(minLength: 0)
-            }
-            .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
-
-            Text(branchLine)
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(.white.opacity(0.92))
-                .frame(maxWidth: .infinity, alignment: frameAlignment)
-                .multilineTextAlignment(textAlignment)
-
-            Text(
-                tr(
-                    "לסניף זה אין כרגע מידע על אימונים שבועיים באפליקציה.",
-                    "This branch does not currently have a weekly training schedule in the app."
-                )
+        Text(
+            tr(
+                "אין מידע על אימונים לשבוע הקרוב בסניפי חו״ל",
+                "Training schedule is not available for international branches this week"
             )
-            .font(.system(size: 17, weight: .heavy))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity, alignment: frameAlignment)
-            .multilineTextAlignment(textAlignment)
-
-            Text(
-                tr(
-                    "ניתן להתעדכן בזמני האימונים מול המאמן המקומי או הנהלת הסניף.",
-                    "Please check training times with the local coach or branch management."
-                )
-            )
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.82))
-            .frame(maxWidth: .infinity, alignment: frameAlignment)
-            .multilineTextAlignment(textAlignment)
-        }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 22)
+        )
+        .font(.system(size: 18, weight: .heavy))
+        .foregroundStyle(.white)
+        .multilineTextAlignment(.center)
+        .lineLimit(3)
+        .minimumScaleFactor(0.86)
         .frame(maxWidth: .infinity)
+        .frame(minHeight: 96)
+        .padding(.horizontal, 22)
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white.opacity(0.16))
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.white.opacity(0.14))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.22), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
         )
         .padding(.horizontal, 18)
     }
@@ -999,113 +1073,68 @@ private struct HomePremiumExerciseButton: View {
         isEnglish ? .leftToRight : .rightToLeft
     }
 
-    private var textAlignment: TextAlignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    private var frameAlignment: Alignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    private var stackAlignment: HorizontalAlignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    private var chevronName: String {
-        isEnglish ? "chevron.right" : "chevron.left"
-    }
-
     var body: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Color.white.opacity(0.20))
-
-                Circle()
-                    .stroke(Color.white.opacity(0.28), lineWidth: 1)
-
-                Image(systemName: "figure.martial.arts")
-                    .font(.system(size: 22, weight: .heavy))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 48, height: 48)
-
-            VStack(alignment: stackAlignment, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 18, weight: .black, design: .rounded))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .multilineTextAlignment(textAlignment)
-                    .lineLimit(2)
-
-                Text(subtitle)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.82))
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .multilineTextAlignment(textAlignment)
-                    .lineLimit(2)
-            }
-
-            Image(systemName: chevronName)
-                .font(.system(size: 16, weight: .black))
-                .foregroundStyle(.white.opacity(0.92))
-                .frame(width: 34, height: 34)
-                .background(
+        TimelineView(.animation) { timeline in
+            let seconds = timeline.date.timeIntervalSinceReferenceDate
+            let progress = (seconds.truncatingRemainder(dividingBy: 2.8)) / 2.8
+            
+            GeometryReader { geo in
+                let bubbleX = -80 + (geo.size.width + 120) * progress
+                
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.50, green: 0.00, blue: 1.00),
+                                    Color(red: 0.25, green: 0.32, blue: 0.72),
+                                    Color(red: 0.01, green: 0.66, blue: 0.96)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    
                     Circle()
-                        .fill(Color.white.opacity(0.16))
+                        .fill(
+                            RadialGradient(
+                                colors: [
+                                    Color.white.opacity(0.32),
+                                    Color.white.opacity(0.00)
+                                ],
+                                center: .center,
+                                startRadius: 0,
+                                endRadius: 52
+                            )
+                        )
+                        .frame(width: 92, height: 92)
+                        .offset(x: bubbleX - geo.size.width / 2)
+                    
+                    HStack(spacing: 7) {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 15, weight: .heavy))
+                            .foregroundStyle(.white)
+                        
+                        Text(title)
+                            .font(.system(size: 14, weight: .black))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.84)
+                    }
+                    .environment(\.layoutDirection, rowDirection)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.horizontal, 14)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.white.opacity(0.55), lineWidth: 1)
                 )
-        }
-        .environment(\.layoutDirection, rowDirection)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 15)
-        .frame(maxWidth: .infinity)
-        .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.10, green: 0.52, blue: 0.98),
-                                Color(red: 0.08, green: 0.76, blue: 0.86),
-                                Color(red: 0.18, green: 0.36, blue: 0.94)
-                            ],
-                            startPoint: isEnglish ? .leading : .trailing,
-                            endPoint: isEnglish ? .trailing : .leading
-                        )
-                    )
-
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.28),
-                                Color.white.opacity(0.06),
-                                Color.clear
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
+                .shadow(color: Color.black.opacity(0.16), radius: 8, x: 0, y: 5)
             }
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.white.opacity(0.28), lineWidth: 1)
-        )
-        .shadow(
-            color: Color.black.opacity(0.22),
-            radius: 16,
-            x: 0,
-            y: 10
-        )
-        .overlay(alignment: .topLeading) {
-            Circle()
-                .fill(Color.white.opacity(0.18))
-                .frame(width: 74, height: 74)
-                .blur(radius: 16)
-                .offset(x: isEnglish ? -18 : 18, y: -28)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .frame(height: 46)
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -1115,34 +1144,41 @@ private struct WeekHeaderPill: View {
     let subtitle: String
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 3) {
             Text(title)
-                .font(.system(size: 18, weight: .heavy))
+                .font(.system(size: 16, weight: .heavy))
                 .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.86)
+                .multilineTextAlignment(.center)
 
             Text(subtitle)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.90))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineLimit(2)
+                .minimumScaleFactor(0.84)
                 .multilineTextAlignment(.center)
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, 9)
+        .padding(.horizontal, 12)
         .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.white.opacity(0.18))
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .fill(Color.white.opacity(0.16))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.white.opacity(0.22), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
         )
-        .padding(.horizontal, 18)
+        .padding(.horizontal, 16)
     }
 }
 
 private struct CoachMessagesCard: View {
     let title: String
+    let coachName: String
     let message: String
-    let meta: String
+    let sentAtText: String
     let isEnglish: Bool
 
     private var textAlignment: TextAlignment {
@@ -1156,91 +1192,261 @@ private struct CoachMessagesCard: View {
     private var stackAlignment: HorizontalAlignment {
         isEnglish ? .leading : .trailing
     }
+    
+    private var rowDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
 
     var body: some View {
-        VStack(alignment: stackAlignment, spacing: 14) {
+        VStack(alignment: stackAlignment, spacing: 10) {
             Text(title)
-                .font(.system(size: 24, weight: .heavy))
-                .foregroundStyle(Color.black.opacity(0.82))
+                .font(.system(size: 18, weight: .heavy))
+                .foregroundStyle(.white.opacity(0.96))
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
                 .multilineTextAlignment(textAlignment)
-
-            VStack(alignment: stackAlignment, spacing: 10) {
-                Text(message)
-                    .font(.system(size: 22, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(0.82))
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .multilineTextAlignment(textAlignment)
-                    .padding(.top, 8)
-
-                Text(meta)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color.black.opacity(0.52))
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .multilineTextAlignment(textAlignment)
+            
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(Color(red: 0.88, green: 0.97, blue: 1.00))
+                    
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(Color(red: 0.01, green: 0.41, blue: 0.63))
+                }
+                .frame(width: 40, height: 40)
+                
+                VStack(alignment: stackAlignment, spacing: 5) {
+                    Text(coachName)
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Color(red: 0.05, green: 0.29, blue: 0.43))
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                        .multilineTextAlignment(textAlignment)
+                    
+                    Text(message)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.23))
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                        .multilineTextAlignment(textAlignment)
+                        .lineLimit(4)
+                    
+                    if !sentAtText.isEmpty {
+                        Text(sentAtText)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.39, green: 0.45, blue: 0.55))
+                            .frame(maxWidth: .infinity, alignment: frameAlignment)
+                            .multilineTextAlignment(textAlignment)
+                    }
+                }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 26)
-            .frame(minHeight: 120)
+            .environment(\.layoutDirection, rowDirection)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(0.78))
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color.white.opacity(0.95))
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(Color(red: 0.49, green: 0.83, blue: 0.99), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 5)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 18)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white.opacity(0.92))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.18), lineWidth: 1)
-        )
     }
 }
 
-// MARK: - FAB Menu Row
-private struct FabMenuRow: View {
+// MARK: - Home Premium Quick Menu
+
+private struct HomeQuickMenuItem: Identifiable {
+    let id: String
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+    
+    init(
+        title: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) {
+        self.id = title + systemImage
+        self.title = title
+        self.systemImage = systemImage
+        self.action = action
+    }
+}
+
+private struct HomePremiumQuickMenuPanel: View {
+    let title: String
+    let isEnglish: Bool
+    let items: [HomeQuickMenuItem]
+    let onClose: () -> Void
+    
+    private var stackAlignment: HorizontalAlignment {
+        isEnglish ? .leading : .trailing
+    }
+    
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+    
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+    
+    var body: some View {
+        VStack(alignment: stackAlignment, spacing: 0) {
+            HStack(spacing: 8) {
+                if isEnglish {
+                    Text(title)
+                        .font(.system(size: 15, weight: .heavy))
+                        .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.29))
+                        .lineLimit(1)
+                    
+                    Spacer(minLength: 0)
+                    
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .heavy))
+                            .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.29))
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Text(title)
+                        .font(.system(size: 15, weight: .heavy))
+                        .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.29))
+                        .lineLimit(1)
+                    
+                    Spacer(minLength: 0)
+                    
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .heavy))
+                            .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.29))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: frameAlignment)
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+            
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                HomePremiumQuickMenuRow(
+                    title: item.title,
+                    systemImage: item.systemImage,
+                    isEnglish: isEnglish,
+                    action: item.action
+                )
+                
+                if index != items.count - 1 {
+                    Rectangle()
+                        .fill(Color(red: 0.09, green: 0.64, blue: 0.29).opacity(0.18))
+                        .frame(height: 0.8)
+                        .padding(.horizontal, 10)
+                }
+            }
+        }
+        .padding(.bottom, 10)
+        .frame(width: 270)
+        .compositingGroup()
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Color(red: 0.97, green: 0.98, blue: 0.97))
+                
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.09, green: 0.64, blue: 0.29).opacity(0.08),
+                                Color.white.opacity(0.04),
+                                Color(red: 0.09, green: 0.64, blue: 0.29).opacity(0.06)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color(red: 0.09, green: 0.64, blue: 0.29).opacity(0.24), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.16), radius: 14, x: 0, y: 8)
+    }
+}
+
+private struct HomePremiumQuickMenuRow: View {
     let title: String
     let systemImage: String
     let isEnglish: Bool
-
-    private let rowHeight: CGFloat = 54
-
-    private var rowAlignment: Alignment {
+    let action: () -> Void
+    
+    private var textAlignment: TextAlignment {
         isEnglish ? .leading : .trailing
     }
-
+    
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+    
+    private var rowDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+    
     var body: some View {
-        GeometryReader { geo in
-            let width = max(210, geo.size.width * 0.52)
-
+        Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(Color.black.opacity(0.70))
-
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.29))
+                    .frame(width: 24, height: 24)
+                
                 Text(title)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.black.opacity(0.80))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.04, green: 0.19, blue: 0.12))
                     .lineLimit(1)
-
-                Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
             }
-            .padding(.horizontal, 14)
-            .frame(width: width, height: rowHeight, alignment: rowAlignment)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(0.92))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
-            )
+            .environment(\.layoutDirection, rowDirection)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
         }
-        .frame(height: rowHeight)
+        .buttonStyle(.plain)
+    }
+}
+
+private struct ModernHomeQuickFab: View {
+    let isOpen: Bool
+    
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.98),
+                            Color.white.opacity(0.90)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .shadow(color: Color.black.opacity(0.20), radius: 12, x: 0, y: 7)
+            
+            Circle()
+                .stroke(Color.white.opacity(0.92), lineWidth: 1)
+            
+            Image(systemName: "plus")
+                .font(.system(size: 23, weight: .heavy))
+                .foregroundStyle(Color.black.opacity(0.66))
+                .rotationEffect(.degrees(isOpen ? 45 : 0))
+        }
+        .frame(width: 56, height: 56)
     }
 }
 

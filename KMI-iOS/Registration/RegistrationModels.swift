@@ -30,10 +30,12 @@ struct RegistrationFormState: Equatable {
     var branches: Set<String> = []
     var groups: Set<String> = []
 
+    var branchType: String = "israel" // israel / abroad
+
     var activeBranch: String = ""
     var activeGroup: String = ""
 
-    var belt: String = "ללא"
+    var belt: String = ""
 
     var wantsSms: Bool = true
     var acceptsTerms: Bool = false
@@ -105,13 +107,56 @@ extension RegistrationFormState {
 
     var currentBeltId: String {
         switch belt.trimmed {
-        case "צהובה": return "yellow"
-        case "כתומה": return "orange"
-        case "ירוקה": return "green"
-        case "כחולה": return "blue"
-        case "חומה": return "brown"
-        case "שחורה": return "black"
-        default: return "white"
+        case "לבנה", "white":
+            return "white"
+
+        case "צהובה", "yellow":
+            return "yellow"
+
+        case "כתומה", "orange":
+            return "orange"
+
+        case "ירוקה", "green":
+            return "green"
+
+        case "כחולה", "blue":
+            return "blue"
+
+        case "חומה", "brown":
+            return "brown"
+
+        case "שחורה", "שחורה דאן 1", "black", "black_dan_1":
+            return "black"
+
+        case "שחורה דאן 2", "black_dan_2":
+            return "black_dan_2"
+
+        case "שחורה דאן 3", "black_dan_3":
+            return "black_dan_3"
+
+        case "שחורה דאן 4", "black_dan_4":
+            return "black_dan_4"
+
+        case "שחורה דאן 5", "black_dan_5":
+            return "black_dan_5"
+
+        case "שחורה דאן 6", "black_dan_6":
+            return "black_dan_6"
+
+        case "שחורה דאן 7", "black_dan_7":
+            return "black_dan_7"
+
+        case "שחורה דאן 8", "black_dan_8":
+            return "black_dan_8"
+
+        case "שחורה דאן 9", "black_dan_9":
+            return "black_dan_9"
+
+        case "שחורה דאן 10", "black_dan_10":
+            return "black_dan_10"
+
+        default:
+            return ""
         }
     }
 
@@ -119,8 +164,12 @@ extension RegistrationFormState {
         acceptsTerms
         && !fullNameTrimmed.isEmpty
         && !emailLower.isEmpty
-        && password.trimmed.count >= 6
-        && !usernameLower.isEmpty
+        && !phoneNormalized.isEmpty
+        && !gender.trimmed.isEmpty
+        && !birthDateString.isEmpty
+        && !region.trimmed.isEmpty
+        && !branchesArray.isEmpty
+        && !currentBeltId.isEmpty
     }
 
     func toFirestoreDictionary(uid: String) -> [String: Any] {
@@ -136,13 +185,17 @@ extension RegistrationFormState {
             "username": usernameTrimmed,
             "usernameLower": usernameLower,
             "region": region.trimmed,
+            "branchType": branchType.trimmed.isEmpty ? "israel" : branchType.trimmed,
+            "branch_type": branchType.trimmed.isEmpty ? "israel" : branchType.trimmed,
             "branches": branchesArray,
             "branchesCsv": branchesArray.joined(separator: ", "),
             "activeBranch": activeBranchFinal,
             "groups": groupsArray,
             "primaryGroup": primaryGroup,
             "activeGroup": activeGroupFinal,
-            "belt": role == .trainee ? currentBeltId : "",
+            "belt": currentBeltId,
+            "currentBelt": currentBeltId,
+            "current_belt": currentBeltId,
             "wantsSms": wantsSms,
             "acceptsTerms": acceptsTerms,
             "createdAt": Date().timeIntervalSince1970,
@@ -174,6 +227,9 @@ extension RegistrationFormState {
         ud.set(region.trimmed, forKey: "region")
         ud.set(region.trimmed, forKey: "active_region")
         ud.set(region.trimmed, forKey: "kmi.user.region")
+
+        let normalizedBranchType = branchType.trimmed.isEmpty ? "israel" : branchType.trimmed
+        ud.set(normalizedBranchType, forKey: "branch_type")
 
         // ✅ branches
         ud.set(branchesArray, forKey: "branches")
@@ -209,13 +265,10 @@ extension RegistrationFormState {
         ud.set(birthYear.trimmed, forKey: "birthYear")
         ud.set(birthYear.trimmed, forKey: "birth_year")
 
-        if role == .trainee {
-            ud.set(currentBeltId, forKey: "current_belt")
-            ud.set(currentBeltId, forKey: "belt_current")
-        } else {
-            ud.removeObject(forKey: "current_belt")
-            ud.removeObject(forKey: "belt_current")
-        }
+        ud.set(currentBeltId, forKey: "current_belt")
+        ud.set(currentBeltId, forKey: "belt_current")
+        ud.set(currentBeltId, forKey: "belt")
+        ud.set(belt.trimmed, forKey: "belt_he")
 
         if role == .coach {
             ud.set(coachCode.trimmed, forKey: "coachCode")

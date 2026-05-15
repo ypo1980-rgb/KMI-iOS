@@ -33,6 +33,9 @@ private struct ForumParticipantUi: Identifiable, Hashable {
     let isMe: Bool
 }
 
+private let forumMessageRetentionDays: Int = 90
+private let forumMessageRetentionSeconds: TimeInterval = 90 * 24 * 60 * 60
+
 private struct ForumExerciseHit: Identifiable, Hashable {
     let belt: Belt
     let topic: String
@@ -74,10 +77,21 @@ private struct MovieFile: Transferable {
 struct ForumView: View {
 
     let onClose: () -> Void
+    let onOpenSubscription: () -> Void
+
+    init(
+        onClose: @escaping () -> Void,
+        onOpenSubscription: @escaping () -> Void = {}
+    ) {
+        self.onClose = onClose
+        self.onOpenSubscription = onOpenSubscription
+    }
 
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
     @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var errorText: String? = nil
 
@@ -91,6 +105,10 @@ struct ForumView: View {
 
     @State private var messages: [ForumUiMessage] = []
     @State private var showParticipantsSheet: Bool = false
+
+    // רשימת משתתפים אמיתיים לפי users בסניף — כמו באנדרואיד.
+    // אם לא נמצאו משתמשים, forumParticipants ייפול לשמות מתוך ההודעות.
+    @State private var participantsByUsers: [ForumParticipantUi] = []
 
     @State private var input: String = ""
     @State private var editingMessageId: String? = nil
@@ -115,15 +133,131 @@ struct ForumView: View {
     private let storage = Storage.storage()
     #endif
 
-    private let gradient = LinearGradient(
-        colors: [
-            Color(red: 0.01, green: 0.05, blue: 0.14),
-            Color(red: 0.07, green: 0.10, blue: 0.23),
-            Color(red: 0.11, green: 0.33, blue: 0.80)
-        ],
-        startPoint: .top,
-        endPoint: .bottom
-    )
+    private var isDarkMode: Bool {
+        colorScheme == .dark
+    }
+
+    private var isCoachProfile: Bool {
+        let defaults = UserDefaults.standard
+
+        let role = (
+            defaults.string(forKey: "user_role") ??
+            defaults.string(forKey: "role") ??
+            defaults.string(forKey: "userType") ??
+            ""
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+
+        return role.contains("coach") ||
+            role.contains("trainer") ||
+            role.contains("instructor") ||
+            role.contains("מאמן")
+    }
+
+    private var gradient: LinearGradient {
+        if isDarkMode {
+            return LinearGradient(
+                colors: [
+                    Color(red: 0.043, green: 0.078, blue: 0.102), // #0B141A
+                    Color(red: 0.059, green: 0.106, blue: 0.133), // #0F1B22
+                    Color(red: 0.067, green: 0.106, blue: 0.129)  // #111B21
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+
+        if isCoachProfile {
+            return LinearGradient(
+                colors: [
+                    Color(red: 0.973, green: 0.961, blue: 1.000), // #F8F5FF
+                    Color(red: 0.941, green: 0.914, blue: 1.000), // #F0E9FF
+                    Color(red: 0.918, green: 0.965, blue: 1.000)  // #EAF6FF
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+
+        return LinearGradient(
+            colors: [
+                Color(red: 0.965, green: 0.984, blue: 1.000), // #F6FBFF
+                Color(red: 0.918, green: 0.969, blue: 1.000), // #EAF7FF
+                Color(red: 0.918, green: 0.984, blue: 0.965)  // #EAFBF6
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private var forumCardColor: Color {
+        isDarkMode ? Color(red: 0.125, green: 0.173, blue: 0.200) : Color.white.opacity(0.92)
+    }
+
+    private var forumCardBorderColor: Color {
+        isDarkMode ? Color(red: 0.133, green: 0.188, blue: 0.227) : Color(red: 0.839, green: 0.894, blue: 0.957)
+    }
+
+    private var forumPrimaryTextColor: Color {
+        isDarkMode ? Color(red: 0.914, green: 0.929, blue: 0.937) : Color(red: 0.122, green: 0.161, blue: 0.216)
+    }
+
+    private var forumSecondaryTextColor: Color {
+        isDarkMode ? Color(red: 0.749, green: 0.784, blue: 0.804) : Color(red: 0.200, green: 0.255, blue: 0.333)
+    }
+
+    private var forumPlaceholderTextColor: Color {
+        isDarkMode ? Color(red: 0.525, green: 0.588, blue: 0.627) : Color(red: 0.392, green: 0.455, blue: 0.545)
+    }
+
+    private var forumComposerColor: Color {
+        isDarkMode ? Color(red: 0.125, green: 0.173, blue: 0.200) : Color.white
+    }
+
+    private var forumMyBubbleColor: Color {
+        isDarkMode ? Color(red: 0.078, green: 0.302, blue: 0.216) : Color(red: 0.867, green: 0.984, blue: 0.918)
+    }
+
+    private var forumOtherBubbleColor: Color {
+        isDarkMode ? Color(red: 0.125, green: 0.173, blue: 0.200) : Color.white.opacity(0.96)
+    }
+
+    private var forumMyBubbleTextColor: Color {
+        isDarkMode ? Color.white : Color(red: 0.024, green: 0.306, blue: 0.231)
+    }
+
+    private var forumOtherBubbleTextColor: Color {
+        isDarkMode ? Color(red: 0.914, green: 0.929, blue: 0.937) : Color(red: 0.067, green: 0.094, blue: 0.153)
+    }
+
+    private var forumSuccessGreen: Color {
+        Color(red: 0.145, green: 0.827, blue: 0.400) // #25D366
+    }
+
+    private var forumMutedActionColor: Color {
+        isDarkMode
+        ? Color(red: 0.120, green: 0.240, blue: 0.200)
+        : Color(red: 0.850, green: 0.930, blue: 0.900)
+    }
+
+    private var forumDangerTextColor: Color {
+        isDarkMode
+        ? Color(red: 1.000, green: 0.450, blue: 0.450)
+        : Color(red: 0.740, green: 0.100, blue: 0.100)
+    }
+
+    private var forumStatusIconBackground: Color {
+        isDarkMode ? Color.white.opacity(0.12) : Color.black.opacity(0.05)
+    }
+
+    private var forumStatusIconColor: Color {
+        isDarkMode ? Color.white.opacity(0.94) : Color(red: 0.122, green: 0.161, blue: 0.216)
+    }
+
+    private var forumStatusBackButtonColor: Color {
+        isDarkMode ? Color.white.opacity(0.16) : Color.black.opacity(0.06)
+    }
 
     private var isEnglish: Bool {
         let values = [
@@ -161,6 +295,45 @@ struct ForumView: View {
 
     private func tr(_ he: String, _ en: String) -> String {
         isEnglish ? en : he
+    }
+
+    private func boolFromDefaults(_ defaults: UserDefaults, keys: [String]) -> Bool {
+        keys.contains { defaults.bool(forKey: $0) }
+    }
+
+    private func hasActiveSubscriptionAccess(_ defaults: UserDefaults = .standard) -> Bool {
+        let now = Date().timeIntervalSince1970 * 1000
+        let accessUntil = defaults.double(forKey: "sub_access_until")
+
+        let verifiedAndValid =
+            defaults.bool(forKey: "google_subscription_verified") &&
+            accessUntil > now
+
+        return verifiedAndValid ||
+            boolFromDefaults(
+                defaults,
+                keys: [
+                    "has_full_access",
+                    "full_access",
+                    "subscription_active",
+                    "is_subscribed"
+                ]
+            )
+    }
+
+    private func isTrialActive(_ defaults: UserDefaults = .standard) -> Bool {
+        let trialStart = defaults.double(forKey: "trial_start_millis")
+        guard trialStart > 0 else { return false }
+
+        let now = Date().timeIntervalSince1970 * 1000
+        let threeDaysMillis: Double = 3 * 24 * 60 * 60 * 1000
+
+        return now - trialStart < threeDaysMillis
+    }
+
+    private func canUseForumFromSubscription(_ defaults: UserDefaults = .standard) -> Bool {
+        let isManager = defaults.bool(forKey: "is_manager")
+        return isManager || hasActiveSubscriptionAccess(defaults)
     }
     
     var body: some View {
@@ -210,179 +383,129 @@ struct ForumView: View {
     // MARK: - UI
 
     private var lockedView: some View {
-        VStack(spacing: 0) {
-            Spacer()
-
-            VStack(spacing: 14) {
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(0.12))
-                        .frame(width: 68, height: 68)
-
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 28, weight: .heavy))
-                        .foregroundStyle(Color.white.opacity(0.94))
-                }
-
-                Text(tr("גישה לפורום", "Forum Access"))
-                    .font(.system(size: 24, weight: .heavy))
-                    .foregroundStyle(Color.white)
-                    .multilineTextAlignment(.center)
-
-                Text(lockText.isEmpty ? tr("מסך הפורום זמין למנויים בלבד.", "The forum is available to subscribers only.") : lockText)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.86))
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(4)
-                    .padding(.horizontal, 8)
-
-                Button(action: onClose) {
-                    Text(tr("סגור", "Close"))
-                        .font(.system(size: 17, weight: .heavy))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
-                        .background(
-                            Capsule()
-                                .fill(Color.white.opacity(0.16))
-                        )
-                        .overlay(
-                            Capsule()
-                                .stroke(Color.white.opacity(0.16), lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 4)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 22)
-            .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(Color.black.opacity(0.26))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
-            )
-            .padding(.horizontal, 18)
-
-            Spacer()
-        }
+        forumStatusView(
+            icon: "lock.fill",
+            title: tr("גישה לפורום", "Forum Access"),
+            message: lockText.isEmpty
+            ? tr("מסך הפורום זמין למנויים בלבד.", "The forum is available to subscribers only.")
+            : lockText,
+            primaryTitle: tr("עבור למסך המנוי", "Go to Subscription"),
+            primaryAction: onOpenSubscription,
+            showsPrimaryAction: true
+        )
     }
 
     private var missingGroupView: some View {
-        VStack(spacing: 0) {
-            Spacer()
+        forumStatusView(
+            icon: "person.crop.circle.badge.exclamationmark",
+            title: tr("לא אותרו סניף או קבוצה", "Branch or group not found"),
+            message: tr(
+                "ודאו שפרטי הסניף והקבוצה מוגדרים בפרופיל המשתמש.",
+                "Please make sure your branch and group are set in your profile."
+            ),
+            primaryTitle: "",
+            primaryAction: {},
+            showsPrimaryAction: false
+        )
+    }
+
+    private func forumStatusView(
+        icon: String,
+        title: String,
+        message: String,
+        primaryTitle: String,
+        primaryAction: @escaping () -> Void,
+        showsPrimaryAction: Bool
+    ) -> some View {
+        VStack(spacing: 16) {
+            Spacer(minLength: 44)
 
             VStack(spacing: 14) {
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(0.12))
-                        .frame(width: 68, height: 68)
+                Image(systemName: icon)
+                    .font(.system(size: 34, weight: .heavy))
+                    .foregroundStyle(forumStatusIconColor)
+                    .frame(width: 68, height: 68)
+                    .background(
+                        Circle()
+                            .fill(forumStatusIconBackground)
+                    )
+                    .overlay(
+                        Circle()
+                            .stroke(forumCardBorderColor, lineWidth: 1)
+                    )
 
-                    Image(systemName: "person.crop.circle.badge.exclamationmark")
-                        .font(.system(size: 28, weight: .heavy))
-                        .foregroundStyle(Color.white.opacity(0.94))
-                }
-
-                Text(tr("לא אותרו סניף או קבוצה", "Branch or group not found"))
-                    .font(.system(size: 24, weight: .heavy))
-                    .foregroundStyle(Color.white)
+                Text(title)
+                    .font(.system(size: 22, weight: .heavy))
+                    .foregroundStyle(forumPrimaryTextColor)
                     .multilineTextAlignment(.center)
 
-                Text(tr("ודאו שפרטי הסניף והקבוצה מוגדרים בפרופיל המשתמש.", "Please make sure your branch and group are set in your profile."))
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.86))
+                Text(message)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(forumSecondaryTextColor)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, 6)
+
+                if showsPrimaryAction {
+                    Button(action: primaryAction) {
+                        Text(primaryTitle)
+                            .font(.system(size: 16, weight: .heavy))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 46)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(forumSuccessGreen)
+                            )
+                            .shadow(color: Color.black.opacity(0.14), radius: 4, x: 0, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 2)
+                }
 
                 Button(action: onClose) {
-                    Text(tr("סגור", "Close"))
-                        .font(.system(size: 17, weight: .heavy))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
+                    Text(tr("חזרה", "Back"))
+                        .font(.system(size: showsPrimaryAction ? 14 : 16, weight: .bold))
+                        .foregroundStyle(showsPrimaryAction ? forumSecondaryTextColor : .white)
+                        .frame(maxWidth: showsPrimaryAction ? nil : .infinity)
+                        .frame(height: showsPrimaryAction ? nil : 46)
+                        .padding(.horizontal, showsPrimaryAction ? 0 : 12)
                         .background(
-                            Capsule()
-                                .fill(Color.white.opacity(0.16))
-                        )
-                        .overlay(
-                            Capsule()
-                                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                            Group {
+                                if showsPrimaryAction {
+                                    Color.clear
+                                } else {
+                                    Capsule(style: .continuous)
+                                        .fill(forumStatusBackButtonColor)
+                                }
+                            }
                         )
                 }
                 .buttonStyle(.plain)
-                .padding(.top, 4)
             }
             .padding(.horizontal, 18)
-            .padding(.vertical, 22)
+            .padding(.vertical, 20)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(Color.black.opacity(0.26))
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(forumCardColor)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(forumCardBorderColor, lineWidth: 1)
             )
+            .shadow(color: Color.black.opacity(isDarkMode ? 0.16 : 0.08), radius: 8, x: 0, y: 4)
             .padding(.horizontal, 18)
 
-            Spacer()
+            Spacer(minLength: 44)
         }
     }
 
     private var chatView: some View {
         VStack(spacing: 10) {
 
-            VStack(alignment: stackAlignment, spacing: 8) {
-                HStack(spacing: 10) {
-                    if isEnglish {
-                        Button(action: onClose) {
-                            forumCircleIcon(backChevronName)
-                        }
-                        .buttonStyle(.plain)
-
-                        VStack(alignment: stackAlignment, spacing: 3) {
-                            forumHeaderTexts
-                        }
-
-                        Spacer(minLength: 0)
-
-                        forumCircleIcon("bubble.left.and.bubble.right.fill")
-                    } else {
-                        forumCircleIcon("bubble.left.and.bubble.right.fill")
-
-                        Spacer(minLength: 0)
-
-                        VStack(alignment: stackAlignment, spacing: 3) {
-                            forumHeaderTexts
-                        }
-
-                        Button(action: onClose) {
-                            forumCircleIcon(backChevronName)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-
-                Rectangle()
-                    .fill(Color.white.opacity(0.16))
-                    .frame(height: 1)
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 10)
-            .padding(.bottom, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color.black.opacity(0.22))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(Color.white.opacity(0.10), lineWidth: 1)
-            )
-            .padding(.horizontal, 12)
+            roomLabelCard
+                .padding(.horizontal, 12)
 
             if !forumParticipants.isEmpty {
                 participantsCard
@@ -392,9 +515,14 @@ struct ForumView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 6) {
-                        ForEach(messages) { msg in
-                            messageBubble(msg)
-                                .id(msg.id)
+                        if messages.isEmpty {
+                            emptyForumMessagesView
+                                .padding(.top, 18)
+                        } else {
+                            ForEach(messages) { msg in
+                                messageBubble(msg)
+                                    .id(msg.id)
+                            }
                         }
 
                         Color.clear
@@ -416,46 +544,43 @@ struct ForumView: View {
 #if canImport(FirebaseStorage)
 if attachedMediaType != nil {
     HStack(spacing: 10) {
-        Button {
-            clearAttachment()
-        } label: {
-            Image(systemName: "xmark")
-                .font(.system(size: 12, weight: .heavy))
-                .foregroundStyle(Color.white.opacity(0.92))
-                .frame(width: 26, height: 26)
-                .background(
-                    Circle()
-                        .fill(Color.white.opacity(0.14))
-                )
-        }
-        .buttonStyle(.plain)
-
-        Spacer(minLength: 0)
-
         Text(
             attachedMediaType == "image"
             ? tr("תמונה מצורפת לשליחה", "Image attached")
-            : tr("סרטון מצורף לשליחה", "Video attached")
+            : attachedMediaType == "video"
+            ? tr("סרטון מצורף לשליחה", "Video attached")
+            : tr("קובץ מצורף", "Attachment")
         )
-            .font(.footnote.weight(.bold))
-            .foregroundStyle(Color.white.opacity(0.90))
-            .lineLimit(1)
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(forumSecondaryTextColor)
+        .lineLimit(1)
+        .frame(maxWidth: .infinity, alignment: frameAlignment)
+        .multilineTextAlignment(textAlignment)
 
-        Image(systemName: attachedMediaType == "image" ? "photo.fill" : "video.fill")
-            .font(.system(size: 15, weight: .bold))
-            .foregroundStyle(Color.white.opacity(0.90))
+        Button {
+            clearAttachment()
+        } label: {
+            Text(tr("הסר", "Remove"))
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(forumPrimaryTextColor)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
     }
     .padding(.horizontal, 12)
-    .padding(.vertical, 9)
+    .padding(.vertical, 8)
+    .frame(maxWidth: .infinity)
     .background(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .fill(Color.black.opacity(0.26))
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .fill(forumCardColor)
     )
     .overlay(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .stroke(forumCardBorderColor, lineWidth: 1)
     )
     .padding(.horizontal, 12)
+    .padding(.bottom, 6)
 }
 #endif
 
@@ -465,43 +590,73 @@ if attachedMediaType != nil {
         }
     }
 
-    private var forumHeaderTexts: some View {
-        VStack(alignment: stackAlignment, spacing: 3) {
-            Text(tr("פורום הסניף", "Branch Forum"))
-                .font(.system(size: 20, weight: .heavy))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, alignment: frameAlignment)
-                .multilineTextAlignment(textAlignment)
+    private var emptyForumMessagesView: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(forumPlaceholderTextColor)
 
-            Text(
-                isEnglish
-                ? "Branch: \(branch)  •  Group: \(groupKey)"
-                : "סניף: \(branch)  •  קבוצה: \(groupKey)"
-            )
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(Color.white.opacity(0.82))
-            .frame(maxWidth: .infinity, alignment: frameAlignment)
-            .multilineTextAlignment(textAlignment)
-            .lineLimit(2)
+            Text(tr("עדיין אין הודעות בפורום", "No forum messages yet"))
+                .font(.system(size: 15, weight: .heavy))
+                .foregroundStyle(forumPrimaryTextColor)
+                .multilineTextAlignment(.center)
+
+            Text(tr("אפשר לכתוב את ההודעה הראשונה לסניף.", "You can write the first message for the branch."))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(forumSecondaryTextColor)
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(forumCardColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(forumCardBorderColor, lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(isDarkMode ? 0.10 : 0.06), radius: 3, x: 0, y: 2)
     }
-
-    private func forumCircleIcon(_ systemName: String) -> some View {
-        Image(systemName: systemName)
-            .font(.system(size: 16, weight: .heavy))
-            .foregroundStyle(Color.white.opacity(0.92))
-            .frame(width: 38, height: 38)
-            .background(
-                Circle()
-                    .fill(Color.white.opacity(0.12))
-            )
-            .overlay(
-                Circle()
-                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
-            )
+    
+    private var roomLabelCard: some View {
+        Text(
+            isEnglish
+            ? "Branch: \(branch)  •  Group: \(groupKey)"
+            : "סניף: \(branch)  •  קבוצה: \(groupKey)"
+        )
+        .font(.system(size: 13, weight: .medium))
+        .foregroundStyle(forumSecondaryTextColor)
+        .multilineTextAlignment(.center)
+        .lineLimit(2)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(forumCardColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(forumCardBorderColor, lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(isDarkMode ? 0.10 : 0.06), radius: 3, x: 0, y: 2)
     }
     
     private var forumParticipants: [ForumParticipantUi] {
+        if !participantsByUsers.isEmpty {
+            return participantsByUsers
+                .filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .sorted {
+                    if $0.isMe != $1.isMe {
+                        return $0.isMe && !$1.isMe
+                    }
+                    return $0.name.localizedCompare($1.name) == .orderedAscending
+                }
+        }
+
         let grouped = Dictionary(grouping: messages) { msg in
             msg.authorUid ??
             msg.authorEmail.ifEmpty(msg.authorName)
@@ -513,7 +668,7 @@ if attachedMediaType != nil {
 
             let displayName = sample.authorName
                 .ifEmpty(sample.authorEmail)
-                .ifEmpty("משתתף")
+                .ifEmpty(tr("משתתף", "Participant"))
 
             return ForumParticipantUi(
                 id: key,
@@ -552,93 +707,84 @@ if attachedMediaType != nil {
         Button {
             showParticipantsSheet = true
         } label: {
-            HStack(spacing: 10) {
-                Image(systemName: forwardChevronName)
-                    .font(.caption.weight(.heavy))
-                    .foregroundStyle(Color.white.opacity(0.72))
-
-                Spacer(minLength: 0)
-
-                Text(isEnglish ? "Forum participants (\(forumParticipants.count))" : "משתתפים בפורום (\(forumParticipants.count))")
-                    .font(.footnote.weight(.bold))
-                    .foregroundStyle(Color.white.opacity(0.92))
-                    .lineLimit(1)
-
-                Image(systemName: "person.2.fill")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(Color.white.opacity(0.88))
-            }
-            .padding(.vertical, 10)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.black.opacity(0.24))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
-            )
+            Text(isEnglish ? "Forum participants (\(forumParticipants.count))" : "משתתפים בפורום (\(forumParticipants.count))")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(forumSecondaryTextColor)
+                .multilineTextAlignment(.center)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(forumCardColor)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(forumCardBorderColor, lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(isDarkMode ? 0.10 : 0.06), radius: 3, x: 0, y: 2)
         }
         .buttonStyle(.plain)
     }
 
     private var participantsSheet: some View {
         NavigationStack {
-            List {
-                ForEach(forumParticipants) { participant in
-                    HStack(spacing: 12) {
-                        if participant.isMe {
-                            Text(tr("אני", "Me"))
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(Color.blue)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(
-                                    Capsule()
-                                        .fill(Color.blue.opacity(0.12))
-                                )
-                        }
-
-                        Spacer(minLength: 0)
-
-                        Text(participant.name)
-                            .font(.body.weight(.semibold))
-                            .multilineTextAlignment(textAlignment)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-
-                        Circle()
-                            .fill(participant.isMe ? Color.blue.opacity(0.85) : Color.gray.opacity(0.35))
-                            .frame(width: 34, height: 34)
-                            .overlay(
-                                Image(systemName: participant.isMe ? "person.fill.checkmark" : "person.fill")
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundStyle(.white)
-                            )
+            ScrollView {
+                LazyVStack(alignment: stackAlignment, spacing: 8) {
+                    ForEach(forumParticipants) { participant in
+                        Text(
+                            participant.isMe
+                            ? tr("\(participant.name) (אני)", "\(participant.name) (me)")
+                            : participant.name
+                        )
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color.primary)
+                        .multilineTextAlignment(textAlignment)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 6)
-                    .listRowSeparator(.hidden)
                 }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
             }
-            .listStyle(.plain)
             .navigationTitle(isEnglish ? "Forum participants (\(forumParticipants.count))" : "משתתפים בפורום (\(forumParticipants.count))")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: isEnglish ? .topBarTrailing : .topBarLeading) {
                     Button(tr("סגור", "Close")) {
                         showParticipantsSheet = false
                     }
                 }
             }
         }
+        .presentationDetents([.medium, .large])
     }
 
     private func messageBubble(_ msg: ForumUiMessage) -> some View {
         let bubbleColor = msg.isMine
-            ? Color(red: 0.10, green: 0.58, blue: 0.38)
-            : Color.black.opacity(0.34)
+            ? forumMyBubbleColor
+            : forumOtherBubbleColor
 
-        let bubbleShape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        let mainTextColor = msg.isMine
+            ? forumMyBubbleTextColor
+            : forumOtherBubbleTextColor
+
+        let metaTextColor = isDarkMode
+            ? Color.white.opacity(0.62)
+            : Color(red: 0.392, green: 0.455, blue: 0.545)
+
+        let authorTextColor = isDarkMode
+            ? Color.white.opacity(0.78)
+            : Color(red: 0.200, green: 0.255, blue: 0.333)
+
+        let bubbleShape = UnevenRoundedRectangle(
+            topLeadingRadius: 18,
+            bottomLeadingRadius: msg.isMine ? 18 : 6,
+            bottomTrailingRadius: msg.isMine ? 6 : 18,
+            topTrailingRadius: 18,
+            style: .continuous
+        )
 
         let mineAlignment: Alignment = isEnglish ? .trailing : .leading
         let otherAlignment: Alignment = isEnglish ? .leading : .trailing
@@ -646,14 +792,28 @@ if attachedMediaType != nil {
         let innerAlignment: HorizontalAlignment = isEnglish ? .leading : .trailing
         let innerTextAlignment: TextAlignment = isEnglish ? .leading : .trailing
 
+        let participantNameByUid = msg.authorUid.flatMap { uid in
+            participantsByUsers.first(where: { $0.id == uid })?.name
+        } ?? ""
+
+        let messageAuthorName = msg.authorName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .ifEmpty(participantNameByUid)
+            .ifEmpty(msg.authorEmail)
+            .ifEmpty(tr("משתתף", "Participant"))
+
+        let displayedAuthorName = msg.isMine
+            ? tr("\(messageAuthorName) • אני", "\(messageAuthorName) • me")
+            : messageAuthorName
+
         return HStack(alignment: .bottom, spacing: 0) {
             if msg.isMine == isEnglish {
                 Spacer(minLength: 42)
             }
 
-            VStack(alignment: innerAlignment, spacing: 6) {
+            VStack(alignment: innerAlignment, spacing: 4) {
 
-                HStack(alignment: .top, spacing: 8) {
+                HStack(alignment: .top, spacing: 6) {
                     if msg.isMine {
                         Menu {
                             Button {
@@ -675,12 +835,12 @@ if attachedMediaType != nil {
                             }
                         } label: {
                             Image(systemName: "ellipsis")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(Color.white.opacity(0.88))
-                                .frame(width: 28, height: 28)
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(metaTextColor)
+                                .frame(width: 25, height: 25)
                                 .background(
                                     Circle()
-                                        .fill(Color.white.opacity(0.10))
+                                        .fill(isDarkMode ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
                                 )
                         }
                         .buttonStyle(.plain)
@@ -688,17 +848,17 @@ if attachedMediaType != nil {
 
                     Spacer(minLength: 0)
 
-                    VStack(alignment: innerAlignment, spacing: 2) {
-                        Text(msg.authorName.isEmpty ? msg.authorEmail : msg.authorName)
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(Color.white.opacity(0.92))
+                    VStack(alignment: innerAlignment, spacing: 1) {
+                        Text(displayedAuthorName)
+                            .font(.caption.weight(.black))
+                            .foregroundStyle(authorTextColor)
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: bubbleAlignment)
                             .multilineTextAlignment(innerTextAlignment)
 
                         Text(formatDate(msg.createdAt))
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(Color.white.opacity(0.66))
+                            .foregroundStyle(metaTextColor)
                             .frame(maxWidth: .infinity, alignment: bubbleAlignment)
                             .multilineTextAlignment(innerTextAlignment)
                     }
@@ -706,8 +866,8 @@ if attachedMediaType != nil {
 
                 if !msg.text.isEmpty {
                     Text(msg.text)
-                        .font(.system(size: 16, weight: .regular))
-                        .foregroundStyle(.white)
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundStyle(mainTextColor)
                         .multilineTextAlignment(innerTextAlignment)
                         .frame(maxWidth: 260, alignment: bubbleAlignment)
                         .fixedSize(horizontal: false, vertical: true)
@@ -723,20 +883,20 @@ if attachedMediaType != nil {
                             case .empty:
                                 ProgressView()
                                     .tint(.white)
-                                    .frame(width: 260, height: 160)
+                                    .frame(width: 260, height: 150)
 
                             case .success(let image):
                                 image
                                     .resizable()
                                     .scaledToFill()
-                                    .frame(width: 260, height: 180)
+                                    .frame(width: 260, height: 174)
                                     .clipped()
 
                             default:
                                 Text(tr("שגיאה בטעינת תמונה", "Failed to load image"))
                                     .font(.footnote.weight(.semibold))
-                                    .foregroundStyle(Color.white.opacity(0.85))
-                                    .frame(width: 260, height: 120)
+                                    .foregroundStyle(mainTextColor.opacity(0.85))
+                                    .frame(width: 260, height: 110)
                             }
                         }
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -745,17 +905,17 @@ if attachedMediaType != nil {
                         Button {
                             UIApplication.shared.open(url)
                         } label: {
-                            HStack(spacing: 10) {
+                            HStack(spacing: 8) {
                                 Image(systemName: "video.fill")
-                                    .font(.system(size: 18, weight: .bold))
+                                    .font(.system(size: 17, weight: .bold))
 
-                                VStack(alignment: .trailing, spacing: 2) {
+                                VStack(alignment: isEnglish ? .leading : .trailing, spacing: 1) {
                                     Text(tr("סרטון מצורף", "Attached video"))
-                                        .font(.system(size: 15, weight: .heavy))
+                                        .font(.system(size: 14, weight: .heavy))
 
                                     Text(tr("לחיצה לפתיחה בנגן", "Tap to open in player"))
                                         .font(.caption.weight(.semibold))
-                                        .foregroundStyle(Color.white.opacity(0.72))
+                                        .foregroundStyle(metaTextColor)
                                 }
 
                                 Spacer(minLength: 0)
@@ -763,116 +923,128 @@ if attachedMediaType != nil {
                                 Image(systemName: forwardChevronName)
                                     .font(.caption.weight(.bold))
                             }
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
+                            .foregroundStyle(mainTextColor)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 9)
                             .frame(width: 260)
                             .background(
                                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(Color.black.opacity(0.18))
+                                    .fill(isDarkMode ? Color.black.opacity(0.18) : Color.black.opacity(0.05))
                             )
                         }
                         .buttonStyle(.plain)
                     }
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
             .background(bubbleColor)
             .clipShape(bubbleShape)
             .overlay(
                 bubbleShape
                     .stroke(Color.white.opacity(msg.isMine ? 0.10 : 0.08), lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.12), radius: 4, x: 0, y: 2)
+            .shadow(color: Color.black.opacity(0.10), radius: 2, x: 0, y: 1)
 
             if msg.isMine != isEnglish {
                 Spacer(minLength: 42)
             }
         }
+        .padding(.horizontal, 2)
         .frame(maxWidth: .infinity, alignment: bubbleAlignment)
     }
 
     private var composer: some View {
         VStack(spacing: 8) {
 
-            HStack(alignment: .bottom, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
 
-                #if canImport(FirebaseStorage)
                 HStack(spacing: 6) {
+                    #if canImport(FirebaseStorage)
                     PhotosPicker(selection: $imagePickerItem, matching: .images, photoLibrary: .shared()) {
-                        Image(systemName: "photo.fill")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(.white)
+                        Image(systemName: "plus")
+                            .font(.system(size: 16, weight: .heavy))
+                            .foregroundStyle(forumPlaceholderTextColor)
                             .frame(width: 36, height: 36)
-                            .background(
-                                Circle()
-                                    .fill(Color.white.opacity(0.14))
-                            )
                     }
                     .buttonStyle(.plain)
+                    #endif
 
+                    ZStack(alignment: isEnglish ? .leading : .trailing) {
+                        if currentComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(editingMessageId == nil ? tr("הודעה", "Message") : tr("עריכת הודעה.", "Editing message."))
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(forumPlaceholderTextColor)
+                                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                                .multilineTextAlignment(textAlignment)
+                                .padding(.horizontal, 8)
+                                .allowsHitTesting(false)
+                        }
+
+                        TextField("", text: composerBinding, axis: .horizontal)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(forumPrimaryTextColor)
+                            .multilineTextAlignment(textAlignment)
+                            .lineLimit(1)
+                            .submitLabel(.send)
+                            .onSubmit {
+                                if canSend {
+                                    Task { await sendOrUpdate() }
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+
+                    #if canImport(FirebaseStorage)
                     PhotosPicker(selection: $videoPickerItem, matching: .videos, photoLibrary: .shared()) {
                         Image(systemName: "video.fill")
                             .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(forumPlaceholderTextColor)
                             .frame(width: 36, height: 36)
-                            .background(
-                                Circle()
-                                    .fill(Color.white.opacity(0.14))
-                            )
                     }
                     .buttonStyle(.plain)
+                    #endif
                 }
-                #endif
-
-                ZStack(alignment: isEnglish ? .topLeading : .topTrailing) {
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(Color.black.opacity(0.28))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .stroke(Color.white.opacity(0.10), lineWidth: 1)
-                        )
-
-                    TextEditor(text: composerBinding)
-                        .scrollContentBackground(.hidden)
-                        .foregroundStyle(.white)
-                        .font(.system(size: 16, weight: .semibold))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .frame(minHeight: 46, maxHeight: 112)
-                        .multilineTextAlignment(textAlignment)
-
-                    if currentComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(editingMessageId == nil ? tr("כתוב הודעה...", "Write a message...") : tr("עריכת הודעה...", "Editing message..."))
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Color.white.opacity(0.52))
-                            .padding(isEnglish ? .leading : .trailing, 14)
-                            .padding(.top, 14)
-                            .allowsHitTesting(false)
-                    }
-                }
+                .padding(.horizontal, 6)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(forumComposerColor)
+                )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(forumCardBorderColor, lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.12), radius: 4, x: 0, y: 2)
 
                 Button {
-                    Task { await sendOrUpdate() }
+                    if canSend {
+                        Task { await sendOrUpdate() }
+                    }
                 } label: {
-                    Image(systemName: editingMessageId == nil ? "paperplane.fill" : "checkmark")
+                    Image(systemName: canSend ? (editingMessageId == nil ? "paperplane.fill" : "checkmark") : "mic.fill")
                         .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(.white)
-                        .frame(width: 46, height: 46)
+                        .foregroundStyle(canSend ? .white : (isDarkMode ? Color.white.opacity(0.92) : Color(red: 0.110, green: 0.300, blue: 0.240)))
+                        .frame(width: 48, height: 48)
                         .background(
                             Circle()
-                                .fill(canSend ? Color.white.opacity(0.22) : Color.white.opacity(0.10))
+                                .fill(canSend ? forumSuccessGreen : forumMutedActionColor)
                         )
                         .overlay(
                             Circle()
-                                .stroke(Color.white.opacity(canSend ? 0.16 : 0.06), lineWidth: 1)
+                                .stroke(canSend ? Color.clear : forumCardBorderColor, lineWidth: 1)
                         )
+                        .shadow(color: Color.black.opacity(isDarkMode ? 0.16 : 0.08), radius: 3, x: 0, y: 2)
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSend)
-                .opacity(canSend ? 1.0 : 0.55)
+                .opacity(canSend ? 1.0 : 0.96)
             }
+            .frame(height: 60)
 
             if editingMessageId != nil {
                 HStack(spacing: 10) {
@@ -882,7 +1054,7 @@ if attachedMediaType != nil {
                     } label: {
                         Text(tr("ביטול עריכה", "Cancel edit"))
                             .font(.footnote.weight(.bold))
-                            .foregroundStyle(Color.white.opacity(0.92))
+                            .foregroundStyle(forumPrimaryTextColor)
                     }
                     .buttonStyle(.plain)
 
@@ -890,17 +1062,32 @@ if attachedMediaType != nil {
 
                     Text(tr("מצב עריכת הודעה", "Editing message"))
                         .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Color.white.opacity(0.76))
+                        .foregroundStyle(forumSecondaryTextColor)
                 }
-                .padding(.horizontal, 6)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(forumCardColor)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(forumCardBorderColor, lineWidth: 1)
+                )
             }
 
             if let err = errorText, !err.isEmpty {
                 Text(err)
                     .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Color(red: 1.0, green: 0.45, blue: 0.45))
+                    .foregroundStyle(forumDangerTextColor)
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
                     .multilineTextAlignment(textAlignment)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(forumDangerTextColor.opacity(isDarkMode ? 0.14 : 0.08))
+                    )
             }
         }
     }
@@ -948,7 +1135,26 @@ if attachedMediaType != nil {
         email = ud.string(forKey: "email") ?? ""
 
         guard Auth.auth().currentUser != nil else {
-            lockText = tr("יש להתחבר לאפליקציה כדי להשתמש בפורום הסניף.", "Please sign in to use the branch forum.")
+            lockText = tr(
+                "יש להתחבר לאפליקציה כדי להשתמש בפורום הסניף.",
+                "Please sign in to use the branch forum."
+            )
+            return
+        }
+
+        guard canUseForumFromSubscription(ud) else {
+            if isTrialActive(ud) {
+                lockText = tr(
+                    "במהלך תקופת הניסיון מסך הפורום נעול.\nאחרי רכישת מנוי המסך ייפתח עבורך.",
+                    "During the trial period, the forum is locked.\nAfter purchasing a subscription, this screen will be available."
+                )
+            } else {
+                lockText = tr(
+                    "מסך הפורום זמין למנויים בלבד.\nכדי להמשיך יש לרכוש מנוי פעיל.",
+                    "The forum is available to subscribers only.\nTo continue, please purchase an active subscription."
+                )
+            }
+
             return
         }
 
@@ -1044,7 +1250,7 @@ if attachedMediaType != nil {
 
                 let hasBranchAndGroup = !branchVal.isEmpty && !groupVal.isEmpty
 
-                canUseExtras = hasBranchAndGroup
+                canUseExtras = true
 
                 if !hasBranchAndGroup {
                     lockText = tr(
@@ -1055,8 +1261,17 @@ if attachedMediaType != nil {
                     return
                 }
 
+                UserDefaults.standard.set(
+                    Date().timeIntervalSince1970 * 1000,
+                    forKey: "forum_last_read_at_\(branchVal.trimmingCharacters(in: .whitespacesAndNewlines))"
+                )
+
                 lockText = ""
                 startListener()
+
+                Task {
+                    await loadForumParticipantsForBranch(branchVal)
+                }
             }
 
         } catch {
@@ -1072,22 +1287,339 @@ if attachedMediaType != nil {
     private func stopListener() {
         listener?.remove()
         listener = nil
+        participantsByUsers = []
     }
 
+    private func loadForumParticipantsForBranch(_ branchValue: String) async {
+        let cleanBranch = branchValue.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !cleanBranch.isEmpty else {
+            await MainActor.run {
+                participantsByUsers = []
+            }
+            return
+        }
+
+        let currentUid = Auth.auth().currentUser?.uid
+        let currentEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let currentName = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        func normalizeForumText(_ value: String) -> String {
+            var output = ""
+            var lastWasSpace = false
+
+            for rawChar in value.trimmingCharacters(in: .whitespacesAndNewlines) {
+                let char: Character
+
+                switch rawChar {
+                case "-", "–", "—", "־":
+                    char = "-"
+                default:
+                    char = rawChar
+                }
+
+                if char.isWhitespace {
+                    if !lastWasSpace {
+                        output.append(" ")
+                    }
+                    lastWasSpace = true
+                } else {
+                    output.append(char)
+                    lastWasSpace = false
+                }
+            }
+
+            return output.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        func swapDash(_ value: String, to replacement: Character) -> String {
+            String(
+                value.map { char in
+                    switch char {
+                    case "-", "–", "—", "־":
+                        return replacement
+                    default:
+                        return char
+                    }
+                }
+            )
+        }
+
+        func splitTokens(_ raw: String?) -> [String] {
+            guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return []
+            }
+
+            return raw
+                .replacingOccurrences(of: " • ", with: ",")
+                .replacingOccurrences(of: "|", with: ",")
+                .replacingOccurrences(of: "\n", with: ",")
+                .split { char in
+                    char == "," || char == ";" || char == "；"
+                }
+                .map { normalizeForumText(String($0)) }
+                .filter { !$0.isEmpty }
+        }
+
+        func userName(from data: [String: Any]) -> String? {
+            let value =
+                (data["fullName"] as? String) ??
+                (data["name"] as? String) ??
+                (data["displayName"] as? String) ??
+                (data["email"] as? String)
+
+            let clean = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return clean.isEmpty ? nil : clean
+        }
+
+        func roleText(from data: [String: Any]) -> String {
+            ((data["role"] as? String) ??
+             (data["userType"] as? String) ??
+             (data["type"] as? String) ??
+             "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        }
+
+        func isAllowedForumRole(_ data: [String: Any]) -> Bool {
+            let role = roleText(from: data)
+
+            return role.isEmpty ||
+                role.contains("trainee") ||
+                role.contains("coach") ||
+                role.contains("trainer") ||
+                role.contains("instructor") ||
+                role.contains("מתאמן") ||
+                role.contains("מאמן")
+        }
+
+        func branchTokens(from data: [String: Any]) -> [String] {
+            var out: [String] = []
+
+            if let branches = data["branches"] as? [String] {
+                out.append(contentsOf: branches.map { normalizeForumText($0) })
+            }
+
+            out.append(contentsOf: splitTokens(data["branchesCsv"] as? String))
+            out.append(contentsOf: splitTokens(data["branch"] as? String))
+            out.append(contentsOf: splitTokens(data["activeBranch"] as? String))
+            out.append(contentsOf: splitTokens(data["active_branch"] as? String))
+
+            return Array(Set(out.filter { !$0.isEmpty }))
+        }
+
+        func matchesBranch(tokens: [String], candidates: Set<String>) -> Bool {
+            guard !tokens.isEmpty, !candidates.isEmpty else { return false }
+
+            return tokens.contains { token in
+                candidates.contains(token) ||
+                candidates.contains { candidate in
+                    candidate.count >= 4 &&
+                    token.count >= 4 &&
+                    (token.contains(candidate) || candidate.contains(token))
+                }
+            }
+        }
+
+        func participantUniqueKey(id: String, data: [String: Any]) -> String {
+            let uid =
+                ((data["uid"] as? String) ??
+                 (data["authUid"] as? String) ??
+                 "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let docEmail =
+                ((data["email"] as? String) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            let phone =
+                ((data["phone"] as? String) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let name = userName(from: data) ?? ""
+
+            if !uid.isEmpty {
+                return "uid:\(uid)"
+            }
+
+            if !docEmail.isEmpty {
+                return "email:\(docEmail)"
+            }
+
+            if !phone.isEmpty {
+                return "phone:\(phone)"
+            }
+
+            if !name.isEmpty {
+                return "name:\(normalizeForumText(name).lowercased())"
+            }
+
+            return "doc:\(id)"
+        }
+
+        func fetchUsers(field: String, equals value: String) async -> [QueryDocumentSnapshot] {
+            do {
+                let snap = try await db.collection("users")
+                    .whereField(field, isEqualTo: value)
+                    .getDocuments()
+
+                return snap.documents
+            } catch {
+                #if DEBUG
+                print("🟣 FORUM users query failed field=\(field) value=\(value) error=\(error.localizedDescription)")
+                #endif
+                return []
+            }
+        }
+
+        func fetchUsersArrayContains(field: String, value: String) async -> [QueryDocumentSnapshot] {
+            do {
+                let snap = try await db.collection("users")
+                    .whereField(field, arrayContains: value)
+                    .getDocuments()
+
+                return snap.documents
+            } catch {
+                #if DEBUG
+                print("🟣 FORUM users array query failed field=\(field) value=\(value) error=\(error.localizedDescription)")
+                #endif
+                return []
+            }
+        }
+
+        let candidates = Array(
+            Set([
+                cleanBranch,
+                swapDash(cleanBranch, to: "-"),
+                swapDash(cleanBranch, to: "–"),
+                swapDash(cleanBranch, to: "—"),
+                swapDash(cleanBranch, to: "־"),
+                cleanBranch.replacingOccurrences(of: "  ", with: " ")
+            ].map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            }.filter {
+                !$0.isEmpty
+            })
+        )
+
+        var docsById: [String: QueryDocumentSnapshot] = [:]
+
+        for candidate in candidates {
+            for doc in await fetchUsersArrayContains(field: "branches", value: candidate) {
+                docsById[doc.documentID] = doc
+            }
+
+            for field in ["branchesCsv", "branch", "activeBranch", "active_branch"] {
+                for doc in await fetchUsers(field: field, equals: candidate) {
+                    docsById[doc.documentID] = doc
+                }
+            }
+        }
+
+        if docsById.isEmpty {
+            do {
+                let snap = try await db.collection("users").limit(to: 5000).getDocuments()
+                let normalizedCandidates = Set(candidates.map { normalizeForumText($0) })
+
+                for doc in snap.documents {
+                    let data = doc.data()
+                    if matchesBranch(tokens: branchTokens(from: data), candidates: normalizedCandidates) {
+                        docsById[doc.documentID] = doc
+                    }
+                }
+
+                #if DEBUG
+                print("🟣 FORUM users fallback matched=\(docsById.count) branch=\(cleanBranch)")
+                #endif
+            } catch {
+                #if DEBUG
+                print("🟣 FORUM users fallback failed error=\(error.localizedDescription)")
+                #endif
+            }
+        }
+
+        var grouped: [String: QueryDocumentSnapshot] = [:]
+
+        for doc in docsById.values {
+            let data = doc.data()
+
+            guard isAllowedForumRole(data),
+                  userName(from: data) != nil else {
+                continue
+            }
+
+            let key = participantUniqueKey(id: doc.documentID, data: data)
+            grouped[key] = doc
+        }
+
+        let participants = grouped.values.compactMap { doc -> ForumParticipantUi? in
+            let data = doc.data()
+            guard let name = userName(from: data) else { return nil }
+
+            let docEmail =
+                ((data["email"] as? String) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            let docUid =
+                ((data["uid"] as? String) ??
+                 (data["authUid"] as? String) ??
+                 doc.documentID)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            return ForumParticipantUi(
+                id: docUid.isEmpty ? doc.documentID : docUid,
+                name: name,
+                isMe: (
+                    (currentUid != nil && docUid == currentUid) ||
+                    (!currentEmail.isEmpty && docEmail == currentEmail) ||
+                    (!currentName.isEmpty && name.trimmingCharacters(in: .whitespacesAndNewlines) == currentName)
+                )
+            )
+        }
+        .reduce(into: [String: ForumParticipantUi]()) { result, participant in
+            let key = normalizeForumText(participant.name).lowercased()
+            result[key] = participant
+        }
+        .values
+        .sorted {
+            if $0.isMe != $1.isMe {
+                return $0.isMe && !$1.isMe
+            }
+            return $0.name.localizedCompare($1.name) == .orderedAscending
+        }
+
+        await MainActor.run {
+            participantsByUsers = participants
+
+            #if DEBUG
+            print("🟣 FORUM participants loaded from users count=\(participants.count) branch=\(cleanBranch) names=\(participants.map { $0.name })")
+            #endif
+        }
+    }
+    
     private func startListener() {
         stopListener()
 
-        guard !branch.isEmpty, !groupKey.isEmpty else { return }
+        // כמו באנדרואיד: חייבים סניף, אבל groupKey הוא מידע בהודעה ולא מסנן את חדר הפורום.
+        guard !branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            messages = []
+            return
+        }
 
         let query = db.collection("branches")
             .document(branch)
             .collection("messages")
-            .whereField("groupKey", isEqualTo: groupKey)
-            .order(by: "createdAt", descending: false)
+            .order(by: "createdAt", descending: true)
+            .limit(to: 200)
 
         listener = query.addSnapshotListener { snap, err in
             if let err {
-                errorText = tr("שגיאה בטעינת הודעות: \(err.localizedDescription)", "Failed to load messages: \(err.localizedDescription)")
+                errorText = tr(
+                    "שגיאה בטעינת הודעות: \(err.localizedDescription)",
+                    "Failed to load messages: \(err.localizedDescription)"
+                )
 
                 #if DEBUG
                 print("🟣 FORUM listener error =", err.localizedDescription)
@@ -1136,6 +1668,7 @@ if attachedMediaType != nil {
                 return msg
             } ?? []
 
+            // נשארים בסידור ישן->חדש בצד התצוגה כדי שהגלילה לתחתית תמשיך לעבוד נכון ב-iOS.
             messages = list.sorted { $0.createdAt < $1.createdAt }
         }
     }
@@ -1150,6 +1683,7 @@ if attachedMediaType != nil {
         errorText = nil
 
         let trimmed = currentComposerText.trimmingCharacters(in: .whitespacesAndNewlines)
+
         if trimmed.isEmpty {
             #if canImport(FirebaseStorage)
             if attachedMediaType == nil { return }
@@ -1158,19 +1692,37 @@ if attachedMediaType != nil {
             #endif
         }
 
-        if branch.isEmpty || groupKey.isEmpty { return }
+        if branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            groupKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return
+        }
 
         let uid = Auth.auth().currentUser?.uid
 
         do {
+            let safeAuthorName = fullName
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .ifEmpty(UserDefaults.standard.string(forKey: "displayName") ?? "")
+                .ifEmpty(UserDefaults.standard.string(forKey: "name") ?? "")
+                .ifEmpty(email)
+                .ifEmpty(tr("משתתף", "Participant"))
+
+            let expiresAtDate = Date().addingTimeInterval(forumMessageRetentionSeconds)
+
             var base: [String: Any] = [
                 "branch": branch,
                 "groupKey": groupKey,
-                "authorName": fullName,
+                "authorName": safeAuthorName,
                 "authorEmail": email,
-                "authorUid": uid as Any,
-                "text": trimmed
+                "text": trimmed,
+                "expiresAt": Timestamp(date: expiresAtDate),
+                "retentionDays": forumMessageRetentionDays,
+                "isPinned": false
             ]
+
+            if let uid {
+                base["authorUid"] = uid
+            }
 
             #if canImport(FirebaseStorage)
             var mediaUrl: String? = nil
@@ -1190,13 +1742,22 @@ if attachedMediaType != nil {
             }
             #endif
 
-            let col = db.collection("branches").document(branch).collection("messages")
+            let col = db.collection("branches")
+                .document(branch)
+                .collection("messages")
 
             if let editId = editingMessageId {
+                // כמו באנדרואיד: עריכה לא מאריכה TTL ולא משנה retention/pin.
+                base.removeValue(forKey: "expiresAt")
+                base.removeValue(forKey: "retentionDays")
+                base.removeValue(forKey: "isPinned")
                 base["updatedAt"] = FieldValue.serverTimestamp()
+
                 try await col.document(editId).setData(base, merge: true)
             } else {
+                // הודעה חדשה — מוגדרת למחיקה אוטומטית אחרי 90 יום דרך Firestore TTL.
                 base["createdAt"] = FieldValue.serverTimestamp()
+
                 _ = try await col.addDocument(data: base)
             }
 
@@ -1204,6 +1765,7 @@ if attachedMediaType != nil {
                 input = ""
                 editText = ""
                 editingMessageId = nil
+
                 #if canImport(FirebaseStorage)
                 clearAttachment()
                 #endif
@@ -1211,22 +1773,40 @@ if attachedMediaType != nil {
 
         } catch {
             await MainActor.run {
-                errorText = tr("שגיאה בשמירה: \(error.localizedDescription)", "Failed to save: \(error.localizedDescription)")
+                errorText = tr(
+                    "שגיאה בשמירת ההודעה: \(error.localizedDescription)",
+                    "Error saving message: \(error.localizedDescription)"
+                )
             }
         }
     }
 
     private func deleteMessage(_ msg: ForumUiMessage) async {
         guard msg.isMine else { return }
+
+        let messageBranch = msg.branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !messageBranch.isEmpty else {
+            await MainActor.run {
+                errorText = tr(
+                    "שגיאה במחיקה: לא נמצא סניף להודעה.",
+                    "Delete failed: message branch was not found."
+                )
+            }
+            return
+        }
+
         do {
             try await db.collection("branches")
-                .document(branch)
+                .document(messageBranch)
                 .collection("messages")
                 .document(msg.id)
                 .delete()
         } catch {
             await MainActor.run {
-                errorText = tr("שגיאה במחיקה: \(error.localizedDescription)", "Failed to delete: \(error.localizedDescription)")
+                errorText = tr(
+                    "שגיאה במחיקת ההודעה: \(error.localizedDescription)",
+                    "Error deleting message: \(error.localizedDescription)"
+                )
             }
         }
     }
@@ -1236,7 +1816,8 @@ if attachedMediaType != nil {
     #if canImport(FirebaseStorage)
     private func uploadImage(data: Data, uid: String?) async throws -> String {
         let safeUid = uid ?? "anon"
-        let path = "forum_media/\(branch)/\(groupKey)/\(safeUid)/\(Int(Date().timeIntervalSince1970))_img.jpg"
+        let millis = Int(Date().timeIntervalSince1970 * 1000)
+        let path = "forum_media/\(branch)/\(groupKey)/\(safeUid)/\(millis)"
         let ref = storage.reference(withPath: path)
 
         let meta = StorageMetadata()
@@ -1249,7 +1830,8 @@ if attachedMediaType != nil {
 
     private func uploadVideo(fileUrl: URL, uid: String?) async throws -> String {
         let safeUid = uid ?? "anon"
-        let path = "forum_media/\(branch)/\(groupKey)/\(safeUid)/\(Int(Date().timeIntervalSince1970))_vid.mov"
+        let millis = Int(Date().timeIntervalSince1970 * 1000)
+        let path = "forum_media/\(branch)/\(groupKey)/\(safeUid)/\(millis)"
         let ref = storage.reference(withPath: path)
 
         let meta = StorageMetadata()

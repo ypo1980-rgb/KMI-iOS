@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import FirebaseAuth
 
 struct RegisterFormView: View {
 
@@ -50,7 +51,24 @@ struct RegisterFormView: View {
         return Array(Set(all)).sorted()
     }
 
-    private let belts = ["ללא", "צהובה", "כתומה", "ירוקה", "כחולה", "חומה", "שחורה"]
+    private let belts = [
+        "לבנה",
+        "צהובה",
+        "כתומה",
+        "ירוקה",
+        "כחולה",
+        "חומה",
+        "שחורה דאן 1",
+        "שחורה דאן 2",
+        "שחורה דאן 3",
+        "שחורה דאן 4",
+        "שחורה דאן 5",
+        "שחורה דאן 6",
+        "שחורה דאן 7",
+        "שחורה דאן 8",
+        "שחורה דאן 9",
+        "שחורה דאן 10"
+    ]
 
     @State private var isAbroadSelection: Bool = false
     @State private var showBranchesSheet = false
@@ -62,6 +80,31 @@ struct RegisterFormView: View {
 
     private var normalizedEmail: String {
         s.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private var isGoogleAuth: Bool {
+        let defaults = UserDefaults.standard
+
+        let authProvider = defaults.string(forKey: "authProvider") ?? ""
+        let googleLogin = defaults.bool(forKey: "google_login")
+        let skipOtp = defaults.bool(forKey: "skip_otp")
+
+        return authProvider == "google" &&
+            googleLogin &&
+            skipOtp &&
+            !prefillEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var registrationFieldBorder: Color {
+        Color(red: 0.824, green: 0.769, blue: 0.890) // #D2C4E3
+    }
+
+    private var registrationPrimaryPurple: Color {
+        Color(red: 0.486, green: 0.302, blue: 1.0) // #7C4DFF
+    }
+
+    private var registrationLabelColor: Color {
+        Color(red: 0.278, green: 0.333, blue: 0.412) // #475569
     }
 
     private var displayedBranchesText: String {
@@ -101,12 +144,22 @@ struct RegisterFormView: View {
         )
     }
 
+    private var firebaseUid: String {
+        Auth.auth().currentUser?.uid ?? ""
+    }
+
+    private var isSuperTester: Bool {
+        normalizedEmail == "ypo1980@gmail.com" ||
+        normalizedPhone == "0526664660" ||
+        firebaseUid == "DBoyoVVpsrVUX0ukhKwNyQlKUKY2"
+    }
+
     private var lockToCoach: Bool {
-        isWhitelistedCoach
+        isWhitelistedCoach && !isSuperTester
     }
 
     private var lockToTrainee: Bool {
-        !isWhitelistedCoach
+        !isWhitelistedCoach && !isSuperTester
     }
 
     init(
@@ -138,272 +191,405 @@ struct RegisterFormView: View {
     }
     
     var body: some View {
+        registerRootView
+            .sheet(isPresented: $showBranchesSheet) {
+                branchesSheet
+            }
+            .sheet(isPresented: $showGroupsSheet) {
+                groupsSheet
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                submitBottomBar
+            }
+            .onChange(of: s.region) { oldRegion, newRegion in
+                handleRegionChange(oldRegion: oldRegion, newRegion: newRegion)
+            }
+            .onChange(of: s.branches) { _, newBranches in
+                handleBranchesChange(newBranches)
+            }
+            .onChange(of: s.groups) { _, newGroups in
+                handleGroupsChange(newGroups)
+            }
+            .onAppear {
+                handleInitialAppear()
+            }
+            .onChange(of: normalizedPhone) { _, _ in
+                applyRoleGate()
+                print("🧭 phone changed, role after gate =", s.role.rawValue)
+            }
+            .onChange(of: normalizedEmail) { _, _ in
+                applyRoleGate()
+                print("🧭 email changed, role after gate =", s.role.rawValue)
+            }
+    }
+    
+    private var registerRootView: some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    Color.purple.opacity(0.85),
-                    Color.blue.opacity(0.75),
-                    Color.cyan.opacity(0.45)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            registrationBackground
 
             ScrollView {
-                VStack(spacing: 14) {
-
-                    headerBar
-
-                    roleTabs
-
-                    if s.role == .coach {
-                        card {
-                            Text("רישום מאמן מורשה")
-                                .font(.headline)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-
-                            Text("לאחר השלמת הרישום יופק עבורך קוד מאמן אישי. יש לשמור אותו לצורך התחברות למערכת.")
-                                .font(.subheadline)
-                                .foregroundStyle(.gray)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-
-                    card {
-                        field(title: "שם מלא", text: $s.fullName)
-                        field(title: "טלפון", text: $s.phone, keyboard: .phonePad)
-                        field(title: "מייל", text: $s.email, keyboard: .emailAddress)
-                    }
-
-                    card {
-                        Text("תאריך לידה")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        dobRow
-
-                        genderPicker
-
-                        field(title: "שם משתמש", text: $s.username, keyboard: .default)
-
-                        passwordField
-                    }
-                    
-                    card {
-                        branchScopePicker
-
-                        regionPicker
-
-                        multiSelectRow(
-                            title: isAbroadSelection ? "סניפים בחו״ל (עד 3)" : "סניפים בארץ (עד 3)",
-                            valueText: displayedBranchValue,
-                            onTap: { showBranchesSheet = true }
-                        )
-
-                        if !isAbroadSelection {
-                            multiSelectRow(
-                                title: "קבוצות (עד 3)",
-                                valueText: displayedGroupValue,
-                                onTap: { showGroupsSheet = true }
-                            )
-                        }
-
-                        if s.role != .coach {
-                            beltPicker
-                        }
-                        
-                        Toggle(isOn: $s.wantsSms) {
-                            Text("ארצה לקבל עדכונים בהודעות\nSMS לגבי אימונים קרובים")
-                        }
-
-                        termsRow
-                    }
-
-                    Spacer(minLength: 110)
-                }
-                .padding(.horizontal, 14)
-                .padding(.top, 10)
+                registerScrollContent
             }
         }
-        .sheet(isPresented: $showBranchesSheet) {
-            MultiSelectSheet(
-                title: isAbroadSelection ? "בחר סניפים בחו״ל (עד 3)" : "בחר סניפים בארץ (עד 3)",
-                options: branchesOptions,
-                maxSelected: 3,
-                selected: $s.branches
+    }
+
+    private var registrationBackground: some View {
+        LinearGradient(
+            colors: s.role == .coach
+            ? [
+                Color(red: 0.078, green: 0.118, blue: 0.188), // #141E30
+                Color(red: 0.141, green: 0.231, blue: 0.333), // #243B55
+                Color(red: 0.055, green: 0.647, blue: 0.914)  // #0EA5E9
+            ]
+            : [
+                Color(red: 0.498, green: 0.000, blue: 1.000), // #7F00FF
+                Color(red: 0.247, green: 0.318, blue: 0.710), // #3F51B5
+                Color(red: 0.012, green: 0.663, blue: 0.957)  // #03A9F4
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .ignoresSafeArea()
+    }
+
+    private var registerScrollContent: some View {
+        VStack(spacing: 14) {
+            headerBar
+
+            roleTabs
+
+            coachNoticeCard
+
+            personalDetailsSection
+
+            accountSection
+
+            branchSection
+
+            preferencesSection
+
+            Spacer(minLength: 110)
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+    }
+
+    @ViewBuilder
+    private var coachNoticeCard: some View {
+        if s.role == .coach {
+            sectionCard(title: "רישום מאמן מורשה") {
+                Text("לאחר השלמת הרישום יופק עבורך קוד מאמן אישי. יש לשמור אותו לצורך התחברות למערכת ולפעולות מתקדמות.")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.28, green: 0.33, blue: 0.41))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .multilineTextAlignment(.trailing)
+            }
+        }
+    }
+
+    private var personalDetailsSection: some View {
+        sectionCard(title: "פרטים אישיים") {
+            field(title: "שם מלא", text: $s.fullName)
+            field(title: "טלפון", text: $s.phone, keyboard: .phonePad)
+            field(title: "מייל", text: $s.email, keyboard: .emailAddress)
+
+            Text("מין המשתמש")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(registrationLabelColor)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+
+            genderPicker
+
+            Text("תאריך לידה")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(registrationLabelColor)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+
+            dobRow
+        }
+    }
+
+    @ViewBuilder
+    private var accountSection: some View {
+        if !isGoogleAuth {
+            sectionCard(title: "חשבון משתמש") {
+                field(title: "שם משתמש", text: $s.username, keyboard: .default)
+
+                passwordField
+            }
+        }
+    }
+
+    private var branchSection: some View {
+        sectionCard(title: "שיוך לסניף") {
+            branchScopePicker
+
+            regionPicker
+
+            multiSelectRow(
+                title: isAbroadSelection ? "סניפים בחו״ל (עד 3)" : "סניפים בארץ (עד 3)",
+                valueText: displayedBranchesText,
+                onTap: { showBranchesSheet = true }
             )
-            .presentationDetents([.medium, .large])
-        }
-        .sheet(isPresented: $showGroupsSheet) {
-            MultiSelectSheet(
-                title: "בחר קבוצות (עד 3)",
-                options: groupsOptions,
-                maxSelected: 3,
-                selected: $s.groups
-            )
-            .presentationDetents([.medium, .large])
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            submitBottomBar
-        }
-        .onChange(of: s.region) { oldRegion, newRegion in
-            print("🧭 region changed ->", newRegion)
 
-            guard didFinishInitialLoad else {
-                print("🧭 skip clearing branches/groups during initial load")
-                return
+            if !isAbroadSelection {
+                multiSelectRow(
+                    title: "קבוצות (עד 3)",
+                    valueText: displayedGroupsText,
+                    onTap: { showGroupsSheet = true }
+                )
             }
 
-            let oldClean = oldRegion.trimmingCharacters(in: .whitespacesAndNewlines)
-            let newClean = newRegion.trimmingCharacters(in: .whitespacesAndNewlines)
+            beltPicker
+        }
+    }
 
-            guard !oldClean.isEmpty else {
-                print("🧭 skip clearing because old region is empty during initial setup")
-                return
+    private var preferencesSection: some View {
+        sectionCard(title: "העדפות ואישורים") {
+            Toggle(isOn: $s.wantsSms) {
+                Text("ארצה לקבל עדכונים בהודעות\nSMS לגבי אימונים קרובים")
+                    .multilineTextAlignment(.trailing)
             }
 
-            guard oldClean != newClean else { return }
+            termsRow
+        }
+    }
 
-            s.branches.removeAll()
-            s.groups.removeAll()
+    private var branchesSheet: some View {
+        MultiSelectSheet(
+            title: isAbroadSelection ? "בחר סניפים בחו״ל (עד 3)" : "בחר סניפים בארץ (עד 3)",
+            options: branchesOptions,
+            maxSelected: 3,
+            selected: $s.branches
+        )
+        .presentationDetents([.medium, .large])
+    }
+
+    private var groupsSheet: some View {
+        MultiSelectSheet(
+            title: "בחר קבוצות (עד 3)",
+            options: groupsOptions,
+            maxSelected: 3,
+            selected: $s.groups
+        )
+        .presentationDetents([.medium, .large])
+    }
+    
+    private func handleRegionChange(oldRegion: String, newRegion: String) {
+        print("🧭 region changed ->", newRegion)
+
+        guard didFinishInitialLoad else {
+            print("🧭 skip clearing branches/groups during initial load")
+            return
+        }
+
+        let oldClean = oldRegion.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newClean = newRegion.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !oldClean.isEmpty else {
+            print("🧭 skip clearing because old region is empty during initial setup")
+            return
+        }
+
+        guard oldClean != newClean else { return }
+
+        if TrainingCatalogIOS.isAbroadRegion(newClean) {
+            isAbroadSelection = true
+            s.branchType = "abroad"
+        } else if israelRegions.contains(newClean) {
+            isAbroadSelection = false
+            s.branchType = "israel"
+        }
+
+        s.branches.removeAll()
+        s.groups.removeAll()
+        s.activeBranch = ""
+        s.activeGroup = ""
+        displayedBranchValue = ""
+        displayedGroupValue = ""
+        storedActiveBranch = ""
+        storedActiveGroup = ""
+    }
+
+    private func handleBranchesChange(_ newBranches: Set<String>) {
+        if newBranches.isEmpty {
             s.activeBranch = ""
-            s.activeGroup = ""
             displayedBranchValue = ""
-            displayedGroupValue = ""
             storedActiveBranch = ""
+            s.groups.removeAll()
+            s.activeGroup = ""
+            displayedGroupValue = ""
             storedActiveGroup = ""
+            return
         }
-        .onChange(of: s.branches) { _, newBranches in
-            if newBranches.isEmpty {
-                s.activeBranch = ""
-                displayedBranchValue = ""
-                storedActiveBranch = ""
-                s.groups.removeAll()
-                s.activeGroup = ""
-                displayedGroupValue = ""
-                storedActiveGroup = ""
-                return
-            }
 
-            let sortedBranches = Array(newBranches)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .sorted()
+        let sortedBranches = Array(newBranches)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .sorted()
 
+        if sortedBranches.contains(where: { TrainingCatalogIOS.isAbroadBranch($0) }) {
+            isAbroadSelection = true
+            s.branchType = "abroad"
+        } else if !isAbroadSelection {
+            s.branchType = "israel"
+        }
+
+        if s.activeBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !sortedBranches.contains(s.activeBranch) {
             s.activeBranch = sortedBranches.first ?? ""
-            displayedBranchValue = s.activeBranch
-            storedActiveBranch = s.activeBranch
+        }
 
-            if isAbroadSelection || isCurrentRegionAbroad {
-                s.groups = ["בוגרים"]
-                s.activeGroup = "בוגרים"
-                displayedGroupValue = "בוגרים"
-                storedActiveGroup = "בוגרים"
-                return
+        displayedBranchValue = s.activeBranch
+        storedActiveBranch = s.activeBranch
+
+        if isAbroadSelection || isCurrentRegionAbroad {
+            s.groups = ["בוגרים"]
+            s.activeGroup = "בוגרים"
+            displayedGroupValue = "בוגרים"
+            storedActiveGroup = "בוגרים"
+            return
+        }
+
+        let validGroups = Set(
+            Array(newBranches).flatMap { branch in
+                TrainingCatalogIOS.ageGroupsByBranch[branch] ?? []
             }
+        )
 
-            let validGroups = Set(
-                Array(newBranches).flatMap { branch in
-                    TrainingCatalogIOS.ageGroupsByBranch[branch] ?? []
-                }
-            )
+        s.groups = s.groups.filter { validGroups.contains($0) }
 
-            s.groups = s.groups.filter { validGroups.contains($0) }
+        let sortedGroups = Array(s.groups)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .sorted()
 
-            let sortedGroups = Array(s.groups)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .sorted()
-
+        if s.activeGroup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !sortedGroups.contains(s.activeGroup) {
             s.activeGroup = sortedGroups.first ?? ""
-            displayedGroupValue = s.activeGroup
-            storedActiveGroup = s.activeGroup
         }
-        .onChange(of: s.groups) { _, newGroups in
-            let sortedGroups = Array(newGroups)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .sorted()
 
+        displayedGroupValue = s.activeGroup
+        storedActiveGroup = s.activeGroup
+    }
+
+    private func handleGroupsChange(_ newGroups: Set<String>) {
+        let sortedGroups = Array(newGroups)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .sorted()
+
+        if sortedGroups.isEmpty {
+            s.activeGroup = ""
+        } else if s.activeGroup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    !sortedGroups.contains(s.activeGroup) {
             s.activeGroup = sortedGroups.first ?? ""
-            displayedGroupValue = s.activeGroup
-            storedActiveGroup = s.activeGroup
         }
-        .onAppear {
-            didFinishInitialLoad = false
-            loadSavedProfileIfNeeded()
 
-            if TrainingCatalogIOS.isAbroadRegion(s.region) ||
-                s.branches.contains(where: { TrainingCatalogIOS.isAbroadBranch($0) }) {
-                isAbroadSelection = true
+        displayedGroupValue = s.activeGroup
+        storedActiveGroup = s.activeGroup
+    }
+
+    private func handleInitialAppear() {
+        didFinishInitialLoad = false
+        loadSavedProfileIfNeeded()
+
+        if isGoogleAuth {
+            if s.email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                s.email = prefillEmail
             }
 
-            let defaults = UserDefaults.standard
-
-            let savedBranch =
-                defaults.string(forKey: "active_branch") ??
-                defaults.string(forKey: "branch") ??
-                defaults.string(forKey: "kmi.user.branch") ??
-                ""
-
-            if !savedBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                s.branches = [savedBranch]
-                s.activeBranch = savedBranch
-                displayedBranchValue = savedBranch
-                storedActiveBranch = savedBranch
-            } else {
-                displayedBranchValue = storedActiveBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+            if s.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                s.username = prefillEmail
             }
 
-            let savedGroup =
-                defaults.string(forKey: "active_group") ??
-                defaults.string(forKey: "group") ??
-                defaults.string(forKey: "kmi.user.group") ??
-                ""
-
-            if !savedGroup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                s.groups = [savedGroup]
-                s.activeGroup = savedGroup
-                displayedGroupValue = savedGroup
-                storedActiveGroup = savedGroup
-            } else {
-                displayedGroupValue = storedActiveGroup.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-
-            if s.region.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || !regions.contains(s.region) {
-
-                s.region = regions.first ?? ""
-            }
-
-            // ✅ במסכי Auth תמיד עובדים לפי initialRole, בלי לזכור user_role קודם
-            s.role = initialRole
-
-            print("📝 RegisterFormView.onAppear")
-            print("📝 region =", s.region)
-            print("📝 gender =", s.gender)
-            print("📝 belt =", s.belt)
-            print("📝 branches =", Array(s.branches))
-            print("📝 groups =", Array(s.groups))
-            print("📝 isWhitelistedCoach =", isWhitelistedCoach)
-            print("📝 initialRole =", initialRole.rawValue)
-            print("📝 active role =", s.role.rawValue)
-            print("📝 displayedBranchValue =", displayedBranchValue)
-            print("📝 displayedGroupValue =", displayedGroupValue)
-            print("📝 storedActiveBranch =", storedActiveBranch)
-            print("📝 storedActiveGroup =", storedActiveGroup)
-
-            DispatchQueue.main.async {
-                didFinishInitialLoad = true
-                print("🧭 didFinishInitialLoad = true")
+            if s.password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                s.password = "GOOGLE_AUTH"
             }
         }
-        .onChange(of: normalizedPhone) { _, _ in
-            print("🧭 phone changed, keeping selected role =", s.role.rawValue)
+
+        if s.branchType == "abroad" ||
+            TrainingCatalogIOS.isAbroadRegion(s.region) ||
+            s.branches.contains(where: { TrainingCatalogIOS.isAbroadBranch($0) }) {
+            isAbroadSelection = true
+            s.branchType = "abroad"
+        } else {
+            isAbroadSelection = false
+            s.branchType = "israel"
         }
-        .onChange(of: normalizedEmail) { _, _ in
-            print("🧭 email changed, keeping selected role =", s.role.rawValue)
+
+        let defaults = UserDefaults.standard
+
+        let savedBranch =
+            defaults.string(forKey: "active_branch") ??
+            defaults.string(forKey: "branch") ??
+            defaults.string(forKey: "kmi.user.branch") ??
+            ""
+
+        if !savedBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            s.branches = [savedBranch]
+            s.activeBranch = savedBranch
+            displayedBranchValue = savedBranch
+            storedActiveBranch = savedBranch
+        } else {
+            displayedBranchValue = storedActiveBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let savedGroup =
+            defaults.string(forKey: "active_group") ??
+            defaults.string(forKey: "group") ??
+            defaults.string(forKey: "kmi.user.group") ??
+            ""
+
+        if !savedGroup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            s.groups = [savedGroup]
+            s.activeGroup = savedGroup
+            displayedGroupValue = savedGroup
+            storedActiveGroup = savedGroup
+        } else {
+            displayedGroupValue = storedActiveGroup.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if s.region.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !regions.contains(s.region) {
+            s.region = regions.first ?? ""
+        }
+
+        s.role = initialRole
+        applyRoleGate()
+
+        print("📝 RegisterFormView.onAppear")
+        print("📝 region =", s.region)
+        print("📝 branchType =", s.branchType)
+        print("📝 gender =", s.gender)
+        print("📝 belt =", s.belt)
+        print("📝 branches =", Array(s.branches))
+        print("📝 groups =", Array(s.groups))
+        print("📝 isWhitelistedCoach =", isWhitelistedCoach)
+        print("📝 isSuperTester =", isSuperTester)
+        print("📝 initialRole =", initialRole.rawValue)
+        print("📝 active role =", s.role.rawValue)
+        print("📝 displayedBranchValue =", displayedBranchValue)
+        print("📝 displayedGroupValue =", displayedGroupValue)
+        print("📝 storedActiveBranch =", storedActiveBranch)
+        print("📝 storedActiveGroup =", storedActiveGroup)
+
+        DispatchQueue.main.async {
+            didFinishInitialLoad = true
+            print("🧭 didFinishInitialLoad = true")
+        }
+    }
+    
+    private func applyRoleGate() {
+        if isSuperTester {
+            print("KMI_REGISTRATION iOS: role gate bypassed for super tester")
+            return
+        }
+
+        if isWhitelistedCoach {
+            s.role = .coach
+        } else {
+            s.role = .trainee
         }
     }
         
@@ -429,29 +615,58 @@ struct RegisterFormView: View {
 
     private var roleTabs: some View {
         HStack(spacing: 0) {
-            tabButton(.coach)
             tabButton(.trainee)
+
+            Rectangle()
+                .fill(Color.white.opacity(0.45))
+                .frame(width: 1, height: 28)
+
+            tabButton(.coach)
         }
-        .background(Color.white.opacity(0.18))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .frame(height: 46)
+        .background(Color(red: 0.427, green: 0.310, blue: 0.910).opacity(0.96)) // #6D4FE8
+        .clipShape(RoundedRectangle(cornerRadius: 0, style: .continuous))
+        .shadow(color: Color.black.opacity(0.16), radius: 4, x: 0, y: 2)
+        .padding(.horizontal, 10)
     }
 
     private func tabButton(_ role: UserRole) -> some View {
         let isSelected = s.role == role
+        let title = role == .trainee ? "מתאמן" : "מאמן"
 
         return Button {
+            if !isSuperTester {
+                if role == .coach && !isWhitelistedCoach {
+                    s.role = .trainee
+                    print("KMI_REGISTRATION iOS: coach tab blocked - not whitelisted")
+                    return
+                }
+
+                if role == .trainee && isWhitelistedCoach {
+                    s.role = .coach
+                    print("KMI_REGISTRATION iOS: trainee tab blocked - whitelisted coach")
+                    return
+                }
+            }
+
             s.role = role
         } label: {
-            VStack(spacing: 4) {
-                Text(role.rawValue)
-                    .font(.headline)
+            ZStack(alignment: .bottom) {
+                Text(title)
+                    .font(.system(size: 15, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(Color.white)
+                        .frame(width: 82, height: 3)
+                }
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(isSelected ? Color.white.opacity(0.25) : Color.clear)
+            .background(isSelected ? Color.white.opacity(0.14) : Color.clear)
         }
-        .foregroundStyle(.white)
-        .disabled(false)
+        .buttonStyle(.plain)
     }
     
     private func card(@ViewBuilder _ content: () -> some View) -> some View {
@@ -461,24 +676,63 @@ struct RegisterFormView: View {
             .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
+    private func sectionCard(
+        title: String,
+        @ViewBuilder content: () -> some View
+    ) -> some View {
+        VStack(alignment: .trailing, spacing: 10) {
+            Text(title)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.22))
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .multilineTextAlignment(.trailing)
+
+            Rectangle()
+                .fill(Color(red: 0.85, green: 0.80, blue: 0.91))
+                .frame(height: 1)
+
+            content()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(red: 0.96, green: 0.93, blue: 0.97).opacity(0.96))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color(red: 0.85, green: 0.80, blue: 0.91), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.10), radius: 4, x: 0, y: 2)
+        )
+    }
+
     private func field(title: String, text: Binding<String>, keyboard: UIKeyboardType = .default) -> some View {
         TextField(title, text: text)
             .keyboardType(keyboard)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
+            .multilineTextAlignment((keyboard == .phonePad || keyboard == .emailAddress) ? .leading : .trailing)
+            .environment(\.layoutDirection, (keyboard == .phonePad || keyboard == .emailAddress) ? .leftToRight : .rightToLeft)
             .padding(12)
-            .background(Color.black.opacity(0.04))
+            .frame(minHeight: 46)
+            .background(Color.white)
             .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color(red: 0.82, green: 0.77, blue: 0.89), lineWidth: 1)
+            )
     }
 
     private var submitBottomBar: some View {
         VStack(spacing: 10) {
             if let err = validationError {
                 Text(err)
-                    .foregroundStyle(.red)
-                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.red)
+                    .font(.system(size: 13, weight: .semibold))
                     .frame(maxWidth: .infinity, alignment: .center)
                     .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
             }
 
             Button {
@@ -511,13 +765,19 @@ struct RegisterFormView: View {
                     }
 
                     Text(isSubmitting ? submittingTitle : submitTitle)
-                        .font(.headline)
+                        .font(.system(size: 15, weight: .bold))
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
+                .frame(height: 46)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Color.purple.opacity(0.9))
+            .buttonStyle(.plain)
+            .foregroundStyle((validationError == nil && !isSubmitting) ? .white : .black)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill((validationError == nil && !isSubmitting)
+                          ? Color(red: 0.486, green: 0.302, blue: 1.0)
+                          : Color(red: 0.690, green: 0.745, blue: 0.773)) // #B0BEC5
+            )
             .disabled(validationError != nil || isSubmitting)
         }
         .padding(.horizontal, 14)
@@ -552,6 +812,7 @@ struct RegisterFormView: View {
             dobField("חודש", $s.birthMonth, maxLen: 2)
             dobField("שנה", $s.birthYear, maxLen: 4)
         }
+        .frame(minHeight: 56)
     }
 
     private func dobField(_ title: String, _ binding: Binding<String>, maxLen: Int) -> some View {
@@ -563,13 +824,32 @@ struct RegisterFormView: View {
             }
         ))
         .keyboardType(.numberPad)
-        .padding(12)
-        .background(Color.black.opacity(0.04))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .multilineTextAlignment(.center)
+        .font(.system(size: 17, weight: .bold))
+        .foregroundStyle(.black)
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity)
+        .frame(height: 52)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(registrationFieldBorder, lineWidth: 1)
+        )
     }
 
     private var passwordField: some View {
-        HStack {
+        HStack(spacing: 10) {
+            Button {
+                s.showPassword.toggle()
+            } label: {
+                Image(systemName: s.showPassword ? "eye.slash.fill" : "eye.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.gray)
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+
             Group {
                 if s.showPassword {
                     TextField("סיסמה", text: $s.password)
@@ -579,24 +859,26 @@ struct RegisterFormView: View {
             }
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
-
-            Button {
-                s.showPassword.toggle()
-            } label: {
-                Image(systemName: s.showPassword ? "eye.slash" : "eye")
-                    .foregroundStyle(.gray)
-            }
+            .multilineTextAlignment(.trailing)
+            .environment(\.layoutDirection, .rightToLeft)
+            .foregroundStyle(.black)
         }
-        .padding(12)
-        .background(Color.black.opacity(0.04))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 12)
+        .frame(height: 46)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(registrationFieldBorder, lineWidth: 1)
+        )
     }
 
     private var regionPicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .trailing, spacing: 6) {
             Text(isAbroadSelection ? "מדינה" : "אזור")
-                .font(.subheadline)
-                .foregroundStyle(.gray)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(registrationLabelColor)
+                .frame(maxWidth: .infinity, alignment: .trailing)
 
             Picker("", selection: $s.region) {
                 Text(isAbroadSelection ? "בחר מדינה" : "בחר אזור").tag("")
@@ -605,130 +887,209 @@ struct RegisterFormView: View {
                 }
             }
             .pickerStyle(.menu)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(Color.black.opacity(0.04))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.horizontal, 12)
+            .frame(height: 52)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(registrationFieldBorder, lineWidth: 1)
+            )
+            .environment(\.layoutDirection, .rightToLeft)
         }
     }
 
     private var branchScopePicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("מיקום הסניף")
-                .font(.subheadline)
-                .foregroundStyle(.gray)
+        VStack(alignment: .trailing, spacing: 8) {
+            Text("בחירת סוג סניף")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color(red: 0.28, green: 0.33, blue: 0.41))
+                .frame(maxWidth: .infinity, alignment: .trailing)
 
-            HStack(spacing: 8) {
-                Button {
-                    guard isAbroadSelection else { return }
+            HStack(spacing: 12) {
+                branchTypeChip(
+                    title: "ישראל",
+                    isSelected: !isAbroadSelection,
+                    onTap: {
+                        guard isAbroadSelection else { return }
 
-                    isAbroadSelection = false
-                    resetBranchSelectionAfterScopeChange()
-                } label: {
-                    Text("ישראל")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(!isAbroadSelection ? Color.blue.opacity(0.88) : Color.black.opacity(0.06))
-                        )
-                        .foregroundStyle(!isAbroadSelection ? .white : .primary)
-                }
-                .buttonStyle(.plain)
+                        isAbroadSelection = false
+                        s.branchType = "israel"
+                        resetBranchSelectionAfterScopeChange()
+                    }
+                )
 
-                Button {
-                    guard !isAbroadSelection else { return }
+                branchTypeChip(
+                    title: "חו״ל",
+                    isSelected: isAbroadSelection,
+                    onTap: {
+                        guard !isAbroadSelection else { return }
 
-                    isAbroadSelection = true
-                    resetBranchSelectionAfterScopeChange()
-                } label: {
-                    Text("חו״ל")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(isAbroadSelection ? Color.blue.opacity(0.88) : Color.black.opacity(0.06))
-                        )
-                        .foregroundStyle(isAbroadSelection ? .white : .primary)
-                }
-                .buttonStyle(.plain)
+                        isAbroadSelection = true
+                        s.branchType = "abroad"
+                        resetBranchSelectionAfterScopeChange()
+                    }
+                )
             }
         }
+    }
+
+    private func branchTypeChip(
+        title: String,
+        isSelected: Bool,
+        onTap: @escaping () -> Void
+    ) -> some View {
+        Button(action: onTap) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(isSelected ? .white : Color(red: 0.28, green: 0.33, blue: 0.41))
+                .frame(maxWidth: .infinity)
+                .frame(height: 38)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(isSelected ? Color(red: 0.486, green: 0.302, blue: 1.0) : Color.white)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(
+                                    isSelected ? Color(red: 0.424, green: 0.302, blue: 1.0) : Color(red: 0.82, green: 0.77, blue: 0.89),
+                                    lineWidth: isSelected ? 2 : 1
+                                )
+                        )
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     private var genderPicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("מין")
-                .font(.subheadline)
-                .foregroundStyle(.gray)
+        HStack(spacing: 12) {
+            genderChip(
+                title: "זכר",
+                value: "male",
+                selectedColor: Color(red: 0.055, green: 0.647, blue: 0.914)
+            )
 
-            Picker("", selection: $s.gender) {
-                Text("בחר").tag("")
-                Text("זכר").tag("male")
-                Text("נקבה").tag("female")
-            }
-            .pickerStyle(.menu)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(Color.black.opacity(0.04))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            genderChip(
+                title: "נקבה",
+                value: "female",
+                selectedColor: Color(red: 0.925, green: 0.282, blue: 0.600)
+            )
         }
+    }
+
+    private func genderChip(
+        title: String,
+        value: String,
+        selectedColor: Color
+    ) -> some View {
+        let selected = s.gender == value
+
+        return Button {
+            s.gender = value
+        } label: {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(selected ? .white : Color(red: 0.28, green: 0.33, blue: 0.41))
+                .frame(maxWidth: .infinity)
+                .frame(height: 38)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(selected ? selectedColor : Color.white)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(
+                                    selected ? selectedColor : Color(red: 0.82, green: 0.77, blue: 0.89),
+                                    lineWidth: selected ? 2 : 1
+                                )
+                        )
+                )
+        }
+        .buttonStyle(.plain)
     }
     
     private var beltPicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .trailing, spacing: 6) {
             Text("דרגת חגורה נוכחית (ק.מ.י)")
-                .font(.subheadline)
-                .foregroundStyle(.gray)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color(red: 0.28, green: 0.33, blue: 0.41))
+                .frame(maxWidth: .infinity, alignment: .trailing)
 
             Picker("", selection: $s.belt) {
-                ForEach(belts, id: \.self) { Text($0) }
+                Text("בחר דרגת חגורה").tag("")
+                ForEach(belts, id: \.self) { belt in
+                    Text(belt).tag(belt)
+                }
             }
             .pickerStyle(.menu)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(12)
-            .background(Color.black.opacity(0.04))
+            .background(Color.white)
             .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color(red: 0.82, green: 0.77, blue: 0.89), lineWidth: 1)
+            )
         }
     }
 
     private func multiSelectRow(title: String, valueText: String, onTap: @escaping () -> Void) -> some View {
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .trailing, spacing: 6) {
                 Text(title)
-                    .font(.subheadline)
-                    .foregroundStyle(.gray)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(registrationLabelColor)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
 
-                HStack {
-                    Text(valueText.isEmpty ? "בחר…" : valueText)
-                        .foregroundStyle(valueText.isEmpty ? .gray : .primary)
-                        .lineLimit(2)
-
-                    Spacer()
-
+                HStack(spacing: 10) {
                     Image(systemName: "chevron.down")
-                        .foregroundStyle(.gray)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color.gray)
+
+                    Text(valueText.isEmpty ? "בחר…" : valueText)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(valueText.isEmpty ? .gray : .black)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.trailing)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
-                .padding(12)
-                .background(Color.black.opacity(0.04))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 12)
+                .frame(minHeight: 52)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(registrationFieldBorder, lineWidth: 1)
+                )
             }
         }
         .buttonStyle(.plain)
     }
 
     private var termsRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle(isOn: $s.acceptsTerms) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("אני מאשר את תנאי השימוש\nומדיניות הפרטיות")
-                    Button("קרא עוד") { onReadMoreTerms() }
-                        .font(.subheadline)
+        HStack(alignment: .center, spacing: 8) {
+            Toggle("", isOn: $s.acceptsTerms)
+                .labelsHidden()
+                .toggleStyle(.switch)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("אני מאשר את תנאי השימוש ומדיניות הפרטיות")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .multilineTextAlignment(.trailing)
+
+                Button(action: onReadMoreTerms) {
+                    Text("קרא עוד")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(Color(red: 0.486, green: 0.302, blue: 1.0))
+                        .underline()
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
+                .buttonStyle(.plain)
             }
+            .frame(maxWidth: .infinity)
         }
+        .environment(\.layoutDirection, .leftToRight)
     }
 
     private var validationError: String? {
@@ -747,8 +1108,15 @@ struct RegisterFormView: View {
 
         if s.gender.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "חובה לבחור מין" }
 
-        if s.username.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 { return "שם משתמש קצר מדי" }
-        if s.password.count < 6 { return "סיסמה חייבת להכיל לפחות 6 תווים" }
+        if !isGoogleAuth {
+            if s.username.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 { return "שם משתמש קצר מדי" }
+            if s.password.count < 6 { return "סיסמה חייבת להכיל לפחות 6 תווים" }
+        }
+
+        if s.belt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "חובה לבחור דרגת חגורה"
+        }
+
         if !s.acceptsTerms { return "חובה לאשר תנאי שימוש ומדיניות פרטיות" }
 
         if s.region.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -788,6 +1156,7 @@ struct RegisterFormView: View {
         s.groups.removeAll()
         s.activeBranch = ""
         s.activeGroup = ""
+        s.branchType = isAbroadSelection ? "abroad" : "israel"
 
         displayedBranchValue = ""
         displayedGroupValue = ""
@@ -820,6 +1189,11 @@ struct RegisterFormView: View {
                 defaults.string(forKey: "active_region") ??
                 defaults.string(forKey: "kmi.user.region") ??
                 s.region
+        }
+
+        let savedBranchType = defaults.string(forKey: "branch_type") ?? ""
+        if !savedBranchType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            s.branchType = savedBranchType
         }
 
         if s.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -916,6 +1290,8 @@ struct RegisterFormView: View {
 
         if s.belt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || s.belt == "ללא" {
             switch storedBelt.lowercased() {
+            case "white", "לבן", "לבנה":
+                s.belt = "לבנה"
             case "yellow", "צהוב", "צהובה":
                 s.belt = "צהובה"
             case "orange", "כתום", "כתומה":
@@ -926,8 +1302,26 @@ struct RegisterFormView: View {
                 s.belt = "כחולה"
             case "brown", "חום", "חומה":
                 s.belt = "חומה"
-            case "black", "שחור", "שחורה":
-                s.belt = "שחורה"
+            case "black", "black_dan_1", "שחור", "שחורה", "שחורה דאן 1":
+                s.belt = "שחורה דאן 1"
+            case "black_dan_2", "שחורה דאן 2":
+                s.belt = "שחורה דאן 2"
+            case "black_dan_3", "שחורה דאן 3":
+                s.belt = "שחורה דאן 3"
+            case "black_dan_4", "שחורה דאן 4":
+                s.belt = "שחורה דאן 4"
+            case "black_dan_5", "שחורה דאן 5":
+                s.belt = "שחורה דאן 5"
+            case "black_dan_6", "שחורה דאן 6":
+                s.belt = "שחורה דאן 6"
+            case "black_dan_7", "שחורה דאן 7":
+                s.belt = "שחורה דאן 7"
+            case "black_dan_8", "שחורה דאן 8":
+                s.belt = "שחורה דאן 8"
+            case "black_dan_9", "שחורה דאן 9":
+                s.belt = "שחורה דאן 9"
+            case "black_dan_10", "שחורה דאן 10":
+                s.belt = "שחורה דאן 10"
             default:
                 break
             }

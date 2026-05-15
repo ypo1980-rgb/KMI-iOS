@@ -410,11 +410,17 @@ struct KmiRootLayout<Content: View>: View {
                 case .coachTrainees:
                     nav.push(.coachTrainees)
 
+                case .coachPaymentsReport:
+                    nav.push(.paymentsReport)
+
                 case .adminUsers:
                     nav.push(.adminUsers)
 
                 case .aboutAvi:
                     nav.push(.aboutAvi)
+
+                case .aboutNetworkCoaches:
+                    nav.push(.aboutNetworkCoaches)
 
                 case .aboutMethod:
                     nav.push(.aboutMethod)

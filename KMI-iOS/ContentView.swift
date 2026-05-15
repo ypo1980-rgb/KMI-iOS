@@ -182,6 +182,7 @@ enum AppRoute: Hashable {
     case aboutMethod
     case aboutItzik
     case aboutAvi
+    case aboutNetworkCoaches
     case forum
     case editProfile
 
@@ -477,6 +478,12 @@ struct ContentView: View {
                         AboutAviAbisidonView(onClose: { nav.pop() })
                             .navigationBarBackButtonHidden(true)
                             .toolbar(.hidden, for: .navigationBar)
+
+                    case .aboutNetworkCoaches:
+                        KmiRootLayout(title: "אודות המאמנים ברשת", nav: nav, selectedIcon: .home) {
+                            AboutNetworkCoachesView()
+                                .navigationBarBackButtonHidden(true)
+                        }
 
                     case .forum:
                         KmiRootLayout(

@@ -1,5 +1,12 @@
 import SwiftUI
 import FirebaseAuth
+import FirebaseFirestore
+
+private let forumUnreadLimit: Int = 100
+
+private func forumLastReadKey(branch: String) -> String {
+    "forum_last_read_at_\(branch.trimmingCharacters(in: .whitespacesAndNewlines))"
+}
 
 // MARK: - Drawer Item Model
 
@@ -9,9 +16,11 @@ enum KmiDrawerRouteKey: String {
     case internalExam
     case coachBroadcast
     case coachTrainees
+    case coachPaymentsReport
     case adminUsers
 
     case aboutAvi
+    case aboutNetworkCoaches
     case aboutMethod
     case demoVideos
     case formsPayments
@@ -33,6 +42,23 @@ struct KmiDrawerItem: Identifiable {
     let titleEn: String
     let subtitleHe: String?
     let subtitleEn: String?
+    let systemImage: String
+
+    init(
+        routeKey: KmiDrawerRouteKey,
+        titleHe: String,
+        titleEn: String,
+        subtitleHe: String? = nil,
+        subtitleEn: String? = nil,
+        systemImage: String
+    ) {
+        self.routeKey = routeKey
+        self.titleHe = titleHe
+        self.titleEn = titleEn
+        self.subtitleHe = subtitleHe
+        self.subtitleEn = subtitleEn
+        self.systemImage = systemImage
+    }
 
     func title(isEnglish: Bool) -> String {
         isEnglish ? titleEn : titleHe
@@ -64,6 +90,9 @@ struct KmiSideDrawer: View {
     @State private var showFormsPayments: Bool = false
     @State private var showFormsList: Bool = false
 
+    @State private var forumUnreadCount: Int = 0
+    @State private var forumListener: ListenerRegistration? = nil
+
     private var isEnglish: Bool {
         let values = [
             kmiAppLanguageCode.lowercased(),
@@ -74,12 +103,37 @@ struct KmiSideDrawer: View {
         return values.contains("en") || values.contains("english")
     }
 
-    private var drawerEdge: Edge {
-        isEnglish ? .leading : .trailing
-    }
-
     private var closeIconName: String {
         "xmark"
+    }
+
+    private func titleSize(for item: KmiDrawerItem, isCoachButton: Bool) -> CGFloat {
+        if isCoachButton {
+            return 16
+        }
+
+        switch item.routeKey {
+        case .aboutAvi, .aboutNetworkCoaches:
+            return 15
+        default:
+            return 16
+        }
+    }
+
+    private func titleWeight(for item: KmiDrawerItem, isCoachButton: Bool) -> Font.Weight {
+        isCoachButton ? .heavy : .heavy
+    }
+
+    private func rowHorizontalPadding(isCoachButton: Bool) -> EdgeInsets {
+        if isCoachButton {
+            return EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
+        }
+
+        if isEnglish {
+            return EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 16)
+        } else {
+            return EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
+        }
     }
 
     private var resolvedRegion: String {
@@ -136,6 +190,51 @@ struct KmiSideDrawer: View {
         defaults.synchronize()
     }
 
+    private func startForumUnreadListener() {
+        forumListener?.remove()
+        forumListener = nil
+        forumUnreadCount = 0
+
+        let branch = resolvedBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !branch.isEmpty else {
+            return
+        }
+
+        let lastReadMillis = UserDefaults.standard.double(forKey: forumLastReadKey(branch: branch))
+
+        guard lastReadMillis > 0 else {
+            return
+        }
+
+        let lastReadDate = Date(timeIntervalSince1970: lastReadMillis / 1000.0)
+        let currentUid = Auth.auth().currentUser?.uid ?? ""
+
+        forumListener = Firestore.firestore()
+            .collection("branches")
+            .document(branch)
+            .collection("messages")
+            .whereField("createdAt", isGreaterThan: Timestamp(date: lastReadDate))
+            .order(by: "createdAt", descending: true)
+            .limit(to: forumUnreadLimit)
+            .addSnapshotListener { snapshot, error in
+                if let error {
+                    print("KMI_FORUM_UNREAD iOS failed branch=\(branch) error=\(error.localizedDescription)")
+                    forumUnreadCount = 0
+                    return
+                }
+
+                let unread = snapshot?.documents.filter { doc in
+                    let authorUid = doc.get("authorUid") as? String
+                    return authorUid == nil || authorUid?.isEmpty == true || authorUid != currentUid
+                }.count ?? 0
+
+                forumUnreadCount = unread
+
+                print("KMI_FORUM_UNREAD iOS unread=\(unread) branch=\(branch) lastRead=\(lastReadMillis)")
+            }
+    }
+
     private var effectiveRole: String {
         let loginRole = UserDefaults.standard.string(forKey: "user_role")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -176,8 +275,7 @@ struct KmiSideDrawer: View {
                         routeKey: .attendance,
                         titleHe: "דו״ח נוכחות",
                         titleEn: "Attendance Report",
-                        subtitleHe: nil,
-                        subtitleEn: nil
+                        systemImage: "chart.bar.xaxis"
                     )
                 )
             }
@@ -187,22 +285,25 @@ struct KmiSideDrawer: View {
                     routeKey: .coachBroadcast,
                     titleHe: "שליחת הודעה",
                     titleEn: "Send Message",
-                    subtitleHe: nil,
-                    subtitleEn: nil
+                    systemImage: "megaphone.fill"
                 ),
                 .init(
                     routeKey: .coachTrainees,
                     titleHe: "רשימת מתאמנים",
-                    titleEn: "Trainee List",
-                    subtitleHe: nil,
-                    subtitleEn: nil
+                    titleEn: "Trainees List",
+                    systemImage: "person.3.fill"
+                ),
+                .init(
+                    routeKey: .coachPaymentsReport,
+                    titleHe: "דו״ח תשלומים",
+                    titleEn: "Payments Report",
+                    systemImage: "chart.bar.xaxis"
                 ),
                 .init(
                     routeKey: .internalExam,
                     titleHe: "מבחן פנימי לחגורה",
                     titleEn: "Internal Belt Exam",
-                    subtitleHe: nil,
-                    subtitleEn: nil
+                    systemImage: "rosette"
                 )
             ])
         }
@@ -212,9 +313,10 @@ struct KmiSideDrawer: View {
                 .init(
                     routeKey: .adminUsers,
                     titleHe: "ניהול משתמשים",
-                    titleEn: "User Management",
-                    subtitleHe: "צפייה בכל המשתמשים",
-                    subtitleEn: "View all users"
+                    titleEn: "Manage Users",
+                    subtitleHe: "צפייה בכל המשתמשים באפליקציה",
+                    subtitleEn: "View all app users",
+                    systemImage: "person.3.sequence.fill"
                 )
             )
         }
@@ -227,79 +329,88 @@ struct KmiSideDrawer: View {
             .init(
                 routeKey: .aboutAvi,
                 titleHe: "אודות אבי אביסידון",
-                titleEn: "About Avi Abisidon",
+                titleEn: "About Avi Avisidon",
                 subtitleHe: "ראש השיטה",
-                subtitleEn: "Head of the method"
+                subtitleEn: "Head of the method",
+                systemImage: "person.fill"
+            ),
+            .init(
+                routeKey: .aboutNetworkCoaches,
+                titleHe: "אודות המאמנים ברשת",
+                titleEn: "About Network Coaches",
+                subtitleHe: "דרגות, ותק, הכשרות והסמכות",
+                subtitleEn: "Ranks, experience and certifications",
+                systemImage: "person.3.fill"
             ),
             .init(
                 routeKey: .aboutMethod,
                 titleHe: "אודות השיטה",
                 titleEn: "About the Method",
-                subtitleHe: "ק.מ.י",
-                subtitleEn: "K.M.I"
+                subtitleHe: "K.M.I",
+                subtitleEn: "K.M.I",
+                systemImage: "rosette"
             ),
             .init(
                 routeKey: .demoVideos,
                 titleHe: "תרגילים – הדגמה",
                 titleEn: "Exercises – Demo",
                 subtitleHe: "סרטוני הסבר קצרים לתרגילים",
-                subtitleEn: "Short demo videos for exercises"
+                subtitleEn: "Short demo videos for exercises",
+                systemImage: "play.fill"
             ),
             .init(
                 routeKey: .formsPayments,
                 titleHe: "טפסים ותשלומים",
                 titleEn: "Forms & Payments",
-                subtitleHe: nil,
-                subtitleEn: nil
+                systemImage: "chart.bar.doc.horizontal"
             ),
             .init(
                 routeKey: .contactUs,
                 titleHe: "צור קשר",
                 titleEn: "Contact Us",
                 subtitleHe: "השאירו פרטים ונחזור אליכם",
-                subtitleEn: "Leave details and we will get back to you"
+                subtitleEn: "Leave details and we will get back to you",
+                systemImage: "megaphone.fill"
             ),
             .init(
                 routeKey: .forum,
                 titleHe: "פורום הסניף",
                 titleEn: "Branch Forum",
-                subtitleHe: nil,
-                subtitleEn: nil
+                systemImage: "person.3.fill"
             ),
             .init(
                 routeKey: .editProfile,
                 titleHe: "עריכת פרופיל",
                 titleEn: "Edit Profile",
                 subtitleHe: "עדכון פרטים אישיים",
-                subtitleEn: "Update your personal details"
+                subtitleEn: "Update your personal details",
+                systemImage: "person.fill"
+            ),
+            .init(
+                routeKey: .toggleLanguage,
+                titleHe: "שפה / Language",
+                titleEn: "Language / שפה",
+                subtitleHe: "מעבר לאנגלית",
+                subtitleEn: "Switch to Hebrew",
+                systemImage: "globe"
             ),
             .init(
                 routeKey: .subscription,
                 titleHe: "ניהול מנוי",
-                titleEn: "Subscription",
-                subtitleHe: nil,
-                subtitleEn: nil
+                titleEn: "Manage Subscription",
+                systemImage: "rosette"
             ),
             .init(
                 routeKey: .rateUs,
                 titleHe: "⭐ דרגו אותנו ⭐",
                 titleEn: "⭐ Rate Us ⭐",
-                subtitleHe: nil,
-                subtitleEn: nil
-            ),
-            .init(
-                routeKey: .toggleLanguage,
-                titleHe: "Language / שפה",
-                titleEn: "Language / שפה",
-                subtitleHe: "מעבר לאנגלית",
-                subtitleEn: "Switch to Hebrew"
+                systemImage: "rosette"
             ),
             .init(
                 routeKey: .logout,
                 titleHe: "התנתקות",
                 titleEn: "Logout",
-                subtitleHe: nil,
-                subtitleEn: nil
+                systemImage: "rectangle.arrowtriangle.2.outward"
             )
         ]
     }
@@ -308,73 +419,90 @@ struct KmiSideDrawer: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.06, green: 0.09, blue: 0.20),
-                    Color(red: 0.06, green: 0.16, blue: 0.34)
+                    Color(red: 0.055, green: 0.086, blue: 0.188), // #0E1630
+                    Color(red: 0.122, green: 0.165, blue: 0.322), // #1F2A52
+                    Color(red: 0.145, green: 0.459, blue: 0.737)  // #2575BC
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
             .ignoresSafeArea()
 
-            VStack(spacing: 16) {
+            VStack(spacing: 8) {
                 HStack {
                     if isEnglish {
                         Text("Menu")
-                            .font(.system(size: 24, weight: .black, design: .rounded))
+                            .font(.system(size: 22, weight: .bold, design: .rounded))
                             .foregroundStyle(.white)
 
                         Spacer()
 
                         Button(action: onClose) {
                             Image(systemName: closeIconName)
-                                .font(.system(size: 18, weight: .heavy))
-                                .foregroundStyle(.white.opacity(0.95))
-                                .frame(width: 44, height: 44)
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 40, height: 40)
                         }
                         .buttonStyle(.plain)
                     } else {
                         Button(action: onClose) {
                             Image(systemName: closeIconName)
-                                .font(.system(size: 18, weight: .heavy))
-                                .foregroundStyle(.white.opacity(0.95))
-                                .frame(width: 44, height: 44)
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 40, height: 40)
                         }
                         .buttonStyle(.plain)
 
                         Spacer()
 
                         Text("תפריט")
-                            .font(.system(size: 24, weight: .black, design: .rounded))
+                            .font(.system(size: 22, weight: .bold, design: .rounded))
                             .foregroundStyle(.white)
                     }
                 }
-                .padding(.top, 10)
+                .frame(height: 48)
+                .padding(.top, 12)
                 .padding(.horizontal, 18)
 
                 ScrollView {
-                    VStack(spacing: 12) {
+                    VStack(spacing: 0) {
 
                         if !coachItems.isEmpty {
-                            ForEach(coachItems) { it in
-                                drawerButton(it, isCoachButton: true)
-                            }
+                            coachAreaCard
 
                             Divider()
-                                .overlay(Color.white.opacity(0.22))
-                                .padding(.top, 6)
-                                .padding(.bottom, 10)
+                                .overlay(Color.white.opacity(0.32))
+                                .padding(.horizontal, 16)
+                                .padding(.top, 14)
+                                .padding(.bottom, 14)
                         }
 
                         ForEach(items) { it in
                             drawerButton(it, isCoachButton: false)
                         }
+
+                        Text("© K.M.I")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(Color(red: 0.72, green: 0.77, blue: 0.85)) // #B8C4DA
+                            .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
+                            .padding(.horizontal, 18)
+                            .padding(.top, 8)
+                            .padding(.bottom, 8)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 18)
+                    .padding(.horizontal, 0)
+                    .padding(.top, 8)
+                    .padding(.bottom, 12)
                 }
 
                 Spacer(minLength: 0)
             }
+        }
+        .onAppear {
+            startForumUnreadListener()
+        }
+        .onDisappear {
+            forumListener?.remove()
+            forumListener = nil
         }
         .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
         .sheet(isPresented: $showDemoVideos) {
@@ -414,6 +542,58 @@ struct KmiSideDrawer: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
+    }
+
+    private var coachAreaCard: some View {
+        VStack(spacing: 0) {
+            HStack {
+                if isEnglish {
+                    Text("Coach area")
+                        .font(.system(size: 16, weight: .black))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text("אזור מאמן")
+                        .font(.system(size: 16, weight: .black))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 6)
+
+            Rectangle()
+                .fill(Color.white.opacity(0.16))
+                .frame(height: 1)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 2)
+
+            ForEach(coachItems) { it in
+                drawerButton(it, isCoachButton: true)
+            }
+        }
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.118, green: 0.106, blue: 0.294).opacity(0.92), // #1E1B4B
+                            Color(red: 0.192, green: 0.180, blue: 0.506).opacity(0.78), // #312E81
+                            Color(red: 0.114, green: 0.306, blue: 0.847).opacity(0.36)  // #1D4ED8
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Color(red: 1.0, green: 0.54, blue: 0.85).opacity(0.22), lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
     }
 
     private func drawerButton(_ it: KmiDrawerItem, isCoachButton: Bool) -> some View {
@@ -462,46 +642,104 @@ struct KmiSideDrawer: View {
             }
 
         } label: {
-            VStack(
-                alignment: isEnglish ? .leading : .trailing,
-                spacing: 4
-            ) {
-                Text(it.title(isEnglish: isEnglish))
-                    .font(.system(size: 18, weight: .heavy))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
-                    .multilineTextAlignment(isEnglish ? .leading : .trailing)
+            HStack(spacing: isCoachButton ? 10 : 8) {
+                DrawerIconBubble(systemImage: it.systemImage, isCoachButton: isCoachButton)
 
-                if let sub = it.subtitle(isEnglish: isEnglish), !sub.isEmpty {
-                    Text(sub)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.75))
+                VStack(
+                    alignment: isEnglish ? .leading : .trailing,
+                    spacing: 2
+                ) {
+                    Text(it.title(isEnglish: isEnglish))
+                        .font(.system(size: titleSize(for: it, isCoachButton: isCoachButton), weight: titleWeight(for: it, isCoachButton: isCoachButton)))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.86)
+                        .tracking(it.routeKey == .aboutAvi || it.routeKey == .aboutNetworkCoaches ? -0.2 : 0)
                         .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
                         .multilineTextAlignment(isEnglish ? .leading : .trailing)
+
+                    if let sub = it.subtitle(isEnglish: isEnglish), !sub.isEmpty {
+                        Text(sub)
+                            .font(.system(size: isCoachButton ? 12 : 13, weight: isCoachButton ? .medium : .semibold))
+                            .foregroundStyle(.white.opacity(isCoachButton ? 0.82 : 0.72))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.86)
+                            .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
+                            .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                    }
+                }
+
+                if it.routeKey == .forum {
+                    DrawerUnreadBadge(count: forumUnreadCount)
                 }
             }
+            .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+            .padding(rowHorizontalPadding(isCoachButton: isCoachButton))
+            .padding(.vertical, isCoachButton ? 9 : 8)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .padding(.horizontal, 16)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(
-                        isCoachButton
-                        ? Color(red: 0.92, green: 0.44, blue: 0.70)
-                        : Color.white.opacity(0.10)
-                    )
+                Rectangle()
+                    .fill(Color.white.opacity(0.001))
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(
-                        isCoachButton
-                        ? Color.white.opacity(0.00)
-                        : Color.white.opacity(0.10),
-                        lineWidth: 1
-                    )
-            )
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color.white.opacity(isCoachButton ? 0.12 : 0.10))
+                    .frame(height: 1)
+                    .padding(.horizontal, isCoachButton ? 16 : 18)
+            }
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Drawer Icon Bubble
+
+private struct DrawerIconBubble: View {
+    let systemImage: String
+    let isCoachButton: Bool
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.white.opacity(isCoachButton ? 0.16 : 0.12))
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(isCoachButton ? 0.24 : 0.18), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.16), radius: 2, x: 0, y: 1)
+
+            Image(systemName: systemImage)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(isCoachButton ? Color(red: 1.0, green: 0.54, blue: 0.85) : .white)
+                .symbolRenderingMode(.hierarchical)
+        }
+        .frame(width: 30, height: 30)
+    }
+}
+
+private struct DrawerUnreadBadge: View {
+    let count: Int
+
+    var body: some View {
+        if count > 0 {
+            Text(count > 99 ? "99+" : "\(count)")
+                .font(.system(size: 12, weight: .black))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .frame(minWidth: 24, minHeight: 24)
+                .background(
+                    Capsule()
+                        .fill(Color(red: 0.145, green: 0.827, blue: 0.400)) // #25D366
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.white.opacity(0.55), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.22), radius: 4, x: 0, y: 2)
+                )
+        }
     }
 }
 
@@ -547,7 +785,7 @@ struct KmiSideDrawerContainer<Content: View>: View {
 
     var body: some View {
         GeometryReader { geo in
-            let drawerWidth = min(geo.size.width * 0.82, 320)
+            let drawerWidth = min(geo.size.width * 0.84, 340)
 
             ZStack(alignment: drawerAlignment) {
                 content
@@ -823,6 +1061,26 @@ private struct KmiFormsPaymentsSheet: View {
             )
         }
         .buttonStyle(.plain)
+    }
+    
+    private struct DrawerIconBubble: View {
+        let systemImage: String
+        let isCoachButton: Bool
+        
+        var body: some View {
+            ZStack {
+                Circle()
+                    .fill(Color.white.opacity(isCoachButton ? 0.16 : 0.12))
+                
+                Circle()
+                    .stroke(Color.white.opacity(isCoachButton ? 0.20 : 0.16), lineWidth: 1)
+                
+                Image(systemName: systemImage)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 30, height: 30)
+        }
     }
 }
 

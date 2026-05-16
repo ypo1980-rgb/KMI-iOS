@@ -106,6 +106,8 @@ struct MaterialsView: View {
 
     @State private var refreshToken = UUID()
 
+    @State private var toastMessage: String? = nil
+
     @State private var speechSynth = AVSpeechSynthesizer()
 
     private var topicUi: String {
@@ -269,12 +271,20 @@ struct MaterialsView: View {
                     }
                 )
             }
+
+            if let toastMessage {
+                MaterialsToastView(message: toastMessage)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 118)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(20)
+            }
         }
         .navigationBarBackButtonHidden(true)
         .environment(\.layoutDirection, screenLayoutDirection)
         .onAppear {
             loadState()
-            debugPrintCurrentMaterials()
         }
         .sheet(item: $selectedInfoRow) { row in
             MaterialsInfoSheet(
@@ -409,13 +419,31 @@ struct MaterialsView: View {
         notes = loadedNotes
     }
 
+    private func showToast(_ message: String) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+
+        withAnimation(.easeOut(duration: 0.18)) {
+            toastMessage = message
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.55) {
+            withAnimation(.easeIn(duration: 0.18)) {
+                if toastMessage == message {
+                    toastMessage = nil
+                }
+            }
+        }
+    }
+
     private func toggleFavorite(_ id: String) {
         if favorites.contains(id) {
             favorites.remove(id)
             UserDefaults.standard.set(false, forKey: favoriteKey(for: id))
+            showToast(tr("הוסר מהמועדפים.", "Removed from favorites."))
         } else {
             favorites.insert(id)
             UserDefaults.standard.set(true, forKey: favoriteKey(for: id))
+            showToast(tr("נוסף למועדפים.", "Added to favorites."))
         }
     }
 
@@ -423,9 +451,11 @@ struct MaterialsView: View {
         if excluded.contains(id) {
             excluded.remove(id)
             UserDefaults.standard.set(false, forKey: excludedKey(for: id))
+            showToast(tr("בוטלה ההחרגה – התרגיל יחזור לתרגול.", "Exclusion canceled. The exercise will return to practice."))
         } else {
             excluded.insert(id)
             UserDefaults.standard.set(true, forKey: excludedKey(for: id))
+            showToast(tr("התרגיל הוחרג – לא יופיע בתרגול הנושא.", "Exercise excluded. It will not appear in this topic practice."))
         }
     }
 
@@ -563,6 +593,29 @@ private struct MaterialsBeltLightBackground: View {
     }
 }
 
+private struct MaterialsToastView: View {
+    let message: String
+
+    var body: some View {
+        Text(message)
+            .font(.system(size: 13.5, weight: .bold))
+            .foregroundStyle(Color.white)
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
+            .background(
+                Capsule()
+                    .fill(Color(red: 0.12, green: 0.16, blue: 0.24).opacity(0.94))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 5)
+    }
+}
+
 private func materialsBeltImageName(for belt: Belt) -> String {
     switch belt {
     case .white:
@@ -587,56 +640,44 @@ private func materialsBeltImageName(for belt: Belt) -> String {
 // MARK: - Header
 
 private struct MaterialsHeaderCard: View {
+
     let belt: Belt
     let title: String
     let count: Int
     let isEnglish: Bool
     let onBack: () -> Void
 
-    private var titleAlignment: TextAlignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    private var titleFrameAlignment: Alignment {
-        isEnglish ? .leading : .trailing
-    }
-
     private var materialTitle: String {
         isEnglish ? "Material: \(title)" : "חומר: \(title)"
     }
 
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var rowDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
     var body: some View {
-        VStack(spacing: 7) {
-            HStack(spacing: 10) {
-                if isEnglish {
-                    backButton
-                    
-                    Text(materialTitle)
-                        .font(.system(size: 15.5, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.20, green: 0.25, blue: 0.33))
-                        .multilineTextAlignment(titleAlignment)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.76)
-                        .frame(maxWidth: .infinity, alignment: titleFrameAlignment)
-                } else {
-                    Text(materialTitle)
-                        .font(.system(size: 15.5, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.20, green: 0.25, blue: 0.33))
-                        .multilineTextAlignment(titleAlignment)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.76)
-                        .frame(maxWidth: .infinity, alignment: titleFrameAlignment)
-                    
-                    backButton
-                }
-            }
-            .environment(\.layoutDirection, .leftToRight)
-            
-            beltImageStrip
+        HStack(spacing: 10) {
+            Text(materialTitle)
+                .font(.system(size: 15.5, weight: .heavy))
+                .foregroundStyle(Color(red: 0.20, green: 0.25, blue: 0.33))
+                .multilineTextAlignment(textAlignment)
+                .lineLimit(1)
+                .minimumScaleFactor(0.76)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+
+            beltPill
         }
+        .environment(\.layoutDirection, rowDirection)
         .padding(.horizontal, 14)
-        .padding(.top, 7)
-        .padding(.bottom, 8)
+        .padding(.vertical, 6)
         .background(
             LinearGradient(
                 colors: [
@@ -650,49 +691,21 @@ private struct MaterialsHeaderCard: View {
         )
     }
 
-    private var backButton: some View {
-        Button {
-            onBack()
-        } label: {
-            Image(systemName: isEnglish ? "chevron.left" : "chevron.right")
-                .font(.system(size: 14, weight: .black))
-                .foregroundStyle(BeltPaletteByMaterials.color(for: belt).opacity(0.92))
-                .frame(width: 34, height: 34)
-                .background(
-                    Circle()
-                        .fill(Color.white.opacity(0.88))
-                )
+    private var beltPill: some View {
+        ZStack {
+            Circle()
+                .fill(Color.white.opacity(0.70))
+                .frame(width: 42, height: 42)
                 .overlay(
                     Circle()
-                        .stroke(BeltPaletteByMaterials.color(for: belt).opacity(0.22), lineWidth: 1)
+                        .stroke(BeltPaletteByMaterials.color(for: belt).opacity(0.18), lineWidth: 1)
                 )
-                .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 2)
-        }
-        .buttonStyle(.plain)
-    }
 
-    private var beltImageStrip: some View {
-        HStack(spacing: 10) {
-            Rectangle()
-                .fill(BeltPaletteByMaterials.color(for: belt).opacity(0.24))
-                .frame(height: 1)
-            
             Image(materialsBeltImageName(for: belt))
                 .resizable()
                 .scaledToFit()
-                .frame(width: 132, height: 38)
-                .shadow(
-                    color: BeltPaletteByMaterials.color(for: belt).opacity(0.30),
-                    radius: 7,
-                    x: 0,
-                    y: 3
-                )
-            
-            Rectangle()
-                .fill(BeltPaletteByMaterials.color(for: belt).opacity(0.24))
-                .frame(height: 1)
+                .frame(width: 32, height: 32)
         }
-        .frame(maxWidth: .infinity)
     }
 }
 
@@ -706,25 +719,25 @@ private struct MaterialsExerciseRow: View {
     let mark: MaterialsView.RowMark?
     let hasNote: Bool
     let isEnglish: Bool
-
+    
     let onToggleFavorite: () -> Void
     let onToggleExcluded: () -> Void
     let onShowInfo: () -> Void
     let onEditNote: () -> Void
     let onCycleMark: () -> Void
-
+    
     private var textAlignment: TextAlignment {
         isEnglish ? .leading : .trailing
     }
-
+    
     private var frameAlignment: Alignment {
         isEnglish ? .leading : .trailing
     }
-
+    
     var body: some View {
         HStack(spacing: 8) {
             menuButton
-
+            
             Text(title)
                 .font(.system(size: 15.5, weight: .semibold))
                 .foregroundStyle(isExcluded ? Color.gray : Color(red: 0.07, green: 0.09, blue: 0.15))
@@ -733,7 +746,7 @@ private struct MaterialsExerciseRow: View {
                 .minimumScaleFactor(0.84)
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
                 .padding(.horizontal, 4)
-
+            
             markButtons
         }
         .environment(\.layoutDirection, .leftToRight)
@@ -743,7 +756,7 @@ private struct MaterialsExerciseRow: View {
         .background(Color.clear)
         .contentShape(Rectangle())
     }
-
+    
     private var menuButton: some View {
         Menu {
             Section {
@@ -752,26 +765,26 @@ private struct MaterialsExerciseRow: View {
                      : "מה זה “החרג”?\nמנטרל את התרגיל מהתרגול של הנושא הנבחר.")
                 .font(.caption)
             }
-
+            
             Button(
                 isEnglish ? "Info" : "מידע",
                 action: onShowInfo
             )
-
+            
             Button(
                 isFavorite
                 ? (isEnglish ? "Remove from favorites" : "הסר ממועדפים")
                 : (isEnglish ? "Add to favorites" : "הוסף למועדפים"),
                 action: onToggleFavorite
             )
-
+            
             Button(
                 isExcluded
                 ? (isEnglish ? "Cancel exclusion" : "בטל החרגה")
                 : (isEnglish ? "Exclude from practice" : "החרג (מנטרל מהתרגול)"),
                 action: onToggleExcluded
             )
-
+            
             Button(
                 hasNote
                 ? (isEnglish ? "Edit / delete note" : "ערוך / מחק הערה")
@@ -779,7 +792,7 @@ private struct MaterialsExerciseRow: View {
                 action: onEditNote
             )
         } label: {
-            ZStack(alignment: .topTrailing) {
+            ZStack {
                 Circle()
                     .fill(Color(red: 0.38, green: 0.44, blue: 0.48))
                     .frame(width: 27, height: 27)
@@ -788,11 +801,14 @@ private struct MaterialsExerciseRow: View {
                             .stroke(Color.white.opacity(0.22), lineWidth: 1)
                     )
                     .shadow(color: Color.black.opacity(0.12), radius: 3, x: 0, y: 2)
-
+                
                 Text("i")
-                    .font(.system(size: 15, weight: .black))
+                    .font(.system(size: 14, weight: .black))
                     .foregroundStyle(Color.white)
-
+                    .offset(y: -0.5)
+            }
+            .frame(width: 29, height: 29)
+            .overlay(alignment: .topTrailing) {
                 if isFavorite || isExcluded || hasNote {
                     Circle()
                         .fill(statusDotColor)
@@ -804,34 +820,33 @@ private struct MaterialsExerciseRow: View {
                         .offset(x: 2, y: -2)
                 }
             }
-            .frame(width: 29, height: 29)
         }
         .buttonStyle(.plain)
         .frame(width: 31)
     }
-
+    
     private var statusDotColor: Color {
         if isExcluded {
             return Color.red.opacity(0.88)
         }
-
+        
         if hasNote {
             return Color.blue.opacity(0.88)
         }
-
+        
         if isFavorite {
             return Color.orange.opacity(0.90)
         }
-
+        
         return Color.clear
     }
-
+    
     private var markButtons: some View {
         MaterialsSingleMarkCircleButton(
             mark: mark,
             onTap: onCycleMark
         )
-        .frame(width: 44)
+        .frame(width: 38)
     }
 }
 
@@ -900,7 +915,7 @@ private struct MaterialsSingleMarkCircleButton: View {
             ZStack {
                 Circle()
                     .fill(fillColor)
-                    .frame(width: 40, height: 40)
+                    .frame(width: 34, height: 34)
                     .overlay(
                         Circle()
                             .stroke(strokeColor, lineWidth: 1)
@@ -914,7 +929,7 @@ private struct MaterialsSingleMarkCircleButton: View {
 
                 if let iconName {
                     Image(systemName: iconName)
-                        .font(.system(size: 16, weight: .black))
+                        .font(.system(size: 14, weight: .black))
                         .foregroundStyle(Color.white)
                 }
             }
@@ -1129,23 +1144,28 @@ private struct MaterialsBottomBar: View {
         .padding(.top, 14)
         .padding(.bottom, 14)
         .background(
-            LinearGradient(
-                colors: [
-                    Color.white.opacity(0.96),
-                    BeltPaletteByMaterials.color(for: belt).opacity(0.10),
-                    Color.white.opacity(0.94)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+            ZStack {
+                Color.white.opacity(0.94)
+
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.98),
+                        BeltPaletteByMaterials.color(for: belt).opacity(0.12),
+                        Color.white.opacity(0.96)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
             .ignoresSafeArea(edges: .bottom)
         )
         .overlay(
             Rectangle()
-                .fill(BeltPaletteByMaterials.color(for: belt).opacity(0.14))
+                .fill(BeltPaletteByMaterials.color(for: belt).opacity(0.16))
                 .frame(height: 1),
             alignment: .top
         )
+        .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: -3)
     }
 }
 

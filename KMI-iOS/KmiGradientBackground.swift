@@ -16,11 +16,8 @@ struct KmiGradientBackground: View {
     }
     
     var body: some View {
-
-        let _ = print("KMI_BG role=\(storedUserRole) isCoach=\(isCoach)")
         
         ZStack {
-
             if isCoach {
 
                 LinearGradient(

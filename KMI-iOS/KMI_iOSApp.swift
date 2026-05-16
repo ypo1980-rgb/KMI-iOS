@@ -6,6 +6,14 @@ import GoogleSignIn
 
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
 
+    override init() {
+        super.init()
+
+        if FirebaseApp.app() == nil {
+            FirebaseApp.configure()
+        }
+    }
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -14,11 +22,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         center.delegate = self
 
         // לא מעכבים את הצגת המסך הראשון בגלל הרשאות / Push.
-        // ההגדרה תופעל מיד אחרי שהאפליקציה מתחילה להציג UI.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             KmiPushManager.shared.configure()
         }
-
         return true
     }
 
@@ -67,13 +73,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 struct KMI_iOSApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
 
-    init() {
-        if FirebaseApp.app() == nil {
-            FirebaseApp.configure()
-            print("✅ Firebase configured from KMI_iOSApp.init")
-        }
-    }
-
     var body: some Scene {
         WindowGroup {
             ZStack {
@@ -85,11 +84,11 @@ struct KMI_iOSApp: App {
                     }
                 }
             }
-            .background(Color.white.ignoresSafeArea())
+            .background(Color.clear.ignoresSafeArea())
+            .preferredColorScheme(.light)
         }
     }
 }
-
 private struct KmiLaunchBackground: View {
     var body: some View {
         ZStack {

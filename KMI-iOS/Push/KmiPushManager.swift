@@ -24,16 +24,11 @@ final class KmiPushManager: NSObject {
             case .authorized, .provisional, .ephemeral:
                 DispatchQueue.main.async {
                     UIApplication.shared.registerForRemoteNotifications()
-                    print("KMI_PUSH iOS: already authorized -> registerForRemoteNotifications")
                 }
 
             case .notDetermined:
-                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
+                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
                     DispatchQueue.main.async {
-                        if let error {
-                            print("KMI_PUSH iOS: permission request failed =", error.localizedDescription)
-                        }
-                        print("KMI_PUSH iOS: permission granted =", granted)
                         if granted {
                             UIApplication.shared.registerForRemoteNotifications()
                         }
@@ -41,7 +36,7 @@ final class KmiPushManager: NSObject {
                 }
 
             case .denied:
-                print("KMI_PUSH iOS: notifications denied by user")
+                break
 
             @unknown default:
                 break
@@ -50,27 +45,23 @@ final class KmiPushManager: NSObject {
     }
 
     func didRegisterForRemoteNotifications(deviceToken: Data) {
-        let tokenString = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
-        print("KMI_PUSH iOS: APNS device token =", tokenString)
+        // APNS token received successfully.
     }
 
     func didFailToRegisterForRemoteNotifications(error: Error) {
-        print("KMI_PUSH iOS: failed to register for APNS =", error.localizedDescription)
+        // APNS registration failed.
     }
 
     func handleRemoteNotification(userInfo: [AnyHashable: Any]) {
         lastPayload = userInfo
-        print("KMI_PUSH iOS: received payload =", userInfo)
 
         guard let route = extractRoute(from: userInfo) else {
             return
         }
 
         lastOpenedRoute = route
-        print("KMI_PUSH iOS: extracted route =", route)
 
         guard let nav = KMI_iOS.AppNavModel.sharedInstance else {
-            print("KMI_PUSH: nav model not ready")
             return
         }
         
@@ -86,7 +77,7 @@ final class KmiPushManager: NSObject {
                 nav.push(KMI_iOS.AppRoute.settings)
 
             default:
-                print("KMI_PUSH: unknown route =", route)
+                break
             }
         }
     }

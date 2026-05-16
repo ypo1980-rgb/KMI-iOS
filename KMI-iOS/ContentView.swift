@@ -204,40 +204,30 @@ final class AppNavModel: ObservableObject {
 
     static weak var sharedInstance: AppNavModel?
 
-    @Published var path: [AppRoute] = [] {
-        didSet {
-            print("🧭 AppNavModel.path =", path)
-        }
-    }
+    @Published var path: [AppRoute] = []
 
     init() {
         AppNavModel.sharedInstance = self
     }
 
     func push(_ r: AppRoute) {
-        print("🧭 PUSH request:", r)
         if path.last == r {
-            print("🧭 PUSH skipped (same as last):", r)
             return
         }
+
         path.append(r)
-        print("🧭 PUSH done:", r)
     }
 
     func pop() {
-        print("🧭 POP request. current path =", path)
         guard !path.isEmpty else {
-            print("🧭 POP skipped (empty path)")
             return
         }
-        let removed = path.popLast()
-        print("🧭 POP done. removed =", String(describing: removed), "new path =", path)
+
+        path.removeLast()
     }
 
     func popToRoot() {
-        print("🧭 POP TO ROOT. old path =", path)
         path.removeAll()
-        print("🧭 POP TO ROOT done. new path =", path)
     }
 }
 
@@ -606,16 +596,6 @@ struct ContentView: View {
                                     nav.pop()
                                 },
                                 onSubmit: { formState in
-                                    #if DEBUG
-                                    print("✏️ EDIT_PROFILE submit")
-                                    print("✏️ fullName =", formState.fullName)
-                                    print("✏️ phone =", formState.phone)
-                                    print("✏️ email =", formState.email)
-                                    print("✏️ region =", formState.region)
-                                    print("✏️ branches =", Array(formState.branches))
-                                    print("✏️ groups =", Array(formState.groups))
-                                    #endif
-
                                     let defaults = UserDefaults.standard
 
                                     defaults.set(formState.fullName, forKey: "fullName")
@@ -749,20 +729,6 @@ struct ContentView: View {
                                         // בשלב הבא נחבר למסך מדיניות מלא / מסמך מדיניות
                                     },
                                     onContinueToPayment: { formData in
-                                        #if DEBUG
-                                        print("💳 MEMBERSHIP_PAYMENT continue")
-                                        print("💳 trainee =", formData.traineeFirstName, formData.traineeLastName)
-                                        print("💳 idNumber =", formData.traineeIdNumber)
-                                        print("💳 birthDate =", formData.traineeBirthDate)
-                                        print("💳 email =", formData.traineeEmail)
-                                        print("💳 phone =", formData.traineePhone)
-                                        print("💳 branch =", formData.traineeBranch)
-                                        print("💳 payer =", formData.payerFirstName, formData.payerLastName)
-                                        print("💳 payerEmail =", formData.payerEmail)
-                                        print("💳 payerPhone =", formData.payerPhone)
-                                        print("💳 amount =", formData.amount)
-                                        #endif
-
                                         nav.push(.membershipCheckout(formData: formData))
                                     }
                                 )
@@ -779,12 +745,6 @@ struct ContentView: View {
                                         nav.pop()
                                     },
                                     onPaymentCompleted: {
-                                        #if DEBUG
-                                        print("✅ MEMBERSHIP_PAYMENT completed")
-                                        print("✅ trainee =", formData.traineeFirstName, formData.traineeLastName)
-                                        print("✅ amount =", formData.amount)
-                                        #endif
-
                                         nav.popToRoot()
                                     }
                                 )
@@ -803,14 +763,6 @@ struct ContentView: View {
                                     nav.push(.coachTrainees)
                                 },
                                 onSaveManualPayment: { traineeId, amount, method, notes in
-                                    #if DEBUG
-                                    print("💰 PAYMENTS_REPORT manual update")
-                                    print("💰 traineeId =", traineeId)
-                                    print("💰 amount =", amount)
-                                    print("💰 method =", method.rawValue)
-                                    print("💰 notes =", notes)
-                                    #endif
-
                                     // בשלב הבא נחבר לשמירה אמיתית ב-Firebase / Firestore
                                 }
                             )
@@ -993,16 +945,6 @@ struct ContentView: View {
                             .navigationBarBackButtonHidden(true)
                             .onAppear {
                                 auth.reloadProfileIfSignedIn()
-
-                                #if DEBUG
-                                print("🟣 ATTENDANCE_ROUTE uid =", Auth.auth().currentUser?.uid ?? "demo_ios")
-                                print("🟣 ATTENDANCE_ROUTE auth.userFullName =", auth.userFullName)
-                                print("🟣 ATTENDANCE_ROUTE auth.userBranch =", auth.userBranch)
-                                print("🟣 ATTENDANCE_ROUTE auth.userGroup =", auth.userGroup)
-                                print("🟣 ATTENDANCE_ROUTE resolvedBranch =", resolvedAttendanceBranch)
-                                print("🟣 ATTENDANCE_ROUTE resolvedGroup =", resolvedAttendanceGroup)
-                                print("🟣 ATTENDANCE_ROUTE resolvedCoachName =", resolvedAttendanceCoachName)
-                                #endif
                             }
                         }
                         
@@ -1053,12 +995,6 @@ struct ContentView: View {
             }
             .environmentObject(nav)
             .onAppear {
-                #if DEBUG
-                print("🟣 ContentView.onAppear auth.userFullName(before) =", auth.userFullName)
-                print("🟣 ContentView.onAppear auth.userBranch(before) =", auth.userBranch)
-                print("🟣 ContentView.onAppear auth.userGroup(before) =", auth.userGroup)
-                #endif
-
                 auth.reloadProfileIfSignedIn()
             }
         }

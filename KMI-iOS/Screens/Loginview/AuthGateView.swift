@@ -28,11 +28,7 @@ struct AuthGateView: View {
             KmiGradientBackground(forceTraineeStyle: true)
 
             Group {
-                if !didFinishInitialAuthCheck && auth.isLoading {
-
-                    authFlowStack
-
-                } else if didRequestEnterApp && !didFinishPostLoginLoading {
+                if didRequestEnterApp && !didFinishPostLoginLoading {
 
                     KmiStartupLoadingScreen(
                         isEnglish: KmiStartupLanguage.currentFromDefaults().isEnglish,
@@ -46,12 +42,7 @@ struct AuthGateView: View {
                     ContentView()
                         .onAppear {
                             didCompleteAuthScreen = true
-
-                            #if DEBUG
-                            print("✅ AuthGateView: didRequestEnterApp == true -> showing ContentView")
-                            #endif
                         }
-
                 } else {
 
                     authFlowStack
@@ -70,7 +61,12 @@ struct AuthGateView: View {
             didRequestEnterApp = false
             step = .intro
             nav.popToRoot()
-            auth.start()
+
+            // נותן ל-SwiftUI לצייר קודם את מסך הכניסה/הרקע,
+            // ורק אחרי זה מתחיל בדיקות Auth/Firebase.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                auth.start()
+            }
         }
         .onChange(of: auth.isLoading) { _, isLoading in
             if !isLoading {
@@ -80,12 +76,9 @@ struct AuthGateView: View {
         .onChange(of: auth.isSignedIn) { _, isSignedIn in
             if isSignedIn {
                 didCompleteAuthScreen = true
-
-                #if DEBUG
-                print("✅ AuthGateView: detected signed-in user, staying on Intro until user taps Google or regular login")
-                #endif
             }
         }
+        
         .onDisappear {
             auth.stop()
         }
@@ -437,9 +430,7 @@ private struct KmiIntroGateScreen: View {
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundStyle(rank.color)
 
-                Image(rank.imageName)
-                    .resizable()
-                    .scaledToFit()
+                beltImageWithoutWhiteBackground(rank.imageName)
                     .frame(width: 112, height: 42)
                     .shadow(
                         color: rank.color.opacity(0.42),
@@ -449,6 +440,15 @@ private struct KmiIntroGateScreen: View {
                     )
             }
         }
+    }
+
+    @ViewBuilder
+    private func beltImageWithoutWhiteBackground(_ imageName: String) -> some View {
+        Image(imageName)
+            .resizable()
+            .renderingMode(.original)
+            .interpolation(.high)
+            .scaledToFit()
     }
     
     var body: some View {

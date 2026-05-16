@@ -48,9 +48,7 @@ private enum KmiGlobalText {
     static func screenTitle(_ raw: String, isEnglish: Bool) -> String {
         let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard isEnglish else { return clean }
-
-        let map: [String: String] = [
+        let heToEn: [String: String] = [
             "מסך הבית": "Home",
             "בית": "Home",
             "תרגילים לפי חגורה": "Exercises by Belt",
@@ -84,11 +82,51 @@ private enum KmiGlobalText {
             "אין הרשאה": "No Permission"
         ]
 
-        if let translated = map[clean] {
-            return translated
-        }
+        let enToHe: [String: String] = [
+            "Home": "בית",
+            "Subscription Plans": "תוכניות מנוי",
+            "Subscription": "ניהול מנוי",
+            "Exercises by Belt": "תרגילים לפי חגורה",
+            "Exercises by Topic": "תרגילים לפי נושא",
+            "By Belt": "לפי חגורה",
+            "By Topic": "לפי נושא",
+            "Belt Topics": "נושאים בחגורה",
+            "Weak Points": "נקודות תורפה",
+            "All Lists": "כל הרשימות",
+            "Practice": "תרגול",
+            "Summary": "מסך סיכום",
+            "Training Summary": "סיכום אימון",
+            "Voice Assistant": "עוזר קולי",
+            "Final Exam": "מבחן מסכם",
+            "Internal Exam": "מבחן פנימי",
+            "Attendance Report": "דו״ח נוכחות",
+            "Progress": "התקדמות",
+            "Training History": "היסטוריית אימונים",
+            "Free Sessions": "אימונים חופשיים",
+            "Trainees": "אודות מתאמנים",
+            "Group Message": "שליחת הודעה לקבוצה",
+            "Settings": "הגדרות",
+            "About the Network": "אודות הרשת",
+            "About the Method": "אודות השיטה",
+            "About Itzik Biton": "אודות איציק ביטון",
+            "About Avi Abisidon": "אודות אבי אביסידון",
+            "Branch Forum": "פורום הסניף",
+            "No Permission": "אין הרשאה"
+        ]
 
-        return KmiEnglishTitleResolver.title(for: clean, isEnglish: true)
+        if isEnglish {
+            if let translated = heToEn[clean] {
+                return translated
+            }
+
+            return KmiEnglishTitleResolver.title(for: clean, isEnglish: true)
+        } else {
+            if let translated = enToHe[clean] {
+                return translated
+            }
+
+            return clean
+        }
     }
 
     static func drawerTitle(_ raw: String, isEnglish: Bool) -> String {
@@ -137,15 +175,33 @@ struct KmiTopBar: View {
 
     let rightText: String?
 
-    private var isEnglish: Bool {
-        let values = [
-            kmiAppLanguageCode.lowercased(),
-            appLanguageRaw.lowercased(),
-            initialLanguageCode.lowercased(),
-            selectedLanguageCode.lowercased()
+    private var effectiveLanguageCode: String {
+        let orderedValues = [
+            kmiAppLanguageCode,
+            selectedLanguageCode,
+            appLanguageRaw,
+            initialLanguageCode
         ]
 
-        return values.contains("en") || values.contains("english")
+        for raw in orderedValues {
+            let clean = raw
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            if clean == "he" || clean == "hebrew" || clean == "עברית" {
+                return "he"
+            }
+
+            if clean == "en" || clean == "english" {
+                return "en"
+            }
+        }
+
+        return "he"
+    }
+
+    private var isEnglish: Bool {
+        effectiveLanguageCode == "en"
     }
 
     private var localizedTitle: String {
@@ -273,15 +329,33 @@ struct KmiRootLayout<Content: View>: View {
     @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
     @AppStorage("selected_language_code") private var selectedLanguageCode: String = "he"
 
-    private var isEnglish: Bool {
-        let values = [
-            kmiAppLanguageCode.lowercased(),
-            appLanguageRaw.lowercased(),
-            initialLanguageCode.lowercased(),
-            selectedLanguageCode.lowercased()
+    private var effectiveLanguageCode: String {
+        let orderedValues = [
+            kmiAppLanguageCode,
+            selectedLanguageCode,
+            appLanguageRaw,
+            initialLanguageCode
         ]
 
-        return values.contains("en") || values.contains("english")
+        for raw in orderedValues {
+            let clean = raw
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            if clean == "he" || clean == "hebrew" || clean == "עברית" {
+                return "he"
+            }
+
+            if clean == "en" || clean == "english" {
+                return "en"
+            }
+        }
+
+        return "he"
+    }
+
+    private var isEnglish: Bool {
+        effectiveLanguageCode == "en"
     }
     
     let title: String

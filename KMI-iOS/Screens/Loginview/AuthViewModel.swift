@@ -75,9 +75,7 @@ final class AuthViewModel: ObservableObject {
 
         isLoading = true
 
-        #if DEBUG
-        print("AuthViewModel.start() attaching auth state listener…")
-        #endif
+
 
         handle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             guard let self else { return }
@@ -89,12 +87,7 @@ final class AuthViewModel: ObservableObject {
                     // ✅ טוענים פרופיל מהשרת כדי לדעת חגורה ותפקיד
                     await self.loadUserProfile(uid: user.uid)
 
-                    #if DEBUG
-                    print("🟣 AUTH_START uid =", user.uid)
-                    print("🟣 AUTH_START userFullName =", self.userFullName)
-                    print("🟣 AUTH_START userBranch =", self.userBranch)
-                    print("🟣 AUTH_START userGroup =", self.userGroup)
-                    #endif
+
                 } else {
                     // ✅ יציאה -> מאפסים
                     self.registeredBelt = nil
@@ -115,13 +108,7 @@ final class AuthViewModel: ObservableObject {
 
                 self.isLoading = false
 
-                #if DEBUG
-                if let user {
-                    print("Auth state changed: signed in uid=\(user.uid)")
-                } else {
-                    print("Auth state changed: signed out")
-                }
-                #endif
+
             }
         }
         #else
@@ -1394,9 +1381,7 @@ await loadUserProfile(uid: uid)
 #if canImport(FirebaseFirestore)
 private func loadUserProfileFromFirestore(uid: String) async {
     do {
-        #if DEBUG
-        print("🟠 loadUserProfileFromFirestore(uid:) start uid =", uid)
-        #endif
+
 
         let db = Firestore.firestore()
         let ref = db.collection("users").document(uid)
@@ -1430,20 +1415,14 @@ private func loadUserProfileFromFirestore(uid: String) async {
 
         let rawData = snap.data() ?? [:]
 
-#if DEBUG
-print("🟠 FIRESTORE users/\(uid) exists =", snap.exists)
-print("🟠 FIRESTORE users/\(uid) data =", rawData)
-print("🟠 FIRESTORE users/\(uid) keys =", Array(rawData.keys).sorted())
-#endif
+
 
         let data = try await ensureUserProfileDocumentExists(
             uid: uid,
             existingData: rawData
         )
 
-        #if DEBUG
-        print("🟠 FIRESTORE users/\(uid) normalized data =", data)
-        #endif
+
 
         // ✅ role מהשרת (עם fallback רחב יותר)
         let roleFromServer =
@@ -1481,9 +1460,7 @@ print("🟠 FIRESTORE users/\(uid) keys =", Array(rawData.keys).sorted())
             self.userRole = resolvedRole
             UserDefaults.standard.set(resolvedRole, forKey: self.roleDefaultsKey)
 
-            #if DEBUG
-            print("KMI_ROLE raw role =", roleFromServer, "resolved =", resolvedRole)
-            #endif
+
 
             let rawBelt =
                 (data["beltId"] as? String) ??
@@ -1535,24 +1512,7 @@ print("🟠 FIRESTORE users/\(uid) keys =", Array(rawData.keys).sorted())
         let primaryBranch = branches.first ?? ""
         let primaryGroup = groups.first ?? ""
 
-#if DEBUG
-print("🟠 PROFILE_PARSED fullName =", fullName)
-print("🟠 PROFILE_PARSED region =", region)
-print("🟠 PROFILE_PARSED raw branch =", data["branch"] as Any)
-print("🟠 PROFILE_PARSED raw branches =", data["branches"] as Any)
-print("🟠 PROFILE_PARSED raw group =", data["group"] as Any)
-print("🟠 PROFILE_PARSED raw groups =", data["groups"] as Any)
-print("🟠 PROFILE_PARSED raw age_group =", data["age_group"] as Any)
-print("🟠 PROFILE_PARSED raw ageGroup =", data["ageGroup"] as Any)
-print("🟠 PROFILE_PARSED branchesArray =", branchesArray)
-print("🟠 PROFILE_PARSED singleBranch =", singleBranch)
-print("🟠 PROFILE_PARSED branches =", branches)
-print("🟠 PROFILE_PARSED groupsArray =", groupsArray)
-print("🟠 PROFILE_PARSED singleGroup =", singleGroup)
-print("🟠 PROFILE_PARSED groups =", groups)
-print("🟠 PROFILE_PARSED primaryBranch =", primaryBranch)
-print("🟠 PROFILE_PARSED primaryGroup =", primaryGroup)
-#endif
+
 
         self.userFullName = fullName
         self.userRegion = region
@@ -1565,19 +1525,7 @@ print("🟠 PROFILE_PARSED primaryGroup =", primaryGroup)
             group: primaryGroup
         )
 
-        #if DEBUG
-        print("🟠 PROFILE_STATE userFullName =", self.userFullName)
-        print("🟠 PROFILE_STATE userBranch =", self.userBranch)
-        print("🟠 PROFILE_STATE userGroup =", self.userGroup)
-        print("🟢 AUTH_PROFILE uid =", uid)
-        print("🟢 AUTH_PROFILE fullName =", fullName)
-            print("🟢 AUTH_PROFILE region =", region)
-            print("🟢 AUTH_PROFILE branches =", branches)
-            print("🟢 AUTH_PROFILE groups =", groups)
-            print("🟢 AUTH_PROFILE primaryBranch =", primaryBranch)
-            print("🟢 AUTH_PROFILE primaryGroup =", primaryGroup)
-            print("Loaded profile uid=\(uid) rawBelt=\(rawBelt ?? "nil") region=\(region) branch=\(primaryBranch) group=\(primaryGroup) -> registered=\(String(describing: belt)) next=\(self.nextBelt)")
-            #endif
+
 
         } catch {
             self.registeredBelt = nil
@@ -1587,19 +1535,12 @@ print("🟠 PROFILE_PARSED primaryGroup =", primaryGroup)
             self.userBranch = ""
             self.userGroup = ""
 
-            #if DEBUG
-            print("🔴 AUTH_PROFILE load failed uid =", uid)
-            print("🔴 AUTH_PROFILE error =", error.localizedDescription)
-            #endif
+
         }
     }
     #endif
 
     private func loadUserProfile(uid: String) async {
-        #if DEBUG
-        print("🟠 loadUserProfile(uid:) called with uid =", uid)
-        #endif
-
         #if canImport(FirebaseFirestore)
         await loadUserProfileFromFirestore(uid: uid)
         #else

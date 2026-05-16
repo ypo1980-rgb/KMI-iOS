@@ -320,6 +320,10 @@ struct BeltQuestionsByTopicView: View {
                     visualBlock
                     textBlock
 
+                    if isLocked {
+                        TopicPulsingLockBadge()
+                    }
+
                     Image(systemName: "chevron.right")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(Color.black.opacity(0.30))
@@ -328,11 +332,16 @@ struct BeltQuestionsByTopicView: View {
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(Color.black.opacity(0.30))
 
+                    if isLocked {
+                        TopicPulsingLockBadge()
+                    }
+
                     textBlock
                     visualBlock
                     accentBar
                 }
             }
+            .environment(\.layoutDirection, .leftToRight)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
@@ -349,35 +358,12 @@ struct BeltQuestionsByTopicView: View {
 
         private var textBlock: some View {
             VStack(alignment: stackAlignment, spacing: 6) {
-                HStack(spacing: 6) {
-                    if isEnglish {
-                        Text(title)
-                            .font(.system(size: 19, weight: .heavy))
-                            .foregroundStyle(Color.black.opacity(0.84))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .multilineTextAlignment(.leading)
-                            .lineLimit(2)
-
-                        if isLocked {
-                            Image(systemName: "lock.fill")
-                                .font(.system(size: 12, weight: .black))
-                                .foregroundStyle(Color.orange.opacity(0.95))
-                        }
-                    } else {
-                        if isLocked {
-                            Image(systemName: "lock.fill")
-                                .font(.system(size: 12, weight: .black))
-                                .foregroundStyle(Color.orange.opacity(0.95))
-                        }
-
-                        Text(title)
-                            .font(.system(size: 19, weight: .heavy))
-                            .foregroundStyle(Color.black.opacity(0.84))
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                            .multilineTextAlignment(.trailing)
-                            .lineLimit(2)
-                    }
-                }
+                Text(title)
+                    .font(.system(size: 19, weight: .heavy))
+                    .foregroundStyle(Color.black.opacity(0.84))
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
+                    .lineLimit(2)
 
                 if let top = subtitleTop, !top.isEmpty {
                     Text(top)
@@ -398,7 +384,7 @@ struct BeltQuestionsByTopicView: View {
         }
 
         private var visualBlock: some View {
-            ZStack(alignment: .topTrailing) {
+            ZStack {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(
                         LinearGradient(
@@ -431,16 +417,6 @@ struct BeltQuestionsByTopicView: View {
                         .font(.system(size: 22, weight: .heavy))
                         .foregroundStyle(accent)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-
-                if isLocked {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 9, weight: .black))
-                        .foregroundStyle(.white)
-                        .frame(width: 19, height: 19)
-                        .background(Color.orange.opacity(0.96))
-                        .clipShape(Circle())
-                        .offset(x: 5, y: -5)
                 }
             }
             .frame(width: 76, height: 58)
@@ -1019,6 +995,89 @@ struct BeltQuestionsByTopicView: View {
     }
 
     private func resolvedSections(for subject: SubjectTopic) -> [HardSectionsCatalog.Section] {
+
+        func clean(_ value: String) -> String {
+            value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "–", with: "-")
+                .replacingOccurrences(of: "—", with: "-")
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        }
+
+        func sectionAllItems(_ section: HardSectionsCatalog.Section) -> [String] {
+            if !section.subSections.isEmpty {
+                return section.subSections.flatMap { sectionAllItems($0) }
+            }
+
+            return section.beltGroups
+                .flatMap { $0.items }
+                .map { clean($0) }
+                .filter { !$0.isEmpty }
+        }
+
+        func sectionMatchesSubject(_ section: HardSectionsCatalog.Section, subject: SubjectTopic) -> Bool {
+            let sectionId = clean(section.id)
+            let sectionTitle = clean(section.title)
+            let subjectId = clean(subject.id)
+            let subjectTitle = clean(subject.titleHeb)
+
+            if sectionId == subjectId || sectionTitle == subjectTitle {
+                return true
+            }
+
+            let allText = ([sectionTitle] + sectionAllItems(section)).joined(separator: " ")
+
+            if let hint = subject.subTopicHint?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !hint.isEmpty,
+               allText.contains(hint) {
+                let excluded = subject.excludeItemKeywords.contains { keyword in
+                    let cleanKeyword = clean(keyword)
+                    return !cleanKeyword.isEmpty && allText.contains(cleanKeyword)
+                }
+
+                return !excluded
+            }
+
+            if !subject.includeItemKeywords.isEmpty {
+                let hasIncludedKeyword = subject.includeItemKeywords.contains { keyword in
+                    let cleanKeyword = clean(keyword)
+                    return !cleanKeyword.isEmpty && allText.contains(cleanKeyword)
+                }
+
+                if hasIncludedKeyword {
+                    let excluded = subject.excludeItemKeywords.contains { keyword in
+                        let cleanKeyword = clean(keyword)
+                        return !cleanKeyword.isEmpty && allText.contains(cleanKeyword)
+                    }
+
+                    return !excluded
+                }
+            }
+
+            return false
+        }
+
+        func findMatchingSections(
+            in sections: [HardSectionsCatalog.Section],
+            subject: SubjectTopic
+        ) -> [HardSectionsCatalog.Section] {
+            var out: [HardSectionsCatalog.Section] = []
+
+            for section in sections {
+                if sectionMatchesSubject(section, subject: subject) {
+                    out.append(section)
+                }
+
+                out.append(contentsOf: findMatchingSections(in: section.subSections, subject: subject))
+            }
+
+            var seen = Set<String>()
+            return out.filter { section in
+                let key = "\(section.id)||\(section.title)"
+                return seen.insert(key).inserted
+            }
+        }
+
         if subject.id == "def_internal_punch" {
             let punchSections = HardSectionsCatalog.shared.sectionsForSubject(subjectId: "def_internal_punch") ?? []
             let kickSections = HardSectionsCatalog.shared.sectionsForSubject(subjectId: "def_internal_kick") ?? []
@@ -1031,7 +1090,34 @@ struct BeltQuestionsByTopicView: View {
             return punchSections + kickSections
         }
 
-        return HardSectionsCatalog.shared.sectionsForSubject(subjectId: subject.id) ?? []
+        let directSections = HardSectionsCatalog.shared.sectionsForSubject(subjectId: subject.id) ?? []
+
+        if !directSections.isEmpty {
+            return directSections
+        }
+
+        let fallbackRoots = [
+            "releases",
+            "hands_all",
+            "defenses",
+            "defense",
+            "def_internal_punch",
+            "def_external_punch",
+            "knife_defense",
+            "gun_threat_defense",
+            "stick_defense"
+        ]
+
+        for rootId in fallbackRoots {
+            let rootSections = HardSectionsCatalog.shared.sectionsForSubject(subjectId: rootId) ?? []
+            let matches = findMatchingSections(in: rootSections, subject: subject)
+
+            if !matches.isEmpty {
+                return matches
+            }
+        }
+
+        return []
     }
 
     private func subtitleLineTop(for topic: MainTopic) -> String? {
@@ -1088,17 +1174,25 @@ struct BeltQuestionsByTopicView: View {
 
         pickedMainTopic = topic
 
-        if topic.id == "hands_root" || topic.subjects.count > 1 {
+        if topic.subjects.count > 1 {
             goSubTopics = true
-        } else if let subject = topic.subjects.first {
-            let sections = resolvedSections(for: subject)
+            return
+        }
 
-            if sections.count > 1 {
-                pickedSectionedSubject = subject
-            } else {
-                pickedAcrossBeltsSubject = subject
-                pickedAcrossBeltsSubTopicTitle = nil
-            }
+        guard let subject = topic.subjects.first else {
+            return
+        }
+
+        let sections = resolvedSections(for: subject)
+
+        if sections.count > 1 {
+            pickedSectionedSubject = subject
+        } else if sections.count == 1 {
+            pickedAcrossBeltsSubject = subject
+            pickedAcrossBeltsSubTopicTitle = sections.first?.title
+        } else {
+            pickedAcrossBeltsSubject = subject
+            pickedAcrossBeltsSubTopicTitle = nil
         }
     }
 
@@ -1391,6 +1485,25 @@ struct BeltQuestionsByTopicView: View {
                 )
             }
         }
+    }
+}
+
+private struct TopicPulsingLockBadge: View {
+    @State private var pulse: Bool = false
+    
+    var body: some View {
+        Text("🔒")
+            .font(.system(size: 22, weight: .black))
+            .frame(width: 28, height: 28)
+            .scaleEffect(pulse ? 1.12 : 1.0)
+            .onAppear {
+                withAnimation(
+                    .easeInOut(duration: 0.78)
+                    .repeatForever(autoreverses: true)
+                ) {
+                    pulse = true
+                }
+            }
     }
 }
 

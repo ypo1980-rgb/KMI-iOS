@@ -12,6 +12,7 @@ struct SubscriptionPlansScreen: View {
     @State private var purchaseMessage: String? = nil
     @State private var didStartPurchaseFlow: Bool = false
     @State private var unavailableProductMessage: String? = nil
+    @State private var accessOpenedDialogMessage: String? = nil
 
     @AppStorage("is_association_member") private var isAssociationMember: Bool = false
 
@@ -237,6 +238,8 @@ struct SubscriptionPlansScreen: View {
             .padding(16)
         }
         .environment(\.layoutDirection, screenLayoutDirection)
+        .navigationTitle(tr("תוכניות מנוי", "Subscription Plans"))
+        .navigationBarTitleDisplayMode(.inline)
         .task {
             repo.start()
         }
@@ -253,12 +256,26 @@ struct SubscriptionPlansScreen: View {
         } message: {
             Text(unavailableProductMessage ?? "")
         }
+        .alert(
+            tr("התוכן נפתח", "Content unlocked"),
+            isPresented: Binding(
+                get: { accessOpenedDialogMessage != nil },
+                set: { if !$0 { accessOpenedDialogMessage = nil } }
+            )
+        ) {
+            Button(tr("הבנתי", "Got it")) {
+                accessOpenedDialogMessage = nil
+            }
+        } message: {
+            Text(accessOpenedDialogMessage ?? "")
+        }
     }
 
     private func buyPlan(_ productId: BillingRepository.ProductId) async {
         didStartPurchaseFlow = true
         purchaseMessage = nil
         unavailableProductMessage = nil
+        accessOpenedDialogMessage = nil
 
         let durationMinutes = productId.isYearlyProduct ? 60 : 30
 
@@ -267,7 +284,7 @@ struct SubscriptionPlansScreen: View {
             durationMinutes: durationMinutes
         )
 
-        purchaseMessage = productId.isYearlyProduct
+        let openedMessage = productId.isYearlyProduct
         ? tr(
             "גישה מלאה נפתחה לשעה לצורך בדיקות. לאחר שעה המנעולים יחזרו אוטומטית.",
             "Full access is open for 1 hour for testing. After 1 hour, the locks will return automatically."
@@ -276,6 +293,9 @@ struct SubscriptionPlansScreen: View {
             "גישה מלאה נפתחה ל־30 דקות לצורך בדיקות. לאחר 30 דקות המנעולים יחזרו אוטומטית.",
             "Full access is open for 30 minutes for testing. After 30 minutes, the locks will return automatically."
         )
+
+        purchaseMessage = openedMessage
+        accessOpenedDialogMessage = openedMessage
     }
 
     private func restorePurchases() async {

@@ -71,21 +71,12 @@ struct KmiStartupLoadingScreen: View {
 
                 titleView
 
-                Spacer()
-                    .frame(height: 28)
-
                 loadingCardView
                     .padding(.horizontal, 24)
-
-                Spacer()
-                    .frame(height: 18)
-
-                Text(isEnglish ? "Please wait a few seconds..." : "אנא המתן מספר שניות...")
-                    .font(.system(size: 15, weight: .medium, design: .rounded))
-                    .foregroundColor(Color.white.opacity(0.66))
-                    .multilineTextAlignment(.center)
-
-                Spacer(minLength: 30)
+                    .padding(.top, 24)
+                    .padding(.bottom, 92)
+                    .frame(maxWidth: .infinity)
+                    .frame(maxHeight: .infinity, alignment: .top)
             }
 
             skipButton
@@ -264,9 +255,20 @@ struct KmiStartupLoadingScreen: View {
             progressBar
 
             checklistView
+
+            Spacer(minLength: 16)
+
+            Text(isEnglish ? "Please wait a few seconds..." : "אנא המתן מספר שניות...")
+                .font(.system(size: 15, weight: .medium, design: .rounded))
+                .foregroundColor(Color.white.opacity(0.66))
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.bottom, 4)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 18)
+        .frame(maxWidth: .infinity)
+        .frame(maxHeight: .infinity, alignment: .top)
         .background(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(Color(red: 0.07, green: 0.13, blue: 0.19).opacity(0.78))

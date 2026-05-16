@@ -606,50 +606,93 @@ private struct MaterialsHeaderCard: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            if isEnglish {
-                beltBadge
-
-                Text(materialTitle)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.20, green: 0.25, blue: 0.33))
-                    .multilineTextAlignment(titleAlignment)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-                    .frame(maxWidth: .infinity, alignment: titleFrameAlignment)
-            } else {
-                Text(materialTitle)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.20, green: 0.25, blue: 0.33))
-                    .multilineTextAlignment(titleAlignment)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-                    .frame(maxWidth: .infinity, alignment: titleFrameAlignment)
-
-                beltBadge
+        VStack(spacing: 7) {
+            HStack(spacing: 10) {
+                if isEnglish {
+                    backButton
+                    
+                    Text(materialTitle)
+                        .font(.system(size: 15.5, weight: .heavy))
+                        .foregroundStyle(Color(red: 0.20, green: 0.25, blue: 0.33))
+                        .multilineTextAlignment(titleAlignment)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.76)
+                        .frame(maxWidth: .infinity, alignment: titleFrameAlignment)
+                } else {
+                    Text(materialTitle)
+                        .font(.system(size: 15.5, weight: .heavy))
+                        .foregroundStyle(Color(red: 0.20, green: 0.25, blue: 0.33))
+                        .multilineTextAlignment(titleAlignment)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.76)
+                        .frame(maxWidth: .infinity, alignment: titleFrameAlignment)
+                    
+                    backButton
+                }
             }
+            .environment(\.layoutDirection, .leftToRight)
+            
+            beltImageStrip
         }
-        .environment(\.layoutDirection, .leftToRight)
         .padding(.horizontal, 14)
-        .padding(.vertical, 6)
-        .background(Color.clear)
+        .padding(.top, 7)
+        .padding(.bottom, 8)
+        .background(
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(0.98),
+                    BeltPaletteByMaterials.color(for: belt).opacity(0.08),
+                    Color.white.opacity(0.96)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
     }
 
-    private var beltBadge: some View {
-        ZStack {
-            Circle()
-                .fill(Color.white.opacity(0.70))
-                .frame(width: 42, height: 42)
+    private var backButton: some View {
+        Button {
+            onBack()
+        } label: {
+            Image(systemName: isEnglish ? "chevron.left" : "chevron.right")
+                .font(.system(size: 14, weight: .black))
+                .foregroundStyle(BeltPaletteByMaterials.color(for: belt).opacity(0.92))
+                .frame(width: 34, height: 34)
+                .background(
+                    Circle()
+                        .fill(Color.white.opacity(0.88))
+                )
                 .overlay(
                     Circle()
-                        .stroke(BeltPaletteByMaterials.color(for: belt).opacity(0.18), lineWidth: 1)
+                        .stroke(BeltPaletteByMaterials.color(for: belt).opacity(0.22), lineWidth: 1)
                 )
+                .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 2)
+        }
+        .buttonStyle(.plain)
+    }
 
+    private var beltImageStrip: some View {
+        HStack(spacing: 10) {
+            Rectangle()
+                .fill(BeltPaletteByMaterials.color(for: belt).opacity(0.24))
+                .frame(height: 1)
+            
             Image(materialsBeltImageName(for: belt))
                 .resizable()
                 .scaledToFit()
-                .frame(width: 32, height: 32)
+                .frame(width: 132, height: 38)
+                .shadow(
+                    color: BeltPaletteByMaterials.color(for: belt).opacity(0.30),
+                    radius: 7,
+                    x: 0,
+                    y: 3
+                )
+            
+            Rectangle()
+                .fill(BeltPaletteByMaterials.color(for: belt).opacity(0.24))
+                .frame(height: 1)
         }
+        .frame(maxWidth: .infinity)
     }
 }
 

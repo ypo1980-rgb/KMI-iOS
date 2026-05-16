@@ -248,6 +248,43 @@ enum KmiAccess {
         return dev || subscription
     }
 
+    // MARK: - Temporary Test Access
+
+    static func grantTemporarySubscription(
+        productId: String,
+        durationMinutes: Int,
+        defaults: UserDefaults = .standard
+    ) {
+        let nowMillis = currentTimeMillis()
+        let durationMillis = Int64(durationMinutes) * 60 * 1000
+        let accessUntil = nowMillis + durationMillis
+        let token = "ios_test_\(productId)_\(nowMillis)"
+
+        defaults.set(true, forKey: KmiAccessKeys.hasFullAccess)
+        defaults.set(true, forKey: KmiAccessKeys.fullAccess)
+        defaults.set(true, forKey: KmiAccessKeys.subscriptionActive)
+        defaults.set(true, forKey: KmiAccessKeys.isSubscribed)
+
+        defaults.set(true, forKey: KmiAccessKeys.appStoreSubscriptionVerified)
+        defaults.set(false, forKey: KmiAccessKeys.googleSubscriptionVerified)
+
+        defaults.set(productId, forKey: KmiAccessKeys.subProduct)
+        defaults.set(token, forKey: KmiAccessKeys.subToken)
+        defaults.set(nowMillis, forKey: KmiAccessKeys.subPurchaseTime)
+        defaults.set(accessUntil, forKey: KmiAccessKeys.subAccessUntil)
+
+        defaults.set(token, forKey: KmiAccessKeys.lastSubToken)
+        defaults.set(productId, forKey: KmiAccessKeys.lastSubProduct)
+        defaults.set(nowMillis, forKey: KmiAccessKeys.accessChangedAt)
+
+        defaults.synchronize()
+
+        NotificationCenter.default.post(
+            name: Notification.Name("KMI_ACCESS_CHANGED"),
+            object: nil
+        )
+    }
+
     // MARK: - Permissions
 
     static func canUseTraining(defaults: UserDefaults = .standard) -> Bool {

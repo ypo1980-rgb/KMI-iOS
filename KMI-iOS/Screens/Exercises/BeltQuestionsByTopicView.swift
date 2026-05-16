@@ -12,6 +12,7 @@ struct BeltQuestionsByTopicView: View {
     let belt: Belt
     var embeddedMode: Bool = false
     var onSwitchToByBelt: (() -> Void)? = nil
+    var onActiveBeltChange: ((Belt) -> Void)? = nil
 
     @EnvironmentObject private var nav: AppNavModel
     private let catalog = CatalogData.shared.data
@@ -44,6 +45,31 @@ struct BeltQuestionsByTopicView: View {
 
     private func tr(_ he: String, _ en: String) -> String {
         isEnglish ? en : he
+    }
+    
+    private var activeBeltFill: Color {
+        beltColor(for: belt)
+    }
+    
+    private func beltColor(for belt: Belt) -> Color {
+        switch belt {
+        case .white:
+            return Color(red: 0.92, green: 0.92, blue: 0.92)
+        case .yellow:
+            return Color(red: 0.98, green: 0.85, blue: 0.18)
+        case .orange:
+            return Color(red: 0.98, green: 0.64, blue: 0.15)
+        case .green:
+            return Color(red: 0.18, green: 0.80, blue: 0.44)
+        case .blue:
+            return Color(red: 0.18, green: 0.52, blue: 0.95)
+        case .brown:
+            return Color(red: 0.55, green: 0.34, blue: 0.23)
+        case .black:
+            return Color(red: 0.10, green: 0.10, blue: 0.12)
+        default:
+            return Color(red: 0.98, green: 0.64, blue: 0.15)
+        }
     }
 
     @State private var pickedMainTopic: MainTopic? = nil
@@ -272,6 +298,7 @@ struct BeltQuestionsByTopicView: View {
         let subtitleBottom: String
         let isEnglish: Bool
         let symbolName: String
+        let imageName: String?
         let isLocked: Bool
 
         private var textAlignment: TextAlignment {
@@ -376,9 +403,9 @@ struct BeltQuestionsByTopicView: View {
                     .fill(
                         LinearGradient(
                             colors: [
-                                accent.opacity(0.22),
-                                accent.opacity(0.08),
-                                Color.white.opacity(0.92)
+                                accent.opacity(0.16),
+                                Color.white.opacity(0.98),
+                                accent.opacity(0.08)
                             ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
@@ -389,10 +416,22 @@ struct BeltQuestionsByTopicView: View {
                             .stroke(accent.opacity(0.26), lineWidth: 1)
                     )
 
-                Image(systemName: symbolName)
-                    .font(.system(size: 22, weight: .heavy))
-                    .foregroundStyle(accent)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let imageName {
+                    Image(imageName)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 72, height: 56)
+                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                .stroke(Color.white.opacity(0.72), lineWidth: 1)
+                        )
+                } else {
+                    Image(systemName: symbolName)
+                        .font(.system(size: 22, weight: .heavy))
+                        .foregroundStyle(accent)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
 
                 if isLocked {
                     Image(systemName: "lock.fill")
@@ -404,7 +443,7 @@ struct BeltQuestionsByTopicView: View {
                         .offset(x: 5, y: -5)
                 }
             }
-            .frame(width: 62, height: 52)
+            .frame(width: 76, height: 58)
         }
 
         private var accentBar: some View {
@@ -688,6 +727,54 @@ struct BeltQuestionsByTopicView: View {
             accessMode == .locked &&
             isPremiumTopic(topic)
         )
+    }
+
+    private func imageNameForTopic(_ topic: MainTopic) -> String? {
+        let id = topic.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let title = topic.titleHeb.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if id.contains("defense") || title.contains("הגנות") {
+            return "topic_defenses"
+        }
+
+        if id.contains("release") || title.contains("שחרור") || title.contains("שחרורים") {
+            return "topic_releases"
+        }
+
+        if id.contains("hands") || id.contains("hand") || id.contains("punch") || title.contains("יד") {
+            return "topic_hand_strikes"
+        }
+
+        if title.contains("מרפק") || id.contains("elbow") {
+            return "topic_elbow_strikes"
+        }
+
+        if id.contains("kick") || title.contains("בעיטות") || title.contains("בעיטה") {
+            return "topic_kicks"
+        }
+
+        if id.contains("roll") || id.contains("breakfall") || title.contains("בלימות") || title.contains("גלגולים") {
+            return "topic_breakfalls_rolls"
+        }
+
+        if id.contains("stance") || title.contains("עמידת מוצא") {
+            return "topic_ready_stance"
+        }
+
+        if id.contains("ground") || title.contains("קרקע") {
+            return "topic_ground_fighting"
+        }
+
+        if id.contains("kawal") || id.contains("kavaler") || id.contains("cavalier") ||
+            title.contains("קוואלר") || title.contains("קאוולר") || title.contains("קאוול") {
+            return "topic_cavalier"
+        }
+
+        if title.contains("כללי") || id.contains("general") {
+            return "topic_general"
+        }
+
+        return nil
     }
 
     private func symbolForTopic(_ topic: MainTopic) -> String {
@@ -1027,16 +1114,26 @@ struct BeltQuestionsByTopicView: View {
                 Text(tr("מבט מהיר", "Quick View"))
                     .font(.system(size: 18, weight: .black))
             }
-            .foregroundStyle(Color.orange.opacity(0.92))
+            .foregroundStyle(activeBeltFill)
             .frame(maxWidth: .infinity)
             .frame(height: 60)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(0.96))
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                activeBeltFill.opacity(0.10),
+                                Color.white.opacity(0.98),
+                                activeBeltFill.opacity(0.05)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.orange.opacity(0.22), lineWidth: 1)
+                    .stroke(activeBeltFill.opacity(0.24), lineWidth: 1)
             )
             .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 5)
         }
@@ -1058,7 +1155,7 @@ struct BeltQuestionsByTopicView: View {
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(Color.orange.opacity(0.86))
+                            .foregroundStyle(activeBeltFill.opacity(0.86))
                             .frame(width: 32, height: 32)
                     }
                     .buttonStyle(.plain)
@@ -1067,7 +1164,7 @@ struct BeltQuestionsByTopicView: View {
 
                     Text(tr("תפריט מהיר", "Quick menu"))
                         .font(.system(size: 22, weight: .heavy))
-                        .foregroundStyle(Color.orange.opacity(0.92))
+                        .foregroundStyle(activeBeltFill.opacity(0.94))
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 12)
@@ -1101,11 +1198,21 @@ struct BeltQuestionsByTopicView: View {
             .frame(width: 270)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.white.opacity(0.96))
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.98),
+                                activeBeltFill.opacity(0.08),
+                                Color.white.opacity(0.96)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(Color.orange.opacity(0.34), lineWidth: 1)
+                    .stroke(activeBeltFill.opacity(0.34), lineWidth: 1)
             )
             .shadow(color: Color.black.opacity(0.22), radius: 18, x: 0, y: 10)
         }
@@ -1124,7 +1231,7 @@ struct BeltQuestionsByTopicView: View {
             showQuickActionsDialog = false
 
             if locked {
-                nav.push(.subscription)
+                nav.push(.subscriptionPlans)
             } else {
                 action()
             }
@@ -1132,20 +1239,20 @@ struct BeltQuestionsByTopicView: View {
             HStack(spacing: 10) {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color.orange.opacity(0.82))
+                    .foregroundStyle(activeBeltFill.opacity(0.84))
                     .frame(width: 28, height: 28)
-                    .background(Color.orange.opacity(0.12))
+                    .background(activeBeltFill.opacity(0.12))
                     .clipShape(Circle())
 
                 if locked {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Color.orange.opacity(0.86))
+                        .foregroundStyle(activeBeltFill.opacity(0.88))
                 }
 
                 Text(title)
                     .font(.system(size: 17, weight: .heavy))
-                    .foregroundStyle(Color.orange.opacity(0.92))
+                    .foregroundStyle(activeBeltFill.opacity(0.94))
                     .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
                     .multilineTextAlignment(isEnglish ? .leading : .trailing)
             }
@@ -1156,7 +1263,7 @@ struct BeltQuestionsByTopicView: View {
         .buttonStyle(.plain)
         .overlay(
             Rectangle()
-                .fill(Color.orange.opacity(0.12))
+                .fill(activeBeltFill.opacity(0.12))
                 .frame(height: 1),
             alignment: .bottom
         )
@@ -1185,22 +1292,20 @@ struct BeltQuestionsByTopicView: View {
                 .padding(.horizontal, 18)
                 .padding(.top, 10)
 
-                ScrollView {
-                    VStack(spacing: 14) {
+                GeometryReader { geo in
+                    let reservedBottomForQuickView: CGFloat = 112
+                    let cardHeight = max(360, geo.size.height - reservedBottomForQuickView)
 
-                        EmptyView()
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.top, 0)
+                    WhiteCard {
+                        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 14) {
 
-                        WhiteCard {
-                            VStack(alignment: isEnglish ? .leading : .trailing, spacing: 14) {
+                            Text(tr("נושאים (קטגוריות)", "Topics (Categories)"))
+                                .font(.system(size: 24, weight: .heavy))
+                                .foregroundStyle(Color.black.opacity(0.84))
+                                .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                                .multilineTextAlignment(primaryTextAlignment)
 
-                                Text(tr("נושאים (קטגוריות)", "Topics (Categories)"))
-                                    .font(.system(size: 24, weight: .heavy))
-                                    .foregroundStyle(Color.black.opacity(0.84))
-                                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                                    .multilineTextAlignment(primaryTextAlignment)
-
+                            ScrollView(showsIndicators: false) {
                                 VStack(spacing: 11) {
                                     ForEach(Array(mainTopics.enumerated()), id: \.offset) { _, topic in
                                         Button {
@@ -1213,6 +1318,7 @@ struct BeltQuestionsByTopicView: View {
                                                 subtitleBottom: subtitleLineBottom(for: topic),
                                                 isEnglish: isEnglish,
                                                 symbolName: symbolForTopic(topic),
+                                                imageName: imageNameForTopic(topic),
                                                 isLocked: isTopicLocked(topic)
                                             )
                                         }
@@ -1228,30 +1334,26 @@ struct BeltQuestionsByTopicView: View {
                                             .padding(.vertical, 14)
                                     }
                                 }
+                                .padding(.bottom, 6)
                             }
-                            .padding(.vertical, 13)
-                            .padding(.horizontal, 13)
                         }
-                        .padding(.horizontal, 18)
-
-                        quickViewButton
-                            .padding(.horizontal, 18)
-                            .padding(.top, 2)
-
-                        Spacer(minLength: 88)
+                        .padding(.vertical, 13)
+                        .padding(.horizontal, 13)
                     }
+                    .frame(height: cardHeight)
+                    .padding(.horizontal, 18)
                     .padding(.top, 6)
-                    .padding(.bottom, 22)
                 }
-            }
-        }
-        .overlay {
-            if showQuickActionsDialog {
-                quickActionsDialog
             }
         }
         .environment(\.layoutDirection, screenLayoutDirection)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            onActiveBeltChange?(belt)
+        }
+        .onChange(of: belt) { _, newValue in
+            onActiveBeltChange?(newValue)
+        }
 
         // navigation לקטלוג הוסר – אין שימוש במסך "כל התרגילים"
 

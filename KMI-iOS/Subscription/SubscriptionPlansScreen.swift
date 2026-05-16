@@ -76,23 +76,21 @@ struct SubscriptionPlansScreen: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, alignment: .center)
 
-                if !repo.state.connected || !repo.state.productsLoaded || repo.state.error != nil {
-                    Text(
-                        tr(
-                            "סטטוס רכישה: מחובר=\(repo.state.connected), מוצרים נטענו=\(repo.state.productsLoaded)\nמוצרים: \(repo.state.loadedProductIds.joined(separator: ", "))\n\(repo.state.error ?? "")",
-                            "Billing status: connected=\(repo.state.connected), productsLoaded=\(repo.state.productsLoaded)\nProducts: \(repo.state.loadedProductIds.joined(separator: ", "))\n\(repo.state.error ?? "")"
-                        )
+                Text(
+                    tr(
+                        "מצב בדיקות זמני: עד חיבור Apple StoreKit, רכישה חודשית תפתח את האפליקציה ל־30 דקות ורכישה שנתית תפתח את האפליקציה לשעה.",
+                        "Temporary testing mode: until Apple StoreKit is connected, monthly access opens the app for 30 minutes and yearly access opens it for 1 hour."
                     )
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Color.orange)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color.orange.opacity(0.12))
-                    )
-                }
+                )
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Color.orange)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.orange.opacity(0.12))
+                )
 
                 tariffCard
 
@@ -124,12 +122,12 @@ struct SubscriptionPlansScreen: View {
                         : tr("ניתן לבטל בכל עת בהתאם למדיניות החנות", "Can be canceled anytime under store policy")
                     ],
                     accent: Color.blue,
-                    isLoading: repo.state.isLoading,
-                    isProductLoaded: isProductLoaded(monthlyProductId),
+                    isLoading: false,
+                    isProductLoaded: true,
                     isEnglish: isEnglish,
                     productIdLabel: tr("מזהה מוצר", "Product ID"),
                     productId: monthlyProductId.rawValue,
-                    buyTitle: tr("רכישה חודשית", "Buy monthly"),
+                    buyTitle: tr("פתיחה ל־30 דקות", "Open for 30 minutes"),
                     loadingTitle: tr("טוען...", "Loading..."),
                     unavailableTitle: tr("המוצר עדיין לא נטען", "Product not loaded yet"),
                     unavailableMessage: tr(
@@ -170,12 +168,12 @@ struct SubscriptionPlansScreen: View {
                         : tr("גישה לכל התכנים לאורך כל השנה", "Access to all content for the full year")
                     ],
                     accent: Color.orange,
-                    isLoading: repo.state.isLoading,
-                    isProductLoaded: isProductLoaded(yearlyProductId),
+                    isLoading: false,
+                    isProductLoaded: true,
                     isEnglish: isEnglish,
                     productIdLabel: tr("מזהה מוצר", "Product ID"),
                     productId: yearlyProductId.rawValue,
-                    buyTitle: tr("רכישה שנתית", "Buy yearly"),
+                    buyTitle: tr("פתיחה לשעה", "Open for 1 hour"),
                     loadingTitle: tr("טוען...", "Loading..."),
                     unavailableTitle: tr("המוצר עדיין לא נטען", "Product not loaded yet"),
                     unavailableMessage: tr(
@@ -260,28 +258,23 @@ struct SubscriptionPlansScreen: View {
     private func buyPlan(_ productId: BillingRepository.ProductId) async {
         didStartPurchaseFlow = true
         purchaseMessage = nil
+        unavailableProductMessage = nil
 
-        await repo.purchase(productId: productId.rawValue)
+        let durationMinutes = productId.isYearlyProduct ? 60 : 30
 
-        if let error = repo.state.error, !error.isEmpty {
-            purchaseMessage = nil
-            return
-        }
+        KmiAccess.grantTemporarySubscription(
+            productId: productId.rawValue,
+            durationMinutes: durationMinutes
+        )
 
-        let active =
-            UserDefaults.standard.bool(forKey: "has_full_access") ||
-            UserDefaults.standard.bool(forKey: "full_access") ||
-            UserDefaults.standard.bool(forKey: "subscription_active") ||
-            UserDefaults.standard.bool(forKey: "is_subscribed")
-
-        purchaseMessage = active
+        purchaseMessage = productId.isYearlyProduct
         ? tr(
-            "הרכישה אומתה בהצלחה. התכנים הנעולים פתוחים כעת.",
-            "Purchase verified successfully. Locked content is now open."
+            "גישה מלאה נפתחה לשעה לצורך בדיקות. לאחר שעה המנעולים יחזרו אוטומטית.",
+            "Full access is open for 1 hour for testing. After 1 hour, the locks will return automatically."
         )
         : tr(
-            "אם הרכישה הושלמה בהצלחה, הגישה תתעדכן מיד לאחר אימות מול Apple.",
-            "If the purchase completed successfully, access will update after Apple verification."
+            "גישה מלאה נפתחה ל־30 דקות לצורך בדיקות. לאחר 30 דקות המנעולים יחזרו אוטומטית.",
+            "Full access is open for 30 minutes for testing. After 30 minutes, the locks will return automatically."
         )
     }
 

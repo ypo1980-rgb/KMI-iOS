@@ -2,7 +2,6 @@ import SwiftUI
 
 enum KmiEntryPhase {
     case language
-    case loading
     case app
 }
 
@@ -31,7 +30,7 @@ struct KmiAppEntryRootView<Content: View>: View {
         _selectedLanguage = State(initialValue: currentLanguage)
 
         if hasSelectedLanguage {
-            _phase = State(initialValue: .loading)
+            _phase = State(initialValue: .app)
         } else {
             _phase = State(initialValue: .language)
         }
@@ -46,18 +45,9 @@ struct KmiAppEntryRootView<Content: View>: View {
                     selectedLanguage = language
 
                     withAnimation(.easeInOut(duration: 0.25)) {
-                        phase = .loading
+                        phase = .app
                     }
                 }
-
-            case .loading:
-                KmiBootLoadingView(
-                    onFinished: {
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            phase = .app
-                        }
-                    }
-                )
 
             case .app:
                 content()
@@ -71,51 +61,6 @@ struct KmiAppEntryRootView<Content: View>: View {
             \.layoutDirection,
              selectedLanguage.isEnglish ? .leftToRight : .rightToLeft
         )
-    }
-}
-
-struct KmiBootLoadingView: View {
-    var onFinished: (() -> Void)? = nil
-
-    var body: some View {
-        ZStack {
-            Color.white
-                .ignoresSafeArea()
-
-            VStack(spacing: 16) {
-                bootLogo
-
-                ProgressView()
-                    .tint(.black.opacity(0.55))
-                    .padding(.top, 6)
-            }
-        }
-        .onAppear {
-            guard let onFinished else { return }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                onFinished()
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var bootLogo: some View {
-        if let image = UIImage(named: "app_icon.png") {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 130, height: 130)
-        } else if let image = UIImage(named: "app_icon") {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 130, height: 130)
-        } else {
-            Text("K.M.I")
-                .font(.system(size: 32, weight: .black, design: .rounded))
-                .foregroundStyle(.black)
-        }
     }
 }
 

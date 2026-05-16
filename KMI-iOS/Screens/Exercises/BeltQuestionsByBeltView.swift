@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import Shared
 
 // ✅ CONTENT-ONLY: אין כאן TopBar ואין כאן IconStrip ואין כאן DrawerContainer
@@ -108,6 +109,7 @@ struct BeltQuestionsByBeltView: View {
     
     // ✅ החגורה שנבחרה בפועל במסך
     @State private var selectedBelt: Belt = .orange
+    @State private var byTopicActiveBelt: Belt = .orange
     @State private var didInitializeSelectedBelt: Bool = false
     @State private var tab: Tab = .byBelt
     @State private var quickMenuOpen: Bool = false
@@ -116,6 +118,13 @@ struct BeltQuestionsByBeltView: View {
     
     // Global search
     @State private var pickedExercise: ExerciseSelection? = nil
+    
+    // ✅ Android parity:
+    // באנדרואיד מצב הגישה מתרענן גם בלי שינוי SharedPreferences,
+    // כדי שמנוי שפג יחזיר מנעולים כשהמשתמש נשאר במסך.
+    private let accessRefreshTimer = Timer
+        .publish(every: 30, on: .main, in: .common)
+        .autoconnect()
     
     private struct BeltTopicExerciseRoute: Identifiable, Hashable {
         let id: String
@@ -327,25 +336,58 @@ struct BeltQuestionsByBeltView: View {
         case byTopic
     }
     
-    private func nextBelt(after registered: Belt) -> Belt {
-        switch registered {
-        case .white:
-            return .yellow
-        case .yellow:
-            return .orange
-        case .orange:
-            return .green
-        case .green:
-            return .blue
-        case .blue:
-            return .brown
-        case .brown:
-            return .black
-        case .black:
-            return .black
+    private var quickMenuBelt: Belt {
+        tab == .byTopic ? byTopicActiveBelt : selectedBelt
+    }
+    
+    private func beltFromStoredId(_ raw: String?) -> Belt? {
+        let clean = (raw ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        
+        switch clean {
+        case "white", "לבן", "לבנה", "חגורה לבנה":
+            return Belt.white
+        case "yellow", "צהוב", "צהובה", "חגורה צהובה":
+            return Belt.yellow
+        case "orange", "כתום", "כתומה", "חגורה כתומה":
+            return Belt.orange
+        case "green", "ירוק", "ירוקה", "חגורה ירוקה":
+            return Belt.green
+        case "blue", "כחול", "כחולה", "חגורה כחולה":
+            return Belt.blue
+        case "brown", "חום", "חומה", "חגורה חומה":
+            return Belt.brown
+        case "black", "שחור", "שחורה", "חגורה שחורה":
+            return Belt.black
         default:
-            return .orange
+            return nil
         }
+    }
+    
+    private func nextBelt(after registered: Belt) -> Belt {
+        guard let currentIndex = belts.firstIndex(of: registered) else {
+            return Belt.orange
+        }
+        
+        if currentIndex >= belts.count - 1 {
+            return belts.first ?? Belt.orange
+        }
+        
+        return belts[currentIndex + 1]
+    }
+    
+    private func initialBeltLikeAndroid(defaults: UserDefaults = .standard) -> Belt {
+        let storedRaw =
+            defaults.string(forKey: "current_belt") ??
+            defaults.string(forKey: "belt_current")
+        
+        guard let registeredBelt = beltFromStoredId(storedRaw),
+              registeredBelt != Belt.white else {
+            return Belt.orange
+        }
+        
+        return nextBelt(after: registeredBelt)
     }
     
     private func toSharedSubject(_ local: SubjectTopic) -> Shared.SubjectTopic {
@@ -436,6 +478,80 @@ struct BeltQuestionsByBeltView: View {
         }
         
         return BeltPaletteByBeltScreen.color(for: selectedBelt)
+    }
+    
+    private func topicImageName(_ topicTitle: String) -> String? {
+        let clean = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = clean.lowercased()
+        
+        if clean.contains("הגנות") || lower.contains("defense") || lower.contains("defenses") {
+            return "topic_defenses"
+        }
+        
+        if clean.contains("שחרור") ||
+            clean.contains("שחרורים") ||
+            lower.contains("release") ||
+            lower.contains("releases") {
+            return "topic_releases"
+        }
+        
+        if clean.contains("עבודת ידיים") ||
+            clean.contains("עבודת יד") ||
+            clean.contains("מכות ידיים") ||
+            clean.contains("מכות יד") ||
+            lower.contains("hand") ||
+            lower.contains("hands") {
+            return "topic_hand_strikes"
+        }
+        
+        if clean.contains("מכות מרפק") ||
+            clean.contains("מרפק") ||
+            lower.contains("elbow") ||
+            lower.contains("elbows") {
+            return "topic_elbow_strikes"
+        }
+        
+        if clean.contains("בעיטה") ||
+            clean.contains("בעיטות") ||
+            lower.contains("kick") ||
+            lower.contains("kicks") {
+            return "topic_kicks"
+        }
+        
+        if clean.contains("בלימות") ||
+            clean.contains("גלגולים") ||
+            clean.contains("גלגול") ||
+            clean.contains("בלימה") ||
+            lower.contains("breakfall") ||
+            lower.contains("roll") {
+            return "topic_breakfalls_rolls"
+        }
+        
+        if clean.contains("עמידת מוצא") ||
+            lower.contains("ready stance") ||
+            lower.contains("stance") {
+            return "topic_ready_stance"
+        }
+        
+        if clean.contains("קרקע") ||
+            lower.contains("ground") {
+            return "topic_ground_fighting"
+        }
+        
+        if clean.contains("קוואלר") ||
+            clean.contains("קאוולר") ||
+            clean.contains("קאוול") ||
+            lower.contains("cavalier") ||
+            lower.contains("kavaler") {
+            return "topic_cavalier"
+        }
+        
+        if clean.contains("כללי") ||
+            lower.contains("general") {
+            return "topic_general"
+        }
+        
+        return nil
     }
     
     private func topicSymbolName(_ topicTitle: String) -> String {
@@ -575,34 +691,46 @@ struct BeltQuestionsByBeltView: View {
         accent: Color
     ) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [
-                            accent.opacity(0.20),
-                            accent.opacity(0.08),
-                            Color.white.opacity(0.96)
+                            accent.opacity(0.16),
+                            Color.white.opacity(0.98),
+                            accent.opacity(0.08)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(accent.opacity(0.25), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .stroke(accent.opacity(0.26), lineWidth: 1)
                 )
             
-            Image(systemName: topicSymbolName(topicTitle))
-                .font(.system(size: 19, weight: .heavy))
-                .foregroundStyle(accent)
+            if let imageName = topicImageName(topicTitle) {
+                Image(imageName)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 50, height: 46)
+                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            .stroke(Color.white.opacity(0.72), lineWidth: 1)
+                    )
+            } else {
+                Image(systemName: topicSymbolName(topicTitle))
+                    .font(.system(size: 20, weight: .heavy))
+                    .foregroundStyle(accent)
+            }
         }
-        .frame(width: 54, height: 46)
+        .frame(width: 58, height: 54)
     }
     
     private func topicAccentStrip(_ accent: Color) -> some View {
         RoundedRectangle(cornerRadius: 6, style: .continuous)
             .fill(accent)
-            .frame(width: 6, height: 46)
+            .frame(width: 6, height: 54)
     }
     
     private var quickViewButton: some View {
@@ -654,11 +782,21 @@ struct BeltQuestionsByBeltView: View {
                     belt: selectedBelt,
                     embeddedMode: true,
                     onSwitchToByBelt: {
+                        withAnimation(.spring(response: 0.24, dampingFraction: 0.92)) {
+                            quickMenuOpen = false
+                        }
+                        
                         withAnimation(.easeInOut(duration: 0.20)) {
                             tab = .byBelt
                         }
+                    },
+                    onActiveBeltChange: { activeBelt in
+                        byTopicActiveBelt = activeBelt
                     }
                 )
+                .onAppear {
+                    byTopicActiveBelt = selectedBelt
+                }
                 .transition(.opacity)
             } else {
                 byBeltContent
@@ -683,8 +821,8 @@ struct BeltQuestionsByBeltView: View {
                         selectedBelt: $selectedBelt,
                         isEnglish: isEnglish
                     )
-                    .frame(width: 340, height: 132)
-                    .offset(y: 34)
+                    .frame(width: 318, height: 124)
+                    .offset(y: 18)
                     .padding(.bottom, 0)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
@@ -697,37 +835,37 @@ struct BeltQuestionsByBeltView: View {
                 isEnglish: isEnglish,
                 isByTopicMode: tab == .byTopic,
                 beltTitle: isEnglish
-                ? "\(beltDisplayTitle(selectedBelt))\nBelt"
-                : "\(selectedBelt.heb)\nחגורה",
-                beltFill: BeltPaletteByBeltScreen.color(for: selectedBelt),
+                ? "\(beltDisplayTitle(quickMenuBelt))\nBelt"
+                : "\(quickMenuBelt.heb)\nחגורה",
+                beltFill: BeltPaletteByBeltScreen.color(for: quickMenuBelt),
                 onWeakPoints: {
-                    print("🟣 QUICK TAP: weakPoints | belt =", selectedBelt.heb)
-                    nav.push(.weakPoints(belt: selectedBelt))
+                    print("🟣 QUICK TAP: weakPoints | belt =", quickMenuBelt.heb)
+                    nav.push(.weakPoints(belt: quickMenuBelt))
                 },
                 onAllLists: {
-                    print("🟣 QUICK TAP: allLists | belt =", selectedBelt.heb)
-                    nav.push(.allLists(belt: selectedBelt))
+                    print("🟣 QUICK TAP: allLists | belt =", quickMenuBelt.heb)
+                    nav.push(.allLists(belt: quickMenuBelt))
                 },
                 onPractice: {
-                    print("🟣 QUICK TAP: practice | belt =", selectedBelt.heb)
+                    print("🟣 QUICK TAP: practice | belt =", quickMenuBelt.heb)
                     practiceTokenFromLists = "__ALL__"
-                    nav.push(.practice(belt: selectedBelt, topicTitle: "__ALL__"))
+                    nav.push(.practice(belt: quickMenuBelt, topicTitle: "__ALL__"))
                 },
                 onSummary: {
-                    print("🟣 QUICK TAP: summary | belt =", selectedBelt.heb)
-                    nav.push(.summary(belt: selectedBelt))
+                    print("🟣 QUICK TAP: summary | belt =", quickMenuBelt.heb)
+                    nav.push(.summary(belt: quickMenuBelt))
                 },
                 onVoice: {
-                    print("🟣 QUICK TAP: voice | belt =", selectedBelt.heb)
+                    print("🟣 QUICK TAP: voice | belt =", quickMenuBelt.heb)
                     nav.push(.voiceAssistant)
                 },
                 onFinalExam: {
-                    print("🟣 QUICK TAP: beltFinalExam | belt =", selectedBelt.heb)
-                    nav.push(.beltFinalExam(belt: selectedBelt))
+                    print("🟣 QUICK TAP: beltFinalExam | belt =", quickMenuBelt.heb)
+                    nav.push(.beltFinalExam(belt: quickMenuBelt))
                 },
                 onInternalExam: coach.isCoach ? {
-                    print("🟣 QUICK TAP: internalExam | belt =", selectedBelt.heb)
-                    nav.push(.internalExam(belt: selectedBelt))
+                    print("🟣 QUICK TAP: internalExam | belt =", quickMenuBelt.heb)
+                    nav.push(.internalExam(belt: quickMenuBelt))
                 } : nil
             )
             .zIndex(1000)
@@ -736,16 +874,25 @@ struct BeltQuestionsByBeltView: View {
         .onAppear {
             guard !didInitializeSelectedBelt else { return }
             
-            if belts.contains(belt) {
-                selectedBelt = belt
-            } else {
-                selectedBelt = .orange
-            }
+            // ✅ Android parity:
+            // באנדרואיד המסך לא מתחיל בהכרח מהחגורה שנשלחה אליו,
+            // אלא מהחגורה הבאה אחרי החגורה הרשומה של המשתמש.
+            selectedBelt = initialBeltLikeAndroid()
             
             didInitializeSelectedBelt = true
         }
-        .onChange(of: selectedBelt) { _, _ in
+        .onChange(of: selectedBelt) { _, newValue in
             expandedTopic = nil
+            
+            if tab == .byBelt {
+                byTopicActiveBelt = newValue
+            }
+            
+            if quickMenuOpen {
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.92)) {
+                    quickMenuOpen = false
+                }
+            }
         }
         .onReceive(
             NotificationCenter.default.publisher(
@@ -760,6 +907,9 @@ struct BeltQuestionsByBeltView: View {
                 for: Notification.Name("KMI_ACCESS_CHANGED")
             )
         ) { _ in
+            accessRefreshTick += 1
+        }
+        .onReceive(accessRefreshTimer) { _ in
             accessRefreshTick += 1
         }
         .navigationDestination(item: $selectedLinkedTopicRoute) { route in
@@ -963,8 +1113,8 @@ struct BeltQuestionsByBeltView: View {
             }
         }
         .environment(\.layoutDirection, .leftToRight)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
         .frame(minHeight: rowMinHeight)
     }
 
@@ -1147,6 +1297,10 @@ struct BeltQuestionsByBeltView: View {
                 rightTitle: isEnglish ? "By Belt" : "לפי חגורה",
                 selected: (tab == .byTopic ? .left : .right),
                 onSelect: { sel in
+                    withAnimation(.spring(response: 0.24, dampingFraction: 0.92)) {
+                        quickMenuOpen = false
+                    }
+                    
                     if sel == .left {
                         withAnimation(.easeInOut(duration: 0.20)) {
                             tab = .byTopic
@@ -1162,10 +1316,10 @@ struct BeltQuestionsByBeltView: View {
             .padding(.top, 8)
             
             GeometryReader { geo in
-                let rowMinHeight: CGFloat = 62
+                let rowMinHeight: CGFloat = 76
                 let visibleRows: CGFloat = 5
-                let listHeight = rowMinHeight * visibleRows + 12
-                let cardHeight = min(geo.size.height * 0.66, listHeight + 76)
+                let listHeight = rowMinHeight * visibleRows + 18
+                let cardHeight = min(geo.size.height * 0.80, listHeight + 96)
                 
                 WhiteCard {
                     VStack(spacing: 7) {
@@ -1243,7 +1397,7 @@ struct BeltQuestionsByBeltView: View {
                 .frame(height: cardHeight)
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
-                .padding(.bottom, 96)
+                .padding(.bottom, 24)
             }
         }
         .zIndex(1)
@@ -1308,220 +1462,368 @@ struct BeltQuestionsByBeltView: View {
             ZStack(alignment: .bottom) {
                 
                 if isOpen {
-                    Color.black.opacity(0.22)
+                    Color.black.opacity(isByTopicMode ? 0.16 : 0.08)
                         .ignoresSafeArea()
-                        .allowsHitTesting(false)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            close()
+                        }
+                        .transition(.opacity)
                         .zIndex(1)
                 }
                 
-                VStack(spacing: 0) {
-                    Spacer()
-                    
-                    HStack(alignment: .bottom) {
-                        if isByTopicMode {
-                            Button {
-                                print("🟠 MENU BAR TAP | before isOpen =", isOpen)
-                                
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.90)) {
-                                    isPresented.toggle()
-                                }
-                                
-                                print("🟠 MENU BAR TAP | after isOpen =", isPresented)
-                            } label: {
-                                HStack(spacing: 10) {
-                                    Image(systemName: isOpen ? "xmark" : "line.3.horizontal")
-                                        .font(.system(size: 17, weight: .black))
-                                    
-                                    Text(isEnglish ? "Quick View" : "מבט מהיר")
-                                        .font(.system(size: 17, weight: .black))
-                                }
-                                .foregroundStyle(beltFill)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 58)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                        .fill(Color.white.opacity(0.96))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                        .stroke(beltFill.opacity(0.22), lineWidth: 1)
-                                )
-                                .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
-                            }
-                            .buttonStyle(.plain)
-                            .zIndex(3)
-                            .padding(.horizontal, 18)
-                            .padding(.bottom, 78)
-                        } else {
-                            Button {
-                                print("🟠 MENU BUTTON TAP | before isOpen =", isOpen)
-                                
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.90)) {
-                                    isPresented.toggle()
-                                }
-                                
-                                print("🟠 MENU BUTTON TAP | after isOpen =", isPresented)
-                            } label: {
-                                Image(systemName: isOpen ? "xmark" : "line.3.horizontal")
-                                    .font(.system(size: 18, weight: .heavy))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 54, height: 54)
-                                    .background(
-                                        Circle()
-                                            .fill(
-                                                LinearGradient(
-                                                    colors: [
-                                                        beltFill.opacity(0.95),
-                                                        Color.black.opacity(0.58)
-                                                    ],
-                                                    startPoint: .topLeading,
-                                                    endPoint: .bottomTrailing
-                                                )
-                                            )
-                                    )
-                                    .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
-                                    .shadow(radius: 8, y: 3)
-                            }
-                            .buttonStyle(.plain)
-                            .zIndex(3)
-                            .padding(.leading, 18)
-                            .padding(.bottom, 72)
-                            
-                            Spacer()
-                        }
-                    }
-                    
-                    if isOpen {
-                        VStack(
-                            alignment: isByTopicMode ? .center : .leading,
-                            spacing: 12
-                        ) {
-                            
-                            QuickPill(
-                                title: isEnglish ? "Weak Points" : "נקודות תורפה",
-                                systemImage: "exclamationmark.triangle.fill",
-                                onTap: { closeThen(onWeakPoints) }
-                            )
-                            
-                            QuickPill(
-                                title: isEnglish ? "All Lists" : "כל הרשימות",
-                                systemImage: "line.3.horizontal",
-                                onTap: { closeThen(onAllLists) }
-                            )
-                            
-                            QuickPill(
-                                title: isEnglish ? "Practice" : "תרגול",
-                                systemImage: "figure.walk",
-                                onTap: { closeThen(onPractice) }
-                            )
-                            
-                            QuickPill(
-                                title: isEnglish ? "Summary" : "מסך סיכום",
-                                systemImage: "list.bullet.clipboard",
-                                onTap: { closeThen(onSummary) }
-                            )
-                            
-                            QuickPill(
-                                title: isEnglish ? "Voice Assistant" : "עוזר קולי",
-                                systemImage: "mic.fill",
-                                onTap: { closeThen(onVoice) }
-                            )
-                            
-                            QuickPill(
-                                title: isEnglish ? "Final Exam" : "מבחן מסכם",
-                                systemImage: "checkmark.seal.fill",
-                                onTap: { closeThen(onFinalExam) }
-                            )
-                            
-                            if let onInternalExam {
-                                QuickPill(
-                                    title: isEnglish ? "Internal Exam" : "מבחן פנימי",
-                                    systemImage: "person.badge.key.fill",
-                                    onTap: { closeThen(onInternalExam) }
-                                )
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: isByTopicMode ? .center : .leading)
-                        .padding(.horizontal, isByTopicMode ? 18 : 0)
-                        .padding(.leading, isByTopicMode ? 0 : 18)
-                        .padding(.bottom, isByTopicMode ? 146 : 92)
-                        .transition(
-                            .move(edge: isByTopicMode ? .bottom : .leading)
-                            .combined(with: .opacity)
-                        )
-                    }
+                if isByTopicMode {
+                    byTopicBottomBar
+                        .zIndex(3)
+                } else {
+                    byBeltAndroidStyleMenu
+                        .zIndex(3)
                 }
             }
             .ignoresSafeArea(edges: .bottom)
+            .environment(\.layoutDirection, .leftToRight)
+            .animation(.spring(response: 0.28, dampingFraction: 0.90), value: isPresented)
+        }
+        
+        // MARK: - By Belt — Android style
+        
+        private var byBeltAndroidStyleMenu: some View {
+            GeometryReader { geo in
+                let popupBottom = max(236, min(268, geo.size.height * 0.305))
+                
+                ZStack {
+                    if isOpen {
+                        androidPopupCard
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                            .padding(.horizontal, 48)
+                            .padding(.bottom, popupBottom)
+                            .transition(
+                                .scale(scale: 0.94, anchor: .bottom)
+                                .combined(with: .opacity)
+                            )
+                    }
+
+                    // באנדרואיד אין כפתור סגירה ירוק נפרד בצד בזמן שהתפריט פתוח.
+                    // כשהתפריט סגור מציגים רק את כפתור הפתיחה.
+                    if !isOpen {
+                        byBeltFabButton
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                            .padding(.trailing, 42)
+                            .padding(.bottom, 98)
+                    }
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+            }
+        }
+        
+        private var androidPopupCard: some View {
+            VStack(spacing: 0) {
+                HStack(spacing: 10) {
+                    Button {
+                        close()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(beltFill.opacity(0.86))
+                            .frame(width: 30, height: 30)
+                            .background(
+                                Circle()
+                                    .fill(beltFill.opacity(0.10))
+                            )
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Spacer(minLength: 0)
+                    
+                    Text(isEnglish ? "Quick Menu" : "תפריט מהיר")
+                        .font(.system(size: 21, weight: .black))
+                        .foregroundStyle(beltFill.opacity(0.92))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.80)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+                .padding(.bottom, 4)
+                
+                VStack(spacing: 0) {
+                    androidMenuRow(
+                        title: isEnglish ? "Weak Points" : "נקודות תורפה",
+                        systemImage: "exclamationmark.triangle",
+                        showsLock: true,
+                        action: onWeakPoints
+                    )
+                    
+                    androidDivider
+                    
+                    androidMenuRow(
+                        title: isEnglish ? "All Lists" : "כל הרשימות",
+                        systemImage: "list.bullet",
+                        showsLock: true,
+                        action: onAllLists
+                    )
+                    
+                    androidDivider
+                    
+                    androidMenuRow(
+                        title: isEnglish ? "Practice" : "תרגול",
+                        systemImage: "figure.walk",
+                        showsLock: true,
+                        action: onPractice
+                    )
+                    
+                    androidDivider
+                    
+                    androidMenuRow(
+                        title: isEnglish ? "Summary" : "מסך סיכום",
+                        systemImage: "doc.text",
+                        showsLock: true,
+                        action: onSummary
+                    )
+                    
+                    androidDivider
+                    
+                    androidMenuRow(
+                        title: isEnglish ? "Voice Assistant" : "עוזר קולי",
+                        systemImage: "mic",
+                        showsLock: true,
+                        action: onVoice
+                    )
+                    
+                    androidDivider
+                    
+                    androidMenuRow(
+                        title: isEnglish ? "Final Exam" : "מבחן מסכם",
+                        systemImage: "checkmark.seal",
+                        showsLock: true,
+                        action: onFinalExam
+                    )
+                    
+                    if let onInternalExam {
+                        androidDivider
+                        
+                        androidMenuRow(
+                            title: isEnglish ? "Internal Exam" : "מבחן פנימי",
+                            systemImage: "person.badge.key",
+                            showsLock: true,
+                            action: onInternalExam
+                        )
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+            }
+            .frame(maxWidth: 282)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white,
+                                Color(red: 0.98, green: 0.98, blue: 0.96),
+                                Color.white
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(beltFill.opacity(0.46), lineWidth: 1.15)
+            )
+            .shadow(color: Color.black.opacity(0.22), radius: 16, x: 0, y: 9)
+        }
+        
+        private var androidDivider: some View {
+            Rectangle()
+                .fill(beltFill.opacity(0.16))
+                .frame(height: 1)
+                .padding(.leading, 12)
+                .padding(.trailing, 12)
+        }
+        
+        private func androidMenuRow(
+            title: String,
+            systemImage: String,
+            showsLock: Bool,
+            action: @escaping () -> Void
+        ) -> some View {
+            Button {
+                closeThen(action)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: showsLock ? "lock.fill" : "chevron.left")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(beltFill.opacity(0.88))
+                        .frame(width: 26)
+                    
+                    Text(title)
+                        .font(.system(size: 20, weight: .black))
+                        .foregroundStyle(beltFill.opacity(0.92))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    
+                    ZStack {
+                        Circle()
+                            .fill(beltFill.opacity(0.12))
+                            .frame(width: 31, height: 31)
+                            .overlay(
+                                Circle()
+                                    .stroke(beltFill.opacity(0.30), lineWidth: 1)
+                            )
+                        
+                        Image(systemName: systemImage)
+                            .font(.system(size: 13.5, weight: .bold))
+                            .foregroundStyle(beltFill.opacity(0.86))
+                    }
+                }
+                .frame(height: 48)
+                .padding(.horizontal, 8)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        
+        private var byBeltFabButton: some View {
+            Button {
+                toggle()
+            } label: {
+                Image(systemName: isOpen ? "xmark" : "line.3.horizontal")
+                    .font(.system(size: 22, weight: .black))
+                    .foregroundStyle(.white)
+                    .frame(width: 66, height: 66)
+                    .background(
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        beltFill.opacity(0.98),
+                                        beltFill.opacity(0.78)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    )
+                    .overlay(
+                        Circle()
+                            .stroke(Color.white.opacity(0.74), lineWidth: 3)
+                    )
+                    .overlay(
+                        Circle()
+                            .stroke(beltFill.opacity(0.42), lineWidth: 7)
+                            .blur(radius: 0.4)
+                    )
+                    .shadow(color: beltFill.opacity(0.42), radius: 12, x: 0, y: 5)
+                    .shadow(color: Color.black.opacity(0.20), radius: 8, x: 0, y: 4)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+        }
+        
+        // MARK: - By Topic — bottom bar
+        
+        private var byTopicBottomBar: some View {
+            VStack(spacing: 12) {
+                
+                if isOpen {
+                    VStack(spacing: 10) {
+                        androidMenuRow(
+                            title: isEnglish ? "Weak Points" : "נקודות תורפה",
+                            systemImage: "exclamationmark.triangle",
+                            showsLock: true,
+                            action: onWeakPoints
+                        )
+                        
+                        androidMenuRow(
+                            title: isEnglish ? "Practice" : "תרגול",
+                            systemImage: "figure.walk",
+                            showsLock: true,
+                            action: onPractice
+                        )
+                        
+                        androidMenuRow(
+                            title: isEnglish ? "Voice Assistant" : "עוזר קולי",
+                            systemImage: "mic",
+                            showsLock: true,
+                            action: onVoice
+                        )
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .fill(Color.white.opacity(0.96))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .stroke(beltFill.opacity(0.22), lineWidth: 1)
+                    )
+                    .padding(.horizontal, 18)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                
+                Button {
+                    toggle()
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: isOpen ? "xmark" : "line.3.horizontal")
+                            .font(.system(size: 17, weight: .black))
+                        
+                        Text(isEnglish ? "Quick View" : "מבט מהיר")
+                            .font(.system(size: 17, weight: .black))
+                    }
+                    .foregroundStyle(beltFill)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 58)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        beltFill.opacity(0.10),
+                                        Color.white.opacity(0.98),
+                                        beltFill.opacity(0.05)
+                                    ],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(beltFill.opacity(0.22), lineWidth: 1)
+                    )
+                    .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 18)
+                .padding(.bottom, 78)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        }
+        
+        // MARK: - Actions
+        
+        private func toggle() {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.90)) {
+                isPresented.toggle()
+            }
         }
         
         private func closeThen(_ action: @escaping () -> Void) {
-            print("🟣 OVERLAY closeThen start | isOpen =", isOpen)
-            
             close()
             
-            DispatchQueue.main.async {
-                print("🟣 OVERLAY closeThen dispatch action")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 action()
             }
         }
         
         private func close() {
-            print("🟠 OVERLAY close()")
             withAnimation(.spring(response: 0.25, dampingFraction: 0.95)) {
                 isPresented = false
-            }
-        }
-        
-        private struct QuickPill: View {
-            let title: String
-            let systemImage: String
-            let onTap: () -> Void
-            
-            var body: some View {
-                Button {
-                    print("🟠 QUICK PILL TAP -> \(title)")
-                    onTap()
-                } label: {
-                    HStack(spacing: 12) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.white.opacity(0.96))
-                                .frame(width: 44, height: 44)
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.black.opacity(0.06), lineWidth: 1)
-                                )
-                                .shadow(color: Color.black.opacity(0.12), radius: 7, x: 0, y: 3)
-                            
-                            Image(systemName: systemImage)
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundStyle(Color.black.opacity(0.76))
-                        }
-                        
-                        Text(title)
-                            .font(.system(size: 17, weight: .heavy))
-                            .foregroundStyle(Color.black.opacity(0.86))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-                            .frame(width: 176, alignment: .center)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                    .fill(Color.white.opacity(0.96))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
-                            )
-                            .shadow(color: Color.black.opacity(0.12), radius: 7, x: 0, y: 3)
-                        
-                        Spacer(minLength: 0)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
             }
         }
     }

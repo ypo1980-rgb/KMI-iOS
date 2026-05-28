@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import Shared
 
 private struct MainTopic: Identifiable, Hashable {
@@ -227,8 +228,8 @@ struct BeltQuestionsByTopicView: View {
             $0.titleHeb.contains("הטלות")
         }
 
-        // ✅ סדר כמו באנדרואיד:
-        // הגנות -> עבודת ידיים -> שחרורים -> בלימות -> עמידת מוצא -> הכנה לעבודת קרקע -> קאוולר -> בעיטות -> הטלות
+        // ✅ סדר כמו Android:
+        // הגנות -> שחרורים -> עבודת ידיים -> בלימות -> עמידת מוצא -> עבודת קרקע -> קאוולר -> בעיטות -> הטלות
 
         if !defenseRootSubjects.isEmpty {
             out.append(
@@ -249,6 +250,12 @@ struct BeltQuestionsByTopicView: View {
         if !handsRootSubjects.isEmpty {
             out.append(
                 MainTopic(id: "hands_root", titleHeb: "עבודת ידיים", subjects: handsRootSubjects)
+            )
+        }
+
+        if subjectHasVisibleContentInAnyBelt(rollsSubject) {
+            out.append(
+                MainTopic(id: "topic_breakfalls_rolls", titleHeb: "בלימות וגלגולים", subjects: [rollsSubject])
             )
         }
 
@@ -273,12 +280,6 @@ struct BeltQuestionsByTopicView: View {
         if subjectHasVisibleContentInAnyBelt(kicksSubject) {
             out.append(
                 MainTopic(id: "kicks_root", titleHeb: "בעיטות", subjects: [kicksSubject])
-            )
-        }
-
-        if subjectHasVisibleContentInAnyBelt(rollsSubject) {
-            out.append(
-                MainTopic(id: "topic_breakfalls_rolls", titleHeb: "בלימות וגלגולים", subjects: [rollsSubject])
             )
         }
 
@@ -705,49 +706,104 @@ struct BeltQuestionsByTopicView: View {
         )
     }
 
+    private func firstExistingImageName(_ candidates: [String]) -> String? {
+        for name in candidates {
+            let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !cleanName.isEmpty, UIImage(named: cleanName) != nil {
+                return cleanName
+            }
+        }
+
+        return nil
+    }
+
     private func imageNameForTopic(_ topic: MainTopic) -> String? {
         let id = topic.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let title = topic.titleHeb.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        // ✅ Android parity:
+        // subjectImageFor("defense_root") -> topic_defenses
         if id.contains("defense") || title.contains("הגנות") {
-            return "topic_defenses"
+            return firstExistingImageName([
+                "topic_defenses"
+            ])
         }
 
+        // ✅ Android parity:
+        // subjectImageFor("releases") / releases_hugs -> topic_body_hug_releases
+        // fallback לשם הישן שהיה ב-iOS כדי שלא יוצג ריבוע ריק.
         if id.contains("release") || title.contains("שחרור") || title.contains("שחרורים") {
-            return "topic_releases"
+            return firstExistingImageName([
+                "topic_body_hug_releases",
+                "topic_releases"
+            ])
         }
 
+        // ✅ Android parity:
+        // subjectImageFor("hands_root") / hands_all / hands_strikes -> topic_hand_strikes
         if id.contains("hands") || id.contains("hand") || id.contains("punch") || title.contains("יד") {
-            return "topic_hand_strikes"
+            return firstExistingImageName([
+                "topic_hand_strikes"
+            ])
         }
 
         if title.contains("מרפק") || id.contains("elbow") {
-            return "topic_elbow_strikes"
+            return firstExistingImageName([
+                "topic_elbow_strikes",
+                "topic_hand_strikes"
+            ])
         }
 
+        // ✅ Android parity:
+        // subjectImageFor("kicks") / topic_kicks -> topic_kicks
         if id.contains("kick") || title.contains("בעיטות") || title.contains("בעיטה") {
-            return "topic_kicks"
+            return firstExistingImageName([
+                "topic_kicks"
+            ])
         }
 
+        // ✅ Android parity:
+        // subjectImageFor("topic_breakfalls_rolls") -> topic_forward_roll
+        // fallback לשם הישן שהיה ב-iOS.
         if id.contains("roll") || id.contains("breakfall") || title.contains("בלימות") || title.contains("גלגולים") {
-            return "topic_breakfalls_rolls"
+            return firstExistingImageName([
+                "topic_forward_roll",
+                "topic_breakfalls_rolls"
+            ])
         }
 
+        // ✅ Android parity:
+        // subjectImageFor("topic_ready_stance") -> topic_ready_stance
         if id.contains("stance") || title.contains("עמידת מוצא") {
-            return "topic_ready_stance"
+            return firstExistingImageName([
+                "topic_ready_stance"
+            ])
         }
 
+        // ✅ Android parity:
+        // subjectImageFor("topic_ground_prep") -> topic_ground_fighting
         if id.contains("ground") || title.contains("קרקע") {
-            return "topic_ground_fighting"
+            return firstExistingImageName([
+                "topic_ground_fighting"
+            ])
         }
 
+        // ✅ Android parity:
+        // subjectImageFor("topic_kavaler") -> topic_kavaler
+        // fallback לשם הישן שהיה ב-iOS.
         if id.contains("kawal") || id.contains("kavaler") || id.contains("cavalier") ||
             title.contains("קוואלר") || title.contains("קאוולר") || title.contains("קאוול") {
-            return "topic_cavalier"
+            return firstExistingImageName([
+                "topic_kavaler",
+                "topic_cavalier"
+            ])
         }
 
         if title.contains("כללי") || id.contains("general") {
-            return "topic_general"
+            return firstExistingImageName([
+                "topic_general"
+            ])
         }
 
         return nil
@@ -914,7 +970,9 @@ struct BeltQuestionsByTopicView: View {
             let beltsToCheck: [Belt] = [.yellow, .orange, .green, .blue, .brown, .black]
 
             return beltsToCheck.reduce(0) { partial, oneBelt in
-                guard let beltContent = catalog[oneBelt] else { return partial }
+                guard let beltContent = catalog[oneBelt] else {
+                    return partial
+                }
 
                 let topicCount = beltContent.topics.reduce(0) { topicPartial, topic in
                     let topicKey = normalizedTopicKey(topic.title)
@@ -964,9 +1022,13 @@ struct BeltQuestionsByTopicView: View {
             return directCount
         }
 
-        if subjectId == "hands_strikes" || subjectId == "hands_elbows" || subjectId == "hands_stick_rifle" {
+        if subjectId == "hands_strikes" ||
+            subjectId == "hands_elbows" ||
+            subjectId == "hands_stick_rifle" {
             let allHands = HardSectionsCatalog.shared.sectionsForSubject(subjectId: "hands_all") ?? []
-            let matching = allHands.filter { $0.id == subjectId }
+            let matching = allHands.filter { section in
+                section.id == subjectId
+            }
             let handsCount = countSections(matching)
 
             if handsCount > 0 {
@@ -1023,6 +1085,13 @@ struct BeltQuestionsByTopicView: View {
 
             if sectionId == subjectId || sectionTitle == subjectTitle {
                 return true
+            }
+
+            // ✅ חשוב:
+            // "מכות במקל / רובה" לא אמור ליפול ל-"הגנות נגד מקל".
+            // אחרת המסך לפי נושא מציג תוכן הגנות תחת עבודת ידיים.
+            if subjectId == "hands_stick_rifle" {
+                return false
             }
 
             let allText = ([sectionTitle] + sectionAllItems(section)).joined(separator: " ")
@@ -1096,17 +1165,38 @@ struct BeltQuestionsByTopicView: View {
             return directSections
         }
 
-        let fallbackRoots = [
-            "releases",
-            "hands_all",
-            "defenses",
-            "defense",
-            "def_internal_punch",
-            "def_external_punch",
-            "knife_defense",
-            "gun_threat_defense",
-            "stick_defense"
-        ]
+        let fallbackRoots: [String] = {
+            // ✅ עבודת ידיים:
+            // מחפשים רק בתוך hands_all, לא בתוך defense/stick_defense.
+            if subject.id == "hands_strikes" ||
+                subject.id == "hands_elbows" ||
+                subject.id == "hands_stick_rifle" {
+                return ["hands_all"]
+            }
+
+            // ✅ נושאים שמגיעים מה-Catalog / SubjectItemsResolver.
+            // כאן לא מחזירים HardSections מזויפים.
+            // המסך הבא עדיין יודע למשוך אותם דרך SubjectAcrossBeltsView.
+            if subject.id == "topic_ready_stance" ||
+                subject.id == "topic_kawalr" ||
+                subject.id == "kicks" ||
+                subject.id == "topic_kicks" ||
+                subject.id == "kicks_hard" {
+                return []
+            }
+
+            return [
+                "releases",
+                "hands_all",
+                "defenses",
+                "defense",
+                "def_internal_punch",
+                "def_external_punch",
+                "knife_defense",
+                "gun_threat_defense",
+                "stick_defense"
+            ]
+        }()
 
         for rootId in fallbackRoots {
             let rootSections = HardSectionsCatalog.shared.sectionsForSubject(subjectId: rootId) ?? []
@@ -1394,13 +1484,13 @@ struct BeltQuestionsByTopicView: View {
                         VStack(alignment: isEnglish ? .leading : .trailing, spacing: 14) {
 
                             Text(tr("נושאים (קטגוריות)", "Topics (Categories)"))
-                                .font(.system(size: 24, weight: .heavy))
+                                .font(.system(size: 23, weight: .heavy))
                                 .foregroundStyle(Color.black.opacity(0.84))
-                                .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                                .multilineTextAlignment(primaryTextAlignment)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .multilineTextAlignment(.center)
 
                             ScrollView(showsIndicators: false) {
-                                VStack(spacing: 11) {
+                                VStack(spacing: 9) {
                                     ForEach(Array(mainTopics.enumerated()), id: \.offset) { _, topic in
                                         Button {
                                             openTopic(topic)
@@ -1438,6 +1528,17 @@ struct BeltQuestionsByTopicView: View {
                     .padding(.horizontal, 18)
                     .padding(.top, 6)
                 }
+
+                if !embeddedMode {
+                    quickViewButton
+                        .padding(.horizontal, 18)
+                        .padding(.top, 8)
+                        .padding(.bottom, 14)
+                }
+            }
+
+            if !embeddedMode && showQuickActionsDialog {
+                quickActionsDialog
             }
         }
         .environment(\.layoutDirection, screenLayoutDirection)
@@ -1492,9 +1593,18 @@ private struct TopicPulsingLockBadge: View {
     @State private var pulse: Bool = false
     
     var body: some View {
-        Text("🔒")
-            .font(.system(size: 22, weight: .black))
+        Image(systemName: "lock.fill")
+            .font(.system(size: 13, weight: .black))
+            .foregroundStyle(Color.orange.opacity(0.92))
             .frame(width: 28, height: 28)
+            .background(
+                Circle()
+                    .fill(Color.orange.opacity(0.12))
+            )
+            .overlay(
+                Circle()
+                    .stroke(Color.orange.opacity(0.24), lineWidth: 1)
+            )
             .scaleEffect(pulse ? 1.12 : 1.0)
             .onAppear {
                 withAnimation(

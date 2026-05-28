@@ -74,6 +74,96 @@ struct RegisterFormView: View {
     @State private var showBranchesSheet = false
     @State private var showGroupsSheet = false
 
+    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
+    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+    @AppStorage("selected_language_code") private var selectedLanguageCode: String = "he"
+
+    private var effectiveLanguageCode: String {
+        let orderedValues = [
+            kmiAppLanguageCode,
+            selectedLanguageCode,
+            appLanguageRaw,
+            initialLanguageCode
+        ]
+
+        for raw in orderedValues {
+            let clean = raw
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            if clean == "he" || clean == "hebrew" || clean == "עברית" {
+                return "he"
+            }
+
+            if clean == "en" || clean == "english" {
+                return "en"
+            }
+        }
+
+        return "he"
+    }
+
+    private var isEnglish: Bool {
+        effectiveLanguageCode == "en"
+    }
+
+    private var screenLayoutDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
+    private var formTextAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var formFrameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
+    private func localizedScreenTitle(_ raw: String) -> String {
+        let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard isEnglish else {
+            return clean
+        }
+
+        switch clean {
+        case "טופס רישום":
+            return "Registration Form"
+        case "עריכת פרופיל":
+            return "Edit Profile"
+        case "רישום מתאמן":
+            return "Trainee Registration"
+        case "רישום מאמן":
+            return "Coach Registration"
+        default:
+            return clean
+        }
+    }
+
+    private func localizedSubmitTitle(_ raw: String) -> String {
+        let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard isEnglish else {
+            return clean
+        }
+
+        switch clean {
+        case "סיום רישום":
+            return "Complete Registration"
+        case "שמירת שינויים":
+            return "Save Changes"
+        case "שומר...":
+            return "Saving..."
+        default:
+            return clean
+        }
+    }
+
     private var normalizedPhone: String {
         s.phone.filter { $0.isNumber }
     }
@@ -192,11 +282,14 @@ struct RegisterFormView: View {
     
     var body: some View {
         registerRootView
+            .environment(\.layoutDirection, screenLayoutDirection)
             .sheet(isPresented: $showBranchesSheet) {
                 branchesSheet
+                    .environment(\.layoutDirection, screenLayoutDirection)
             }
             .sheet(isPresented: $showGroupsSheet) {
                 groupsSheet
+                    .environment(\.layoutDirection, screenLayoutDirection)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 submitBottomBar
@@ -277,33 +370,40 @@ struct RegisterFormView: View {
     @ViewBuilder
     private var coachNoticeCard: some View {
         if s.role == .coach {
-            sectionCard(title: "רישום מאמן מורשה") {
-                Text("לאחר השלמת הרישום יופק עבורך קוד מאמן אישי. יש לשמור אותו לצורך התחברות למערכת ולפעולות מתקדמות.")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.28, green: 0.33, blue: 0.41))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .multilineTextAlignment(.trailing)
+            sectionCard(title: tr("רישום מאמן מורשה", "Authorized coach registration")) {
+                Text(
+                    tr(
+                        "לאחר השלמת הרישום יופק עבורך קוד מאמן אישי. יש לשמור אותו לצורך התחברות למערכת ולפעולות מתקדמות.",
+                        "After completing registration, a personal coach code will be created for you. Keep it for login and advanced actions."
+                    )
+                )
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(red: 0.28, green: 0.33, blue: 0.41))
+                .frame(maxWidth: .infinity, alignment: formFrameAlignment)
+                .multilineTextAlignment(formTextAlignment)
             }
         }
     }
 
     private var personalDetailsSection: some View {
-        sectionCard(title: "פרטים אישיים") {
-            field(title: "שם מלא", text: $s.fullName)
-            field(title: "טלפון", text: $s.phone, keyboard: .phonePad)
-            field(title: "מייל", text: $s.email, keyboard: .emailAddress)
+        sectionCard(title: tr("פרטים אישיים", "Personal details")) {
+            field(title: tr("שם מלא", "Full name"), text: $s.fullName)
+            field(title: tr("טלפון", "Phone"), text: $s.phone, keyboard: .phonePad)
+            field(title: tr("מייל", "Email"), text: $s.email, keyboard: .emailAddress)
 
-            Text("מין המשתמש")
+            Text(tr("מין המשתמש", "Gender"))
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(registrationLabelColor)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: formFrameAlignment)
+                .multilineTextAlignment(formTextAlignment)
 
             genderPicker
 
-            Text("תאריך לידה")
+            Text(tr("תאריך לידה", "Date of birth"))
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(registrationLabelColor)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: formFrameAlignment)
+                .multilineTextAlignment(formTextAlignment)
 
             dobRow
         }
@@ -312,8 +412,8 @@ struct RegisterFormView: View {
     @ViewBuilder
     private var accountSection: some View {
         if !isGoogleAuth {
-            sectionCard(title: "חשבון משתמש") {
-                field(title: "שם משתמש", text: $s.username, keyboard: .default)
+            sectionCard(title: tr("חשבון משתמש", "User account")) {
+                field(title: tr("שם משתמש", "Username"), text: $s.username, keyboard: .default)
 
                 passwordField
             }
@@ -321,20 +421,22 @@ struct RegisterFormView: View {
     }
 
     private var branchSection: some View {
-        sectionCard(title: "שיוך לסניף") {
+        sectionCard(title: tr("שיוך לסניף", "Branch assignment")) {
             branchScopePicker
 
             regionPicker
 
             multiSelectRow(
-                title: isAbroadSelection ? "סניפים בחו״ל (עד 3)" : "סניפים בארץ (עד 3)",
+                title: isAbroadSelection
+                    ? tr("סניפים בחו״ל (עד 3)", "Branches abroad (up to 3)")
+                    : tr("סניפים בארץ (עד 3)", "Branches in Israel (up to 3)"),
                 valueText: displayedBranchesText,
                 onTap: { showBranchesSheet = true }
             )
 
             if !isAbroadSelection {
                 multiSelectRow(
-                    title: "קבוצות (עד 3)",
+                    title: tr("קבוצות (עד 3)", "Groups (up to 3)"),
                     valueText: displayedGroupsText,
                     onTap: { showGroupsSheet = true }
                 )
@@ -345,10 +447,16 @@ struct RegisterFormView: View {
     }
 
     private var preferencesSection: some View {
-        sectionCard(title: "העדפות ואישורים") {
+        sectionCard(title: tr("העדפות ואישורים", "Preferences and approvals")) {
             Toggle(isOn: $s.wantsSms) {
-                Text("ארצה לקבל עדכונים בהודעות\nSMS לגבי אימונים קרובים")
-                    .multilineTextAlignment(.trailing)
+                Text(
+                    tr(
+                        "ארצה לקבל עדכונים בהודעות\nSMS לגבי אימונים קרובים",
+                        "I would like to receive SMS updates\nabout upcoming trainings"
+                    )
+                )
+                .frame(maxWidth: .infinity, alignment: formFrameAlignment)
+                .multilineTextAlignment(formTextAlignment)
             }
 
             termsRow
@@ -357,7 +465,9 @@ struct RegisterFormView: View {
 
     private var branchesSheet: some View {
         MultiSelectSheet(
-            title: isAbroadSelection ? "בחר סניפים בחו״ל (עד 3)" : "בחר סניפים בארץ (עד 3)",
+            title: isAbroadSelection
+                ? tr("בחר סניפים בחו״ל (עד 3)", "Choose branches abroad (up to 3)")
+                : tr("בחר סניפים בארץ (עד 3)", "Choose branches in Israel (up to 3)"),
             options: branchesOptions,
             maxSelected: 3,
             selected: $s.branches
@@ -367,7 +477,7 @@ struct RegisterFormView: View {
 
     private var groupsSheet: some View {
         MultiSelectSheet(
-            title: "בחר קבוצות (עד 3)",
+            title: tr("בחר קבוצות (עד 3)", "Choose groups (up to 3)"),
             options: groupsOptions,
             maxSelected: 3,
             selected: $s.groups
@@ -596,20 +706,29 @@ struct RegisterFormView: View {
     private var headerBar: some View {
         HStack {
             Button(action: onBack) {
-                Text("חזרה")
+                Text(tr("חזרה", "Back"))
                     .font(.headline)
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(Color.white.opacity(0.18))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             }
+
             Spacer()
-            Text(screenTitle)
-                .font(.title2).bold()
+
+            Text(localizedScreenTitle(screenTitle))
+                .font(.title2)
+                .bold()
                 .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+
             Spacer()
+
             Color.clear.frame(width: 64, height: 1)
         }
+        .environment(\.layoutDirection, screenLayoutDirection)
         .padding(.bottom, 6)
     }
 
@@ -632,7 +751,7 @@ struct RegisterFormView: View {
 
     private func tabButton(_ role: UserRole) -> some View {
         let isSelected = s.role == role
-        let title = role == .trainee ? "מתאמן" : "מאמן"
+        let title = role == .trainee ? tr("מתאמן", "Trainee") : tr("מאמן", "Coach")
 
         return Button {
             if !isSuperTester {
@@ -680,12 +799,12 @@ struct RegisterFormView: View {
         title: String,
         @ViewBuilder content: () -> some View
     ) -> some View {
-        VStack(alignment: .trailing, spacing: 10) {
+        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 10) {
             Text(title)
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.22))
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .multilineTextAlignment(.trailing)
+                .frame(maxWidth: .infinity, alignment: formFrameAlignment)
+                .multilineTextAlignment(formTextAlignment)
 
             Rectangle()
                 .fill(Color(red: 0.85, green: 0.80, blue: 0.91))
@@ -764,8 +883,12 @@ struct RegisterFormView: View {
                             .tint(.white)
                     }
 
-                    Text(isSubmitting ? submittingTitle : submitTitle)
-                        .font(.system(size: 15, weight: .bold))
+                    Text(
+                        isSubmitting
+                            ? localizedSubmitTitle(submittingTitle)
+                            : localizedSubmitTitle(submitTitle)
+                    )
+                    .font(.system(size: 15, weight: .bold))
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 46)
@@ -901,15 +1024,16 @@ struct RegisterFormView: View {
     }
 
     private var branchScopePicker: some View {
-        VStack(alignment: .trailing, spacing: 8) {
-            Text("בחירת סוג סניף")
+        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 8) {
+            Text(tr("בחירת סוג סניף", "Branch type"))
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Color(red: 0.28, green: 0.33, blue: 0.41))
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: formFrameAlignment)
+                .multilineTextAlignment(formTextAlignment)
 
             HStack(spacing: 12) {
                 branchTypeChip(
-                    title: "ישראל",
+                    title: tr("ישראל", "Israel"),
                     isSelected: !isAbroadSelection,
                     onTap: {
                         guard isAbroadSelection else { return }
@@ -921,7 +1045,7 @@ struct RegisterFormView: View {
                 )
 
                 branchTypeChip(
-                    title: "חו״ל",
+                    title: tr("חו״ל", "Abroad"),
                     isSelected: isAbroadSelection,
                     onTap: {
                         guard !isAbroadSelection else { return }

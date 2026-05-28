@@ -19,6 +19,7 @@ enum KmiDrawerRouteKey: String {
     case coachPaymentsReport
     case adminUsers
 
+    case myProfile
     case aboutAvi
     case aboutNetworkCoaches
     case aboutMethod
@@ -361,6 +362,14 @@ struct KmiSideDrawer: View {
     private var items: [KmiDrawerItem] {
         [
             .init(
+                routeKey: .myProfile,
+                titleHe: "הפרופיל שלי",
+                titleEn: "My Profile",
+                subtitleHe: "צפייה בפרטים האישיים שלך",
+                subtitleEn: "View your personal K.M.I details",
+                systemImage: "person.fill"
+            ),
+            .init(
                 routeKey: .aboutAvi,
                 titleHe: "אודות אבי אביסידון",
                 titleEn: "About Avi Avisidon",
@@ -411,14 +420,6 @@ struct KmiSideDrawer: View {
                 titleHe: "פורום הסניף",
                 titleEn: "Branch Forum",
                 systemImage: "person.3.fill"
-            ),
-            .init(
-                routeKey: .editProfile,
-                titleHe: "עריכת פרופיל",
-                titleEn: "Edit Profile",
-                subtitleHe: "עדכון פרטים אישיים",
-                subtitleEn: "Update your personal details",
-                systemImage: "person.fill"
             ),
             .init(
                 routeKey: .toggleLanguage,
@@ -515,7 +516,7 @@ struct KmiSideDrawer: View {
                             drawerButton(it, isCoachButton: false)
                         }
 
-                        Text("© K.M.I")
+                        Text("© KAMI")
                             .font(.system(size: 12, weight: .regular))
                             .foregroundStyle(Color(red: 0.72, green: 0.77, blue: 0.85)) // #B8C4DA
                             .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
@@ -654,6 +655,10 @@ struct KmiSideDrawer: View {
                     return
                 }
 
+                onSelect(it)
+                return
+
+            case .myProfile:
                 onSelect(it)
                 return
 

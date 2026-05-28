@@ -661,7 +661,7 @@ struct BeltQuestionsByBeltView: View {
     ) -> some View {
         VStack(alignment: isEnglish ? .leading : .trailing, spacing: 3) {
             Text(uiTopicTitle(title))
-                .font(.system(size: 16.5, weight: .heavy))
+                .font(.system(size: 15.5, weight: .heavy))
                 .foregroundStyle(Color.black.opacity(0.86))
                 .frame(
                     maxWidth: .infinity,
@@ -673,7 +673,7 @@ struct BeltQuestionsByBeltView: View {
             
             if let subtitle, !subtitle.isEmpty {
                 Text(subtitle)
-                    .font(.system(size: 12.5, weight: .bold))
+                    .font(.system(size: 11.5, weight: .bold))
                     .foregroundStyle(Color.black.opacity(0.48))
                     .frame(
                         maxWidth: .infinity,
@@ -691,46 +691,42 @@ struct BeltQuestionsByBeltView: View {
         accent: Color
     ) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            accent.opacity(0.16),
-                            Color.white.opacity(0.98),
-                            accent.opacity(0.08)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.92))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 15, style: .continuous)
-                        .stroke(accent.opacity(0.26), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(accent.opacity(0.18), lineWidth: 1)
                 )
+                .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
             
             if let imageName = topicImageName(topicTitle) {
                 Image(imageName)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 50, height: 46)
-                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 13, style: .continuous)
-                            .stroke(Color.white.opacity(0.72), lineWidth: 1)
-                    )
+                    .frame(width: 42, height: 42)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             } else {
                 Image(systemName: topicSymbolName(topicTitle))
-                    .font(.system(size: 20, weight: .heavy))
+                    .font(.system(size: 18, weight: .heavy))
                     .foregroundStyle(accent)
             }
         }
-        .frame(width: 58, height: 54)
+        .frame(width: 42, height: 42)
     }
     
     private func topicAccentStrip(_ accent: Color) -> some View {
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(accent)
-            .frame(width: 6, height: 54)
+        RoundedRectangle(cornerRadius: 999, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        accent.opacity(1.0),
+                        accent.opacity(0.72)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .frame(width: 3, height: 34)
     }
     
     private var quickViewButton: some View {
@@ -813,19 +809,26 @@ struct BeltQuestionsByBeltView: View {
             tabContent
             
             if tab == .byBelt {
-                VStack {
-                    Spacer()
+                GeometryReader { geo in
+                    let isCompactHeight = geo.size.height < 760
+                    let pickerWidth: CGFloat = isCompactHeight ? 306 : 318
+                    let pickerHeight: CGFloat = isCompactHeight ? 118 : 124
+                    let pickerOffsetY: CGFloat = isCompactHeight ? 10 : 6
                     
-                    BeltArcPicker(
-                        belts: belts,
-                        selectedBelt: $selectedBelt,
-                        isEnglish: isEnglish
-                    )
-                    .frame(width: 318, height: 124)
-                    .offset(y: 18)
-                    .padding(.bottom, 0)
+                    VStack {
+                        Spacer()
+                        
+                        BeltArcPicker(
+                            belts: belts,
+                            selectedBelt: $selectedBelt,
+                            isEnglish: isEnglish
+                        )
+                        .frame(width: pickerWidth, height: pickerHeight)
+                        .offset(y: pickerOffsetY)
+                        .padding(.bottom, 0)
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height, alignment: .bottom)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .zIndex(2.2)
                 .allowsHitTesting(!quickMenuOpen)
             }
@@ -839,32 +842,60 @@ struct BeltQuestionsByBeltView: View {
                 : "\(quickMenuBelt.heb)\nחגורה",
                 beltFill: BeltPaletteByBeltScreen.color(for: quickMenuBelt),
                 onWeakPoints: {
-                    print("🟣 QUICK TAP: weakPoints | belt =", quickMenuBelt.heb)
-                    nav.push(.weakPoints(belt: quickMenuBelt))
+                    if LockedContentPolicy.shouldShowLock(
+                        accessMode: LockedContentPolicy.currentAccessMode(),
+                        title: isEnglish ? "Weak Points" : "נקודות תורפה"
+                    ) {
+                        nav.push(.subscriptionPlans)
+                    } else {
+                        nav.push(.weakPoints(belt: quickMenuBelt))
+                    }
                 },
                 onAllLists: {
-                    print("🟣 QUICK TAP: allLists | belt =", quickMenuBelt.heb)
-                    nav.push(.allLists(belt: quickMenuBelt))
+                    if LockedContentPolicy.shouldShowLock(
+                        accessMode: LockedContentPolicy.currentAccessMode(),
+                        title: isEnglish ? "All Lists" : "כל הרשימות"
+                    ) {
+                        nav.push(.subscriptionPlans)
+                    } else {
+                        nav.push(.allLists(belt: quickMenuBelt))
+                    }
                 },
                 onPractice: {
-                    print("🟣 QUICK TAP: practice | belt =", quickMenuBelt.heb)
-                    practiceTokenFromLists = "__ALL__"
-                    nav.push(.practice(belt: quickMenuBelt, topicTitle: "__ALL__"))
+                    if LockedContentPolicy.shouldShowLock(
+                        accessMode: LockedContentPolicy.currentAccessMode(),
+                        title: isEnglish ? "Practice" : "תרגול"
+                    ) {
+                        nav.push(.subscriptionPlans)
+                    } else {
+                        practiceTokenFromLists = "__ALL__"
+                        nav.push(.practice(belt: quickMenuBelt, topicTitle: "__ALL__"))
+                    }
                 },
                 onSummary: {
-                    print("🟣 QUICK TAP: summary | belt =", quickMenuBelt.heb)
-                    nav.push(.summary(belt: quickMenuBelt))
+                    if LockedContentPolicy.shouldShowLock(
+                        accessMode: LockedContentPolicy.currentAccessMode(),
+                        title: isEnglish ? "Summary" : "מסך סיכום"
+                    ) {
+                        nav.push(.subscriptionPlans)
+                    } else {
+                        nav.push(.summary(belt: quickMenuBelt))
+                    }
                 },
                 onVoice: {
-                    print("🟣 QUICK TAP: voice | belt =", quickMenuBelt.heb)
                     nav.push(.voiceAssistant)
                 },
                 onFinalExam: {
-                    print("🟣 QUICK TAP: beltFinalExam | belt =", quickMenuBelt.heb)
-                    nav.push(.beltFinalExam(belt: quickMenuBelt))
+                    if LockedContentPolicy.shouldShowLock(
+                        accessMode: LockedContentPolicy.currentAccessMode(),
+                        title: isEnglish ? "Final Exam" : "מבחן מסכם"
+                    ) {
+                        nav.push(.subscriptionPlans)
+                    } else {
+                        nav.push(.beltFinalExam(belt: quickMenuBelt))
+                    }
                 },
                 onInternalExam: coach.isCoach ? {
-                    print("🟣 QUICK TAP: internalExam | belt =", quickMenuBelt.heb)
                     nav.push(.internalExam(belt: quickMenuBelt))
                 } : nil
             )
@@ -1061,7 +1092,7 @@ struct BeltQuestionsByBeltView: View {
         accent: Color,
         rowMinHeight: CGFloat
     ) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             if isEnglish {
                 navigationChevron(
                     hasSubs: hasSubs,
@@ -1094,15 +1125,15 @@ struct BeltQuestionsByBeltView: View {
 
                 Spacer(minLength: 0)
 
-                if locked {
-                    PulsingLockBadge()
-                }
-
                 topicTextBlock(
                     title: entry.title,
                     subtitle: entry.subtitle,
                     isEnglish: isEnglish
                 )
+
+                if locked {
+                    PulsingLockBadge()
+                }
 
                 topicIconBox(
                     topicTitle: topicTitle,
@@ -1113,8 +1144,8 @@ struct BeltQuestionsByBeltView: View {
             }
         }
         .environment(\.layoutDirection, .leftToRight)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
         .frame(minHeight: rowMinHeight)
     }
 
@@ -1173,25 +1204,41 @@ struct BeltQuestionsByBeltView: View {
             }
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: isEnglish ? "chevron.right" : "chevron.left")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Color.black.opacity(0.26))
+                if isEnglish {
+                    VStack(alignment: .leading, spacing: 3) {
+                        subTopicTitleLine(subTitle)
 
-                Spacer(minLength: 0)
+                        Text(exercisesCountText(itemCount))
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(Color.black.opacity(0.48))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .multilineTextAlignment(.leading)
+                    }
 
-                VStack(alignment: isEnglish ? .leading : .trailing, spacing: 3) {
-                    subTopicTitleLine(subTitle)
+                    Spacer(minLength: 0)
 
-                    Text(exercisesCountText(itemCount))
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Color.black.opacity(0.48))
-                        .frame(
-                            maxWidth: .infinity,
-                            alignment: isEnglish ? .leading : .trailing
-                        )
-                        .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color.black.opacity(0.26))
+                } else {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color.black.opacity(0.26))
+
+                    Spacer(minLength: 0)
+
+                    VStack(alignment: .trailing, spacing: 3) {
+                        subTopicTitleLine(subTitle)
+
+                        Text(exercisesCountText(itemCount))
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(Color.black.opacity(0.48))
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .multilineTextAlignment(.trailing)
+                    }
                 }
             }
+            .environment(\.layoutDirection, .leftToRight)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(
@@ -1217,8 +1264,9 @@ struct BeltQuestionsByBeltView: View {
                     .minimumScaleFactor(0.82)
 
                 if isTopicLocked(subTitle) {
-                    Text("🔒")
-                        .font(.system(size: 14, weight: .black))
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 11.5, weight: .black))
+                        .foregroundStyle(Color.orange.opacity(0.90))
                 }
 
                 Spacer(minLength: 0)
@@ -1226,8 +1274,9 @@ struct BeltQuestionsByBeltView: View {
                 Spacer(minLength: 0)
 
                 if isTopicLocked(subTitle) {
-                    Text("🔒")
-                        .font(.system(size: 14, weight: .black))
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 11.5, weight: .black))
+                        .foregroundStyle(Color.orange.opacity(0.90))
                 }
 
                 Text(uiTopicTitle(subTitle))
@@ -1260,21 +1309,45 @@ struct BeltQuestionsByBeltView: View {
             }
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: "list.bullet.rectangle.fill")
-                    .font(.system(size: 14, weight: .heavy))
-                    .foregroundStyle(accent)
+                if isEnglish {
+                    Image(systemName: "list.bullet.rectangle.fill")
+                        .font(.system(size: 14, weight: .heavy))
+                        .foregroundStyle(accent)
 
-                Text(isEnglish ? "Full topic" : "כל הנושא")
-                    .font(.system(size: 15, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(0.82))
+                    Text("Full topic")
+                        .font(.system(size: 15, weight: .heavy))
+                        .foregroundStyle(Color.black.opacity(0.82))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
 
-                if isTopicLocked(topicTitle) {
-                    Text("🔒")
-                        .font(.system(size: 14, weight: .black))
+                    if isTopicLocked(topicTitle) {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 11.5, weight: .black))
+                            .foregroundStyle(Color.orange.opacity(0.90))
+                    }
+
+                    Spacer(minLength: 0)
+                } else {
+                    Spacer(minLength: 0)
+
+                    if isTopicLocked(topicTitle) {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 11.5, weight: .black))
+                            .foregroundStyle(Color.orange.opacity(0.90))
+                    }
+
+                    Text("כל הנושא")
+                        .font(.system(size: 15, weight: .heavy))
+                        .foregroundStyle(Color.black.opacity(0.82))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+
+                    Image(systemName: "list.bullet.rectangle.fill")
+                        .font(.system(size: 14, weight: .heavy))
+                        .foregroundStyle(accent)
                 }
-
-                Spacer(minLength: 0)
             }
+            .environment(\.layoutDirection, .leftToRight)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(
@@ -1316,19 +1389,19 @@ struct BeltQuestionsByBeltView: View {
             .padding(.top, 8)
             
             GeometryReader { geo in
-                let rowMinHeight: CGFloat = 76
-                let visibleRows: CGFloat = 5
-                let listHeight = rowMinHeight * visibleRows + 18
-                let cardHeight = min(geo.size.height * 0.80, listHeight + 96)
+                let rowMinHeight: CGFloat = 56
+                let visibleRows: CGFloat = 5.55
+                let listHeight = rowMinHeight * visibleRows + 6
+                let cardHeight = min(geo.size.height * 0.84, listHeight + 74)
                 
                 WhiteCard {
                     VStack(spacing: 7) {
                         Text(isEnglish ? "Topics in Belt" : "נושאים בחגורה")
-                            .font(.system(size: 17, weight: .bold))
+                            .font(.system(size: 16.5, weight: .bold))
                             .foregroundStyle(Color.black.opacity(0.84))
                             .frame(maxWidth: .infinity, alignment: .center)
                             .lineLimit(1)
-                            .padding(.top, 1)
+                            .padding(.top, 0)
                         
                         if beltTopicsUi.isEmpty {
                             Text(isEnglish ? "No topics to display" : "אין נושאים להצגה")
@@ -1339,7 +1412,7 @@ struct BeltQuestionsByBeltView: View {
                         } else {
                             ScrollViewReader { proxy in
                                 ScrollView(showsIndicators: false) {
-                                    VStack(spacing: 10) {
+                                    VStack(spacing: 3) {
                                         Color.clear
                                             .frame(height: 0)
                                             .id("topics_top_anchor")
@@ -1390,14 +1463,14 @@ struct BeltQuestionsByBeltView: View {
                             }
                         }
                     }
-                    .padding(.top, 10)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 12)
+                    .padding(.top, 5)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 7)
                 }
                 .frame(height: cardHeight)
                 .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 24)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
             }
         }
         .zIndex(1)
@@ -1458,6 +1531,13 @@ struct BeltQuestionsByBeltView: View {
         
         private var isOpen: Bool { isPresented }
         
+        private func isMenuItemLocked(_ title: String) -> Bool {
+            LockedContentPolicy.shouldShowLock(
+                accessMode: LockedContentPolicy.currentAccessMode(),
+                title: title
+            )
+        }
+        
         var body: some View {
             ZStack(alignment: .bottom) {
                 
@@ -1489,13 +1569,24 @@ struct BeltQuestionsByBeltView: View {
         
         private var byBeltAndroidStyleMenu: some View {
             GeometryReader { geo in
-                let popupBottom = max(236, min(268, geo.size.height * 0.305))
+                let safeBottom = geo.safeAreaInsets.bottom
+                let isCompactHeight = geo.size.height < 760
+                
+                let popupBottom: CGFloat = {
+                    let base = isCompactHeight ? geo.size.height * 0.245 : geo.size.height * 0.258
+                    return max(190 + safeBottom, min(226 + safeBottom, base))
+                }()
+                
+                let fabBottom: CGFloat = {
+                    let base = isCompactHeight ? geo.size.height * 0.126 : geo.size.height * 0.130
+                    return max(94 + safeBottom, min(112 + safeBottom, base))
+                }()
                 
                 ZStack {
                     if isOpen {
                         androidPopupCard
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                            .padding(.horizontal, 48)
+                            .padding(.horizontal, isCompactHeight ? 58 : 54)
                             .padding(.bottom, popupBottom)
                             .transition(
                                 .scale(scale: 0.94, anchor: .bottom)
@@ -1506,10 +1597,12 @@ struct BeltQuestionsByBeltView: View {
                     // באנדרואיד אין כפתור סגירה ירוק נפרד בצד בזמן שהתפריט פתוח.
                     // כשהתפריט סגור מציגים רק את כפתור הפתיחה.
                     if !isOpen {
+                        let fabTrailing = max(34, min(44, geo.size.width * 0.105))
+                        
                         byBeltFabButton
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                            .padding(.trailing, 42)
-                            .padding(.bottom, 98)
+                            .padding(.trailing, fabTrailing)
+                            .padding(.bottom, fabBottom)
                     }
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
@@ -1523,9 +1616,9 @@ struct BeltQuestionsByBeltView: View {
                         close()
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .bold))
+                            .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(beltFill.opacity(0.86))
-                            .frame(width: 30, height: 30)
+                            .frame(width: 28, height: 28)
                             .background(
                                 Circle()
                                     .fill(beltFill.opacity(0.10))
@@ -1537,20 +1630,20 @@ struct BeltQuestionsByBeltView: View {
                     Spacer(minLength: 0)
                     
                     Text(isEnglish ? "Quick Menu" : "תפריט מהיר")
-                        .font(.system(size: 21, weight: .black))
+                        .font(.system(size: 19.5, weight: .black))
                         .foregroundStyle(beltFill.opacity(0.92))
                         .lineLimit(1)
                         .minimumScaleFactor(0.80)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
-                .padding(.bottom, 4)
+                .padding(.horizontal, 15)
+                .padding(.top, 9)
+                .padding(.bottom, 2)
                 
                 VStack(spacing: 0) {
                     androidMenuRow(
                         title: isEnglish ? "Weak Points" : "נקודות תורפה",
                         systemImage: "exclamationmark.triangle",
-                        showsLock: true,
+                        showsLock: isMenuItemLocked(isEnglish ? "Weak Points" : "נקודות תורפה"),
                         action: onWeakPoints
                     )
                     
@@ -1559,7 +1652,7 @@ struct BeltQuestionsByBeltView: View {
                     androidMenuRow(
                         title: isEnglish ? "All Lists" : "כל הרשימות",
                         systemImage: "list.bullet",
-                        showsLock: true,
+                        showsLock: isMenuItemLocked(isEnglish ? "All Lists" : "כל הרשימות"),
                         action: onAllLists
                     )
                     
@@ -1568,7 +1661,7 @@ struct BeltQuestionsByBeltView: View {
                     androidMenuRow(
                         title: isEnglish ? "Practice" : "תרגול",
                         systemImage: "figure.walk",
-                        showsLock: true,
+                        showsLock: isMenuItemLocked(isEnglish ? "Practice" : "תרגול"),
                         action: onPractice
                     )
                     
@@ -1577,7 +1670,7 @@ struct BeltQuestionsByBeltView: View {
                     androidMenuRow(
                         title: isEnglish ? "Summary" : "מסך סיכום",
                         systemImage: "doc.text",
-                        showsLock: true,
+                        showsLock: isMenuItemLocked(isEnglish ? "Summary" : "מסך סיכום"),
                         action: onSummary
                     )
                     
@@ -1586,7 +1679,7 @@ struct BeltQuestionsByBeltView: View {
                     androidMenuRow(
                         title: isEnglish ? "Voice Assistant" : "עוזר קולי",
                         systemImage: "mic",
-                        showsLock: true,
+                        showsLock: false,
                         action: onVoice
                     )
                     
@@ -1595,7 +1688,7 @@ struct BeltQuestionsByBeltView: View {
                     androidMenuRow(
                         title: isEnglish ? "Final Exam" : "מבחן מסכם",
                         systemImage: "checkmark.seal",
-                        showsLock: true,
+                        showsLock: isMenuItemLocked(isEnglish ? "Final Exam" : "מבחן מסכם"),
                         action: onFinalExam
                     )
                     
@@ -1605,17 +1698,17 @@ struct BeltQuestionsByBeltView: View {
                         androidMenuRow(
                             title: isEnglish ? "Internal Exam" : "מבחן פנימי",
                             systemImage: "person.badge.key",
-                            showsLock: true,
+                            showsLock: false,
                             action: onInternalExam
                         )
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
+                .padding(.horizontal, 11)
+                .padding(.bottom, 10)
             }
-            .frame(maxWidth: 282)
+            .frame(maxWidth: 258)
             .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                RoundedRectangle(cornerRadius: 21, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [
@@ -1629,10 +1722,10 @@ struct BeltQuestionsByBeltView: View {
                     )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(beltFill.opacity(0.46), lineWidth: 1.15)
+                RoundedRectangle(cornerRadius: 21, style: .continuous)
+                    .stroke(beltFill.opacity(0.42), lineWidth: 1.05)
             )
-            .shadow(color: Color.black.opacity(0.22), radius: 16, x: 0, y: 9)
+            .shadow(color: Color.black.opacity(0.20), radius: 14, x: 0, y: 8)
         }
         
         private var androidDivider: some View {
@@ -1652,34 +1745,63 @@ struct BeltQuestionsByBeltView: View {
             Button {
                 closeThen(action)
             } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: showsLock ? "lock.fill" : "chevron.left")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(beltFill.opacity(0.88))
-                        .frame(width: 26)
-                    
-                    Text(title)
-                        .font(.system(size: 20, weight: .black))
-                        .foregroundStyle(beltFill.opacity(0.92))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                    
-                    ZStack {
-                        Circle()
-                            .fill(beltFill.opacity(0.12))
-                            .frame(width: 31, height: 31)
-                            .overlay(
-                                Circle()
-                                    .stroke(beltFill.opacity(0.30), lineWidth: 1)
-                            )
-                        
-                        Image(systemName: systemImage)
-                            .font(.system(size: 13.5, weight: .bold))
-                            .foregroundStyle(beltFill.opacity(0.86))
+                HStack(spacing: 9) {
+                    if isEnglish {
+                        ZStack {
+                            Circle()
+                                .fill(beltFill.opacity(0.12))
+                                .frame(width: 28, height: 28)
+                                .overlay(
+                                    Circle()
+                                        .stroke(beltFill.opacity(0.28), lineWidth: 1)
+                                )
+
+                            Image(systemName: systemImage)
+                                .font(.system(size: 12.5, weight: .bold))
+                                .foregroundStyle(beltFill.opacity(0.86))
+                        }
+
+                        Text(title)
+                            .font(.system(size: 18.5, weight: .black))
+                            .foregroundStyle(beltFill.opacity(0.92))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Image(systemName: showsLock ? "lock.fill" : "chevron.right")
+                            .font(.system(size: showsLock ? 13 : 12, weight: .bold))
+                            .foregroundStyle(beltFill.opacity(0.88))
+                            .frame(width: 24)
+                    } else {
+                        Image(systemName: showsLock ? "lock.fill" : "chevron.left")
+                            .font(.system(size: showsLock ? 13 : 12, weight: .bold))
+                            .foregroundStyle(beltFill.opacity(0.88))
+                            .frame(width: 24)
+
+                        Text(title)
+                            .font(.system(size: 18.5, weight: .black))
+                            .foregroundStyle(beltFill.opacity(0.92))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+
+                        ZStack {
+                            Circle()
+                                .fill(beltFill.opacity(0.12))
+                                .frame(width: 28, height: 28)
+                                .overlay(
+                                    Circle()
+                                        .stroke(beltFill.opacity(0.28), lineWidth: 1)
+                                )
+
+                            Image(systemName: systemImage)
+                                .font(.system(size: 12.5, weight: .bold))
+                                .foregroundStyle(beltFill.opacity(0.86))
+                        }
                     }
                 }
-                .frame(height: 48)
+                .environment(\.layoutDirection, .leftToRight)
+                .frame(height: 43)
                 .padding(.horizontal, 8)
                 .contentShape(Rectangle())
             }
@@ -1691,9 +1813,9 @@ struct BeltQuestionsByBeltView: View {
                 toggle()
             } label: {
                 Image(systemName: isOpen ? "xmark" : "line.3.horizontal")
-                    .font(.system(size: 22, weight: .black))
+                    .font(.system(size: 21, weight: .black))
                     .foregroundStyle(.white)
-                    .frame(width: 66, height: 66)
+                    .frame(width: 62, height: 62)
                     .background(
                         Circle()
                             .fill(
@@ -1709,15 +1831,15 @@ struct BeltQuestionsByBeltView: View {
                     )
                     .overlay(
                         Circle()
-                            .stroke(Color.white.opacity(0.74), lineWidth: 3)
+                            .stroke(Color.white.opacity(0.74), lineWidth: 2.5)
                     )
                     .overlay(
                         Circle()
-                            .stroke(beltFill.opacity(0.42), lineWidth: 7)
-                            .blur(radius: 0.4)
+                            .stroke(beltFill.opacity(0.34), lineWidth: 4.5)
+                            .blur(radius: 0.30)
                     )
-                    .shadow(color: beltFill.opacity(0.42), radius: 12, x: 0, y: 5)
-                    .shadow(color: Color.black.opacity(0.20), radius: 8, x: 0, y: 4)
+                    .shadow(color: beltFill.opacity(0.32), radius: 8, x: 0, y: 3)
+                    .shadow(color: Color.black.opacity(0.16), radius: 6, x: 0, y: 3)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
@@ -1726,83 +1848,89 @@ struct BeltQuestionsByBeltView: View {
         // MARK: - By Topic — bottom bar
         
         private var byTopicBottomBar: some View {
-            VStack(spacing: 12) {
+            GeometryReader { geo in
+                let safeBottom = geo.safeAreaInsets.bottom
+                let isCompactHeight = geo.size.height < 760
+                let bottomPadding = max(72 + safeBottom, min(92 + safeBottom, geo.size.height * (isCompactHeight ? 0.095 : 0.105)))
                 
-                if isOpen {
-                    VStack(spacing: 10) {
-                        androidMenuRow(
-                            title: isEnglish ? "Weak Points" : "נקודות תורפה",
-                            systemImage: "exclamationmark.triangle",
-                            showsLock: true,
-                            action: onWeakPoints
-                        )
-                        
-                        androidMenuRow(
-                            title: isEnglish ? "Practice" : "תרגול",
-                            systemImage: "figure.walk",
-                            showsLock: true,
-                            action: onPractice
-                        )
-                        
-                        androidMenuRow(
-                            title: isEnglish ? "Voice Assistant" : "עוזר קולי",
-                            systemImage: "mic",
-                            showsLock: true,
-                            action: onVoice
-                        )
-                    }
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .fill(Color.white.opacity(0.96))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .stroke(beltFill.opacity(0.22), lineWidth: 1)
-                    )
-                    .padding(.horizontal, 18)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                
-                Button {
-                    toggle()
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: isOpen ? "xmark" : "line.3.horizontal")
-                            .font(.system(size: 17, weight: .black))
-                        
-                        Text(isEnglish ? "Quick View" : "מבט מהיר")
-                            .font(.system(size: 17, weight: .black))
-                    }
-                    .foregroundStyle(beltFill)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 58)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        beltFill.opacity(0.10),
-                                        Color.white.opacity(0.98),
-                                        beltFill.opacity(0.05)
-                                    ],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
+                VStack(spacing: 12) {
+                    
+                    if isOpen {
+                        VStack(spacing: 10) {
+                            androidMenuRow(
+                                title: isEnglish ? "Weak Points" : "נקודות תורפה",
+                                systemImage: "exclamationmark.triangle",
+                                showsLock: isMenuItemLocked(isEnglish ? "Weak Points" : "נקודות תורפה"),
+                                action: onWeakPoints
                             )
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(beltFill.opacity(0.22), lineWidth: 1)
-                    )
-                    .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+                            
+                            androidMenuRow(
+                                title: isEnglish ? "Practice" : "תרגול",
+                                systemImage: "figure.walk",
+                                showsLock: isMenuItemLocked(isEnglish ? "Practice" : "תרגול"),
+                                action: onPractice
+                            )
+                            
+                            androidMenuRow(
+                                title: isEnglish ? "Voice Assistant" : "עוזר קולי",
+                                systemImage: "mic",
+                                showsLock: false,
+                                action: onVoice
+                            )
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .fill(Color.white.opacity(0.96))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .stroke(beltFill.opacity(0.22), lineWidth: 1)
+                        )
+                        .padding(.horizontal, 18)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    
+                    Button {
+                        toggle()
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: isOpen ? "xmark" : "line.3.horizontal")
+                                .font(.system(size: 17, weight: .black))
+                            
+                            Text(isEnglish ? "Quick View" : "מבט מהיר")
+                                .font(.system(size: 17, weight: .black))
+                        }
+                        .foregroundStyle(beltFill)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 58)
+                        .background(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            beltFill.opacity(0.10),
+                                            Color.white.opacity(0.98),
+                                            beltFill.opacity(0.05)
+                                        ],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                )
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(beltFill.opacity(0.22), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, bottomPadding)
                 }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 18)
-                .padding(.bottom, 78)
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .bottom)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
         
         // MARK: - Actions
@@ -1903,10 +2031,19 @@ private struct PulsingLockBadge: View {
     @State private var pulse: Bool = false
     
     var body: some View {
-        Text("🔒")
-            .font(.system(size: 22, weight: .black))
-            .frame(width: 28, height: 28)
-            .scaleEffect(pulse ? 1.12 : 1.0)
+        Image(systemName: "lock.fill")
+            .font(.system(size: 13.5, weight: .black))
+            .foregroundStyle(Color.orange.opacity(0.92))
+            .frame(width: 25, height: 25)
+            .background(
+                Circle()
+                    .fill(Color.orange.opacity(0.13))
+            )
+            .overlay(
+                Circle()
+                    .stroke(Color.orange.opacity(0.28), lineWidth: 1)
+            )
+            .scaleEffect(pulse ? 1.08 : 1.0)
             .onAppear {
                 withAnimation(
                     .easeInOut(duration: 0.78)

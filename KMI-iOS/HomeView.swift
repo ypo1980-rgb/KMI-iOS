@@ -32,11 +32,11 @@ struct HomeView: View {
     @AppStorage("sub_access_until") private var subscriptionAccessUntil: Double = 0
     
     @State private var fabOpen: Bool = false
+    @State private var showQuickFab: Bool = false
     @StateObject private var trainingsVm = HomeTrainingsViewModel()
 
     @State private var goVoiceAssistant: Bool = false
     @State private var goMonthly: Bool = false
-    @State private var goCard: Bool = false
 
     @State private var selectedTraining: TrainingData? = nil
     @State private var showNavigationSheet: Bool = false
@@ -295,7 +295,7 @@ struct HomeView: View {
     }
     
     private var homeQuickMenuItems: [HomeQuickMenuItem] {
-        var items: [HomeQuickMenuItem] = [
+        [
             HomeQuickMenuItem(
                 title: tr("עוזר קולי", "Voice Assistant") + lockSuffix,
                 systemImage: "mic.fill"
@@ -303,135 +303,92 @@ struct HomeView: View {
                 runPremiumHomeAction {
                     goVoiceAssistant = true
                 }
+            },
+            
+            HomeQuickMenuItem(
+                title: tr("לוח אימונים חודשי", "Monthly Calendar") + lockSuffix,
+                systemImage: "calendar"
+            ) {
+                runPremiumHomeAction {
+                    goMonthly = true
+                }
+            },
+            
+            HomeQuickMenuItem(
+                title: tr("סיכום אימון", "Training Summary") + lockSuffix,
+                systemImage: "square.and.pencil"
+            ) {
+                runPremiumHomeAction {
+                    let formatter = DateFormatter()
+                    formatter.locale = Locale(identifier: "en_US_POSIX")
+                    formatter.dateFormat = "yyyy-MM-dd"
+                    let todayIso = formatter.string(from: Date())
+                    
+                    nav.push(.trainingSummary(pickedDateIso: todayIso))
+                }
+            },
+            
+            HomeQuickMenuItem(
+                title: tr("אימונים חופשיים", "Free Sessions") + lockSuffix,
+                systemImage: "plus"
+            ) {
+                runPremiumHomeAction {
+                    nav.push(
+                        .freeSessions(
+                            branch: freeSessionsBranch,
+                            groupKey: freeSessionsGroupKey,
+                            uid: freeSessionsUid,
+                            name: freeSessionsName
+                        )
+                    )
+                }
             }
         ]
-        
-        if isAbroadUser {
-            items.append(
-                HomeQuickMenuItem(
-                    title: tr("יש להתעדכן מול המאמן המקומי", "Check with the local coach"),
-                    systemImage: "globe.europe.africa.fill"
-                ) {
-                    closeFab()
-                }
-            )
-        } else {
-            items.append(
-                HomeQuickMenuItem(
-                    title: tr("לוח אימונים חודשי", "Monthly Calendar") + lockSuffix,
-                    systemImage: "calendar"
-                ) {
-                    runPremiumHomeAction {
-                        goMonthly = true
-                    }
-                }
-            )
-            
-            items.append(
-                HomeQuickMenuItem(
-                    title: tr("סיכום אימון", "Training Summary") + lockSuffix,
-                    systemImage: "square.and.pencil"
-                ) {
-                    runPremiumHomeAction {
-                        let formatter = DateFormatter()
-                        formatter.locale = Locale(identifier: "en_US_POSIX")
-                        formatter.dateFormat = "yyyy-MM-dd"
-                        let todayIso = formatter.string(from: Date())
-                        
-                        nav.push(.trainingSummary(pickedDateIso: todayIso))
-                    }
-                }
-            )
-            
-            items.append(
-                HomeQuickMenuItem(
-                    title: tr("אימונים חופשיים", "Free Sessions") + lockSuffix,
-                    systemImage: "plus"
-                ) {
-                    runPremiumHomeAction {
-                        nav.push(
-                            .freeSessions(
-                                branch: freeSessionsBranch,
-                                groupKey: freeSessionsGroupKey,
-                                uid: freeSessionsUid,
-                                name: freeSessionsName
-                            )
-                        )
-                    }
-                }
-            )
-        }
-        
-        items.append(
-            HomeQuickMenuItem(
-                title: isCoachUser
-                ? tr("כרטיס מאמן", "Coach Card")
-                : tr("כרטיס אישי", "My Card"),
-                systemImage: isCoachUser ? "checkmark.seal.fill" : "person.crop.circle.fill"
-            ) {
-                closeFab()
-                goCard = true
-            }
-        )
-        
-        if isCoachUser {
-            items.append(
-                HomeQuickMenuItem(
-                    title: tr("מבחן פנימי", "Internal Exam"),
-                    systemImage: "checklist"
-                ) {
-                    closeFab()
-                    nav.push(.internalExam(belt: resolvedBelt))
-                }
-            )
-            
-            if !isAbroadUser {
-                items.append(
-                    HomeQuickMenuItem(
-                        title: tr("דו״ח נוכחות", "Attendance Report"),
-                        systemImage: "person.text.rectangle"
-                    ) {
-                        closeFab()
-                        nav.push(.attendance)
-                    }
-                )
-            }
-        }
-        
-        return items
     }
     
     var body: some View {
         ZStack {
-            KmiGradientBackground(forceTraineeStyle: false)
+            LinearGradient(
+                colors: isCoachUser
+                ? [
+                    Color(red: 0.08, green: 0.12, blue: 0.19),
+                    Color(red: 0.14, green: 0.23, blue: 0.33),
+                    Color(red: 0.05, green: 0.65, blue: 0.91)
+                ]
+                : [
+                    Color(red: 0.50, green: 0.00, blue: 1.00),
+                    Color(red: 0.25, green: 0.32, blue: 0.71),
+                    Color(red: 0.01, green: 0.66, blue: 0.96)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
             
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 12) {
                     
-                    HomeUserCard(
-                        fullName: storedFullName,
-                        role: resolvedUserRole,
-                        region: resolvedRegion,
-                        branch: resolvedBranch,
-                        group: resolvedGroup,
-                        beltText: isEnglish ? beltEn(resolvedBelt) : beltHeb(resolvedBelt),
-                        isEnglish: isEnglish
-                    )
-                    .padding(.top, 6)
+                    Color.clear
+                        .frame(height: 0)
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear
+                                    .preference(
+                                        key: HomeScrollOffsetPreferenceKey.self,
+                                        value: geo.frame(in: .named("homeScroll")).minY
+                                    )
+                            }
+                        )
                     
                     WeekHeaderPill(
                         title: isAbroadUser
                         ? tr("מידע על הסניף המקומי", "Local Branch Information")
-                        : (
-                            isCoachUser
-                            ? tr("אימונים לשבוע הקרוב – מאמן", "Trainings for the upcoming week – Coach")
-                            : tr("אימונים לשבוע הקרוב", "Trainings for the upcoming week")
-                        ),
+                        : tr("אימונים לשבוע הקרוב", "Trainings for the upcoming week"),
                         subtitle: isAbroadUser
                         ? tr("זמני האימונים מתעדכנים מול המאמן המקומי", "Training times are managed by the local coach")
                         : currentWeekSubtitle
                     )
-                    .padding(.top, 10)
+                    .padding(.top, 4)
                     
                     if isAbroadUser {
                         HomeAbroadBranchNotice(
@@ -477,11 +434,7 @@ struct HomeView: View {
                     CoachMessagesCard(
                         title: isAbroadUser
                         ? tr("עדכונים מהסניף המקומי", "Local Branch Updates")
-                        : (
-                            isCoachUser
-                            ? tr("הודעות למאמן", "Coach Messages")
-                            : tr("הודעות מהמאמן", "Messages from the Coach")
-                        ),
+                        : tr("הודעות מהמאמן", "Messages from the Coach"),
                         coachName: resolvedCoachBroadcastName,
                         message: resolvedCoachBroadcastMessage,
                         sentAtText: resolvedCoachBroadcastTimeText,
@@ -489,25 +442,41 @@ struct HomeView: View {
                     )
                     .padding(.horizontal, 18)
                     
-                    Button {
-                        let target = BeltFlow.nextBeltForUser(
-                            registeredBelt: resolvedBelt
-                        )
-                        nav.push(.beltQuestionsByBelt(belt: target))
-                    } label: {
-                        HomePremiumExerciseButton(
-                            title: buttonTitleForBelt(),
-                            subtitle: buttonSubtitleForBelt(),
-                            isEnglish: isEnglish
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 0)
-                    
-                    Spacer(minLength: 92)
+                    Spacer(minLength: 132)
                 }
             }
+            .coordinateSpace(name: "homeScroll")
+            .onPreferenceChange(HomeScrollOffsetPreferenceKey.self) { value in
+                let shouldShow = value < -24
+                if shouldShow != showQuickFab {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        showQuickFab = shouldShow
+                    }
+                }
+            }
+            
+            VStack {
+                Spacer()
+                
+                Button {
+                    let target = BeltFlow.nextBeltForUser(
+                        registeredBelt: resolvedBelt
+                    )
+                    nav.push(.beltQuestionsByBelt(belt: target))
+                } label: {
+                    HomePremiumExerciseButton(
+                        title: buttonTitleForBelt(),
+                        subtitle: buttonSubtitleForBelt(),
+                        isEnglish: isEnglish
+                    )
+                }
+                .buttonStyle(.plain)
+                .frame(width: 276)
+                .padding(.bottom, 18)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+            .zIndex(12)
             
             if fabOpen {
                 Color.black.opacity(0.24)
@@ -531,7 +500,7 @@ struct HomeView: View {
                     alignment: isEnglish ? .bottomLeading : .bottomTrailing
                 )
                 .padding(isEnglish ? .leading : .trailing, 16)
-                .padding(.bottom, 92)
+                .padding(.bottom, 152)
                 .transition(
                     .move(edge: .bottom)
                     .combined(with: .opacity)
@@ -539,21 +508,31 @@ struct HomeView: View {
                 )
             }
             
-            Button {
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                    fabOpen.toggle()
-                }
-            } label: {
-                ModernHomeQuickFab(isOpen: fabOpen)
-            }
-            .buttonStyle(.plain)
-            .frame(
-                maxWidth: .infinity,
-                maxHeight: .infinity,
-                alignment: isEnglish ? .bottomTrailing : .bottomLeading
-            )
-            .padding(isEnglish ? .trailing : .leading, 22)
-            .padding(.bottom, 18)
+#if targetEnvironment(simulator)
+let shouldShowHomeFab = true
+#else
+let shouldShowHomeFab = showQuickFab || fabOpen
+#endif
+
+if shouldShowHomeFab {
+    Button {
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            fabOpen.toggle()
+        }
+    } label: {
+        ModernHomeQuickFab(isOpen: fabOpen)
+    }
+    .buttonStyle(.plain)
+    .frame(
+        maxWidth: .infinity,
+        maxHeight: .infinity,
+        alignment: isEnglish ? .bottomTrailing : .bottomLeading
+    )
+    .padding(isEnglish ? .trailing : .leading, 22)
+    .padding(.bottom, 86)
+    .transition(.opacity.combined(with: .scale(scale: 0.92)))
+    .zIndex(20)
+}
         }
         .onReceive(
             NotificationCenter.default.publisher(
@@ -614,10 +593,7 @@ struct HomeView: View {
             MonthlyTrainingBoardView()
                 .navigationBarBackButtonHidden(true)
         }
-        .navigationDestination(isPresented: $goCard) {
-            MyProfileView()
-                .navigationBarBackButtonHidden(true)
-        }
+
         .navigationDestination(item: $pickedExercise) { selection in
             ExerciseDetailView(
                 belt: selection.belt,
@@ -821,9 +797,13 @@ struct HomeView: View {
         let end = calendar.date(byAdding: .day, value: 6, to: start) ?? start
         
         if isEnglish {
-            return "Dates: \(englishWeekdayName(from: start)) \(shortDate(start))–\(englishWeekdayName(from: end)) \(shortDate(end))"
+            return directionalText(
+                "Dates: \(englishWeekdayName(from: start)) \(shortDate(start)) – \(englishWeekdayName(from: end)) \(shortDate(end))"
+            )
         } else {
-            return "תאריכים: \(hebrewWeekdayName(from: start)) \(shortDate(start))–\(hebrewWeekdayName(from: end)) \(shortDate(end))"
+            return directionalText(
+                "תאריכים: \(hebrewWeekdayName(from: start)) \(shortDate(start)) – \(hebrewWeekdayName(from: end)) \(shortDate(end))"
+            )
         }
     }
     
@@ -870,16 +850,10 @@ struct HomeView: View {
     // MARK: - Belt CTA
     
     private func buttonTitleForBelt() -> String {
-        if isAbroadUser {
-            return isEnglish ? "Open exercise library" : "מעבר לספריית התרגילים"
-        }
-
-        let next = BeltFlow.nextBeltForUser(registeredBelt: resolvedBelt)
-        
         if isEnglish {
-            return "Go to exercises – \(beltEn(next))"
+            return "Go to Belt Selection"
         } else {
-            return "מעבר לתרגילים – \(beltHeb(next))"
+            return "מעבר לבחירת חגורה"
         }
     }
 
@@ -915,6 +889,14 @@ struct HomeView: View {
     
     // MARK: - Helpers
 
+    private func directionalText(_ text: String) -> String {
+        if isEnglish {
+            return "\u{200E}\(text)\u{200E}"
+        } else {
+            return "\u{200F}\(text)\u{200F}"
+        }
+    }
+    
     private func reloadTrainingsIfNeeded() {
         if isAbroadUser {
             #if DEBUG
@@ -1076,65 +1058,65 @@ private struct HomePremiumExerciseButton: View {
     var body: some View {
         TimelineView(.animation) { timeline in
             let seconds = timeline.date.timeIntervalSinceReferenceDate
-            let progress = (seconds.truncatingRemainder(dividingBy: 2.8)) / 2.8
-            
+            let progress = (seconds.truncatingRemainder(dividingBy: 2.9)) / 2.9
+
             GeometryReader { geo in
-                let bubbleX = -80 + (geo.size.width + 120) * progress
-                
+                let bubbleX = -48 + (geo.size.width + 96) * progress
+
                 ZStack {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
                         .fill(
                             LinearGradient(
                                 colors: [
                                     Color(red: 0.50, green: 0.00, blue: 1.00),
-                                    Color(red: 0.25, green: 0.32, blue: 0.72),
+                                    Color(red: 0.25, green: 0.32, blue: 0.71),
                                     Color(red: 0.01, green: 0.66, blue: 0.96)
                                 ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+                                startPoint: .leading,
+                                endPoint: .trailing
                             )
                         )
-                    
+
                     Circle()
                         .fill(
                             RadialGradient(
                                 colors: [
-                                    Color.white.opacity(0.32),
-                                    Color.white.opacity(0.00)
+                                    Color.white.opacity(0.22),
+                                    Color.white.opacity(0.07),
+                                    Color.clear
                                 ],
                                 center: .center,
                                 startRadius: 0,
-                                endRadius: 52
+                                endRadius: 34
                             )
                         )
-                        .frame(width: 92, height: 92)
+                        .frame(width: 72, height: 72)
                         .offset(x: bubbleX - geo.size.width / 2)
-                    
-                    HStack(spacing: 7) {
+
+                    HStack(spacing: 6) {
                         Image(systemName: "star.fill")
-                            .font(.system(size: 15, weight: .heavy))
+                            .font(.system(size: 12.5, weight: .heavy))
                             .foregroundStyle(.white)
-                        
+
                         Text(title)
-                            .font(.system(size: 14, weight: .black))
+                            .font(.system(size: 14.5, weight: .black))
                             .foregroundStyle(.white)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.84)
+                            .minimumScaleFactor(0.74)
                     }
                     .environment(\.layoutDirection, rowDirection)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.horizontal, 14)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    .padding(.horizontal, 12)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.white.opacity(0.55), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .stroke(Color.white.opacity(0.56), lineWidth: 1)
                 )
-                .shadow(color: Color.black.opacity(0.16), radius: 8, x: 0, y: 5)
+                .shadow(color: Color.black.opacity(0.13), radius: 6, x: 0, y: 3)
             }
         }
-        .frame(height: 46)
-        .frame(maxWidth: .infinity)
+        .frame(height: 38)
     }
 }
 
@@ -1158,6 +1140,7 @@ private struct WeekHeaderPill: View {
                 .lineLimit(2)
                 .minimumScaleFactor(0.84)
                 .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, alignment: .center)
         }
         .padding(.vertical, 9)
         .padding(.horizontal, 12)
@@ -1294,40 +1277,33 @@ private struct HomePremiumQuickMenuPanel: View {
         isEnglish ? .leading : .trailing
     }
     
+    private var rowDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+    
     var body: some View {
         VStack(alignment: stackAlignment, spacing: 0) {
             HStack(spacing: 8) {
-                if isEnglish {
-                    Text(title)
-                        .font(.system(size: 15, weight: .heavy))
+                Text(title)
+                    .font(.system(size: 15, weight: .heavy))
+                    .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.29))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
+                
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .black))
                         .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.29))
-                        .lineLimit(1)
-                    
-                    Spacer(minLength: 0)
-                    
-                    Button(action: onClose) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 11, weight: .heavy))
-                            .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.29))
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    Text(title)
-                        .font(.system(size: 15, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.29))
-                        .lineLimit(1)
-                    
-                    Spacer(minLength: 0)
-                    
-                    Button(action: onClose) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 11, weight: .heavy))
-                            .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.29))
-                    }
-                    .buttonStyle(.plain)
+                        .frame(width: 24, height: 24)
+                        .background(
+                            Circle()
+                                .fill(Color(red: 0.09, green: 0.64, blue: 0.29).opacity(0.10))
+                        )
                 }
+                .buttonStyle(.plain)
             }
-            .frame(maxWidth: .infinity, alignment: frameAlignment)
+            .environment(\.layoutDirection, rowDirection)
             .padding(.horizontal, 10)
             .padding(.top, 10)
             .padding(.bottom, 8)
@@ -1350,19 +1326,19 @@ private struct HomePremiumQuickMenuPanel: View {
         }
         .padding(.bottom, 10)
         .frame(width: 270)
-        .compositingGroup()
         .background(
             ZStack {
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color(red: 0.97, green: 0.98, blue: 0.97))
-                
+                    .fill(Color.white)
+
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [
-                                Color(red: 0.09, green: 0.64, blue: 0.29).opacity(0.08),
-                                Color.white.opacity(0.04),
-                                Color(red: 0.09, green: 0.64, blue: 0.29).opacity(0.06)
+                                Color(red: 0.09, green: 0.64, blue: 0.29).opacity(0.14),
+                                Color.white,
+                                Color(red: 0.97, green: 0.98, blue: 0.97),
+                                Color(red: 0.09, green: 0.64, blue: 0.29).opacity(0.08)
                             ],
                             startPoint: .top,
                             endPoint: .bottom
@@ -1372,9 +1348,9 @@ private struct HomePremiumQuickMenuPanel: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color(red: 0.09, green: 0.64, blue: 0.29).opacity(0.24), lineWidth: 1)
+                .stroke(Color(red: 0.09, green: 0.64, blue: 0.29).opacity(0.34), lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.16), radius: 14, x: 0, y: 8)
+        .shadow(color: Color.black.opacity(0.18), radius: 16, x: 0, y: 8)
     }
 }
 
@@ -1384,6 +1360,14 @@ private struct HomePremiumQuickMenuRow: View {
     let isEnglish: Bool
     let action: () -> Void
     
+    private var isLocked: Bool {
+        title.hasSuffix(" 🔒")
+    }
+    
+    private var cleanTitle: String {
+        isLocked ? String(title.dropLast(2)).trimmingCharacters(in: .whitespacesAndNewlines) : title
+    }
+    
     private var textAlignment: TextAlignment {
         isEnglish ? .leading : .trailing
     }
@@ -1392,28 +1376,62 @@ private struct HomePremiumQuickMenuRow: View {
         isEnglish ? .leading : .trailing
     }
     
-    private var rowDirection: LayoutDirection {
-        isEnglish ? .leftToRight : .rightToLeft
+    private var iconBubble: some View {
+        ZStack {
+            Circle()
+                .fill(Color(red: 0.09, green: 0.64, blue: 0.29).opacity(0.10))
+            
+            Circle()
+                .stroke(Color(red: 0.09, green: 0.64, blue: 0.29).opacity(0.24), lineWidth: 1)
+            
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .black))
+                .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.29))
+        }
+        .frame(width: 24, height: 24)
+    }
+    
+    private var lockIcon: some View {
+        Image(systemName: "lock.fill")
+            .font(.system(size: 14, weight: .black))
+            .foregroundStyle(Color(red: 0.96, green: 0.62, blue: 0.04))
     }
     
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.29))
-                    .frame(width: 24, height: 24)
-                
-                Text(title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.04, green: 0.19, blue: 0.12))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .multilineTextAlignment(textAlignment)
+                if isEnglish {
+                    iconBubble
+                    
+                    Text(cleanTitle)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.04, green: 0.19, blue: 0.12))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.80)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                        .multilineTextAlignment(textAlignment)
+                    
+                    if isLocked {
+                        lockIcon
+                    }
+                } else {
+                    if isLocked {
+                        lockIcon
+                    }
+                    
+                    Text(cleanTitle)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.04, green: 0.19, blue: 0.12))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.80)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                        .multilineTextAlignment(textAlignment)
+                    
+                    iconBubble
+                }
             }
-            .environment(\.layoutDirection, rowDirection)
             .padding(.horizontal, 10)
-            .padding(.vertical, 10)
+            .padding(.vertical, 12)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1425,26 +1443,26 @@ private struct ModernHomeQuickFab: View {
     
     var body: some View {
         ZStack {
-            Circle()
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color.white.opacity(0.98),
-                            Color.white.opacity(0.90)
+                            Color(red: 0.09, green: 0.64, blue: 0.29),
+                            Color(red: 0.16, green: 0.72, blue: 0.38)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
-                .shadow(color: Color.black.opacity(0.20), radius: 12, x: 0, y: 7)
+                .shadow(color: Color.black.opacity(0.22), radius: 12, x: 0, y: 7)
             
-            Circle()
-                .stroke(Color.white.opacity(0.92), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.white.opacity(0.92), lineWidth: 2)
             
-            Image(systemName: "plus")
-                .font(.system(size: 23, weight: .heavy))
-                .foregroundStyle(Color.black.opacity(0.66))
-                .rotationEffect(.degrees(isOpen ? 45 : 0))
+            Image(systemName: isOpen ? "xmark" : "line.3.horizontal")
+                .font(.system(size: 22, weight: .heavy))
+                .foregroundStyle(Color.white)
+                .rotationEffect(.degrees(0))
         }
         .frame(width: 56, height: 56)
     }
@@ -1490,6 +1508,14 @@ private struct ExerciseSelection: Identifiable, Hashable {
             topicTitle: parts[1],
             item: parts[2]
         )
+    }
+}
+
+private struct HomeScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 

@@ -74,10 +74,10 @@ struct SubjectAcrossBeltsView: View {
         case "topic_breakfalls_rolls", "rolls_breakfalls":
             return "topic_breakfalls_rolls"
 
-        case "kicks":
+        case "kicks", "kicks_hard", "topic_kicks":
             return "topic_kicks"
 
-        case "releases":
+        case "releases", "releases_root":
             return "releases"
 
         // ✅ עבודת ידיים
@@ -102,16 +102,16 @@ struct SubjectAcrossBeltsView: View {
         case "stick_defense":
             return "stick_defense"
 
-        case "def_internal_punches":
+        case "def_internal_punch", "def_internal_punches":
             return "def_internal_punch"
 
-        case "def_internal_kicks":
+        case "def_internal_kick", "def_internal_kicks":
             return "def_internal_kick"
 
-        case "def_external_punches":
+        case "def_external_punch", "def_external_punches":
             return "def_external_punch"
 
-        case "def_external_kicks":
+        case "def_external_kick", "def_external_kicks":
             return "def_external_kick"
 
         default:

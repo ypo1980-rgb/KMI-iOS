@@ -370,6 +370,9 @@ struct KmiRootLayout<Content: View>: View {
 
     @State private var drawerOpen: Bool = false
 
+    // ✅ My Profile Sheet
+    @State private var showMyProfileSheet: Bool = false
+
     // ✅ Global Search Sheet
     @State private var showGlobalSearch: Bool = false
 
@@ -490,6 +493,9 @@ struct KmiRootLayout<Content: View>: View {
                 case .adminUsers:
                     nav.push(.adminUsers)
 
+                case .myProfile:
+                    showMyProfileSheet = true
+
                 case .aboutAvi:
                     nav.push(.aboutAvi)
 
@@ -575,6 +581,14 @@ struct KmiRootLayout<Content: View>: View {
             }
         }
         
+        // ✅ מסך מלא של הפרופיל שלי — כמו Android
+        .fullScreenCover(isPresented: $showMyProfileSheet) {
+            NavigationStack {
+                MyProfileView()
+            }
+            .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+        }
+
         // ✅ Sheet של חיפוש גלובאלי
         .sheet(isPresented: $showGlobalSearch) {
             GlobalExerciseSearchSheet_Legacy { hit in

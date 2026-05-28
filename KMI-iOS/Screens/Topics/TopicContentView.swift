@@ -18,9 +18,27 @@ struct TopicContentView: View {
 
     private var filteredItems: [String] {
         guard let idx = selectedSubIndex, subTopics.indices.contains(idx) else {
-            return topic.items
+            var allItems: [String] = []
+
+            allItems.append(contentsOf: topic.items)
+
+            for subTopic in subTopics {
+                allItems.append(contentsOf: subTopic.items)
+            }
+
+            return allItems
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .reduce(into: [String]()) { partial, item in
+                    if !partial.contains(item) {
+                        partial.append(item)
+                    }
+                }
         }
+
         return subTopics[idx].items
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     // ✅ אותו key כמו ב-ExerciseDetailView

@@ -11,39 +11,150 @@ struct AdminUsersView: View {
 
     @State private var loading = true
 
+    @AppStorage("kmi_app_language") private var kmiAppLanguage: String = ""
+    @AppStorage("app_language") private var appLanguage: String = ""
+    @AppStorage("initial_language_code") private var initialLanguageCode: String = ""
+    @AppStorage("selected_language_code") private var selectedLanguageCode: String = ""
+
+    private var effectiveLanguageCode: String {
+        let candidates = [
+            kmiAppLanguage,
+            appLanguage,
+            selectedLanguageCode,
+            initialLanguageCode
+        ]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+
+        return candidates.first ?? "he"
+    }
+
+    private var isEnglish: Bool {
+        effectiveLanguageCode.hasPrefix("en")
+    }
+
+    private var screenLayoutDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
+    private var screenTextAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var screenFrameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var rowChevronName: String {
+        isEnglish ? "chevron.right" : "chevron.left"
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
+    private func roleTextForUi(_ role: String) -> String {
+        let clean = role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        if clean == "coach" ||
+            clean.contains("coach") ||
+            clean.contains("trainer") ||
+            clean.contains("instructor") ||
+            clean.contains("מאמן") ||
+            clean.contains("מדריך") {
+            return tr("מאמן", "Coach")
+        }
+
+        if clean == "admin" ||
+            clean.contains("admin") ||
+            clean.contains("מנהל") {
+            return tr("מנהל", "Admin")
+        }
+
+        return tr("מתאמן", "Trainee")
+    }
+
+    private var normalizedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var body: some View {
 
-        VStack(spacing: 12) {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.02, green: 0.04, blue: 0.11),
+                    Color(red: 0.07, green: 0.12, blue: 0.22),
+                    Color(red: 0.08, green: 0.30, blue: 0.55),
+                    Color(red: 0.03, green: 0.64, blue: 0.89)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
 
-            headerStats
+            VStack(spacing: 12) {
 
-            roleFilter
+                headerStats
 
-            searchBar
+                roleFilter
 
-            if loading {
-                ProgressView()
-                    .padding(.top, 40)
-            } else {
+                searchBar
 
-                List(filteredUsers) { user in
-                    NavigationLink {
-                        AdminUserDetailsView(user: user)
-                    } label: {
-                        userRow(user)
-                            .listRowInsets(EdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14))
+                if loading {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .tint(.white)
+
+                        Text(tr("טוען משתמשים מהשרת...", "Loading users from the server..."))
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.88))
+                            .multilineTextAlignment(.center)
                     }
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 40)
+
+                } else if filteredUsers.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "person.crop.circle.badge.questionmark")
+                            .font(.system(size: 42, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.92))
+
+                        Text(tr("לא נמצאו משתמשים תואמים", "No matching users found"))
+                            .font(.system(size: 18, weight: .heavy))
+                            .foregroundStyle(.white)
+
+                        Text(tr("נסה לשנות חיפוש או סינון תפקיד", "Try changing the search or role filter"))
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.72))
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 46)
+
+                } else {
+                    List(filteredUsers) { user in
+                        NavigationLink {
+                            AdminUserDetailsView(user: user)
+                        } label: {
+                            userRow(user)
+                                .listRowInsets(EdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14))
+                        }
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.clear)
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .background(Color.clear)            }
+            }
+            .padding(.top, 8)
         }
+        .environment(\.layoutDirection, screenLayoutDirection)
         .onAppear {
             loadUsers()
         }
-        .onChange(of: searchText) { _ in
+        .onChange(of: searchText) { _, _ in
             applyFilter()
         }
     }
@@ -52,35 +163,61 @@ struct AdminUsersView: View {
 
     private var headerStats: some View {
 
-        HStack(spacing: 20) {
-
-            statItem("סה״כ", users.count)
+        HStack(spacing: 12) {
 
             statItem(
-                "מאמנים",
-                users.filter { $0.role == "coach" }.count
+                tr("סה״כ", "Total"),
+                users.count,
+                icon: "person.3.fill"
             )
 
             statItem(
-                "מתאמנים",
-                users.filter { $0.role == "trainee" }.count
+                tr("מאמנים", "Coaches"),
+                users.filter { AdminUser.isCoachRole($0.role) }.count,
+                icon: "figure.martial.arts"
+            )
+
+            statItem(
+                tr("מתאמנים", "Trainees"),
+                users.filter { AdminUser.isTraineeRole($0.role) }.count,
+                icon: "person.fill"
             )
         }
+        .padding(.horizontal, 14)
         .padding(.top, 10)
     }
 
-    private func statItem(_ title: String, _ value: Int) -> some View {
+    private func statItem(
+        _ title: String,
+        _ value: Int,
+        icon: String
+    ) -> some View {
 
-        VStack {
+        VStack(spacing: 6) {
+
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .heavy))
+                .foregroundStyle(Color(red: 0.72, green: 0.91, blue: 1.0))
 
             Text("\(value)")
-                .font(.system(size: 22, weight: .bold))
+                .font(.system(size: 23, weight: .black))
+                .foregroundStyle(.white)
 
             Text(title)
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.white.opacity(0.72))
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+        )
     }
 
     // MARK: Role filter
@@ -88,34 +225,34 @@ struct AdminUsersView: View {
     private var roleFilter: some View {
 
         HStack(spacing: 10) {
-            roleFilterButton(title: "מתאמנים", value: .trainee)
-            roleFilterButton(title: "מאמנים", value: .coach)
-            roleFilterButton(title: "כולם", value: .all)
+            roleFilterButton(title: tr("מתאמנים", "Trainees"), value: .trainee)
+            roleFilterButton(title: tr("מאמנים", "Coaches"), value: .coach)
+            roleFilterButton(title: tr("כולם", "All"), value: .all)
         }
-        .padding(.horizontal)
+        .padding(.horizontal, 14)
     }
-    
+
     private func roleFilterButton(title: String, value: UserRoleFilter) -> some View {
         Button {
             selectedRole = value
             applyFilter()
         } label: {
             Text(title)
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(selectedRole == value ? Color.black.opacity(0.85) : .white)
+                .font(.system(size: 15, weight: .heavy))
+                .foregroundStyle(selectedRole == value ? Color.black.opacity(0.88) : .white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
+                .padding(.vertical, 11)
                 .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(
                             selectedRole == value
-                            ? Color.white.opacity(0.95)
+                            ? Color.white.opacity(0.96)
                             : Color.white.opacity(0.14)
                         )
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.white.opacity(0.20), lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
@@ -126,12 +263,26 @@ struct AdminUsersView: View {
     private var searchBar: some View {
 
         HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(Color.black.opacity(0.35))
+            if isEnglish {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Color.black.opacity(0.35))
 
-            TextField("חיפוש משתמש...", text: $searchText)
-                .foregroundStyle(Color.black.opacity(0.82))
-                .multilineTextAlignment(.trailing)
+                TextField(tr("חיפוש משתמש...", "Search user..."), text: $searchText)
+                    .foregroundStyle(Color.black.opacity(0.82))
+                    .multilineTextAlignment(.leading)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+
+            } else {
+                TextField(tr("חיפוש משתמש...", "Search user..."), text: $searchText)
+                    .foregroundStyle(Color.black.opacity(0.82))
+                    .multilineTextAlignment(.trailing)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Color.black.opacity(0.35))
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -141,42 +292,38 @@ struct AdminUsersView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                .stroke(Color.white.opacity(0.20), lineWidth: 1)
         )
-        .padding(.horizontal)
+        .padding(.horizontal, 14)
     }
-    
+
     // MARK: Row
 
     private func userRow(_ user: AdminUser) -> some View {
 
         HStack(spacing: 12) {
 
-            Image(systemName: "chevron.left")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Color.black.opacity(0.28))
+            if isEnglish {
+                VStack(alignment: .leading, spacing: 6) {
+                    userTexts(user)
+                }
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
 
-            VStack(alignment: .trailing, spacing: 5) {
+                Image(systemName: rowChevronName)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.black.opacity(0.28))
 
-                Text(user.fullName)
-                    .font(.system(size: 17, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(0.84))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .multilineTextAlignment(.trailing)
+            } else {
+                Image(systemName: rowChevronName)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.black.opacity(0.28))
 
-                Text(user.email)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.black.opacity(0.52))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .multilineTextAlignment(.trailing)
+                Spacer(minLength: 0)
 
-                Text("\(user.branch) • \(user.group)")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.black.opacity(0.48))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .multilineTextAlignment(.trailing)
+                VStack(alignment: .trailing, spacing: 6) {
+                    userTexts(user)
+                }
             }
         }
         .padding(.horizontal, 14)
@@ -189,9 +336,37 @@ struct AdminUsersView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.black.opacity(0.05), lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.05), radius: 6, x: 0, y: 2)
+        .shadow(color: Color.black.opacity(0.06), radius: 7, x: 0, y: 3)
     }
-    
+
+    private func userTexts(_ user: AdminUser) -> some View {
+        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 5) {
+            Text(user.fullName)
+                .font(.system(size: 17, weight: .heavy))
+                .foregroundStyle(Color.black.opacity(0.84))
+                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                .multilineTextAlignment(screenTextAlignment)
+
+            Text(user.email)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color.black.opacity(0.52))
+                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                .multilineTextAlignment(screenTextAlignment)
+
+            Text(roleTextForUi(user.role))
+                .font(.system(size: 12, weight: .black))
+                .foregroundStyle(AdminUser.isCoachRole(user.role) ? Color.blue.opacity(0.92) : Color.green.opacity(0.88))
+                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                .multilineTextAlignment(screenTextAlignment)
+
+            Text(user.branchGroupLine(isEnglish: isEnglish))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.black.opacity(0.48))
+                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                .multilineTextAlignment(screenTextAlignment)
+        }
+    }
+
     // MARK: Firestore
 
     private func loadUsers() {
@@ -200,33 +375,45 @@ struct AdminUsersView: View {
 
         Firestore.firestore()
             .collection("users")
-            .getDocuments { snapshot, error in
+            .getDocuments { snapshot, _ in
 
                 loading = false
 
-                guard let docs = snapshot?.documents else { return }
-
-                let rawUsers = docs.compactMap { doc in
-                    AdminUser.from(doc.data())
+                guard let docs = snapshot?.documents else {
+                    users = []
+                    filteredUsers = []
+                    return
                 }
 
-                var uniqueByEmail: [String: AdminUser] = [:]
+                let rawUsers = docs.compactMap { doc in
+                    AdminUser.from(
+                        id: doc.documentID,
+                        map: doc.data()
+                    )
+                }
+
+                var uniqueByKey: [String: AdminUser] = [:]
 
                 for user in rawUsers {
                     let emailKey = user.email
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                         .lowercased()
 
-                    guard !emailKey.isEmpty else { continue }
+                    let fallbackKey = user.fullName
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased()
 
-                    if let existing = uniqueByEmail[emailKey] {
-                        uniqueByEmail[emailKey] = AdminUser.merged(existing: existing, incoming: user)
+                    let key = emailKey.isEmpty ? fallbackKey : emailKey
+                    guard !key.isEmpty else { continue }
+
+                    if let existing = uniqueByKey[key] {
+                        uniqueByKey[key] = AdminUser.merged(existing: existing, incoming: user)
                     } else {
-                        uniqueByEmail[emailKey] = user
+                        uniqueByKey[key] = user
                     }
                 }
 
-                users = uniqueByEmail.values.sorted {
+                users = uniqueByKey.values.sorted {
                     $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending
                 }
 
@@ -241,19 +428,24 @@ struct AdminUsersView: View {
         var result = users
 
         if selectedRole == .coach {
-            result = result.filter { $0.role == "coach" }
+            result = result.filter { AdminUser.isCoachRole($0.role) }
         }
 
         if selectedRole == .trainee {
-            result = result.filter { $0.role == "trainee" }
+            result = result.filter { AdminUser.isTraineeRole($0.role) }
         }
 
-        if !searchText.isEmpty {
+        let query = normalizedSearchText
+
+        if !query.isEmpty {
 
             result = result.filter {
-
-                $0.fullName.localizedCaseInsensitiveContains(searchText) ||
-                $0.email.localizedCaseInsensitiveContains(searchText)
+                $0.fullName.localizedCaseInsensitiveContains(query) ||
+                $0.email.localizedCaseInsensitiveContains(query) ||
+                $0.phone.localizedCaseInsensitiveContains(query) ||
+                $0.branch.localizedCaseInsensitiveContains(query) ||
+                $0.group.localizedCaseInsensitiveContains(query) ||
+                $0.role.localizedCaseInsensitiveContains(query)
             }
         }
 
@@ -269,20 +461,37 @@ enum UserRoleFilter {
 
 struct AdminUser: Identifiable {
 
-    let id = UUID()
+    let id: String
 
     let fullName: String
     let email: String
+    let phone: String
     let branch: String
     let group: String
     let role: String
 
-    static func from(_ map: [String: Any]) -> AdminUser? {
+    static func from(id: String, map: [String: Any]) -> AdminUser? {
 
-        guard
-            let fullName = map["fullName"] as? String ?? map["full_name"] as? String,
-            let email = map["email"] as? String
-        else {
+        let fullName =
+            ((map["fullName"] as? String) ??
+             (map["full_name"] as? String) ??
+             (map["name"] as? String) ??
+             (map["displayName"] as? String) ??
+             "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let email =
+            ((map["email"] as? String) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let phone =
+            ((map["phone"] as? String) ??
+             (map["phoneNumber"] as? String) ??
+             (map["phone_number"] as? String) ??
+             "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !fullName.isEmpty || !email.isEmpty || !phone.isEmpty else {
             return nil
         }
 
@@ -297,11 +506,20 @@ struct AdminUser: Identifiable {
                 .filter { !$0.isEmpty } ?? []
 
         let singleBranch =
-            (map["branch"] as? String)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            ((map["activeBranch"] as? String) ??
+             (map["active_branch"] as? String) ??
+             (map["branch"] as? String) ??
+             (map["branchesCsv"] as? String) ??
+             "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
         let singleGroup =
-            ((map["group"] as? String) ??
+            ((map["primaryGroup"] as? String) ??
+             (map["activeGroup"] as? String) ??
+             (map["active_group"] as? String) ??
+             (map["groupKey"] as? String) ??
+             (map["group_key"] as? String) ??
+             (map["group"] as? String) ??
              (map["age_group"] as? String) ??
              (map["ageGroup"] as? String) ??
              "")
@@ -311,22 +529,70 @@ struct AdminUser: Identifiable {
         let resolvedGroup = groupsArray.first ?? singleGroup
 
         return AdminUser(
-            fullName: fullName,
+            id: id,
+            fullName: fullName.isEmpty ? email : fullName,
             email: email,
+            phone: phone,
             branch: resolvedBranch,
             group: resolvedGroup,
-            role: map["role"] as? String ?? "trainee"
+            role: ((map["role"] as? String) ?? "trainee")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         )
     }
 
     static func merged(existing: AdminUser, incoming: AdminUser) -> AdminUser {
         AdminUser(
+            id: existing.id,
             fullName: betterText(existing.fullName, incoming.fullName),
             email: betterText(existing.email, incoming.email),
+            phone: betterText(existing.phone, incoming.phone),
             branch: betterText(existing.branch, incoming.branch),
             group: betterText(existing.group, incoming.group),
             role: betterRole(existing.role, incoming.role)
         )
+    }
+
+    func branchGroupLine(isEnglish: Bool) -> String {
+        let branchText = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let groupText = group.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if branchText.isEmpty && groupText.isEmpty {
+            return isEnglish ? "No branch or group" : "ללא סניף או קבוצה"
+        }
+
+        if branchText.isEmpty {
+            return isEnglish ? "Group: \(groupText)" : "קבוצה: \(groupText)"
+        }
+
+        if groupText.isEmpty {
+            return isEnglish ? "Branch: \(branchText)" : "סניף: \(branchText)"
+        }
+
+        return isEnglish
+            ? "Branch: \(branchText) • Group: \(groupText)"
+            : "\(branchText) • \(groupText)"
+    }
+
+    static func isCoachRole(_ role: String) -> Bool {
+        let clean = role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        return clean == "coach" ||
+            clean.contains("coach") ||
+            clean.contains("trainer") ||
+            clean.contains("instructor") ||
+            clean.contains("מאמן") ||
+            clean.contains("מדריך")
+    }
+
+    static func isTraineeRole(_ role: String) -> Bool {
+        let clean = role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        return clean.isEmpty ||
+            clean == "trainee" ||
+            clean.contains("trainee") ||
+            clean.contains("student") ||
+            clean.contains("מתאמן") ||
+            clean.contains("חניך")
     }
 
     private static func betterText(_ first: String, _ second: String) -> String {
@@ -343,8 +609,12 @@ struct AdminUser: Identifiable {
         let cleanFirst = first.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let cleanSecond = second.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-        if cleanFirst == "coach" || cleanSecond == "coach" {
+        if isCoachRole(cleanFirst) || isCoachRole(cleanSecond) {
             return "coach"
+        }
+
+        if cleanFirst == "admin" || cleanSecond == "admin" {
+            return "admin"
         }
 
         return cleanSecond.isEmpty ? cleanFirst : cleanSecond

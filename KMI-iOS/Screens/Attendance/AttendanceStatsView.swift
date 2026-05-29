@@ -20,6 +20,8 @@ struct AttendanceStatsView: View {
         lastSessions: []
     )
 
+    @State private var isLoadingStats: Bool = false
+
     private let repository: AttendanceRepository
 
     private var isEnglish: Bool {
@@ -113,10 +115,14 @@ struct AttendanceStatsView: View {
                             .minimumScaleFactor(0.78)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
-                        Text(tr("סטטיסטיקת נוכחות אישית", "Personal Attendance Statistics"))
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(Color(red: 0.86, green: 0.94, blue: 1.0))
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(
+                            isLoadingStats
+                            ? tr("טוען נתוני נוכחות...", "Loading attendance data...")
+                            : tr("סטטיסטיקת נוכחות אישית", "Personal Attendance Statistics")
+                        )
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color(red: 0.86, green: 0.94, blue: 1.0))
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                         Text(groupContextLine)
                             .font(.system(size: 13, weight: .bold))
@@ -138,10 +144,14 @@ struct AttendanceStatsView: View {
                             .minimumScaleFactor(0.78)
                             .frame(maxWidth: .infinity, alignment: .trailing)
 
-                        Text(tr("סטטיסטיקת נוכחות אישית", "Personal Attendance Statistics"))
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(Color(red: 0.86, green: 0.94, blue: 1.0))
-                            .frame(maxWidth: .infinity, alignment: .trailing)
+                        Text(
+                            isLoadingStats
+                            ? tr("טוען נתוני נוכחות...", "Loading attendance data...")
+                            : tr("סטטיסטיקת נוכחות אישית", "Personal Attendance Statistics")
+                        )
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color(red: 0.86, green: 0.94, blue: 1.0))
+                        .frame(maxWidth: .infinity, alignment: .trailing)
 
                         Text(groupContextLine)
                             .font(.system(size: 13, weight: .bold))
@@ -467,13 +477,215 @@ struct AttendanceStatsView: View {
     }
     
     private func loadStats() {
-
         stats = repository.memberStats(
             ownerUid: ownerUid,
             branchName: branchName,
             groupKey: groupKey,
             memberId: memberId
         )
+
+        loadRemoteStats()
+    }
+
+    private func loadRemoteStats() {
+        guard !isLoadingStats else {
+            return
+        }
+
+        isLoadingStats = true
+
+        let repository = self.repository
+        let ownerUid = self.ownerUid
+        let branchName = self.branchName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let groupKey = self.groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let memberId = self.memberId
+        let startIso = oneYearBackIso()
+        let endIsoExclusive = tomorrowIso()
+
+        Task {
+            do {
+                let days = try await repository.listReportDaysInRangeFromFirestore(
+                    ownerUid: ownerUid,
+                    branchName: branchName,
+                    groupKey: groupKey,
+                    startIso: startIso,
+                    endIsoExclusive: endIsoExclusive
+                )
+
+                var recordsByDate: [(dateIso: String, record: AttendanceRecord)] = []
+
+                for dateIso in days.sorted(by: >) {
+                    let records = try await repository.loadRecordsFromFirestore(
+                        ownerUid: ownerUid,
+                        branchName: branchName,
+                        groupKey: groupKey,
+                        dateIso: dateIso
+                    )
+
+                    if let record = records.first(where: { $0.memberId == memberId }) {
+                        recordsByDate.append((dateIso: dateIso, record: record))
+                    }
+                }
+
+                if !recordsByDate.isEmpty {
+                    stats = makeStats(from: recordsByDate)
+                }
+
+                isLoadingStats = false
+            } catch {
+                isLoadingStats = false
+            }
+        }
+    }
+
+    private func makeStats(
+        from recordsByDate: [(dateIso: String, record: AttendanceRecord)]
+    ) -> AttendanceMemberStats {
+        let calendar = Calendar.current
+        let today = Date()
+        let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: today)) ?? today
+        let yearBack = calendar.date(byAdding: .year, value: -1, to: today) ?? today
+
+        let monthStartIso = isoString(monthStart)
+        let yearBackIso = isoString(yearBack)
+        let todayIso = isoString(today)
+
+        var monthPresent = 0
+        var monthTotal = 0
+        var yearPresent = 0
+        var yearTotal = 0
+
+        var streakDays = 0
+        var streakOpen = true
+
+        var lastSessions: [String] = []
+        var bestDayCounts: [Int: Int] = [:]
+
+        for item in recordsByDate.sorted(by: { $0.dateIso > $1.dateIso }) {
+            let dateIso = item.dateIso
+            let record = item.record
+
+            let isPresent = record.status == .present
+            let countsInTotals = record.status != .unknown
+
+            if dateIso >= monthStartIso && dateIso <= todayIso && countsInTotals {
+                monthTotal += 1
+                if isPresent {
+                    monthPresent += 1
+                }
+            }
+
+            if dateIso >= yearBackIso && dateIso <= todayIso && countsInTotals {
+                yearTotal += 1
+                if isPresent {
+                    yearPresent += 1
+                }
+            }
+
+            if isPresent,
+               let date = dateFromIso(dateIso) {
+                let weekday = calendar.component(.weekday, from: date)
+                bestDayCounts[weekday, default: 0] += 1
+            }
+
+            if lastSessions.count < 8 {
+                lastSessions.append("\(displayDateShort(dateIso)) – \(localizedStatus(record.status))")
+            }
+
+            if isPresent {
+                if streakOpen {
+                    streakDays += 1
+                }
+            } else if countsInTotals {
+                streakOpen = false
+            }
+        }
+
+        let monthlyPercent = monthTotal > 0 ? Int((Double(monthPresent) / Double(monthTotal)) * 100.0) : 0
+        let yearlyPercent = yearTotal > 0 ? Int((Double(yearPresent) / Double(yearTotal)) * 100.0) : 0
+
+        let bestDays = bestDayCounts
+            .sorted { lhs, rhs in
+                if lhs.value == rhs.value {
+                    return lhs.key < rhs.key
+                }
+
+                return lhs.value > rhs.value
+            }
+            .prefix(6)
+            .map { weekday, _ in
+                localizedWeekday(weekday)
+            }
+
+        return AttendanceMemberStats(
+            monthlyPercent: monthlyPercent,
+            yearlyPercent: yearlyPercent,
+            streakDays: streakDays,
+            bestDays: Array(bestDays),
+            lastSessions: lastSessions
+        )
+    }
+
+    private func oneYearBackIso() -> String {
+        let today = Date()
+        let yearBack = Calendar.current.date(byAdding: .year, value: -1, to: today) ?? today
+        return isoString(yearBack)
+    }
+
+    private func tomorrowIso() -> String {
+        let today = Date()
+        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: today) ?? today
+        return isoString(tomorrow)
+    }
+
+    private func isoString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    private func dateFromIso(_ iso: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: iso)
+    }
+
+    private func displayDateShort(_ iso: String) -> String {
+        guard let date = dateFromIso(iso) else {
+            return iso
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = isEnglish ? Locale(identifier: "en_US") : Locale(identifier: "he_IL")
+        formatter.dateFormat = isEnglish ? "MMM d, yyyy" : "dd/MM/yyyy"
+        return formatter.string(from: date)
+    }
+
+    private func localizedStatus(_ status: AttendanceStatus) -> String {
+        status.localized(isEnglish: isEnglish)
+    }
+
+    private func localizedWeekday(_ weekday: Int) -> String {
+        switch weekday {
+        case 1:
+            return isEnglish ? "Sun" : "ראשון"
+        case 2:
+            return isEnglish ? "Mon" : "שני"
+        case 3:
+            return isEnglish ? "Tue" : "שלישי"
+        case 4:
+            return isEnglish ? "Wed" : "רביעי"
+        case 5:
+            return isEnglish ? "Thu" : "חמישי"
+        case 6:
+            return isEnglish ? "Fri" : "שישי"
+        case 7:
+            return isEnglish ? "Sat" : "שבת"
+        default:
+            return isEnglish ? "Day" : "יום"
+        }
     }
 
     private func metricCard(
@@ -482,24 +694,37 @@ struct AttendanceStatsView: View {
         icon: String,
         gradient: [Color]
     ) -> some View {
-        VStack(alignment: .trailing, spacing: 12) {
+        VStack(alignment: screenHorizontalAlignment, spacing: 12) {
             HStack {
-                Image(systemName: icon)
-                    .font(.system(size: 18, weight: .heavy))
-                    .foregroundStyle(.white.opacity(0.92))
+                if isEnglish {
+                    Image(systemName: icon)
+                        .font(.system(size: 18, weight: .heavy))
+                        .foregroundStyle(.white.opacity(0.92))
 
-                Spacer()
+                    Spacer()
 
-                Text(title)
-                    .font(.system(size: 15, weight: .heavy))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.trailing)
+                    Text(title)
+                        .font(.system(size: 15, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.trailing)
+                } else {
+                    Text(title)
+                        .font(.system(size: 15, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.trailing)
+
+                    Spacer()
+
+                    Image(systemName: icon)
+                        .font(.system(size: 18, weight: .heavy))
+                        .foregroundStyle(.white.opacity(0.92))
+                }
             }
 
             Text("\(percent)%")
                 .font(.system(size: 32, weight: .black, design: .rounded))
                 .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: screenAlignment)
 
             ProgressView(value: Double(max(0, min(100, percent))), total: 100)
                 .progressViewStyle(.linear)
@@ -618,10 +843,10 @@ struct AttendanceStatsView: View {
         guard isEnglish else { return line }
 
         return line
-            .replacingOccurrences(of: "הגיע", with: "Present")
-            .replacingOccurrences(of: "מוצדק", with: "Excused")
             .replacingOccurrences(of: "לא הגיע", with: "Absent")
             .replacingOccurrences(of: "לא סומן", with: "Not marked")
+            .replacingOccurrences(of: "מוצדק", with: "Excused")
+            .replacingOccurrences(of: "הגיע", with: "Present")
             .replacingOccurrences(of: "סה״כ", with: "Total")
     }
 

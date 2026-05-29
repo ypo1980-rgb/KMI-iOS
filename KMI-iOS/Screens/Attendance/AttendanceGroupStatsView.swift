@@ -16,6 +16,7 @@ struct AttendanceGroupStatsView: View {
     @State private var selectedReportIds: Set<String> = []
     @State private var showDeleteConfirm: Bool = false
     @State private var showResetConfirm: Bool = false
+    @State private var isLoadingReports: Bool = false
 
     private let repository: AttendanceRepository
 
@@ -574,9 +575,13 @@ struct AttendanceGroupStatsView: View {
 
     private var reportsCountLabel: some View {
         Text(
-            reports.isEmpty
-            ? tr("אין עדיין דו״חות שמורים", "No saved reports yet")
-            : (isEnglish ? "Showing \(reports.count) recent reports" : "מציג \(reports.count) דו״חות אחרונים")
+            isLoadingReports
+            ? tr("טוען דו״חות...", "Loading reports...")
+            : (
+                reports.isEmpty
+                ? tr("אין עדיין דו״חות שמורים", "No saved reports yet")
+                : (isEnglish ? "Showing \(reports.count) recent reports" : "מציג \(reports.count) דו״חות אחרונים")
+            )
         )
         .font(.system(size: 12, weight: .semibold))
         .foregroundStyle(.white.opacity(0.68))
@@ -584,28 +589,40 @@ struct AttendanceGroupStatsView: View {
 
     private var emptyReportsState: some View {
         VStack(spacing: 10) {
-            Image(systemName: "doc.text.magnifyingglass")
-                .font(.system(size: 28, weight: .heavy))
-                .foregroundStyle(Color(red: 0.58, green: 0.78, blue: 1.0))
-                .frame(width: 54, height: 54)
-                .background(Color.white.opacity(0.10))
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                )
+            if isLoadingReports {
+                ProgressView()
+                    .tint(.white)
+                    .frame(width: 54, height: 54)
+            } else {
+                Image(systemName: "doc.text.magnifyingglass")
+                    .font(.system(size: 28, weight: .heavy))
+                    .foregroundStyle(Color(red: 0.58, green: 0.78, blue: 1.0))
+                    .frame(width: 54, height: 54)
+                    .background(Color.white.opacity(0.10))
+                    .clipShape(Circle())
+                    .overlay(
+                        Circle()
+                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+            }
 
-            Text(tr("לא נמצאו דו״חות עבור הסניף והקבוצה שנבחרו.", "No reports were found for the selected branch and group."))
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(.white.opacity(0.84))
-                .frame(maxWidth: .infinity, alignment: .center)
-                .multilineTextAlignment(.center)
+            Text(
+                isLoadingReports
+                ? tr("טוען דו״חות נוכחות...", "Loading attendance reports...")
+                : tr("לא נמצאו דו״חות עבור הסניף והקבוצה שנבחרו.", "No reports were found for the selected branch and group.")
+            )
+            .font(.system(size: 14, weight: .bold))
+            .foregroundStyle(.white.opacity(0.84))
+            .frame(maxWidth: .infinity, alignment: .center)
+            .multilineTextAlignment(.center)
 
-            Text(tr("לאחר שמירת דו״ח נוכחות במסך הנוכחות, הוא יופיע כאן.", "After saving an attendance report, it will appear here."))
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.62))
-                .frame(maxWidth: .infinity, alignment: .center)
-                .multilineTextAlignment(.center)
+            if !isLoadingReports {
+                Text(tr("לאחר שמירת דו״ח נוכחות במסך הנוכחות, הוא יופיע כאן.", "After saving an attendance report, it will appear here."))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.62))
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .multilineTextAlignment(.center)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 18)
@@ -714,19 +731,170 @@ struct AttendanceGroupStatsView: View {
         let cleanBranch = branchName.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        reports = repository.reportsLastYear(
+        let localReports = repository.reportsLastYear(
             ownerUid: ownerUid,
             branchName: cleanBranch,
             groupKey: cleanGroup
         )
 
-        summary = repository.groupStatsSummary(
-            ownerUid: ownerUid,
-            branchName: cleanBranch,
-            groupKey: cleanGroup
-        )
-
+        reports = localReports
+        summary = makeSummary(from: localReports)
         selectedReportIds.removeAll()
+
+        loadRemoteReports(
+            branchName: cleanBranch,
+            groupKey: cleanGroup
+        )
+    }
+
+    private func loadRemoteReports(
+        branchName: String,
+        groupKey: String
+    ) {
+        guard !isLoadingReports else {
+            return
+        }
+
+        isLoadingReports = true
+
+        let repository = self.repository
+        let ownerUid = self.ownerUid
+        let startIso = oneYearBackIso()
+        let endIsoExclusive = tomorrowIso()
+
+        Task.detached(priority: nil) {
+            do {
+                let days = try await repository.listReportDaysInRangeFromFirestore(
+                    ownerUid: ownerUid,
+                    branchName: branchName,
+                    groupKey: groupKey,
+                    startIso: startIso,
+                    endIsoExclusive: endIsoExclusive
+                )
+
+                var remoteReports: [AttendanceSavedReport] = []
+
+                for dateIso in days.sorted(by: >) {
+                    let records = try await repository.loadRecordsFromFirestore(
+                        ownerUid: ownerUid,
+                        branchName: branchName,
+                        groupKey: groupKey,
+                        dateIso: dateIso
+                    )
+
+                    guard !records.isEmpty else {
+                        continue
+                    }
+
+                    remoteReports.append(savedReport(from: records, dateIso: dateIso))
+                }
+
+                await MainActor.run {
+                    self.reports = mergeReports(
+                        local: self.reports,
+                        remote: remoteReports
+                    )
+                    self.summary = makeSummary(from: self.reports)
+                    self.isLoadingReports = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.summary = makeSummary(from: self.reports)
+                    self.isLoadingReports = false
+                }
+            }
+        }
+    }
+
+    private func savedReport(
+        from records: [AttendanceRecord],
+        dateIso: String
+    ) -> AttendanceSavedReport {
+        let present = records.filter { $0.status == .present }.count
+        let excused = records.filter { $0.status == .excused }.count
+        let absent = records.filter { $0.status == .absent }.count
+        let unknown = records.filter { $0.status == .unknown }.count
+
+        return AttendanceSavedReport(
+            id: dateIso,
+            dateIso: dateIso,
+            totalMembers: records.count,
+            presentCount: present,
+            excusedCount: excused,
+            absentCount: absent,
+            unknownCount: unknown
+        )
+    }
+
+    private func mergeReports(
+        local: [AttendanceSavedReport],
+        remote: [AttendanceSavedReport]
+    ) -> [AttendanceSavedReport] {
+        var merged: [String: AttendanceSavedReport] = [:]
+
+        for report in local {
+            merged[report.dateIso] = report
+        }
+
+        for report in remote {
+            merged[report.dateIso] = report
+        }
+
+        return merged.values.sorted {
+            $0.dateIso > $1.dateIso
+        }
+    }
+
+    private func makeSummary(from reports: [AttendanceSavedReport]) -> AttendanceGroupStatsSummary {
+        guard !reports.isEmpty else {
+            return AttendanceGroupStatsSummary(
+                averagePercent: 0,
+                totalSessions: 0,
+                averagePresent: 0,
+                averageTotal: 0
+            )
+        }
+
+        let averagePercent = Int(
+            (Double(reports.map { $0.percentPresent }.reduce(0, +)) / Double(reports.count))
+                .rounded()
+        )
+
+        let averagePresent = Int(
+            (Double(reports.map { $0.presentCount }.reduce(0, +)) / Double(reports.count))
+                .rounded()
+        )
+
+        let averageTotal = Int(
+            (Double(reports.map { $0.totalMembers }.reduce(0, +)) / Double(reports.count))
+                .rounded()
+        )
+
+        return AttendanceGroupStatsSummary(
+            averagePercent: averagePercent,
+            totalSessions: reports.count,
+            averagePresent: averagePresent,
+            averageTotal: averageTotal
+        )
+    }
+
+    private func oneYearBackIso() -> String {
+        let today = Date()
+        let yearBack = Calendar.current.date(byAdding: .year, value: -1, to: today) ?? today
+        return isoString(yearBack)
+    }
+
+    private func tomorrowIso() -> String {
+        let today = Date()
+        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: today) ?? today
+        return isoString(tomorrow)
+    }
+
+    private func isoString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
     }
 
     private func deleteSelectedReports() {
@@ -792,14 +960,6 @@ struct AttendanceGroupStatsView: View {
         if !cleanInitialGroup.isEmpty && cleanInitialGroup != cleanCurrentGroup {
             groupKey = initialGroupKey
         }
-
-        #if DEBUG
-        print("📊 STATS syncIncomingFilters ownerUid =", ownerUid)
-        print("📊 STATS syncIncomingFilters initialBranch =", initialBranchName)
-        print("📊 STATS syncIncomingFilters initialGroup =", initialGroupKey)
-        print("📊 STATS syncIncomingFilters branchName =", branchName)
-        print("📊 STATS syncIncomingFilters groupKey =", groupKey)
-        #endif
     }
 
     private func statPill(title: String, value: String, tint: Color) -> some View {

@@ -74,16 +74,34 @@ final class AttendanceLocalStore {
         dateIso: String,
         records: [AttendanceRecord]
     ) {
-        if let data = try? JSONEncoder().encode(records) {
-            defaults.set(data, forKey: reportKey(ownerUid: ownerUid, branchName: branchName, groupKey: groupKey, dateIso: dateIso))
-        }
-
-        addReportDay(
+        let key = reportKey(
             ownerUid: ownerUid,
             branchName: branchName,
             groupKey: groupKey,
             dateIso: dateIso
         )
+
+        if records.isEmpty {
+            defaults.removeObject(forKey: key)
+            removeReportDay(
+                ownerUid: ownerUid,
+                branchName: branchName,
+                groupKey: groupKey,
+                dateIso: dateIso
+            )
+            return
+        }
+
+        if let data = try? JSONEncoder().encode(records) {
+            defaults.set(data, forKey: key)
+
+            addReportDay(
+                ownerUid: ownerUid,
+                branchName: branchName,
+                groupKey: groupKey,
+                dateIso: dateIso
+            )
+        }
     }
 
     func deleteReport(
@@ -94,6 +112,13 @@ final class AttendanceLocalStore {
     ) {
         defaults.removeObject(
             forKey: reportKey(ownerUid: ownerUid, branchName: branchName, groupKey: groupKey, dateIso: dateIso)
+        )
+
+        removeReportDay(
+            ownerUid: ownerUid,
+            branchName: branchName,
+            groupKey: groupKey,
+            dateIso: dateIso
         )
     }
 
@@ -109,8 +134,27 @@ final class AttendanceLocalStore {
 
         if !clean.isEmpty && !current.contains(clean) {
             current.append(clean)
+            current.sort()
             defaults.set(current, forKey: key)
         }
+    }
+
+    private func removeReportDay(
+        ownerUid: String,
+        branchName: String,
+        groupKey: String,
+        dateIso: String
+    ) {
+        let key = reportDaysKey(ownerUid: ownerUid, branchName: branchName, groupKey: groupKey)
+        let clean = dateIso.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !clean.isEmpty else {
+            return
+        }
+
+        var current = defaults.stringArray(forKey: key) ?? []
+        current.removeAll { $0 == clean }
+        defaults.set(current, forKey: key)
     }
 
     func listReportDaysInRange(

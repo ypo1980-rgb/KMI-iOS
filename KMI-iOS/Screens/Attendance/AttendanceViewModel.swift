@@ -62,17 +62,13 @@ final class AttendanceViewModel: ObservableObject {
 
     func setDateIso(_ value: String) {
         state.dateIso = value.trimmed()
-        reloadRecordsOnly()
-        reloadMonthMarkers()
+        reloadRecordsFromRemoteThenLocal()
+        reloadMonthMarkersFromRemoteThenLocal()
     }
 
     func setBranchName(_ value: String) {
         let clean = value.trimmed()
         state.branchName = clean
-
-        #if DEBUG
-        print("🟢 VM setBranchName =", clean)
-        #endif
 
         reloadCurrentContext()
     }
@@ -81,20 +77,12 @@ final class AttendanceViewModel: ObservableObject {
         let clean = value.trimmed()
         state.groupKey = clean
 
-        #if DEBUG
-        print("🟢 VM setGroupKey =", clean)
-        #endif
-
         reloadCurrentContext()
     }
 
     func setCoachName(_ value: String) {
         let clean = value.trimmed()
         state.coachName = clean
-
-        #if DEBUG
-        print("🟢 VM setCoachName =", clean)
-        #endif
     }
 
     func setAttendanceStatus(memberId: String, status: AttendanceStatus) {
@@ -148,7 +136,7 @@ final class AttendanceViewModel: ObservableObject {
         )
 
         state.members.append(member)
-        state.members.sort { $0.fullName < $1.fullName }
+        state.members = uniqueMembers(state.members)
 
         persistMembers()
 
@@ -179,6 +167,7 @@ final class AttendanceViewModel: ObservableObject {
             if let existing = state.recordsByMemberId[member.id] {
                 return existing
             }
+
             return AttendanceRecord(
                 id: "\(state.dateIso)_\(member.id)",
                 dateIso: state.dateIso,
@@ -188,18 +177,18 @@ final class AttendanceViewModel: ObservableObject {
             )
         }
 
-        repository.saveRecords(
-            ownerUid: state.ownerUid,
-            branchName: state.branchName,
-            groupKey: state.groupKey,
-            dateIso: state.dateIso,
+        state.recordsByMemberId = Dictionary(
+            uniqueKeysWithValues: records.map { ($0.memberId, $0) }
+        )
+
+        repository.saveReport(
+            state: state,
             records: records
         )
 
-        state.recordsByMemberId = Dictionary(uniqueKeysWithValues: records.map { ($0.memberId, $0) })
         state.isSaving = false
 
-        reloadMonthMarkers()
+        reloadMonthMarkersFromRemoteThenLocal()
         publishMessage(
             tr("דו״ח הנוכחות נשמר", "The attendance report was saved"),
             isError: false
@@ -215,13 +204,41 @@ final class AttendanceViewModel: ObservableObject {
             return
         }
 
+        let startIso = Self.isoString(start)
+        let endIsoExclusive = Self.isoString(end)
+
         state.reportDaysInMonth = repository.listReportDaysInRange(
             ownerUid: state.ownerUid,
             branchName: state.branchName,
             groupKey: state.groupKey,
-            startIso: Self.isoString(start),
-            endIsoExclusive: Self.isoString(end)
+            startIso: startIso,
+            endIsoExclusive: endIsoExclusive
         )
+
+        let ownerUid = state.ownerUid
+        let branchName = state.branchName
+        let groupKey = state.groupKey
+        let repository = self.repository
+
+        Task.detached(priority: nil) {
+            do {
+                let remoteDays = try await repository.listReportDaysInRangeFromFirestore(
+                    ownerUid: ownerUid,
+                    branchName: branchName,
+                    groupKey: groupKey,
+                    startIso: startIso,
+                    endIsoExclusive: endIsoExclusive
+                )
+
+                await MainActor.run {
+                    self.state.reportDaysInMonth.formUnion(remoteDays)
+                }
+            } catch {
+                await MainActor.run {
+                    self.state.reportDaysInMonth = self.state.reportDaysInMonth
+                }
+            }
+        }
     }
 
     private func reloadCurrentContext() {
@@ -229,12 +246,6 @@ final class AttendanceViewModel: ObservableObject {
         let branchName = state.branchName
         let groupKey = state.groupKey
         let repository = self.repository
-
-        #if DEBUG
-        print("🟠 AttendanceVM.reloadCurrentContext ownerUid =", ownerUid)
-        print("🟠 AttendanceVM.reloadCurrentContext branchName =", branchName)
-        print("🟠 AttendanceVM.reloadCurrentContext groupKey =", groupKey)
-        #endif
 
         Task.detached(priority: nil) {
             do {
@@ -245,35 +256,20 @@ final class AttendanceViewModel: ObservableObject {
                 )
 
                 await MainActor.run {
-                    #if DEBUG
-                    print("🟠 AttendanceVM.loadRealMembers count =", realMembers.count)
-                    print("🟠 AttendanceVM.loadRealMembers names =", realMembers.map(\.fullName))
-                    #endif
-
                     if !realMembers.isEmpty {
-                                          self.state.members = realMembers
-                                      } else {
-                                          let fallbackMembers =
-                                              repository.loadMembers(
-                                                  ownerUid: ownerUid,
-                                                  branchName: branchName,
-                                                  groupKey: groupKey
-                                              )
- 
-                        #if DEBUG
-                        print("🟠 AttendanceVM.fallbackMembers count =", fallbackMembers.count)
-                        print("🟠 AttendanceVM.fallbackMembers names =", fallbackMembers.map(\.fullName))
-                        #endif
+                        self.state.members = uniqueMembers(realMembers)
+                    } else {
+                        let fallbackMembers = repository.loadMembers(
+                            ownerUid: ownerUid,
+                            branchName: branchName,
+                            groupKey: groupKey
+                        )
 
-                                          self.state.members = fallbackMembers
-                                                              }
-                    self.reloadRecordsOnly()
-                    self.reloadMonthMarkers()
+                        self.state.members = uniqueMembers(fallbackMembers)
+                    }
 
-                    #if DEBUG
-                    print("🟠 AttendanceVM.state.members final count =", self.state.members.count)
-                    print("🟠 AttendanceVM.state.summary totalMembers =", self.state.summary.totalMembers)
-                    #endif
+                    self.reloadRecordsFromRemoteThenLocal()
+                    self.reloadMonthMarkersFromRemoteThenLocal()
                 }
             } catch {
                 await MainActor.run {
@@ -283,19 +279,13 @@ final class AttendanceViewModel: ObservableObject {
                         groupKey: groupKey
                     )
 
-                    #if DEBUG
-                    print("🔴 AttendanceVM.loadRealMembers failed =", error.localizedDescription)
-                    print("🔴 AttendanceVM.catch fallbackMembers count =", fallbackMembers.count)
-                    print("🔴 AttendanceVM.catch fallbackMembers names =", fallbackMembers.map(\.fullName))
-                    #endif
-
-                    self.state.members = fallbackMembers
-                    self.reloadRecordsOnly()
-                    self.reloadMonthMarkers()
+                    self.state.members = uniqueMembers(fallbackMembers)
+                    self.reloadRecordsFromRemoteThenLocal()
+                    self.reloadMonthMarkersFromRemoteThenLocal()
                     self.publishMessage(
                         self.tr(
-                            "לא נטענו מתאמנים אמיתיים, נטען גיבוי מקומי",
-                            "Real trainees could not be loaded. Local backup was loaded."
+                            "לא נטענו מתאמנים מהשרת, נטען גיבוי מקומי",
+                            "Server trainees could not be loaded. Local backup was loaded."
                         ),
                         isError: true
                     )
@@ -312,7 +302,52 @@ final class AttendanceViewModel: ObservableObject {
             dateIso: state.dateIso
         )
 
-        state.recordsByMemberId = Dictionary(uniqueKeysWithValues: loaded.map { ($0.memberId, $0) })
+        state.recordsByMemberId = Dictionary(
+            uniqueKeysWithValues: loaded.map { ($0.memberId, $0) }
+        )
+    }
+
+    private func reloadRecordsFromRemoteThenLocal() {
+        reloadRecordsOnly()
+
+        let ownerUid = state.ownerUid
+        let branchName = state.branchName
+        let groupKey = state.groupKey
+        let dateIso = state.dateIso
+        let repository = self.repository
+
+        Task.detached(priority: nil) {
+            do {
+                let remoteRecords = try await repository.loadRecordsFromFirestore(
+                    ownerUid: ownerUid,
+                    branchName: branchName,
+                    groupKey: groupKey,
+                    dateIso: dateIso
+                )
+
+                guard !remoteRecords.isEmpty else {
+                    return
+                }
+
+                await MainActor.run {
+                    self.state.recordsByMemberId = Dictionary(
+                        uniqueKeysWithValues: remoteRecords.map { ($0.memberId, $0) }
+                    )
+
+                    repository.saveRecords(
+                        ownerUid: ownerUid,
+                        branchName: branchName,
+                        groupKey: groupKey,
+                        dateIso: dateIso,
+                        records: remoteRecords
+                    )
+                }
+            } catch {
+                await MainActor.run {
+                    self.reloadRecordsOnly()
+                }
+            }
+        }
     }
 
     private func reloadMonthMarkers() {
@@ -324,12 +359,19 @@ final class AttendanceViewModel: ObservableObject {
         }
     }
 
+    private func reloadMonthMarkersFromRemoteThenLocal() {
+        reloadMonthMarkers()
+    }
+
     private func persistMembers() {
+        let cleanMembers = uniqueMembers(state.members)
+        state.members = cleanMembers
+
         repository.saveMembers(
             ownerUid: state.ownerUid,
             branchName: state.branchName,
             groupKey: state.groupKey,
-            members: state.members
+            members: cleanMembers
         )
     }
 
@@ -364,15 +406,22 @@ final class AttendanceViewModel: ObservableObject {
 }
 
 private func uniqueMembers(_ members: [AttendanceMember]) -> [AttendanceMember] {
-
     var unique: [String: AttendanceMember] = [:]
 
     for member in members {
-
-        let key =
-            member.fullName
+        let nameKey = member.fullName
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
+
+        let phoneKey = member.phone
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        let key = phoneKey.isEmpty ? nameKey : "\(nameKey)|\(phoneKey)"
+
+        guard !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            continue
+        }
 
         if unique[key] == nil {
             unique[key] = member

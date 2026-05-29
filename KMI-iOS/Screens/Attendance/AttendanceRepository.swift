@@ -1,4 +1,5 @@
 import Foundation
+import FirebaseFirestore
 
 protocol AttendanceRemoteMembersSource {
     func loadMembers(
@@ -40,23 +41,7 @@ final class AttendanceRepository {
             groupKey: groupKey
         )
 
-        var unique: [String: AttendanceMember] = [:]
-
-        for member in members {
-
-            let key =
-                member.fullName
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-
-            if unique[key] == nil {
-                unique[key] = member
-            }
-        }
-
-        return unique.values.sorted {
-            $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending
-        }
+        return uniqueMembers(members)
     }
     
     // MARK: - Local fallback members (optional only)
@@ -66,10 +51,12 @@ final class AttendanceRepository {
         branchName: String,
         groupKey: String
     ) -> [AttendanceMember] {
-        store.loadMembers(
-            ownerUid: ownerUid,
-            branchName: branchName,
-            groupKey: groupKey
+        uniqueMembers(
+            store.loadMembers(
+                ownerUid: ownerUid,
+                branchName: branchName,
+                groupKey: groupKey
+            )
         )
     }
 
@@ -83,7 +70,7 @@ final class AttendanceRepository {
             ownerUid: ownerUid,
             branchName: branchName,
             groupKey: groupKey,
-            members: members
+            members: uniqueMembers(members)
         )
     }
 
@@ -119,6 +106,162 @@ final class AttendanceRepository {
         )
     }
 
+    func saveReport(
+        state: AttendanceUiState,
+        records: [AttendanceRecord]
+    ) {
+        store.saveRecords(
+            ownerUid: state.ownerUid,
+            branchName: state.branchName,
+            groupKey: state.groupKey,
+            dateIso: state.dateIso,
+            records: records
+        )
+
+        let documentId = reportDocumentId(
+            ownerUid: state.ownerUid,
+            branchName: state.branchName,
+            groupKey: state.groupKey,
+            dateIso: state.dateIso
+        )
+
+        var data = state.firestoreReportMap
+        data["recordsCount"] = records.count
+        data["createdOrUpdatedAt"] = FieldValue.serverTimestamp()
+
+        Firestore.firestore()
+            .collection("attendanceReports")
+            .document(documentId)
+            .setData(data, merge: true)
+    }
+
+    func loadRecordsFromFirestore(
+        ownerUid: String,
+        branchName: String,
+        groupKey: String,
+        dateIso: String
+    ) async throws -> [AttendanceRecord] {
+        let documentId = reportDocumentId(
+            ownerUid: ownerUid,
+            branchName: branchName,
+            groupKey: groupKey,
+            dateIso: dateIso
+        )
+
+        let snapshot = try await Firestore.firestore()
+            .collection("attendanceReports")
+            .document(documentId)
+            .getDocument()
+
+        guard let data = snapshot.data() else {
+            return []
+        }
+
+        let rawRecords = data["records"] as? [[String: Any]] ?? []
+
+        return rawRecords.compactMap { recordData in
+            let recordId =
+                ((recordData["id"] as? String) ??
+                 (recordData["recordId"] as? String) ??
+                 "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            return AttendanceRecord.fromFirestore(
+                id: recordId.isEmpty ? UUID().uuidString : recordId,
+                data: recordData
+            )
+        }
+    }
+
+    func listReportDaysInRangeFromFirestore(
+        ownerUid: String,
+        branchName: String,
+        groupKey: String,
+        startIso: String,
+        endIsoExclusive: String
+    ) async throws -> Set<String> {
+        let snapshot = try await Firestore.firestore()
+            .collection("attendanceReports")
+            .whereField("ownerUid", isEqualTo: ownerUid.trimmingCharacters(in: .whitespacesAndNewlines))
+            .getDocuments()
+
+        let cleanBranch = branchName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let days = snapshot.documents.compactMap { doc -> String? in
+            let data = doc.data()
+
+            let dateIso =
+                ((data["dateIso"] as? String) ??
+                 (data["date"] as? String) ??
+                 "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let reportBranch =
+                ((data["branchName"] as? String) ??
+                 (data["branch"] as? String) ??
+                 "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let reportGroup =
+                ((data["groupKey"] as? String) ??
+                 (data["group"] as? String) ??
+                 "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard !dateIso.isEmpty else {
+                return nil
+            }
+
+            guard dateIso >= startIso, dateIso < endIsoExclusive else {
+                return nil
+            }
+
+            if !cleanBranch.isEmpty, reportBranch != cleanBranch {
+                return nil
+            }
+
+            if !cleanGroup.isEmpty, reportGroup != cleanGroup {
+                return nil
+            }
+
+            return dateIso
+        }
+
+        return Set(days)
+    }
+
+    private func reportDocumentId(
+        ownerUid: String,
+        branchName: String,
+        groupKey: String,
+        dateIso: String
+    ) -> String {
+        [
+            ownerUid,
+            branchName,
+            groupKey,
+            dateIso
+        ]
+        .map { safeDocumentPart($0) }
+        .joined(separator: "_")
+    }
+
+    private func safeDocumentPart(_ value: String) -> String {
+        let clean = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: "\\", with: "-")
+            .replacingOccurrences(of: "#", with: "-")
+            .replacingOccurrences(of: "?", with: "-")
+            .replacingOccurrences(of: "[", with: "-")
+            .replacingOccurrences(of: "]", with: "-")
+            .replacingOccurrences(of: "*", with: "-")
+            .replacingOccurrences(of: " ", with: "_")
+
+        return clean.isEmpty ? "_" : clean
+    }
+
     // MARK: - Reports
 
     func listReportDaysInRange(
@@ -149,6 +292,18 @@ final class AttendanceRepository {
             groupKey: groupKey,
             dateIso: dateIso
         )
+
+        let documentId = reportDocumentId(
+            ownerUid: ownerUid,
+            branchName: branchName,
+            groupKey: groupKey,
+            dateIso: dateIso
+        )
+
+        Firestore.firestore()
+            .collection("attendanceReports")
+            .document(documentId)
+            .delete()
     }
 
     // MARK: - Stats / Reports
@@ -352,6 +507,34 @@ final class AttendanceRepository {
             bestDays: Array(bestDays),
             lastSessions: lastSessions
         )
+    }
+
+    private func uniqueMembers(_ members: [AttendanceMember]) -> [AttendanceMember] {
+        var unique: [String: AttendanceMember] = [:]
+
+        for member in members {
+            let nameKey = member.fullName
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            let phoneKey = member.phone
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            let key = phoneKey.isEmpty ? nameKey : "\(nameKey)|\(phoneKey)"
+
+            guard !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+
+            if unique[key] == nil {
+                unique[key] = member
+            }
+        }
+
+        return unique.values.sorted {
+            $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending
+        }
     }
 
     private static func isEnglishLanguage() -> Bool {

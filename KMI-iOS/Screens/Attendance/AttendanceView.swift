@@ -87,13 +87,6 @@ struct AttendanceView: View {
         self.onSettingsTap = onSettingsTap
         self.onAssistantTap = onAssistantTap
 
-        #if DEBUG
-        print("🔵 AttendanceView.init ownerUid =", ownerUid)
-        print("🔵 AttendanceView.init initialBranchName =", initialBranchName)
-        print("🔵 AttendanceView.init initialGroupKey =", initialGroupKey)
-        print("🔵 AttendanceView.init initialCoachName =", initialCoachName)
-        #endif
-
         _vm = StateObject(
             wrappedValue: AttendanceViewModel(
                 ownerUid: ownerUid,
@@ -206,13 +199,9 @@ struct AttendanceView: View {
                 pendingDeleteRow = nil
             }
         } message: {
-            Text(
-                isEnglish
-                ? "Delete \(pendingDeleteRow?.memberName ?? "this trainee") from the list?"
-                : "האם למחוק את \(pendingDeleteRow?.memberName ?? "המתאמן") מהרשימה?"
-            )
+            Text(deleteConfirmationMessage)
         }
-        .onChange(of: vm.state.messageEventId) { _ in
+        .onChange(of: vm.state.messageEventId) { _, _ in
             guard let msg = vm.state.lastMessage else { return }
             withAnimation {
                 toastMessage = msg
@@ -227,17 +216,6 @@ struct AttendanceView: View {
             let storedBranch = UserDefaults.standard.string(forKey: "kmi.user.branch") ?? ""
             let storedGroup = UserDefaults.standard.string(forKey: "kmi.user.group") ?? ""
 
-            #if DEBUG
-            print("🔵 AttendanceView.onAppear auth.userFullName =", auth.userFullName)
-            print("🔵 AttendanceView.onAppear auth.userBranch =", auth.userBranch)
-            print("🔵 AttendanceView.onAppear auth.userGroup =", auth.userGroup)
-            print("🔵 AttendanceView.onAppear storedBranch =", storedBranch)
-            print("🔵 AttendanceView.onAppear storedGroup =", storedGroup)
-            print("🔵 AttendanceView.onAppear vm.branchName(before) =", vm.state.branchName)
-            print("🔵 AttendanceView.onAppear vm.groupKey(before) =", vm.state.groupKey)
-            print("🔵 AttendanceView.onAppear vm.coachName(before) =", vm.state.coachName)
-            #endif
-
             let resolvedBranch =
                 auth.userBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? storedBranch
@@ -250,12 +228,6 @@ struct AttendanceView: View {
 
             let resolvedCoachName =
                 auth.userFullName.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            #if DEBUG
-            print("🔵 AttendanceView.onAppear resolvedBranch =", resolvedBranch)
-            print("🔵 AttendanceView.onAppear resolvedGroup =", resolvedGroup)
-            print("🔵 AttendanceView.onAppear resolvedCoachName =", resolvedCoachName)
-            #endif
 
             if vm.state.branchName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                !resolvedBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -272,22 +244,12 @@ struct AttendanceView: View {
                 vm.setCoachName(resolvedCoachName)
             }
 
-            #if DEBUG
-            print("🔵 AttendanceView.onAppear vm.branchName(after) =", vm.state.branchName)
-            print("🔵 AttendanceView.onAppear vm.groupKey(after) =", vm.state.groupKey)
-            print("🔵 AttendanceView.onAppear vm.coachName(after) =", vm.state.coachName)
-            #endif
-
             let comps = dateComponents(from: vm.state.dateIso)
             if let year = comps.year, let month = comps.month {
                 vm.loadSummaryDaysForMonth(year: year, month1to12: month)
             }
         }
         .onChange(of: auth.userBranch) { _, newValue in
-            #if DEBUG
-            print("🔵 AttendanceView.onChange auth.userBranch =", newValue)
-            #endif
-
             let clean = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
             if vm.state.branchName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                !clean.isEmpty {
@@ -301,18 +263,10 @@ struct AttendanceView: View {
             guard !cleanBranch.isEmpty, !cleanGroup.isEmpty else { return }
             guard cleanBranch != auth.userBranch || cleanGroup != auth.userGroup else { return }
 
-            #if DEBUG
-            print("🔵 AttendanceView.onChange vm.state.branchName saving branch/group =", cleanBranch, cleanGroup)
-            #endif
-
             auth.saveTrainingAssignment(branch: cleanBranch, group: cleanGroup)
         }
         
         .onChange(of: auth.userGroup) { _, newValue in
-            #if DEBUG
-            print("🔵 AttendanceView.onChange auth.userGroup =", newValue)
-            #endif
-
             let clean = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
             if vm.state.groupKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                !clean.isEmpty {
@@ -326,24 +280,26 @@ struct AttendanceView: View {
             guard !cleanBranch.isEmpty, !cleanGroup.isEmpty else { return }
             guard cleanBranch != auth.userBranch || cleanGroup != auth.userGroup else { return }
 
-            #if DEBUG
-            print("🔵 AttendanceView.onChange vm.state.groupKey saving branch/group =", cleanBranch, cleanGroup)
-            #endif
-
             auth.saveTrainingAssignment(branch: cleanBranch, group: cleanGroup)
         }
         
         .onChange(of: auth.userFullName) { _, newValue in
-            #if DEBUG
-            print("🔵 AttendanceView.onChange auth.userFullName =", newValue)
-            #endif
-
             let clean = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
             if vm.state.coachName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                !clean.isEmpty {
                 vm.setCoachName(clean)
             }
         }
+    }
+
+    private var deleteConfirmationMessage: String {
+        let fallback = tr("המתאמן", "this trainee")
+        let name = pendingDeleteRow?.memberName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = (name?.isEmpty == false) ? (name ?? fallback) : fallback
+
+        return isEnglish
+            ? "Delete \(displayName) from the list?"
+            : "האם למחוק את \(displayName) מהרשימה?"
     }
     
     private var addMemberFloatingButton: some View {
@@ -1209,15 +1165,22 @@ struct AttendanceView: View {
     }
 
     private func uniqueMembers(_ rows: [AttendanceRowUi]) -> [AttendanceRowUi] {
-
         var unique: [String: AttendanceRowUi] = [:]
 
         for row in rows {
-
-            let key =
-                row.memberName
+            let nameKey = row.memberName
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
+
+            let phoneKey = row.phone
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            let key = phoneKey.isEmpty ? nameKey : "\(nameKey)|\(phoneKey)"
+
+            guard !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
 
             if unique[key] == nil {
                 unique[key] = row

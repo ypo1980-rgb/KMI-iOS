@@ -8,6 +8,8 @@ struct CoachTraineesView: View {
 
     @State private var trainees: [CoachTraineeProfile] = []
     @State private var selectedId: String? = nil
+    @State private var searchText: String = ""
+    @State private var selectedBeltFilter: String = ""
     @State private var coachNotes: [String: String] = [:]
     @State private var beltAwardDates: [String: [String: String]] = [:]
 
@@ -22,6 +24,7 @@ struct CoachTraineesView: View {
 
     @State private var alertText: String?
     @State private var showAlert = false
+    @State private var showGroupStatsSheet = false
 
     @AppStorage("kmi_app_language") private var kmiAppLanguage: String = ""
     @AppStorage("app_language") private var appLanguage: String = ""
@@ -106,8 +109,47 @@ struct CoachTraineesView: View {
         return candidates.contains { isCoachRole($0) }
     }
 
+    private var visibleTrainees: [CoachTraineeProfile] {
+        let query = normalizeKey(searchText)
+        let beltFilter = normalizeKey(selectedBeltFilter)
+
+        return trainees.filter { trainee in
+            let matchesQuery = query.isEmpty || trainee.matchesSearch(query)
+            let matchesBelt = beltFilter.isEmpty || normalizeKey(beltNameForUi(trainee.belt)) == beltFilter
+
+            return matchesQuery && matchesBelt
+        }
+    }
+
+    private var availableBeltFilters: [String] {
+        let beltOrderForUi = isEnglish
+            ? ["White", "Yellow", "Orange", "Green", "Blue", "Brown", "Black"]
+            : ["לבנה", "צהובה", "כתומה", "ירוקה", "כחולה", "חומה", "שחורה"]
+
+        let belts = Set(
+            trainees
+                .map { beltNameForUi($0.belt) }
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty && $0 != "—" }
+        )
+
+        return Array(belts).sorted { lhs, rhs in
+            let lhsIndex = beltOrderForUi.firstIndex(of: lhs) ?? Int.max
+            let rhsIndex = beltOrderForUi.firstIndex(of: rhs) ?? Int.max
+
+            if lhsIndex == rhsIndex {
+                return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+            }
+
+            return lhsIndex < rhsIndex
+        }
+    }
+
     private var selectedTrainee: CoachTraineeProfile? {
-        trainees.first(where: { $0.id == selectedId }) ?? trainees.first
+        visibleTrainees.first(where: { $0.id == selectedId }) ??
+        visibleTrainees.first ??
+        trainees.first(where: { $0.id == selectedId }) ??
+        trainees.first
     }
 
     private var effectiveBranch: String {
@@ -171,18 +213,52 @@ struct CoachTraineesView: View {
     }
 
     private var groupStats: CoachGroupStats {
-        let count = trainees.count
-        let avgAgeValues = trainees.map(\.age).filter { $0 > 0 }
+        let statsSource = visibleTrainees
+        let totalCount = trainees.count
+        let filteredCount = statsSource.count
+
+        let avgAgeValues = statsSource.map(\.age).filter { $0 > 0 }
         let avgAge = avgAgeValues.isEmpty ? 0 : avgAgeValues.reduce(0, +) / avgAgeValues.count
 
-        let avgAttendanceValues = trainees.map(\.attendancePct).filter { $0 > 0 }
+        let avgAttendanceValues = statsSource.map(\.attendancePct).filter { $0 > 0 }
         let avgAttendance = avgAttendanceValues.isEmpty ? 0 : avgAttendanceValues.reduce(0, +) / avgAttendanceValues.count
 
+        let highAttendanceCount = statsSource.filter { $0.attendancePct >= 80 }.count
+
+        let beltOrderForUi = isEnglish
+            ? ["White", "Yellow", "Orange", "Green", "Blue", "Brown", "Black"]
+            : ["לבנה", "צהובה", "כתומה", "ירוקה", "כחולה", "חומה", "שחורה"]
+
+        let groupedBelts = Dictionary(grouping: statsSource) { trainee in
+            beltNameForUi(trainee.belt)
+        }
+
+        let beltCounts = groupedBelts
+            .map { entry in
+                CoachBeltCount(
+                    id: entry.key,
+                    title: entry.key,
+                    count: entry.value.count
+                )
+            }
+            .sorted { lhs, rhs in
+                let lhsIndex = beltOrderForUi.firstIndex(of: lhs.title) ?? Int.max
+                let rhsIndex = beltOrderForUi.firstIndex(of: rhs.title) ?? Int.max
+
+                if lhsIndex == rhsIndex {
+                    return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+                }
+
+                return lhsIndex < rhsIndex
+            }
+
         return CoachGroupStats(
-            total: count,
+            total: totalCount,
+            filtered: filteredCount,
             avgAge: avgAge,
             avgAttendance: avgAttendance,
-            highAttendance: trainees.filter { $0.attendancePct >= 80 }.count
+            highAttendance: highAttendanceCount,
+            beltCounts: beltCounts
         )
     }
 
@@ -225,15 +301,30 @@ struct CoachTraineesView: View {
 
                         statsCard
 
+                        searchCard
+
+                        beltFilterCard
+
                         traineeListCard
 
                         traineeDetailsCard
+
+                        groupStatisticsButton
                     }
                     .padding(12)
                 }
             }
         }
         .environment(\.layoutDirection, screenLayoutDirection)
+        .sheet(isPresented: $showGroupStatsSheet) {
+            CoachGroupStatsSheet(
+                isEnglish: isEnglish,
+                branchLabel: branchLabel,
+                groupLabel: groupLabel,
+                stats: groupStats
+            )
+            .environment(\.layoutDirection, screenLayoutDirection)
+        }
         .onAppear {
             loadTrainees()
         }
@@ -244,6 +335,12 @@ struct CoachTraineesView: View {
             loadTrainees()
         }
         .onChange(of: trainees.map(\.id)) { _, _ in
+            syncSelectedTrainee()
+        }
+        .onChange(of: searchText) { _, _ in
+            syncSelectedTrainee()
+        }
+        .onChange(of: selectedBeltFilter) { _, _ in
             syncSelectedTrainee()
         }
         .alert(tr("הודעה", "Message"), isPresented: $showAlert) {
@@ -310,22 +407,95 @@ struct CoachTraineesView: View {
     }
 
     private var statsCard: some View {
-        HStack(spacing: 10) {
-            statItem(
-                title: tr("מתאמנים", "Trainees"),
-                value: "\(groupStats.total)"
-            )
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                statItem(
+                    title: tr("מתאמנים", "Trainees"),
+                    value: "\(groupStats.total)"
+                )
 
-            statItem(
-                title: tr("גיל ממוצע", "Avg age"),
-                value: groupStats.avgAge > 0 ? "\(groupStats.avgAge)" : "—"
-            )
+                statItem(
+                    title: tr("מסוננים", "Filtered"),
+                    value: "\(groupStats.filtered)"
+                )
 
-            statItem(
-                title: tr("נוכחות", "Attendance"),
-                value: groupStats.avgAttendance > 0 ? "\(groupStats.avgAttendance)%" : "—"
-            )
+                statItem(
+                    title: tr("גיל ממוצע", "Avg age"),
+                    value: groupStats.avgAge > 0 ? "\(groupStats.avgAge)" : "—"
+                )
+            }
+
+            HStack(spacing: 10) {
+                statItem(
+                    title: tr("נוכחות", "Attendance"),
+                    value: groupStats.avgAttendance > 0 ? "\(groupStats.avgAttendance)%" : "—"
+                )
+
+                statItem(
+                    title: tr("נוכחות גבוהה", "High attendance"),
+                    value: "\(groupStats.highAttendance)"
+                )
+
+                statItem(
+                    title: tr("חגורות", "Belts"),
+                    value: "\(groupStats.beltCounts.count)"
+                )
+            }
         }
+    }
+
+    private var groupStatisticsButton: some View {
+        Button {
+            showGroupStatsSheet = true
+        } label: {
+            HStack(spacing: 10) {
+                if isEnglish {
+                    Image(systemName: "chart.bar.xaxis")
+                        .font(.system(size: 18, weight: .heavy))
+
+                    Text(tr("סטטיסטיקה לקבוצה", "Group statistics"))
+                        .font(.system(size: 17, weight: .heavy))
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .heavy))
+                } else {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 14, weight: .heavy))
+
+                    Spacer()
+
+                    Text(tr("סטטיסטיקה לקבוצה", "Group statistics"))
+                        .font(.system(size: 17, weight: .heavy))
+
+                    Image(systemName: "chart.bar.xaxis")
+                        .font(.system(size: 18, weight: .heavy))
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 15)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.blue.opacity(0.92),
+                                Color.cyan.opacity(0.88)
+                            ],
+                            startPoint: isEnglish ? .leading : .trailing,
+                            endPoint: isEnglish ? .trailing : .leading
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.18), radius: 12, x: 0, y: 8)
+        }
+        .buttonStyle(.plain)
     }
 
     private func statItem(title: String, value: String) -> some View {
@@ -350,6 +520,123 @@ struct CoachTraineesView: View {
         )
     }
 
+    private var searchCard: some View {
+        HStack(spacing: 10) {
+            if isEnglish {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(Color.black.opacity(0.45))
+
+                TextField(tr("חיפוש מתאמן", "Search trainee"), text: $searchText)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .textInputAutocapitalization(.never)
+                    .disableAutocorrection(true)
+                    .multilineTextAlignment(.leading)
+
+                if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(Color.black.opacity(0.38))
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else {
+                if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(Color.black.opacity(0.38))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                TextField(tr("חיפוש מתאמן", "Search trainee"), text: $searchText)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .textInputAutocapitalization(.never)
+                    .disableAutocorrection(true)
+                    .multilineTextAlignment(.trailing)
+
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(Color.black.opacity(0.45))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 13)
+        .background(Color.white.opacity(0.94))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+        )
+    }
+
+    private var beltFilterCard: some View {
+        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 10) {
+            Text(tr("סינון לפי חגורה", "Filter by belt"))
+                .font(.system(size: 13, weight: .heavy))
+                .foregroundStyle(.white.opacity(0.82))
+                .multilineTextAlignment(screenTextAlignment)
+                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    beltFilterChip(
+                        title: tr("הכל", "All"),
+                        value: ""
+                    )
+
+                    ForEach(availableBeltFilters, id: \.self) { belt in
+                        beltFilterChip(
+                            title: belt,
+                            value: belt
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
+                .padding(.horizontal, 2)
+            }
+            .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+        }
+        .padding(12)
+        .background(Color.black.opacity(0.16))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+        )
+    }
+
+    private func beltFilterChip(title: String, value: String) -> some View {
+        let isSelected = normalizeKey(selectedBeltFilter) == normalizeKey(value)
+
+        return Button {
+            selectedBeltFilter = value
+        } label: {
+            Text(title)
+                .font(.system(size: 13, weight: .heavy))
+                .foregroundStyle(isSelected ? Color.black.opacity(0.86) : Color.white.opacity(0.86))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(
+                    Capsule()
+                        .fill(isSelected ? Color.white.opacity(0.92) : Color.white.opacity(0.14))
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(isSelected ? Color.white.opacity(0.95) : Color.white.opacity(0.18), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
     private var traineeListCard: some View {
         VStack(spacing: 0) {
             Divider()
@@ -369,10 +656,41 @@ struct CoachTraineesView: View {
                 .frame(maxWidth: .infinity)
                 .padding(20)
 
+            } else if visibleTrainees.isEmpty {
+                VStack(spacing: 8) {
+                    Text(tr("לא נמצאו מתאמנים שתואמים לסינון", "No trainees match this filter"))
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(Color.black.opacity(0.68))
+
+                    Text(tr("נסה לשנות חיפוש, חגורה, שם, טלפון, מייל, סניף או קבוצה", "Try changing the search, belt, name, phone, email, branch, or group"))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color.black.opacity(0.50))
+
+                    Button {
+                        searchText = ""
+                        selectedBeltFilter = ""
+                    } label: {
+                        Text(tr("נקה סינון", "Clear filters"))
+                            .font(.system(size: 14, weight: .heavy))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 10)
+                            .background(
+                                Capsule()
+                                    .fill(Color.blue.opacity(0.88))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 4)
+                }
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(20)
+
             } else {
                 ScrollView {
                     VStack(spacing: 0) {
-                        ForEach(trainees) { trainee in
+                        ForEach(visibleTrainees) { trainee in
                             traineeRow(trainee)
                             Divider()
                         }
@@ -426,9 +744,9 @@ struct CoachTraineesView: View {
     }
 
     private func traineeRowTexts(_ trainee: CoachTraineeProfile) -> some View {
-        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 4) {
+        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 7) {
             Text(trainee.fullName)
-                .font(.system(size: 17, weight: .bold))
+                .font(.system(size: 17, weight: .heavy))
                 .foregroundStyle(.black)
                 .multilineTextAlignment(screenTextAlignment)
                 .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
@@ -437,34 +755,98 @@ struct CoachTraineesView: View {
 
             if !meta.isEmpty {
                 Text(meta)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.gray)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.50))
                     .multilineTextAlignment(screenTextAlignment)
                     .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                    .lineLimit(2)
+            }
+
+            traineeMiniStatsRow(trainee)
+        }
+    }
+
+    private func traineeMiniStatsRow(_ trainee: CoachTraineeProfile) -> some View {
+        let ageText = trainee.age > 0 ? "\(trainee.age)" : "—"
+        let beltText = beltNameForUi(trainee.belt)
+        let attendanceText = trainee.attendancePct > 0 ? "\(trainee.attendancePct)%" : "—"
+
+        return HStack(spacing: 6) {
+            if isEnglish {
+                miniStatChip(
+                    title: tr("גיל", "Age"),
+                    value: ageText,
+                    systemImage: "calendar"
+                )
+
+                miniStatChip(
+                    title: tr("חגורה", "Belt"),
+                    value: beltText,
+                    systemImage: "seal.fill"
+                )
+
+                miniStatChip(
+                    title: tr("נוכחות", "Attendance"),
+                    value: attendanceText,
+                    systemImage: "checkmark.circle.fill"
+                )
+
+                Spacer(minLength: 0)
+
+            } else {
+                Spacer(minLength: 0)
+
+                miniStatChip(
+                    title: tr("נוכחות", "Attendance"),
+                    value: attendanceText,
+                    systemImage: "checkmark.circle.fill"
+                )
+
+                miniStatChip(
+                    title: tr("חגורה", "Belt"),
+                    value: beltText,
+                    systemImage: "seal.fill"
+                )
+
+                miniStatChip(
+                    title: tr("גיל", "Age"),
+                    value: ageText,
+                    systemImage: "calendar"
+                )
             }
         }
+        .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+    }
+
+    private func miniStatChip(
+        title: String,
+        value: String,
+        systemImage: String
+    ) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .font(.system(size: 10, weight: .heavy))
+
+            Text("\(title): \(value)")
+                .font(.system(size: 10, weight: .heavy))
+                .lineLimit(1)
+        }
+        .foregroundStyle(Color.black.opacity(0.66))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(Color.black.opacity(0.055))
+        .clipShape(Capsule())
     }
 
     private var traineeDetailsCard: some View {
         VStack(alignment: isEnglish ? .leading : .trailing, spacing: 12) {
             if let trainee = selectedTrainee {
-                Text(trainee.fullName)
-                    .font(.system(size: 26, weight: .heavy))
-                    .foregroundStyle(.black)
-                    .multilineTextAlignment(screenTextAlignment)
-                    .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+
+                traineeProfileHeaderCard(for: trainee)
+
+                traineeQuickInfoGrid(for: trainee)
 
                 Divider()
-
-                labeledField(tr("גיל", "Age"), trainee.age > 0 ? "\(trainee.age)" : "—")
-                labeledField(tr("ותק", "Seniority"), trainee.seniority.isEmpty ? "—" : trainee.seniority)
-                labeledField(tr("דרגה", "Rank"), beltNameForUi(trainee.belt))
-                labeledField(tr("סניף", "Branch"), trainee.branch.isEmpty ? "—" : trainee.branch)
-                labeledField(tr("קבוצה", "Group"), trainee.groupKey.isEmpty ? "—" : trainee.groupKey)
-                labeledField(
-                    tr("אחוז נוכחות \(60) ימים אחרונים", "Attendance rate — last 60 days"),
-                    trainee.attendancePct > 0 ? "\(trainee.attendancePct)%" : "—"
-                )
 
                 CoachBeltAwardDatesSection(
                     isEnglish: isEnglish,
@@ -562,6 +944,211 @@ struct CoachTraineesView: View {
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
+    private func traineeProfileHeaderCard(for trainee: CoachTraineeProfile) -> some View {
+        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 10) {
+            HStack(spacing: 12) {
+                if isEnglish {
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.system(size: 40, weight: .bold))
+                        .foregroundStyle(Color.blue.opacity(0.88))
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(trainee.fullName)
+                            .font(.system(size: 25, weight: .black))
+                            .foregroundStyle(.black)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(2)
+
+                        Text(tr("כרטיס מתאמן", "Trainee profile"))
+                            .font(.system(size: 13, weight: .heavy))
+                            .foregroundStyle(Color.black.opacity(0.50))
+                    }
+
+                    Spacer(minLength: 0)
+
+                } else {
+                    Spacer(minLength: 0)
+
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(trainee.fullName)
+                            .font(.system(size: 25, weight: .black))
+                            .foregroundStyle(.black)
+                            .multilineTextAlignment(.trailing)
+                            .lineLimit(2)
+
+                        Text(tr("כרטיס מתאמן", "Trainee profile"))
+                            .font(.system(size: 13, weight: .heavy))
+                            .foregroundStyle(Color.black.opacity(0.50))
+                    }
+
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.system(size: 40, weight: .bold))
+                        .foregroundStyle(Color.blue.opacity(0.88))
+                }
+            }
+
+            if !trainee.email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                !trainee.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+
+                VStack(alignment: isEnglish ? .leading : .trailing, spacing: 6) {
+                    if !trainee.email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        contactLine(
+                            icon: "envelope.fill",
+                            value: trainee.email
+                        )
+                    }
+
+                    if !trainee.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        contactLine(
+                            icon: "phone.fill",
+                            value: trainee.phone
+                        )
+                    }
+                }
+                .padding(.top, 2)
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(red: 0.95, green: 0.98, blue: 1.0))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.blue.opacity(0.14), lineWidth: 1)
+        )
+    }
+
+    private func contactLine(
+        icon: String,
+        value: String
+    ) -> some View {
+        HStack(spacing: 8) {
+            if isEnglish {
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .heavy))
+                    .foregroundStyle(Color.blue.opacity(0.78))
+
+                Text(value)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.62))
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+
+            } else {
+                Spacer(minLength: 0)
+
+                Text(value)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.62))
+                    .lineLimit(1)
+
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .heavy))
+                    .foregroundStyle(Color.blue.opacity(0.78))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+    }
+
+    private func traineeQuickInfoGrid(for trainee: CoachTraineeProfile) -> some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                quickInfoTile(
+                    title: tr("גיל", "Age"),
+                    value: trainee.age > 0 ? "\(trainee.age)" : "—",
+                    icon: "calendar"
+                )
+
+                quickInfoTile(
+                    title: tr("דרגה", "Rank"),
+                    value: beltNameForUi(trainee.belt),
+                    icon: "seal.fill"
+                )
+            }
+
+            HStack(spacing: 10) {
+                quickInfoTile(
+                    title: tr("ותק", "Seniority"),
+                    value: trainee.seniority.isEmpty ? "—" : trainee.seniority,
+                    icon: "clock.fill"
+                )
+
+                quickInfoTile(
+                    title: tr("נוכחות 60 יום", "60-day attendance"),
+                    value: trainee.attendancePct > 0 ? "\(trainee.attendancePct)%" : "—",
+                    icon: "checkmark.circle.fill"
+                )
+            }
+
+            HStack(spacing: 10) {
+                quickInfoTile(
+                    title: tr("סניף", "Branch"),
+                    value: trainee.branch.isEmpty ? "—" : trainee.branch,
+                    icon: "mappin.and.ellipse"
+                )
+
+                quickInfoTile(
+                    title: tr("קבוצה", "Group"),
+                    value: trainee.groupKey.isEmpty ? "—" : trainee.groupKey,
+                    icon: "person.3.fill"
+                )
+            }
+        }
+    }
+
+    private func quickInfoTile(
+        title: String,
+        value: String,
+        icon: String
+    ) -> some View {
+        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 6) {
+            HStack(spacing: 6) {
+                if isEnglish {
+                    Image(systemName: icon)
+                        .font(.system(size: 12, weight: .heavy))
+                        .foregroundStyle(Color.blue.opacity(0.78))
+
+                    Text(title)
+                        .font(.system(size: 11, weight: .heavy))
+                        .foregroundStyle(Color.black.opacity(0.48))
+                        .lineLimit(1)
+
+                    Spacer(minLength: 0)
+
+                } else {
+                    Spacer(minLength: 0)
+
+                    Text(title)
+                        .font(.system(size: 11, weight: .heavy))
+                        .foregroundStyle(Color.black.opacity(0.48))
+                        .lineLimit(1)
+
+                    Image(systemName: icon)
+                        .font(.system(size: 12, weight: .heavy))
+                        .foregroundStyle(Color.blue.opacity(0.78))
+                }
+            }
+
+            Text(value)
+                .font(.system(size: 15, weight: .black))
+                .foregroundStyle(Color.black.opacity(0.84))
+                .multilineTextAlignment(screenTextAlignment)
+                .lineLimit(2)
+                .minimumScaleFactor(0.78)
+                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(12)
+        .background(Color.black.opacity(0.045))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.black.opacity(0.055), lineWidth: 1)
+        )
+    }
+
     private func coachNotesCard(for trainee: CoachTraineeProfile) -> some View {
         VStack(alignment: isEnglish ? .leading : .trailing, spacing: 8) {
             Text(tr("הערות מאמן", "Coach notes"))
@@ -657,6 +1244,131 @@ struct CoachTraineesView: View {
         }
     }
 
+    private func readAttendancePct(from data: [String: Any]) -> Int {
+        let directKeys = [
+            "attendancePct",
+            "attendancePercent",
+            "attendancePercentage",
+            "attendanceRate",
+            "last60AttendancePct",
+            "last60DaysAttendancePct",
+            "attendanceLast60Days",
+            "attendanceLast60DaysPct"
+        ]
+
+        for key in directKeys {
+            if let value = percentIntValue(from: data[key]) {
+                return value
+            }
+        }
+
+        let nestedKeys = [
+            "attendanceStats",
+            "attendanceSummary",
+            "attendance",
+            "stats"
+        ]
+
+        let nestedPercentKeys = [
+            "pct",
+            "percent",
+            "percentage",
+            "rate",
+            "last60Pct",
+            "last60Percent",
+            "last60DaysPct",
+            "last60DaysPercent",
+            "last60DaysAttendancePct"
+        ]
+
+        for nestedKey in nestedKeys {
+            guard let nestedMap = data[nestedKey] as? [String: Any] else {
+                continue
+            }
+
+            for percentKey in nestedPercentKeys {
+                if let value = percentIntValue(from: nestedMap[percentKey]) {
+                    return value
+                }
+            }
+
+            if let attended = numericDoubleValue(from: nestedMap["attended"]),
+               let total = numericDoubleValue(from: nestedMap["total"]),
+               total > 0 {
+                return clampedPercent(Int((attended / total * 100.0).rounded()))
+            }
+
+            if let present = numericDoubleValue(from: nestedMap["present"]),
+               let total = numericDoubleValue(from: nestedMap["total"]),
+               total > 0 {
+                return clampedPercent(Int((present / total * 100.0).rounded()))
+            }
+        }
+
+        if let attended = numericDoubleValue(from: data["attendanceAttended"]),
+           let total = numericDoubleValue(from: data["attendanceTotal"]),
+           total > 0 {
+            return clampedPercent(Int((attended / total * 100.0).rounded()))
+        }
+
+        if let present = numericDoubleValue(from: data["presentTrainings"]),
+           let total = numericDoubleValue(from: data["totalTrainings"]),
+           total > 0 {
+            return clampedPercent(Int((present / total * 100.0).rounded()))
+        }
+
+        return 0
+    }
+
+    private func percentIntValue(from rawValue: Any?) -> Int? {
+        guard let value = numericDoubleValue(from: rawValue) else {
+            return nil
+        }
+
+        if value > 0, value <= 1 {
+            return clampedPercent(Int((value * 100.0).rounded()))
+        }
+
+        return clampedPercent(Int(value.rounded()))
+    }
+
+    private func numericDoubleValue(from rawValue: Any?) -> Double? {
+        if let value = rawValue as? Double {
+            return value
+        }
+
+        if let value = rawValue as? Float {
+            return Double(value)
+        }
+
+        if let value = rawValue as? Int {
+            return Double(value)
+        }
+
+        if let value = rawValue as? Int64 {
+            return Double(value)
+        }
+
+        if let value = rawValue as? NSNumber {
+            return value.doubleValue
+        }
+
+        if let value = rawValue as? String {
+            let cleaned = value
+                .replacingOccurrences(of: "%", with: "")
+                .replacingOccurrences(of: ",", with: ".")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            return Double(cleaned)
+        }
+
+        return nil
+    }
+
+    private func clampedPercent(_ value: Int) -> Int {
+        min(100, max(0, value))
+    }
+
     private func loadTrainees() {
         guard isCoach else {
             isLoading = false
@@ -728,6 +1440,7 @@ struct CoachTraineesView: View {
                     let resolvedBranch = firstBranchValue(from: data)
                     let resolvedGroup = firstGroupValue(from: data)
                     let age = ageFromBirthDate(data["birthDate"] as? String)
+                    let attendancePct = readAttendancePct(from: data)
                     let notes = ((data["coachNotes"] as? String) ?? "")
                         .trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -753,7 +1466,7 @@ struct CoachTraineesView: View {
                         belt: beltRaw,
                         seniority: seniority,
                         age: age,
-                        attendancePct: 0,
+                        attendancePct: attendancePct,
                         branch: resolvedBranch,
                         groupKey: resolvedGroup,
                         coachNotes: notes,
@@ -1160,10 +1873,12 @@ struct CoachTraineesView: View {
     }
 
     private func syncSelectedTrainee() {
-        if selectedId == nil && !trainees.isEmpty {
-            selectedId = trainees.first?.id
-        } else if let selectedId, !trainees.contains(where: { $0.id == selectedId }) {
-            self.selectedId = trainees.first?.id
+        let source = visibleTrainees.isEmpty ? trainees : visibleTrainees
+
+        if selectedId == nil && !source.isEmpty {
+            selectedId = source.first?.id
+        } else if let selectedId, !source.contains(where: { $0.id == selectedId }) {
+            self.selectedId = source.first?.id
         }
     }
 
@@ -1174,49 +1889,53 @@ struct CoachTraineesView: View {
 
     private func beltNameForUi(_ raw: String) -> String {
         let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = clean
+            .lowercased()
+            .replacingOccurrences(of: "חגורה", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
         if isEnglish {
-            switch clean.lowercased() {
-            case "white", "לבנה", "חגורה לבנה":
+            switch normalized {
+            case "white", "לבנה":
                 return "White"
-            case "yellow", "צהובה", "חגורה צהובה":
+            case "yellow", "צהובה":
                 return "Yellow"
-            case "orange", "כתומה", "חגורה כתומה":
+            case "orange", "כתומה":
                 return "Orange"
-            case "green", "ירוקה", "חגורה ירוקה":
+            case "green", "ירוקה":
                 return "Green"
-            case "blue", "כחולה", "חגורה כחולה":
+            case "blue", "כחולה":
                 return "Blue"
-            case "brown", "חומה", "חגורה חומה":
+            case "brown", "חומה":
                 return "Brown"
-            case "black", "שחורה", "חגורה שחורה":
+            case "black", "שחורה":
                 return "Black"
             case "":
                 return "—"
             default:
-                return clean
+                return clean.isEmpty ? "—" : clean
             }
         }
 
-        switch clean.lowercased() {
-        case "white":
+        switch normalized {
+        case "white", "לבנה":
             return "לבנה"
-        case "yellow":
+        case "yellow", "צהובה":
             return "צהובה"
-        case "orange":
+        case "orange", "כתומה":
             return "כתומה"
-        case "green":
+        case "green", "ירוקה":
             return "ירוקה"
-        case "blue":
+        case "blue", "כחולה":
             return "כחולה"
-        case "brown":
+        case "brown", "חומה":
             return "חומה"
-        case "black":
+        case "black", "שחורה":
             return "שחורה"
         case "":
             return "—"
         default:
-            return clean
+            return clean.isEmpty ? "—" : clean
         }
     }
 
@@ -1641,6 +2360,202 @@ private struct CoachDatePickerTarget: Identifiable {
     let id: String
 }
 
+private struct CoachGroupStatsSheet: View {
+
+    let isEnglish: Bool
+    let branchLabel: String
+    let groupLabel: String
+    let stats: CoachGroupStats
+
+    @Environment(\.dismiss) private var dismiss
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.08, green: 0.12, blue: 0.19),
+                        Color(red: 0.10, green: 0.25, blue: 0.36),
+                        Color(red: 0.05, green: 0.47, blue: 0.73)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: isEnglish ? .leading : .trailing, spacing: 14) {
+                        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 6) {
+                            Text(tr("סטטיסטיקה לקבוצה", "Group statistics"))
+                                .font(.system(size: 26, weight: .black))
+                                .foregroundStyle(.white)
+                                .multilineTextAlignment(textAlignment)
+                                .frame(maxWidth: .infinity, alignment: frameAlignment)
+
+                            Text(tr("סניף: \(branchLabel)", "Branch: \(branchLabel)"))
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.78))
+                                .multilineTextAlignment(textAlignment)
+                                .frame(maxWidth: .infinity, alignment: frameAlignment)
+
+                            Text(tr("קבוצה: \(groupLabel)", "Group: \(groupLabel)"))
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.78))
+                                .multilineTextAlignment(textAlignment)
+                                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                        }
+                        .padding(16)
+                        .background(Color.black.opacity(0.18))
+                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                        )
+
+                        VStack(spacing: 10) {
+                            statRow(
+                                title: tr("סה״כ מתאמנים", "Total trainees"),
+                                value: "\(stats.total)",
+                                icon: "person.3.fill"
+                            )
+
+                            statRow(
+                                title: tr("מתאמנים מסוננים", "Filtered trainees"),
+                                value: "\(stats.filtered)",
+                                icon: "line.3.horizontal.decrease.circle.fill"
+                            )
+
+                            statRow(
+                                title: tr("גיל ממוצע", "Average age"),
+                                value: stats.avgAge > 0 ? "\(stats.avgAge)" : "—",
+                                icon: "calendar"
+                            )
+
+                            statRow(
+                                title: tr("נוכחות ממוצעת", "Average attendance"),
+                                value: stats.avgAttendance > 0 ? "\(stats.avgAttendance)%" : "—",
+                                icon: "checkmark.circle.fill"
+                            )
+
+                            statRow(
+                                title: tr("נוכחות גבוהה", "High attendance"),
+                                value: "\(stats.highAttendance)",
+                                icon: "star.circle.fill"
+                            )
+                        }
+
+                        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 10) {
+                            Text(tr("חלוקה לפי חגורות", "Belt distribution"))
+                                .font(.system(size: 18, weight: .black))
+                                .foregroundStyle(.white)
+                                .multilineTextAlignment(textAlignment)
+                                .frame(maxWidth: .infinity, alignment: frameAlignment)
+
+                            if stats.beltCounts.isEmpty {
+                                Text(tr("אין נתוני חגורות להצגה", "No belt data to show"))
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.white.opacity(0.72))
+                                    .multilineTextAlignment(.center)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(16)
+                                    .background(Color.white.opacity(0.10))
+                                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            } else {
+                                VStack(spacing: 8) {
+                                    ForEach(stats.beltCounts) { belt in
+                                        statRow(
+                                            title: belt.title,
+                                            value: "\(belt.count)",
+                                            icon: "circle.fill"
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        .padding(14)
+                        .background(Color.black.opacity(0.18))
+                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                        )
+                    }
+                    .padding(14)
+                }
+            }
+            .navigationTitle(tr("סטטיסטיקה", "Statistics"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(tr("סגור", "Close")) {
+                        dismiss()
+                    }
+                    .font(.system(size: 15, weight: .bold))
+                }
+            }
+        }
+    }
+
+    private func statRow(
+        title: String,
+        value: String,
+        icon: String
+    ) -> some View {
+        HStack(spacing: 12) {
+            if isEnglish {
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .heavy))
+                    .foregroundStyle(.blue)
+
+                Text(title)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Color.black.opacity(0.78))
+                    .multilineTextAlignment(.leading)
+
+                Spacer()
+
+                Text(value)
+                    .font(.system(size: 18, weight: .black))
+                    .foregroundStyle(Color.black.opacity(0.88))
+            } else {
+                Text(value)
+                    .font(.system(size: 18, weight: .black))
+                    .foregroundStyle(Color.black.opacity(0.88))
+
+                Spacer()
+
+                Text(title)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Color.black.opacity(0.78))
+                    .multilineTextAlignment(.trailing)
+
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .heavy))
+                    .foregroundStyle(.blue)
+            }
+        }
+        .padding(14)
+        .background(Color.white.opacity(0.96))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.24), lineWidth: 1)
+        )
+    }
+}
+
 private struct CoachBeltAwardDatesSection: View {
 
     let isEnglish: Bool
@@ -1960,11 +2875,19 @@ private struct CoachBeltPickerTarget: Identifiable {
     let id: String
 }
 
+private struct CoachBeltCount: Identifiable {
+    let id: String
+    let title: String
+    let count: Int
+}
+
 private struct CoachGroupStats {
     let total: Int
+    let filtered: Int
     let avgAge: Int
     let avgAttendance: Int
     let highAttendance: Int
+    let beltCounts: [CoachBeltCount]
 }
 
 private struct CoachTraineeProfile: Identifiable {
@@ -2005,6 +2928,31 @@ private struct CoachTraineeProfile: Identifiable {
         }
 
         return parts.joined(separator: " • ")
+    }
+
+    func matchesSearch(_ normalizedQuery: String) -> Bool {
+        guard !normalizedQuery.isEmpty else {
+            return true
+        }
+
+        let searchableValues = [
+            fullName,
+            email,
+            phone,
+            belt,
+            seniority,
+            branch,
+            groupKey,
+            "\(age)",
+            "\(attendancePct)"
+        ]
+
+        return searchableValues.contains { value in
+            value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+                .contains(normalizedQuery)
+        }
     }
 }
 

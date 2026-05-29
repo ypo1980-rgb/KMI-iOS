@@ -1216,6 +1216,140 @@ struct CoachTraineesView: View {
         }
     }
 
+    private func userStringValue(
+        from data: [String: Any],
+        keys: [String]
+    ) -> String {
+        for key in keys {
+            if let value = data[key] as? String {
+                let clean = normalize(value)
+                if !clean.isEmpty {
+                    return clean
+                }
+            }
+
+            if let value = data[key], !(value is NSNull) {
+                let clean = normalize("\(value)")
+                if !clean.isEmpty && clean.lowercased() != "null" {
+                    return clean
+                }
+            }
+        }
+
+        return ""
+    }
+
+    private func userBoolValue(
+        from data: [String: Any],
+        keys: [String]
+    ) -> Bool {
+        for key in keys {
+            if let value = data[key] as? Bool {
+                return value
+            }
+
+            if let value = data[key] as? String {
+                let clean = normalizeKey(value)
+                if clean == "true" || clean == "1" || clean == "yes" {
+                    return true
+                }
+            }
+
+            if let value = data[key] as? Int {
+                return value == 1
+            }
+
+            if let value = data[key] as? Double {
+                return value == 1
+            }
+        }
+
+        return false
+    }
+
+    private func userRoleValue(from data: [String: Any]) -> String {
+        userStringValue(
+            from: data,
+            keys: [
+                "role",
+                "userRole",
+                "user_role",
+                "profile_role",
+                "accountRole",
+                "userType",
+                "type"
+            ]
+        )
+    }
+
+    private func isAdminRole(_ value: String) -> Bool {
+        let role = normalizeKey(value)
+
+        return role == "admin" ||
+               role == "administrator" ||
+               role == "manager" ||
+               role.contains("admin") ||
+               role.contains("administrator") ||
+               role.contains("manager") ||
+               role.contains("מנהל") ||
+               role.contains("אדמין")
+    }
+
+    private func isTraineeRole(_ value: String) -> Bool {
+        let role = normalizeKey(value)
+
+        if role.isEmpty {
+            return true
+        }
+
+        if isAdminRole(role) || isCoachRole(role) {
+            return false
+        }
+
+        return role == "trainee" ||
+               role == "student" ||
+               role.contains("trainee") ||
+               role.contains("student") ||
+               role.contains("מתאמן") ||
+               role.contains("חניך")
+    }
+
+    private func isTraineeUserDocument(_ data: [String: Any]) -> Bool {
+        let role = userRoleValue(from: data)
+
+        if userBoolValue(
+            from: data,
+            keys: [
+                "isAdmin",
+                "admin",
+                "isManager",
+                "manager"
+            ]
+        ) {
+            return false
+        }
+
+        if userBoolValue(
+            from: data,
+            keys: [
+                "isCoach",
+                "coach",
+                "isTrainer",
+                "trainer",
+                "isInstructor",
+                "instructor"
+            ]
+        ) {
+            return false
+        }
+
+        if isAdminRole(role) || isCoachRole(role) {
+            return false
+        }
+
+        return isTraineeRole(role)
+    }
+
     private func readCoachDateEntryMap(from rawValue: Any?) -> [String: CoachDateEntry] {
         let raw = rawValue as? [String: Any] ?? [:]
 
@@ -1382,9 +1516,17 @@ struct CoachTraineesView: View {
 
         Firestore.firestore()
             .collection("users")
-            .whereField("role", isEqualTo: "trainee")
-            .getDocuments { snapshot, _ in
+            .getDocuments { snapshot, error in
                 isLoading = false
+
+                if let error {
+                    trainees = []
+                    showMessage(tr(
+                        "טעינת המתאמנים נכשלה: \(error.localizedDescription)",
+                        "Loading trainees failed: \(error.localizedDescription)"
+                    ))
+                    return
+                }
 
                 guard let docs = snapshot?.documents else {
                     trainees = []
@@ -1394,6 +1536,10 @@ struct CoachTraineesView: View {
                 let rows: [CoachTraineeProfile] = docs.compactMap { doc in
                     let data = doc.data()
 
+                    guard isTraineeUserDocument(data) else {
+                        return nil
+                    }
+
                     guard userMatchesBranchAndGroup(
                         data: data,
                         branchPrimary: branchPrimary,
@@ -1402,47 +1548,71 @@ struct CoachTraineesView: View {
                         return nil
                     }
 
-                    let fullName =
-                        ((data["fullName"] as? String) ??
-                         (data["name"] as? String) ??
-                         (data["displayName"] as? String) ??
-                         "")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    let fullName = userStringValue(
+                        from: data,
+                        keys: [
+                            "fullName",
+                            "full_name",
+                            "name",
+                            "displayName",
+                            "userName",
+                            "username"
+                        ]
+                    )
 
-                    let email =
-                        ((data["email"] as? String) ?? "")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    let email = userStringValue(
+                        from: data,
+                        keys: [
+                            "email"
+                        ]
+                    )
 
-                    let phone =
-                        ((data["phone"] as? String) ??
-                         (data["phoneNumber"] as? String) ??
-                         (data["phone_number"] as? String) ??
-                         "")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    let phone = userStringValue(
+                        from: data,
+                        keys: [
+                            "phone",
+                            "phoneNumber",
+                            "phone_number"
+                        ]
+                    )
 
                     guard !fullName.isEmpty || !email.isEmpty || !phone.isEmpty else {
                         return nil
                     }
 
-                    let beltRaw =
-                        ((data["belt"] as? String) ??
-                         (data["beltId"] as? String) ??
-                         "")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    let beltRaw = userStringValue(
+                        from: data,
+                        keys: [
+                            "belt",
+                            "beltId",
+                            "currentBeltId",
+                            "currentBelt",
+                            "belt_current"
+                        ]
+                    )
 
-                    let seniority =
-                        ((data["seniority"] as? String) ??
-                         (data["trainingSeniority"] as? String) ??
-                         (data["yearsTraining"] as? String) ??
-                         "")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    let seniority = userStringValue(
+                        from: data,
+                        keys: [
+                            "seniority",
+                            "trainingSeniority",
+                            "yearsTraining"
+                        ]
+                    )
 
                     let resolvedBranch = firstBranchValue(from: data)
                     let resolvedGroup = firstGroupValue(from: data)
                     let age = ageFromBirthDate(data["birthDate"] as? String)
                     let attendancePct = readAttendancePct(from: data)
-                    let notes = ((data["coachNotes"] as? String) ?? "")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                    let notes = userStringValue(
+                        from: data,
+                        keys: [
+                            "coachNotes",
+                            "attendanceNotes",
+                            "notes"
+                        ]
+                    )
 
                     let rawBeltDates = data["beltAwardDates"] as? [String: Any] ?? [:]
                     let parsedBeltDates = rawBeltDates.reduce(into: [String: String]()) { result, entry in

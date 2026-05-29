@@ -107,8 +107,12 @@ struct MaterialsView: View {
     @State private var refreshToken = UUID()
 
     @State private var toastMessage: String? = nil
+    @State private var showResetConfirmation: Bool = false
 
     @State private var speechSynth = AVSpeechSynthesizer()
+    @State private var isSpeakingExplanation: Bool = false
+
+    @State private var openedNestedSubTopic: String? = nil
 
     private var topicUi: String {
         let clean = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -121,16 +125,68 @@ struct MaterialsView: View {
         return clean.isEmpty ? nil : clean
     }
 
-    private var topicKey: String {
-        if let subTopicUi {
-            return "\(topicUi)__\(subTopicUi)"
+    private func normalizedMaterialTitle(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\u{200F}", with: "")
+            .replacingOccurrences(of: "\u{200E}", with: "")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: "—", with: "-")
+            .replacingOccurrences(of: "־", with: "-")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func isDefenseLevelOneTitle(_ value: String) -> Bool {
+        let clean = normalizedMaterialTitle(value)
+
+        return clean == "הגנות נגד מכות" ||
+        clean == "הגנות נגד בעיטות" ||
+        clean == "הגנות - סכין"
+    }
+
+    private var materialRootTopic: String {
+        if subTopicUi == nil && isDefenseLevelOneTitle(topicUi) {
+            return "הגנות"
         }
 
         return topicUi
     }
 
+    private var materialParentSubTopic: String? {
+        if let subTopicUi {
+            return subTopicUi
+        }
+
+        if isDefenseLevelOneTitle(topicUi) {
+            return topicUi
+        }
+
+        return nil
+    }
+
+    private var nestedSubTopicTitles: [String] {
+        []
+    }
+
+    private var isShowingNestedSubTopicPicker: Bool {
+        false
+    }
+
+    private var effectiveSubTopicUi: String? {
+        materialParentSubTopic
+    }
+
+    private var topicKey: String {
+        guard let materialParentSubTopic else {
+            return materialRootTopic
+        }
+
+        return "\(materialRootTopic)__\(materialParentSubTopic)"
+    }
+
     private var scopeKey: String {
-        "\(belt.id)||\(topicUi)||\(subTopicUi ?? "")"
+        "\(belt.id)||\(materialRootTopic)||\(effectiveSubTopicUi ?? "")"
     }
 
     private func normalizeStatusPart(_ value: String) -> String {
@@ -144,7 +200,7 @@ struct MaterialsView: View {
 
     private func canonicalIdForStorage(rawItem: String) -> String {
         let item = rawItem.trimmingCharacters(in: .whitespacesAndNewlines)
-        return "\(belt.id)||\(topicUi)||\(subTopicUi ?? "")||\(item)"
+        return "\(belt.id)||\(materialRootTopic)||\(effectiveSubTopicUi ?? "")||\(item)"
     }
 
     private func statusIdForStorage(index: Int, rawItem: String) -> String {
@@ -152,16 +208,65 @@ struct MaterialsView: View {
         return "status_\(belt.id)_\(topicKey)_\(index)_\(cleanItem)"
     }
 
-    private var rows: [ExerciseRow] {
-        let all = ContentRepo.shared.getAllItemsFor(
+    private var materialItems: [String] {
+        if let materialParentSubTopic {
+            let rootAndParentItems = ContentRepo.shared.getAllItemsFor(
+                belt: belt,
+                topicTitle: materialRootTopic,
+                subTopicTitle: materialParentSubTopic
+            )
+            .removingDuplicatesKeepingOrder()
+
+            if !rootAndParentItems.isEmpty {
+                return rootAndParentItems
+            }
+
+            let originalTopicItems = ContentRepo.shared.getAllItemsFor(
+                belt: belt,
+                topicTitle: topicUi,
+                subTopicTitle: subTopicUi
+            )
+            .removingDuplicatesKeepingOrder()
+
+            if !originalTopicItems.isEmpty {
+                return originalTopicItems
+            }
+
+            let parentAsTopicItems = ContentRepo.shared.getAllItemsFor(
+                belt: belt,
+                topicTitle: materialParentSubTopic,
+                subTopicTitle: nil
+            )
+            .removingDuplicatesKeepingOrder()
+
+            if !parentAsTopicItems.isEmpty {
+                return parentAsTopicItems
+            }
+        }
+
+        let rootItems = ContentRepo.shared.getAllItemsFor(
+            belt: belt,
+            topicTitle: materialRootTopic,
+            subTopicTitle: nil
+        )
+        .removingDuplicatesKeepingOrder()
+
+        if !rootItems.isEmpty {
+            return rootItems
+        }
+
+        return ContentRepo.shared.getAllItemsFor(
             belt: belt,
             topicTitle: topicUi,
             subTopicTitle: subTopicUi
         )
+        .removingDuplicatesKeepingOrder()
+    }
 
+    private var rows: [ExerciseRow] {
         var seenStatusIds = Set<String>()
 
-        return all
+        return materialItems
             .enumerated()
             .map { index, raw in
                 let canonical = canonicalIdForStorage(rawItem: raw)
@@ -181,14 +286,35 @@ struct MaterialsView: View {
     }
 
     private var headerTitle: String {
-        let topicDisplay = KmiEnglishTitleResolver.title(for: topicUi, isEnglish: isEnglish)
+        let topicDisplay = KmiEnglishTitleResolver.title(for: materialRootTopic, isEnglish: isEnglish)
 
-        if let subTopicUi {
-            let subDisplay = KmiEnglishTitleResolver.title(for: subTopicUi, isEnglish: isEnglish)
-            return "\(topicDisplay) – \(subDisplay)"
+        if let materialParentSubTopic {
+            let parentDisplay = KmiEnglishTitleResolver.title(for: materialParentSubTopic, isEnglish: isEnglish)
+
+            if materialRootTopic == topicUi {
+                return parentDisplay
+            }
+
+            return "\(topicDisplay) – \(parentDisplay)"
         }
 
         return topicDisplay
+    }
+
+    private var masteredCount: Int {
+        rows.filter { currentMark(for: $0.statusId) == .mastered }.count
+    }
+
+    private var unknownCount: Int {
+        rows.filter { currentMark(for: $0.statusId) == .unknown }.count
+    }
+
+    private var favoritesCount: Int {
+        rows.filter { favorites.contains($0.canonicalId) }.count
+    }
+
+    private var excludedCount: Int {
+        rows.filter { excluded.contains($0.canonicalId) }.count
     }
 
     var body: some View {
@@ -200,6 +326,10 @@ struct MaterialsView: View {
                     belt: belt,
                     title: headerTitle,
                     count: rows.count,
+                    masteredCount: masteredCount,
+                    unknownCount: unknownCount,
+                    favoritesCount: favoritesCount,
+                    excludedCount: excludedCount,
                     isEnglish: isEnglish,
                     onBack: {
                         dismiss()
@@ -211,37 +341,49 @@ struct MaterialsView: View {
 
                 ScrollView {
                     VStack(spacing: 0) {
-                        ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
-                            MaterialsExerciseRow(
-                                title: row.displayName,
-                                beltColor: BeltPaletteByMaterials.color(for: belt),
-                                isFavorite: favorites.contains(row.canonicalId),
-                                isExcluded: excluded.contains(row.canonicalId),
-                                mark: currentMark(for: row.statusId),
-                                hasNote: !(notes[row.canonicalId]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
-                                isEnglish: isEnglish,
-                                onToggleFavorite: {
-                                    toggleFavorite(row.canonicalId)
-                                },
-                                onToggleExcluded: {
-                                    toggleExcluded(row.canonicalId)
-                                },
-                                onShowInfo: {
-                                    selectedInfoRow = row
-                                },
-                                onEditNote: {
-                                    noteDraft = notes[row.canonicalId] ?? ""
-                                    selectedNoteRow = row
-                                },
-                                onCycleMark: {
-                                    cycleMark(for: row.statusId)
-                                }
+                        if rows.isEmpty {
+                            MaterialsEmptyStateView(
+                                belt: belt,
+                                title: headerTitle,
+                                isEnglish: isEnglish
                             )
+                            .padding(.horizontal, 14)
+                            .padding(.top, 18)
+                            .padding(.bottom, 18)
+                        } else {
+                            ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
+                                MaterialsExerciseRow(
+                                    rowNumber: idx + 1,
+                                    title: row.displayName,
+                                    beltColor: BeltPaletteByMaterials.color(for: belt),
+                                    isFavorite: favorites.contains(row.canonicalId),
+                                    isExcluded: excluded.contains(row.canonicalId),
+                                    mark: currentMark(for: row.statusId),
+                                    hasNote: !(notes[row.canonicalId]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                                    isEnglish: isEnglish,
+                                    onToggleFavorite: {
+                                        toggleFavorite(row.canonicalId)
+                                    },
+                                    onToggleExcluded: {
+                                        toggleExcluded(row.canonicalId)
+                                    },
+                                    onShowInfo: {
+                                        selectedInfoRow = row
+                                    },
+                                    onEditNote: {
+                                        noteDraft = notes[row.canonicalId] ?? ""
+                                        selectedNoteRow = row
+                                    },
+                                    onCycleMark: {
+                                        cycleMark(for: row.statusId)
+                                    }
+                                )
 
-                            if idx != rows.count - 1 {
-                                Divider()
-                                    .background(BeltPaletteByMaterials.color(for: belt).opacity(0.30))
-                                    .padding(.horizontal, 8)
+                                if idx != rows.count - 1 {
+                                    Divider()
+                                        .background(BeltPaletteByMaterials.color(for: belt).opacity(0.30))
+                                        .padding(.horizontal, 8)
+                                }
                             }
                         }
                     }
@@ -260,14 +402,14 @@ struct MaterialsView: View {
                         if isPracticeLocked {
                             onOpenSubscription()
                         } else {
-                            onPractice(belt, topicUi)
+                            onPractice(belt, materialRootTopic)
                         }
                     },
                     onSummary: {
-                        onSummary(belt, topicUi, subTopicUi)
+                        onSummary(belt, materialRootTopic, effectiveSubTopicUi)
                     },
                     onReset: {
-                        resetCurrentScope()
+                        showResetConfirmation = true
                     }
                 )
             }
@@ -275,7 +417,7 @@ struct MaterialsView: View {
             if let toastMessage {
                 MaterialsToastView(message: toastMessage)
                     .padding(.horizontal, 24)
-                    .padding(.bottom, 118)
+                    .padding(.bottom, 136)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(20)
@@ -284,22 +426,64 @@ struct MaterialsView: View {
         .navigationBarBackButtonHidden(true)
         .environment(\.layoutDirection, screenLayoutDirection)
         .onAppear {
+            openedNestedSubTopic = nil
             loadState()
+        }
+        .onDisappear {
+            speechSynth.stopSpeaking(at: .immediate)
+            isSpeakingExplanation = false
+        }
+        .onChange(of: scopeKey) { _, _ in
+            openedNestedSubTopic = nil
+            loadState()
+        }
+        .confirmationDialog(
+            tr("לאפס את כל הסימונים בנושא הזה?", "Reset all marks for this topic?"),
+            isPresented: $showResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(
+                tr("אפס סימונים, מועדפים, החרגות והערות", "Reset marks, favorites, exclusions and notes"),
+                role: .destructive
+            ) {
+                resetCurrentScope()
+            }
+
+            Button(
+                tr("ביטול", "Cancel"),
+                role: .cancel
+            ) { }
+        } message: {
+            Text(
+                tr(
+                    "הפעולה תמחק את הנתונים המקומיים ששמרת עבור הנושא הנוכחי בלבד.",
+                    "This will delete the local data saved for the current topic only."
+                )
+            )
         }
         .sheet(item: $selectedInfoRow) { row in
             MaterialsInfoSheet(
                 title: row.displayName,
                 text: explanationText(for: row),
                 isFavorite: favorites.contains(row.canonicalId),
+                isSpeaking: isSpeakingExplanation,
                 isEnglish: isEnglish,
                 accentColor: BeltPaletteByMaterials.color(for: belt),
+                onClose: {
+                    speechSynth.stopSpeaking(at: .immediate)
+                    isSpeakingExplanation = false
+                    selectedInfoRow = nil
+                },
                 onToggleFavorite: {
                     toggleFavorite(row.canonicalId)
                 },
                 onSpeak: {
-                    speak(explanationText(for: row))
+                    toggleSpeak(explanationText(for: row))
                 },
                 onEditNote: {
+                    speechSynth.stopSpeaking(at: .immediate)
+                    isSpeakingExplanation = false
+
                     noteDraft = notes[row.canonicalId] ?? ""
                     selectedInfoRow = nil
 
@@ -334,6 +518,69 @@ struct MaterialsView: View {
         }
     }
 
+    private struct MaterialsEmptyStateView: View {
+        let belt: Belt
+        let title: String
+        let isEnglish: Bool
+
+        private var textAlignment: TextAlignment {
+            isEnglish ? .leading : .trailing
+        }
+
+        private var frameAlignment: Alignment {
+            isEnglish ? .leading : .trailing
+        }
+
+        var body: some View {
+            VStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(BeltPaletteByMaterials.color(for: belt).opacity(0.14))
+                        .frame(width: 72, height: 72)
+
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(.system(size: 28, weight: .black))
+                        .foregroundStyle(BeltPaletteByMaterials.color(for: belt).opacity(0.92))
+                }
+
+                VStack(spacing: 6) {
+                    Text(isEnglish ? "No material found" : "לא נמצא חומר להצגה")
+                        .font(.system(size: 20, weight: .black))
+                        .foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.24))
+                        .multilineTextAlignment(textAlignment)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+
+                    Text(title)
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Color(red: 0.30, green: 0.36, blue: 0.46))
+                        .multilineTextAlignment(textAlignment)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+
+                    Text(isEnglish
+                         ? "This topic is connected to the real content repository, but no exercises were returned for this exact belt and topic."
+                         : "המסך מחובר למאגר התוכן האמיתי, אבל לא חזרו תרגילים עבור החגורה והנושא המדויקים האלה.")
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.46, green: 0.52, blue: 0.62))
+                        .lineSpacing(3)
+                        .multilineTextAlignment(textAlignment)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 24)
+            .background(
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .fill(Color.white.opacity(0.94))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .stroke(BeltPaletteByMaterials.color(for: belt).opacity(0.18), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 5)
+            .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+        }
+    }
+    
     // MARK: - Helpers
 
     private func canonicalId(for rawItem: String) -> String {
@@ -343,18 +590,28 @@ struct MaterialsView: View {
     private func displayName(for rawItem: String) -> String {
         var text = rawItem.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if text.hasPrefix("\(topicUi)::") {
-            text = String(text.dropFirst("\(topicUi)::".count)).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        let prefixes = [
+            materialRootTopic,
+            materialParentSubTopic,
+            effectiveSubTopicUi,
+            topicUi,
+            subTopicUi
+        ]
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+        .removingDuplicatesKeepingOrder()
 
-        if let subTopicUi, text.hasPrefix("\(subTopicUi)::") {
-            text = String(text.dropFirst("\(subTopicUi)::".count)).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        for prefix in prefixes {
+            if text.hasPrefix("\(prefix)::") {
+                text = String(text.dropFirst("\(prefix)::".count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
 
-        if text.hasPrefix(topicUi) {
-            text = String(text.dropFirst(topicUi.count))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .trimmingCharacters(in: CharacterSet(charactersIn: "-–—: "))
+            if text.hasPrefix(prefix) {
+                text = String(text.dropFirst(prefix.count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "-–—: "))
+            }
         }
 
         let clean = text
@@ -483,65 +740,74 @@ struct MaterialsView: View {
         let key = markKey(for: id)
         if let next {
             UserDefaults.standard.set(next.rawValue, forKey: key)
+
+            switch next {
+            case .mastered:
+                showToast(tr("סומן כיודע.", "Marked as known."))
+            case .unknown:
+                showToast(tr("סומן לחזרה.", "Marked for review."))
+            }
         } else {
             UserDefaults.standard.removeObject(forKey: key)
-        }
-    }
-
-    private func saveNote(_ text: String, for id: String) {
-        notes[id] = text
-        let key = noteKey(for: id)
-
-        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            UserDefaults.standard.removeObject(forKey: key)
-        } else {
-            UserDefaults.standard.set(text, forKey: key)
-        }
-    }
-
-    private func resetCurrentScope() {
-        favorites.removeAll()
-        excluded.removeAll()
-        marks.removeAll()
-        notes.removeAll()
-
-        for row in rows {
-            UserDefaults.standard.set(false, forKey: favoriteKey(for: row.canonicalId))
-            UserDefaults.standard.set(false, forKey: excludedKey(for: row.canonicalId))
-            UserDefaults.standard.removeObject(forKey: markKey(for: row.statusId))
-            UserDefaults.standard.removeObject(forKey: noteKey(for: row.canonicalId))
+            showToast(tr("הסימון הוסר.", "Mark removed."))
         }
 
         refreshToken = UUID()
     }
 
-    private func debugPrintCurrentMaterials() {
-        #if DEBUG
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📚 KMI_MATERIALS_DEBUG")
-        print("isEnglish =", isEnglish)
-        print("kmi_app_language =", kmiAppLanguageCode)
-        print("app_language =", appLanguageRaw)
-        print("initial_language_code =", initialLanguageCode)
-        print("selected_language_code =", selectedLanguageCode)
-        print("effectiveLanguageCode =", effectiveLanguageCode)
-        print("belt =", belt.id, "|", belt.heb)
-        print("topicTitle =", topicTitle)
-        print("subTopicTitle =", subTopicTitle ?? "nil")
-        print("rows.count =", rows.count)
+    private func saveNote(_ text: String, for id: String) {
+        notes[id] = text
+        let key = noteKey(for: id)
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        for (index, row) in rows.enumerated() {
-            print("\(index + 1). raw =", row.rawItem)
-            print("   display =", row.displayName)
-            print("   canonicalId =", row.canonicalId)
-            print("   statusId =", row.statusId)
+        if clean.isEmpty {
+            UserDefaults.standard.removeObject(forKey: key)
+            showToast(tr("ההערה נמחקה.", "Note deleted."))
+        } else {
+            UserDefaults.standard.set(clean, forKey: key)
+            showToast(tr("ההערה נשמרה.", "Note saved."))
         }
 
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        #endif
+        refreshToken = UUID()
     }
 
-    private func speak(_ text: String) {
+    private func resetCurrentScope() {
+        speechSynth.stopSpeaking(at: .immediate)
+
+        selectedInfoRow = nil
+        selectedNoteRow = nil
+        noteDraft = ""
+
+        for row in rows {
+            UserDefaults.standard.removeObject(forKey: favoriteKey(for: row.canonicalId))
+            UserDefaults.standard.removeObject(forKey: excludedKey(for: row.canonicalId))
+            UserDefaults.standard.removeObject(forKey: markKey(for: row.statusId))
+            UserDefaults.standard.removeObject(forKey: noteKey(for: row.canonicalId))
+        }
+
+        favorites.removeAll()
+        excluded.removeAll()
+        marks.removeAll()
+        notes.removeAll()
+
+        refreshToken = UUID()
+
+        showToast(
+            tr(
+                "הנושא אופס בהצלחה.",
+                "Topic reset successfully."
+            )
+        )
+    }
+
+    private func toggleSpeak(_ text: String) {
+        if isSpeakingExplanation {
+            speechSynth.stopSpeaking(at: .immediate)
+            isSpeakingExplanation = false
+            showToast(tr("ההקראה נעצרה.", "Speech stopped."))
+            return
+        }
+
         speechSynth.stopSpeaking(at: .immediate)
 
         let clean = text
@@ -549,14 +815,28 @@ struct MaterialsView: View {
             .replacingOccurrences(of: "/", with: ".")
             .replacingOccurrences(of: "K.M.I", with: isEnglish ? "K M I" : "קיי אם איי")
             .replacingOccurrences(of: "KMI", with: isEnglish ? "K M I" : "קיי אם איי")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard !clean.isEmpty else { return }
+        guard !clean.isEmpty else {
+            isSpeakingExplanation = false
+            return
+        }
 
         let utterance = AVSpeechUtterance(string: clean)
         utterance.voice = AVSpeechSynthesisVoice(language: isEnglish ? "en-US" : "he-IL")
         utterance.rate = isEnglish ? 0.46 : 0.43
+
+        isSpeakingExplanation = true
         speechSynth.speak(utterance)
+
+        let estimatedSeconds = min(max(Double(clean.count) / 10.5, 1.4), 22.0)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + estimatedSeconds) {
+            if !speechSynth.isSpeaking {
+                isSpeakingExplanation = false
+            }
+        }
     }
 }
 
@@ -616,6 +896,79 @@ private struct MaterialsToastView: View {
     }
 }
 
+private struct MaterialsNestedSubTopicPicker: View {
+    let titles: [String]
+    let beltColor: Color
+    let isEnglish: Bool
+    let onSelect: (String) -> Void
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Text(isEnglish ? "Choose a sub-topic" : "בחר תת־נושא")
+                .font(.system(size: 18, weight: .black))
+                .foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.24))
+                .multilineTextAlignment(textAlignment)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .padding(.horizontal, 4)
+
+            ForEach(titles, id: \.self) { title in
+                Button {
+                    onSelect(title)
+                } label: {
+                    HStack(spacing: 10) {
+                        if isEnglish {
+                            Text(KmiEnglishTitleResolver.title(for: title, isEnglish: true))
+                                .font(.system(size: 15.5, weight: .bold))
+                                .foregroundStyle(Color(red: 0.08, green: 0.10, blue: 0.16))
+                                .multilineTextAlignment(.leading)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.84)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .black))
+                                .foregroundStyle(beltColor.opacity(0.90))
+                        } else {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 13, weight: .black))
+                                .foregroundStyle(beltColor.opacity(0.90))
+
+                            Text(KmiEnglishTitleResolver.title(for: title, isEnglish: false))
+                                .font(.system(size: 15.5, weight: .bold))
+                                .foregroundStyle(Color(red: 0.08, green: 0.10, blue: 0.16))
+                                .multilineTextAlignment(.trailing)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.84)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 58)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color.white.opacity(0.94))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(beltColor.opacity(0.22), lineWidth: 1)
+                    )
+                    .shadow(color: Color.black.opacity(0.07), radius: 8, x: 0, y: 4)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+    }
+}
+
 private func materialsBeltImageName(for belt: Belt) -> String {
     switch belt {
     case .white:
@@ -644,6 +997,10 @@ private struct MaterialsHeaderCard: View {
     let belt: Belt
     let title: String
     let count: Int
+    let masteredCount: Int
+    let unknownCount: Int
+    let favoritesCount: Int
+    let excludedCount: Int
     let isEnglish: Bool
     let onBack: () -> Void
 
@@ -664,47 +1021,100 @@ private struct MaterialsHeaderCard: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Text(materialTitle)
-                .font(.system(size: 15.5, weight: .heavy))
-                .foregroundStyle(Color(red: 0.20, green: 0.25, blue: 0.33))
-                .multilineTextAlignment(textAlignment)
-                .lineLimit(1)
-                .minimumScaleFactor(0.76)
-                .frame(maxWidth: .infinity, alignment: frameAlignment)
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                Text(materialTitle)
+                    .font(.system(size: 16.5, weight: .heavy))
+                    .foregroundStyle(Color(red: 0.16, green: 0.20, blue: 0.28))
+                    .multilineTextAlignment(textAlignment)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.74)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
 
-            beltPill
+                beltPill
+            }
+
+            HStack(spacing: 7) {
+                if isEnglish {
+                    headerStat(title: "Total", value: count, color: Color(red: 0.20, green: 0.24, blue: 0.32))
+                    headerStat(title: "Known", value: masteredCount, color: Color.green.opacity(0.80))
+                    headerStat(title: "Review", value: unknownCount, color: Color.red.opacity(0.78))
+                    headerStat(title: "Fav", value: favoritesCount, color: Color.orange.opacity(0.86))
+                    headerStat(title: "Off", value: excludedCount, color: Color.gray.opacity(0.78))
+                } else {
+                    headerStat(title: "סה״כ", value: count, color: Color(red: 0.20, green: 0.24, blue: 0.32))
+                    headerStat(title: "יודע", value: masteredCount, color: Color.green.opacity(0.80))
+                    headerStat(title: "לחזור", value: unknownCount, color: Color.red.opacity(0.78))
+                    headerStat(title: "מועדף", value: favoritesCount, color: Color.orange.opacity(0.86))
+                    headerStat(title: "מוחרג", value: excludedCount, color: Color.gray.opacity(0.78))
+                }
+            }
+            .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
         }
         .environment(\.layoutDirection, rowDirection)
         .padding(.horizontal, 14)
-        .padding(.vertical, 6)
+        .padding(.top, 8)
+        .padding(.bottom, 9)
         .background(
             LinearGradient(
                 colors: [
-                    Color.white.opacity(0.98),
-                    BeltPaletteByMaterials.color(for: belt).opacity(0.08),
+                    Color.white.opacity(0.99),
+                    BeltPaletteByMaterials.color(for: belt).opacity(0.10),
                     Color.white.opacity(0.96)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
         )
+        .overlay(
+            Rectangle()
+                .fill(BeltPaletteByMaterials.color(for: belt).opacity(0.12))
+                .frame(height: 1),
+            alignment: .bottom
+        )
+    }
+
+    private func headerStat(title: String, value: Int, color: Color) -> some View {
+        VStack(spacing: 2) {
+            Text("\(value)")
+                .font(.system(size: 13.5, weight: .black))
+                .foregroundStyle(Color.white)
+                .lineLimit(1)
+
+            Text(title)
+                .font(.system(size: 9.5, weight: .heavy))
+                .foregroundStyle(Color.white.opacity(0.94))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 39)
+        .background(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(color)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(Color.white.opacity(0.25), lineWidth: 1)
+        )
+        .shadow(color: color.opacity(0.18), radius: 5, x: 0, y: 3)
     }
 
     private var beltPill: some View {
         ZStack {
             Circle()
-                .fill(Color.white.opacity(0.70))
-                .frame(width: 42, height: 42)
+                .fill(Color.white.opacity(0.76))
+                .frame(width: 44, height: 44)
                 .overlay(
                     Circle()
-                        .stroke(BeltPaletteByMaterials.color(for: belt).opacity(0.18), lineWidth: 1)
+                        .stroke(BeltPaletteByMaterials.color(for: belt).opacity(0.22), lineWidth: 1)
                 )
+                .shadow(color: Color.black.opacity(0.08), radius: 5, x: 0, y: 3)
 
             Image(materialsBeltImageName(for: belt))
                 .resizable()
                 .scaledToFit()
-                .frame(width: 32, height: 32)
+                .frame(width: 33, height: 33)
         }
     }
 }
@@ -712,6 +1122,7 @@ private struct MaterialsHeaderCard: View {
 // MARK: - Row
 
 private struct MaterialsExerciseRow: View {
+    let rowNumber: Int
     let title: String
     let beltColor: Color
     let isFavorite: Bool
@@ -733,81 +1144,210 @@ private struct MaterialsExerciseRow: View {
     private var frameAlignment: Alignment {
         isEnglish ? .leading : .trailing
     }
+
+    private var rowOpacity: Double {
+        isExcluded ? 0.58 : 1.0
+    }
+
+    private var rowBorderColor: Color {
+        if isExcluded {
+            return Color.gray.opacity(0.24)
+        }
+
+        if mark == .mastered {
+            return Color.green.opacity(0.22)
+        }
+
+        if mark == .unknown {
+            return Color.red.opacity(0.20)
+        }
+
+        if isFavorite || hasNote {
+            return beltColor.opacity(0.24)
+        }
+
+        return beltColor.opacity(0.14)
+    }
     
     var body: some View {
-        HStack(spacing: 8) {
-            menuButton
-            
-            Text(title)
-                .font(.system(size: 15.5, weight: .semibold))
-                .foregroundStyle(isExcluded ? Color.gray : Color(red: 0.07, green: 0.09, blue: 0.15))
-                .multilineTextAlignment(textAlignment)
-                .lineLimit(4)
-                .minimumScaleFactor(0.84)
-                .frame(maxWidth: .infinity, alignment: frameAlignment)
-                .padding(.horizontal, 4)
-            
-            markButtons
+        HStack(spacing: 9) {
+            if isEnglish {
+                menuButton
+                numberBadge
+
+                titleBlock
+
+                markButtons
+            } else {
+                markButtons
+
+                titleBlock
+
+                numberBadge
+                menuButton
+            }
         }
         .environment(\.layoutDirection, .leftToRight)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .frame(minHeight: 58)
-        .background(Color.clear)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(minHeight: 66)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(isExcluded ? 0.68 : 0.92))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(rowBorderColor, lineWidth: 1)
+        )
+        .shadow(
+            color: Color.black.opacity(isExcluded ? 0.03 : 0.06),
+            radius: 7,
+            x: 0,
+            y: 4
+        )
+        .padding(.vertical, 4)
+        .opacity(rowOpacity)
         .contentShape(Rectangle())
+    }
+
+    private var titleBlock: some View {
+        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 4) {
+            Text(title)
+                .font(.system(size: 15.2, weight: .semibold))
+                .foregroundStyle(isExcluded ? Color.gray : Color(red: 0.07, green: 0.09, blue: 0.15))
+                .multilineTextAlignment(textAlignment)
+                .lineLimit(3)
+                .minimumScaleFactor(0.82)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+
+            if isFavorite || isExcluded || hasNote {
+                HStack(spacing: 6) {
+                    if isFavorite {
+                        statusMiniLabel(
+                            text: isEnglish ? "Favorite" : "מועדף",
+                            systemName: "star.fill",
+                            color: Color.orange.opacity(0.90)
+                        )
+                    }
+
+                    if hasNote {
+                        statusMiniLabel(
+                            text: isEnglish ? "Note" : "הערה",
+                            systemName: "note.text",
+                            color: Color.blue.opacity(0.84)
+                        )
+                    }
+
+                    if isExcluded {
+                        statusMiniLabel(
+                            text: isEnglish ? "Excluded" : "מוחרג",
+                            systemName: "minus.circle.fill",
+                            color: Color.gray.opacity(0.82)
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+            }
+        }
+    }
+
+    private func statusMiniLabel(text: String, systemName: String, color: Color) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: systemName)
+                .font(.system(size: 8.5, weight: .black))
+
+            Text(text)
+                .font(.system(size: 9.5, weight: .heavy))
+                .lineLimit(1)
+        }
+        .foregroundStyle(Color.white)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background(
+            Capsule()
+                .fill(color)
+        )
+    }
+
+    private var numberBadge: some View {
+        Text("\(rowNumber)")
+            .font(.system(size: 11.5, weight: .black))
+            .foregroundStyle(Color(red: 0.18, green: 0.22, blue: 0.30))
+            .frame(width: 27, height: 27)
+            .background(
+                Circle()
+                    .fill(Color.white.opacity(0.94))
+            )
+            .overlay(
+                Circle()
+                    .stroke(beltColor.opacity(0.24), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.05), radius: 3, x: 0, y: 2)
     }
     
     private var menuButton: some View {
         Menu {
-            Section {
-                Text(isEnglish
-                     ? "What does “Exclude” mean?\nRemoves this exercise from practice for the selected topic."
-                     : "מה זה “החרג”?\nמנטרל את התרגיל מהתרגול של הנושא הנבחר.")
-                .font(.caption)
+            Button {
+                onShowInfo()
+            } label: {
+                Label(
+                    isEnglish ? "Detailed explanation" : "הסבר מפורט",
+                    systemImage: "info.circle.fill"
+                )
             }
-            
-            Button(
-                isEnglish ? "Info" : "מידע",
-                action: onShowInfo
-            )
-            
-            Button(
-                isFavorite
-                ? (isEnglish ? "Remove from favorites" : "הסר ממועדפים")
-                : (isEnglish ? "Add to favorites" : "הוסף למועדפים"),
-                action: onToggleFavorite
-            )
-            
-            Button(
-                isExcluded
-                ? (isEnglish ? "Cancel exclusion" : "בטל החרגה")
-                : (isEnglish ? "Exclude from practice" : "החרג (מנטרל מהתרגול)"),
-                action: onToggleExcluded
-            )
-            
-            Button(
-                hasNote
-                ? (isEnglish ? "Edit / delete note" : "ערוך / מחק הערה")
-                : (isEnglish ? "Add exercise note" : "הוסף הערה לתרגיל"),
-                action: onEditNote
-            )
+
+            Button {
+                onToggleFavorite()
+            } label: {
+                Label(
+                    isFavorite
+                    ? (isEnglish ? "Remove from favorites" : "הסר ממועדפים")
+                    : (isEnglish ? "Add to favorites" : "הוסף למועדפים"),
+                    systemImage: isFavorite ? "star.slash" : "star.fill"
+                )
+            }
+
+            Button {
+                onEditNote()
+            } label: {
+                Label(
+                    hasNote
+                    ? (isEnglish ? "Edit / delete note" : "ערוך / מחק הערה")
+                    : (isEnglish ? "Add exercise note" : "הוסף הערה לתרגיל"),
+                    systemImage: "note.text"
+                )
+            }
+
+            Divider()
+
+            Button(role: isExcluded ? nil : .destructive) {
+                onToggleExcluded()
+            } label: {
+                Label(
+                    isExcluded
+                    ? (isEnglish ? "Cancel exclusion" : "בטל החרגה")
+                    : (isEnglish ? "Exclude from practice" : "החרג מתרגול"),
+                    systemImage: isExcluded ? "arrow.uturn.backward.circle" : "minus.circle.fill"
+                )
+            }
         } label: {
             ZStack {
                 Circle()
                     .fill(Color(red: 0.38, green: 0.44, blue: 0.48))
-                    .frame(width: 27, height: 27)
+                    .frame(width: 29, height: 29)
                     .overlay(
                         Circle()
-                            .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                            .stroke(Color.white.opacity(0.24), lineWidth: 1)
                     )
                     .shadow(color: Color.black.opacity(0.12), radius: 3, x: 0, y: 2)
                 
                 Text("i")
-                    .font(.system(size: 14, weight: .black))
+                    .font(.system(size: 14.5, weight: .black))
                     .foregroundStyle(Color.white)
                     .offset(y: -0.5)
             }
-            .frame(width: 29, height: 29)
+            .frame(width: 31, height: 31)
             .overlay(alignment: .topTrailing) {
                 if isFavorite || isExcluded || hasNote {
                     Circle()
@@ -822,7 +1362,7 @@ private struct MaterialsExerciseRow: View {
             }
         }
         .buttonStyle(.plain)
-        .frame(width: 31)
+        .frame(width: 33)
     }
     
     private var statusDotColor: Color {
@@ -859,20 +1399,22 @@ private struct MaterialsSingleMarkCircleButton: View {
     private var fillColor: Color {
         switch mark {
         case .mastered:
-            return Color.green.opacity(0.76)
+            return Color.green.opacity(0.82)
         case .unknown:
-            return Color.red.opacity(0.76)
+            return Color.red.opacity(0.80)
         case nil:
-            return Color.white.opacity(0.96)
+            return Color.white.opacity(0.98)
         }
     }
 
     private var strokeColor: Color {
         switch mark {
-        case .mastered, .unknown:
-            return Color.white.opacity(0.36)
+        case .mastered:
+            return Color.green.opacity(0.28)
+        case .unknown:
+            return Color.red.opacity(0.26)
         case nil:
-            return Color.black.opacity(0.18)
+            return Color.black.opacity(0.17)
         }
     }
 
@@ -915,25 +1457,34 @@ private struct MaterialsSingleMarkCircleButton: View {
             ZStack {
                 Circle()
                     .fill(fillColor)
-                    .frame(width: 34, height: 34)
+                    .frame(width: 36, height: 36)
                     .overlay(
                         Circle()
-                            .stroke(strokeColor, lineWidth: 1)
+                            .stroke(strokeColor, lineWidth: 1.2)
+                    )
+                    .overlay(
+                        Circle()
+                            .stroke(Color.white.opacity(mark == nil ? 0.35 : 0.48), lineWidth: 0.8)
+                            .padding(3)
                     )
                     .shadow(
-                        color: Color.black.opacity(mark == nil ? 0.14 : 0.12),
-                        radius: 4,
+                        color: Color.black.opacity(mark == nil ? 0.12 : 0.10),
+                        radius: 5,
                         x: 0,
-                        y: 2
+                        y: 3
                     )
 
                 if let iconName {
                     Image(systemName: iconName)
                         .font(.system(size: 14, weight: .black))
                         .foregroundStyle(Color.white)
+                } else {
+                    Circle()
+                        .fill(Color.black.opacity(0.16))
+                        .frame(width: 5, height: 5)
                 }
             }
-            .scaleEffect(pressed ? 0.92 : 1.0)
+            .scaleEffect(pressed ? 0.90 : 1.0)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityTitle)
@@ -1231,8 +1782,10 @@ private struct MaterialsInfoSheet: View {
     let title: String
     let text: String
     let isFavorite: Bool
+    let isSpeaking: Bool
     let isEnglish: Bool
     let accentColor: Color
+    let onClose: () -> Void
     let onToggleFavorite: () -> Void
     let onSpeak: () -> Void
     let onEditNote: () -> Void
@@ -1245,13 +1798,17 @@ private struct MaterialsInfoSheet: View {
         isEnglish ? .leading : .trailing
     }
 
+    private var closeIconName: String {
+        "xmark"
+    }
+
     var body: some View {
         ZStack {
             LinearGradient(
                 colors: [
                     Color.white.opacity(0.99),
-                    accentColor.opacity(0.06),
-                    Color.white.opacity(0.96)
+                    accentColor.opacity(0.07),
+                    Color.white.opacity(0.97)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -1259,23 +1816,22 @@ private struct MaterialsInfoSheet: View {
             .ignoresSafeArea()
 
             VStack(spacing: 14) {
-                VStack(alignment: isEnglish ? .leading : .trailing, spacing: 8) {
-                    Text(title)
-                        .font(.system(size: 22, weight: .black))
-                        .foregroundStyle(Color(red: 0.11, green: 0.14, blue: 0.20))
-                        .multilineTextAlignment(textAlignment)
-                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                HStack(spacing: 10) {
+                    if isEnglish {
+                        titleBlock
 
-                    Text(isEnglish ? "Detailed explanation" : "הסבר מפורט")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color(red: 0.39, green: 0.45, blue: 0.55))
-                        .multilineTextAlignment(textAlignment)
-                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                        closeButton
+                    } else {
+                        closeButton
+
+                        titleBlock
+                    }
                 }
+                .environment(\.layoutDirection, .leftToRight)
 
                 ScrollView {
                     Text(text)
-                        .font(.system(size: 16.5, weight: .semibold))
+                        .font(.system(size: 16.2, weight: .semibold))
                         .foregroundStyle(Color(red: 0.10, green: 0.12, blue: 0.17))
                         .lineSpacing(5)
                         .multilineTextAlignment(textAlignment)
@@ -1283,45 +1839,104 @@ private struct MaterialsInfoSheet: View {
                         .padding(16)
                         .background(
                             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                .fill(Color.white.opacity(0.96))
+                                .fill(Color.white.opacity(0.97))
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                .stroke(accentColor.opacity(0.16), lineWidth: 1)
+                                .stroke(accentColor.opacity(0.17), lineWidth: 1)
                         )
                         .shadow(color: Color.black.opacity(0.07), radius: 8, x: 0, y: 4)
                 }
 
-                HStack(spacing: 10) {
-                    MaterialsInfoActionButton(
-                        title: isEnglish ? "Speak" : "הקראה",
-                        systemName: "speaker.wave.2.fill",
-                        fill: Color(red: 0.12, green: 0.16, blue: 0.24),
-                        onTap: onSpeak
-                    )
+                VStack(spacing: 10) {
+                    HStack(spacing: 10) {
+                        MaterialsInfoActionButton(
+                            title: isSpeaking
+                            ? (isEnglish ? "Stop" : "עצור")
+                            : (isEnglish ? "Speak" : "הקראה"),
+                            systemName: isSpeaking ? "stop.fill" : "speaker.wave.2.fill",
+                            fill: isSpeaking
+                            ? Color(red: 0.70, green: 0.15, blue: 0.12)
+                            : Color(red: 0.12, green: 0.16, blue: 0.24),
+                            onTap: onSpeak
+                        )
+
+                        MaterialsInfoActionButton(
+                            title: isFavorite
+                            ? (isEnglish ? "Favorited" : "מועדף")
+                            : (isEnglish ? "Favorite" : "מועדף"),
+                            systemName: isFavorite ? "star.fill" : "star",
+                            fill: Color.orange.opacity(0.92),
+                            onTap: onToggleFavorite
+                        )
+                    }
 
                     MaterialsInfoActionButton(
-                        title: isFavorite
-                        ? (isEnglish ? "Favorite" : "מועדף")
-                        : (isEnglish ? "Favorite" : "מועדף"),
-                        systemName: isFavorite ? "star.fill" : "star",
-                        fill: Color.orange.opacity(0.92),
-                        onTap: onToggleFavorite
+                        title: isEnglish ? "Edit / add note" : "ערוך / הוסף הערה",
+                        systemName: "note.text",
+                        fill: accentColor.opacity(0.94),
+                        onTap: onEditNote
                     )
                 }
-
-                MaterialsInfoActionButton(
-                    title: isEnglish ? "Edit / add note" : "ערוך / הוסף הערה",
-                    systemName: "note.text",
-                    fill: accentColor.opacity(0.92),
-                    onTap: onEditNote
-                )
             }
             .padding(.horizontal, 18)
-            .padding(.top, 22)
+            .padding(.top, 18)
             .padding(.bottom, 16)
         }
         .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+    }
+
+    private var titleBlock: some View {
+        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 7) {
+            Text(title)
+                .font(.system(size: 21.5, weight: .black))
+                .foregroundStyle(Color(red: 0.11, green: 0.14, blue: 0.20))
+                .multilineTextAlignment(textAlignment)
+                .lineLimit(3)
+                .minimumScaleFactor(0.76)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+
+            HStack(spacing: 6) {
+                if isEnglish {
+                    Image(systemName: "doc.text.fill")
+                        .font(.system(size: 10.5, weight: .black))
+
+                    Text("Detailed explanation")
+                        .font(.system(size: 12.5, weight: .bold))
+                } else {
+                    Text("הסבר מפורט")
+                        .font(.system(size: 12.5, weight: .bold))
+
+                    Image(systemName: "doc.text.fill")
+                        .font(.system(size: 10.5, weight: .black))
+                }
+            }
+            .foregroundStyle(Color(red: 0.39, green: 0.45, blue: 0.55))
+            .frame(maxWidth: .infinity, alignment: frameAlignment)
+        }
+    }
+
+    private var closeButton: some View {
+        Button {
+            onClose()
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(Color.white.opacity(0.90))
+                    .frame(width: 38, height: 38)
+                    .overlay(
+                        Circle()
+                            .stroke(accentColor.opacity(0.18), lineWidth: 1)
+                    )
+                    .shadow(color: Color.black.opacity(0.07), radius: 5, x: 0, y: 3)
+
+                Image(systemName: closeIconName)
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(Color(red: 0.20, green: 0.24, blue: 0.32))
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isEnglish ? "Close" : "סגור")
     }
 }
 
@@ -1332,6 +1947,10 @@ private struct MaterialsInfoActionButton: View {
     let onTap: () -> Void
 
     @State private var pressed: Bool = false
+
+    private var contentColor: Color {
+        fill.luminance < 0.56 ? Color.white : Color.black
+    }
 
     var body: some View {
         Button {
@@ -1354,21 +1973,21 @@ private struct MaterialsInfoActionButton: View {
                 Text(title)
                     .font(.system(size: 15, weight: .black))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.82)
+                    .minimumScaleFactor(0.78)
             }
-            .foregroundStyle(Color.white)
+            .foregroundStyle(contentColor)
             .frame(maxWidth: .infinity)
-            .frame(height: 48)
+            .frame(height: 50)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: 19, style: .continuous)
                     .fill(fill)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 19, style: .continuous)
+                    .stroke(Color.white.opacity(0.24), lineWidth: 1)
             )
-            .shadow(color: fill.opacity(0.20), radius: 7, x: 0, y: 4)
-            .scaleEffect(pressed ? 0.96 : 1.0)
+            .shadow(color: fill.opacity(0.22), radius: 7, x: 0, y: 4)
+            .scaleEffect(pressed ? 0.95 : 1.0)
         }
         .buttonStyle(.plain)
     }
@@ -1422,3 +2041,11 @@ private extension Color {
         return 0.2126 * Double(red) + 0.7152 * Double(green) + 0.0722 * Double(blue)
     }
 }
+
+private extension Array where Element: Hashable {
+    func removingDuplicatesKeepingOrder() -> [Element] {
+        var seen = Set<Element>()
+        return filter { seen.insert($0).inserted }
+    }
+}
+

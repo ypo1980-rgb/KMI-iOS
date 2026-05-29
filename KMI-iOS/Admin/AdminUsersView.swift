@@ -10,6 +10,7 @@ struct AdminUsersView: View {
     @State private var selectedRole: UserRoleFilter = .all
 
     @State private var loading = true
+    @State private var errorMessage: String? = nil
 
     @AppStorage("kmi_app_language") private var kmiAppLanguage: String = ""
     @AppStorage("app_language") private var appLanguage: String = ""
@@ -86,11 +87,17 @@ struct AdminUsersView: View {
 
             VStack(spacing: 12) {
 
+                screenHeader
+
                 headerStats
 
                 roleFilter
 
                 searchBar
+
+                if let errorMessage, !errorMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    errorMessageCard(errorMessage)
+                }
 
                 if loading {
                     VStack(spacing: 12) {
@@ -174,6 +181,66 @@ struct AdminUsersView: View {
         }
     }
 
+    // MARK: Screen header
+
+    private var screenHeader: some View {
+
+        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 5) {
+            Text(tr("ניהול משתמשים", "User management"))
+                .font(.system(size: 24, weight: .black))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                .multilineTextAlignment(screenTextAlignment)
+
+            Text(tr("משתמשים אמיתיים מ־Firestore", "Real users from Firestore"))
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.white.opacity(0.72))
+                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                .multilineTextAlignment(screenTextAlignment)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+    }
+
+    private func errorMessageCard(_ message: String) -> some View {
+
+        HStack(spacing: 10) {
+            if isEnglish {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 16, weight: .heavy))
+                    .foregroundStyle(Color(red: 1.0, green: 0.70, blue: 0.70))
+
+                Text(message)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(red: 1.0, green: 0.82, blue: 0.82))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
+
+            } else {
+                Text(message)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(red: 1.0, green: 0.82, blue: 0.82))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .multilineTextAlignment(.trailing)
+
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 16, weight: .heavy))
+                    .foregroundStyle(Color(red: 1.0, green: 0.70, blue: 0.70))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(red: 0.35, green: 0.04, blue: 0.08).opacity(0.72))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.red.opacity(0.26), lineWidth: 1)
+        )
+        .padding(.horizontal, 14)
+    }
+
     // MARK: Header stats
 
     private var headerStats: some View {
@@ -250,9 +317,9 @@ struct AdminUsersView: View {
     private var roleFilter: some View {
 
         HStack(spacing: 10) {
-            roleFilterButton(title: tr("מתאמנים", "Trainees"), value: .trainee)
-            roleFilterButton(title: tr("מאמנים", "Coaches"), value: .coach)
             roleFilterButton(title: tr("כולם", "All"), value: .all)
+            roleFilterButton(title: tr("מאמנים", "Coaches"), value: .coach)
+            roleFilterButton(title: tr("מתאמנים", "Trainees"), value: .trainee)
         }
         .padding(.horizontal, 14)
     }
@@ -277,7 +344,7 @@ struct AdminUsersView: View {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.white.opacity(0.20), lineWidth: 1)
+                        .stroke(Color.white.opacity(selectedRole == value ? 0.35 : 0.20), lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
@@ -365,12 +432,34 @@ struct AdminUsersView: View {
     }
 
     private func userTexts(_ user: AdminUser) -> some View {
-        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 5) {
-            Text(user.fullName)
-                .font(.system(size: 17, weight: .heavy))
-                .foregroundStyle(Color.black.opacity(0.84))
-                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-                .multilineTextAlignment(screenTextAlignment)
+        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 6) {
+
+            if isEnglish {
+                HStack(spacing: 8) {
+                    Text(user.fullName)
+                        .font(.system(size: 17, weight: .heavy))
+                        .foregroundStyle(Color.black.opacity(0.84))
+                        .lineLimit(1)
+
+                    roleBadge(user.role)
+
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            } else {
+                HStack(spacing: 8) {
+                    Spacer(minLength: 0)
+
+                    roleBadge(user.role)
+
+                    Text(user.fullName)
+                        .font(.system(size: 17, weight: .heavy))
+                        .foregroundStyle(Color.black.opacity(0.84))
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
 
             if !user.email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(user.email)
@@ -390,12 +479,6 @@ struct AdminUsersView: View {
                     .lineLimit(1)
             }
 
-            Text(roleTextForUi(user.role))
-                .font(.system(size: 12, weight: .black))
-                .foregroundStyle(roleColor(user.role))
-                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-                .multilineTextAlignment(screenTextAlignment)
-
             Text(user.branchGroupLine(isEnglish: isEnglish))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Color.black.opacity(0.48))
@@ -403,6 +486,37 @@ struct AdminUsersView: View {
                 .multilineTextAlignment(screenTextAlignment)
                 .lineLimit(2)
         }
+    }
+
+    private func roleBadge(_ role: String) -> some View {
+
+        HStack(spacing: 5) {
+            Image(systemName: roleIcon(role))
+                .font(.system(size: 10, weight: .black))
+
+            Text(roleTextForUi(role))
+                .font(.system(size: 11, weight: .black))
+                .lineLimit(1)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(
+            Capsule()
+                .fill(roleColor(role))
+        )
+    }
+
+    private func roleIcon(_ role: String) -> String {
+        if AdminUser.isAdminRole(role) {
+            return "person.badge.key.fill"
+        }
+
+        if AdminUser.isCoachRole(role) {
+            return "figure.martial.arts"
+        }
+
+        return "person.fill"
     }
 
     private func roleColor(_ role: String) -> Color {
@@ -422,25 +536,50 @@ struct AdminUsersView: View {
     private func loadUsers() {
 
         loading = true
+        errorMessage = nil
 
         Firestore.firestore()
             .collection("users")
-            .getDocuments { snapshot, _ in
+            .getDocuments { snapshot, error in
 
                 loading = false
 
-                guard let docs = snapshot?.documents else {
+                if let error {
+                    let rawMessage = error.localizedDescription
+
+                    if rawMessage.uppercased().contains("PERMISSION_DENIED") {
+                        errorMessage = tr(
+                            "אין לך הרשאה לצפות ברשימת המשתמשים. בדוק את הרשאות Firestore או פנה למנהל המערכת.",
+                            "You do not have permission to view the users list. Check Firestore permissions or contact the system administrator."
+                        )
+                    } else {
+                        errorMessage = rawMessage.isEmpty
+                            ? tr("שגיאה בטעינת המשתמשים", "Error loading users")
+                            : rawMessage
+                    }
+
                     users = []
                     filteredUsers = []
                     return
                 }
 
-                let rawUsers = docs.compactMap { doc in
-                    AdminUser.from(
-                        id: doc.documentID,
-                        map: doc.data()
-                    )
+                guard let docs = snapshot?.documents else {
+                    errorMessage = tr("לא התקבלו נתוני משתמשים מהשרת", "No user data was received from the server")
+                    users = []
+                    filteredUsers = []
+                    return
                 }
+
+                let rawUsers = docs
+                    .compactMap { doc in
+                        AdminUser.from(
+                            id: doc.documentID,
+                            map: doc.data()
+                        )
+                    }
+                    .filter { user in
+                        user.hasRealAdminListContent
+                    }
 
                 var uniqueByKey: [String: AdminUser] = [:]
 
@@ -459,6 +598,7 @@ struct AdminUsersView: View {
                     $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending
                 }
 
+                errorMessage = nil
                 applyFilter()
             }
     }
@@ -516,74 +656,221 @@ struct AdminUser: Identifiable {
 
     static func from(id: String, map: [String: Any]) -> AdminUser? {
 
-        let fullName =
-            ((map["fullName"] as? String) ??
-             (map["full_name"] as? String) ??
-             (map["name"] as? String) ??
-             (map["displayName"] as? String) ??
-             "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        func stringValue(_ keys: String...) -> String {
+            for key in keys {
+                if let value = map[key] as? String {
+                    let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !clean.isEmpty {
+                        return clean
+                    }
+                }
 
-        let email =
-            ((map["email"] as? String) ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+                if let value = map[key], !(value is NSNull) {
+                    let clean = "\(value)".trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !clean.isEmpty && clean.lowercased() != "null" {
+                        return clean
+                    }
+                }
+            }
 
-        let phone =
-            ((map["phone"] as? String) ??
-             (map["phoneNumber"] as? String) ??
-             (map["phone_number"] as? String) ??
-             "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !fullName.isEmpty || !email.isEmpty || !phone.isEmpty else {
-            return nil
+            return ""
         }
 
-        let branchesArray =
-            (map["branches"] as? [String])?
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty } ?? []
+        func boolValue(_ keys: String...) -> Bool {
+            for key in keys {
+                if let value = map[key] as? Bool {
+                    return value
+                }
 
-        let groupsArray =
-            (map["groups"] as? [String])?
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty } ?? []
+                if let value = map[key] as? String {
+                    let clean = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    if clean == "true" || clean == "1" || clean == "yes" {
+                        return true
+                    }
+                }
 
-        let singleBranch =
-            ((map["activeBranch"] as? String) ??
-             (map["active_branch"] as? String) ??
-             (map["branch"] as? String) ??
-             (map["branchesCsv"] as? String) ??
-             "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+                if let value = map[key] as? Int {
+                    return value == 1
+                }
 
-        let singleGroup =
-            ((map["primaryGroup"] as? String) ??
-             (map["activeGroup"] as? String) ??
-             (map["active_group"] as? String) ??
-             (map["groupKey"] as? String) ??
-             (map["group_key"] as? String) ??
-             (map["group"] as? String) ??
-             (map["age_group"] as? String) ??
-             (map["ageGroup"] as? String) ??
-             "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+                if let value = map[key] as? Double {
+                    return value == 1
+                }
+            }
+
+            return false
+        }
+
+        func stringListValue(_ keys: String...) -> [String] {
+            for key in keys {
+                if let list = map[key] as? [String] {
+                    let cleanList = list
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+
+                    if !cleanList.isEmpty {
+                        return cleanList
+                    }
+                }
+
+                if let list = map[key] as? [Any] {
+                    let cleanList = list
+                        .map { "\($0)".trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty && $0.lowercased() != "null" }
+
+                    if !cleanList.isEmpty {
+                        return cleanList
+                    }
+                }
+
+                if let value = map[key] as? String {
+                    let cleanList = value
+                        .split { char in
+                            char == "," || char == "•" || char == "|" || char == ";"
+                        }
+                        .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+
+                    if !cleanList.isEmpty {
+                        return cleanList
+                    }
+                }
+            }
+
+            return []
+        }
+
+        let fullName = stringValue(
+            "fullName",
+            "full_name",
+            "name",
+            "displayName",
+            "userName",
+            "username"
+        )
+
+        let email = stringValue("email")
+
+        let phone = stringValue(
+            "phone",
+            "phoneNumber",
+            "phone_number"
+        )
+
+        let uid = stringValue(
+            "uid",
+            "userId"
+        )
+
+        let branchesArray = stringListValue(
+            "branches",
+            "branchNames",
+            "selectedBranches",
+            "selectedBranchNames",
+            "trainingBranches",
+            "trainingBranchNames",
+            "clubs",
+            "dojos"
+        )
+
+        let groupsArray = stringListValue(
+            "groups",
+            "groupNames",
+            "groupsCsv",
+            "groupCsv",
+            "selectedGroups",
+            "selectedGroupNames"
+        )
+
+        let singleBranch = stringValue(
+            "activeBranch",
+            "active_branch",
+            "branch",
+            "branchName",
+            "selectedBranch",
+            "selectedBranchName",
+            "trainingBranch",
+            "trainingBranchName",
+            "club",
+            "dojo",
+            "branchesCsv"
+        )
+
+        let singleGroup = stringValue(
+            "primaryGroup",
+            "activeGroup",
+            "active_group",
+            "groupKey",
+            "group_key",
+            "group",
+            "groupName",
+            "age_group",
+            "ageGroup"
+        )
 
         let resolvedBranch = branchesArray.first ?? singleBranch
         let resolvedGroup = groupsArray.first ?? singleGroup
 
-        let resolvedRole =
-            ((map["role"] as? String) ??
-             (map["userRole"] as? String) ??
-             (map["user_role"] as? String) ??
-             (map["profile_role"] as? String) ??
-             (map["accountRole"] as? String) ??
-             "trainee")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawRole = stringValue(
+            "role",
+            "userRole",
+            "user_role",
+            "profile_role",
+            "accountRole",
+            "userType",
+            "type"
+        )
+
+        let resolvedRole: String
+
+        if !rawRole.isEmpty {
+            resolvedRole = rawRole
+        } else if boolValue("isAdmin", "admin", "isManager", "manager") {
+            resolvedRole = "admin"
+        } else if boolValue("isCoach", "coach", "isTrainer", "trainer", "isInstructor", "instructor") {
+            resolvedRole = "coach"
+        } else {
+            let groupsText = groupsArray.joined(separator: " ").lowercased()
+
+            if groupsText.contains("מאמן") ||
+                groupsText.contains("מאמנים") ||
+                groupsText.contains("coach") ||
+                groupsText.contains("coaches") ||
+                groupsText.contains("trainer") {
+                resolvedRole = "coach"
+            } else {
+                resolvedRole = "trainee"
+            }
+        }
+
+        let fallbackName: String
+
+        if !fullName.isEmpty {
+            fallbackName = fullName
+        } else if !email.isEmpty {
+            fallbackName = email
+        } else if !phone.isEmpty {
+            fallbackName = phone
+        } else {
+            fallbackName = ""
+        }
+
+        let hasRealDisplayContent =
+            !fallbackName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !phone.filter { $0.isNumber }.isEmpty ||
+            !resolvedBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !resolvedGroup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !branchesArray.isEmpty ||
+            !groupsArray.isEmpty
+
+        guard hasRealDisplayContent else {
+            return nil
+        }
 
         return AdminUser(
             id: id,
-            fullName: fullName.isEmpty ? (email.isEmpty ? phone : email) : fullName,
+            fullName: fallbackName.isEmpty ? "-" : fallbackName,
             email: email,
             phone: phone,
             branch: resolvedBranch,
@@ -695,6 +982,43 @@ struct AdminUser: Identifiable {
         if cleanSecond.isEmpty { return cleanFirst }
 
         return cleanSecond.count > cleanFirst.count ? cleanSecond : cleanFirst
+    }
+
+    var hasRealAdminListContent: Bool {
+        let cleanName = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPhoneDigits = phone.filter { $0.isNumber }
+        let cleanBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanGroup = group.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if cleanName == "-" &&
+            cleanEmail.isEmpty &&
+            cleanPhoneDigits.isEmpty &&
+            cleanBranch.isEmpty &&
+            cleanGroup.isEmpty {
+            return false
+        }
+
+        if cleanName.lowercased().hasPrefix("unknown user") &&
+            cleanEmail.isEmpty &&
+            cleanPhoneDigits.isEmpty {
+            return false
+        }
+
+        if cleanEmail.isEmpty &&
+            cleanPhoneDigits.isEmpty &&
+            cleanBranch.isEmpty &&
+            cleanGroup.isEmpty &&
+            cleanName.count >= 24 &&
+            cleanName.range(of: #"^[A-Za-z0-9_-]+$"#, options: .regularExpression) != nil {
+            return false
+        }
+
+        return !cleanName.isEmpty ||
+            !cleanEmail.isEmpty ||
+            !cleanPhoneDigits.isEmpty ||
+            !cleanBranch.isEmpty ||
+            !cleanGroup.isEmpty
     }
 
     private static func betterRole(_ first: String, _ second: String) -> String {

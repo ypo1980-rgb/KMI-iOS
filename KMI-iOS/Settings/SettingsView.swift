@@ -19,10 +19,12 @@ struct SettingsView: View {
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
     @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+    @AppStorage("selected_language_code") private var selectedLanguageCode: String = "he"
 
     var isEnglish: Bool {
         let values = [
             kmiAppLanguageCode.lowercased(),
+            selectedLanguageCode.lowercased(),
             appLanguageRaw.lowercased(),
             initialLanguageCode.lowercased()
         ]
@@ -48,8 +50,14 @@ struct SettingsView: View {
 
     func applyInterfaceLanguage(_ english: Bool) {
         kmiAppLanguageCode = english ? "en" : "he"
+        selectedLanguageCode = english ? "en" : "he"
         appLanguageRaw = english ? "ENGLISH" : "HEBREW"
         initialLanguageCode = english ? "ENGLISH" : "HEBREW"
+
+        UserDefaults.standard.set(english ? "en" : "he", forKey: "kmi_app_language")
+        UserDefaults.standard.set(english ? "en" : "he", forKey: "selected_language_code")
+        UserDefaults.standard.set(english ? "ENGLISH" : "HEBREW", forKey: "app_language")
+        UserDefaults.standard.set(english ? "ENGLISH" : "HEBREW", forKey: "initial_language_code")
 
         toast(english ? "Language changed to English" : "השפה שונתה לעברית")
         hapticSuccess()
@@ -119,6 +127,9 @@ struct SettingsView: View {
     @State private var availableWritableCalendars: [EKCalendar] = []
     @State private var tempSelectedCalendarIdentifier: String = ""
 
+    @State private var showClearBroadcastHistoryConfirm: Bool = false
+    @State private var showClearCacheConfirm: Bool = false
+
     private var isCoach: Bool { userRole == "coach" }
 
     private enum LegalTab: Int, Identifiable {
@@ -126,6 +137,10 @@ struct SettingsView: View {
         case privacy = 1
         case accessibility = 2
         var id: Int { rawValue }
+    }
+
+    private var supportEmailAddress: String {
+        "ypo1980@gmail.com"
     }
 
     private var headerGradient: LinearGradient {
@@ -191,11 +206,24 @@ struct SettingsView: View {
             },
             set: { newValue in
                 let comps = Calendar.current.dateComponents([.hour, .minute], from: newValue)
+
                 dailyReminderHour = comps.hour ?? 20
                 dailyReminderMinute = comps.minute ?? 0
+
+                UserDefaults.standard.set(dailyReminderHour, forKey: "daily_exercise_reminder_hour")
+                UserDefaults.standard.set(dailyReminderMinute, forKey: "daily_exercise_reminder_minute")
+
                 if dailyReminderEnabledBinding.wrappedValue {
                     DailyReminderScheduler.shared.refreshSchedule()
                 }
+
+                toast(
+                    tr(
+                        "שעת התרגיל היומי עודכנה ל-\(String(format: "%02d:%02d", dailyReminderHour, dailyReminderMinute))",
+                        "Daily exercise time updated to \(String(format: "%02d:%02d", dailyReminderHour, dailyReminderMinute))"
+                    )
+                )
+                feedbackTap()
             }
         )
     }
@@ -213,6 +241,7 @@ struct SettingsView: View {
 
                     actionButtons
                         .padding(.top, 12)
+                        .padding(.bottom, 4)
 
                     Spacer(minLength: 8)
                 }
@@ -235,63 +264,96 @@ struct SettingsView: View {
         .navigationDestination(isPresented: $goLegal) {
             LegalView(initialTab: legalInitialTab)
         }
+        .confirmationDialog(
+            tr("לנקות היסטוריית שידורים?", "Clear broadcast history?"),
+            isPresented: $showClearBroadcastHistoryConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(
+                tr("נקה היסטוריית שידורים", "Clear broadcast history"),
+                role: .destructive
+            ) {
+                coachBroadcastRecentsJson = ""
+                UserDefaults.standard.removeObject(forKey: "coach_broadcast_recents_json")
+                toast(tr("היסטוריית השידורים נוקתה", "Broadcast history was cleared"))
+                hapticSuccess()
+            }
+
+            Button(tr("ביטול", "Cancel"), role: .cancel) { }
+        } message: {
+            Text(
+                tr(
+                    "הפעולה תמחק רק את רשימת השידורים האחרונים מהמכשיר.",
+                    "This will only clear the recent broadcast list from this device."
+                )
+            )
+        }
+        .confirmationDialog(
+            tr("לנקות מטמון אפליקציה?", "Clear app cache?"),
+            isPresented: $showClearCacheConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(
+                tr("נקה מטמון", "Clear cache"),
+                role: .destructive
+            ) {
+                isBusy = true
+                let ok = clearAppCacheIOS()
+                isBusy = false
+
+                toast(
+                    ok
+                    ? tr("נוקו קבצי המטמון", "Cache files cleared")
+                    : tr("ניקוי נכשל", "Clear failed")
+                )
+
+                ok ? hapticSuccess() : hapticError()
+            }
+
+            Button(tr("ביטול", "Cancel"), role: .cancel) { }
+        } message: {
+            Text(
+                tr(
+                    "הפעולה לא מוחקת חשבון, הרשמה, מנוי או נתוני משתמש.",
+                    "This does not delete the account, registration, subscription, or user data."
+                )
+            )
+        }
         .fullScreenCover(isPresented: $showRegistrationEdit) {
             RegisterFormView(
                 prefillPhone: phone,
                 prefillEmail: email,
                 initialRole: userRole == "coach" ? .coach : .trainee,
                 onBack: {
-                    print("⚙️ RegisterFormView: onBack tapped")
                     showRegistrationEdit = false
-                    print("⚙️ RegisterFormView: showRegistrationEdit =", showRegistrationEdit)
                 },
                 onSubmit: { form in
-                    print("⚙️ [1] onSubmit start")
-
-                    let submittedFullName = "\(form.fullName)"
-                    let submittedPhone = "\(form.phone)"
-                    let submittedEmail = "\(form.email)"
-                    let submittedRegion = "\(form.region)"
-                    let submittedBelt = "\(form.belt)"
-                    let submittedRoleIsCoach = (form.role == .coach)
-                    let submittedBranches = Array(form.branches)
-                    let submittedGroups = Array(form.groups)
-                    let submittedUsername = "\(form.username)"
-                    let submittedBirthDay = "\(form.birthDay)"
-                    let submittedBirthMonth = "\(form.birthMonth)"
-                    let submittedBirthYear = "\(form.birthYear)"
-                    let submittedGender = "\(form.gender)"
-                    let submittedPassword = "\(form.password)"
-                    let submittedWantsSms = form.wantsSms
-                    let submittedAcceptsTerms = form.acceptsTerms
-                    let submittedCoachCode = "\(form.coachCode)"
-
                     saveRegistrationSnapshot(
-                        fullName: submittedFullName,
-                        phone: submittedPhone,
-                        email: submittedEmail,
-                        region: submittedRegion,
-                        belt: submittedBelt,
-                        isCoach: submittedRoleIsCoach,
-                        branches: submittedBranches,
-                        groups: submittedGroups,
-                        username: submittedUsername,
-                        birthDay: submittedBirthDay,
-                        birthMonth: submittedBirthMonth,
-                        birthYear: submittedBirthYear,
-                        gender: submittedGender,
-                        password: submittedPassword,
-                        wantsSms: submittedWantsSms,
-                        acceptsTerms: submittedAcceptsTerms,
-                        coachCode: submittedCoachCode
+                        fullName: "\(form.fullName)",
+                        phone: "\(form.phone)",
+                        email: "\(form.email)",
+                        region: "\(form.region)",
+                        belt: "\(form.belt)",
+                        isCoach: form.role == .coach,
+                        branches: Array(form.branches),
+                        groups: Array(form.groups),
+                        username: "\(form.username)",
+                        birthDay: "\(form.birthDay)",
+                        birthMonth: "\(form.birthMonth)",
+                        birthYear: "\(form.birthYear)",
+                        gender: "\(form.gender)",
+                        password: "\(form.password)",
+                        wantsSms: form.wantsSms,
+                        acceptsTerms: form.acceptsTerms,
+                        coachCode: "\(form.coachCode)"
                     )
 
-                    print("⚙️ RegisterFormView: about to close cover")
                     DispatchQueue.main.async {
                         loadBranchAndGroupFromDefaults()
                         showRegistrationEdit = false
+                        toast(tr("הפרטים עודכנו בהצלחה", "Details updated successfully"))
+                        hapticSuccess()
                     }
-                    print("⚙️ RegisterFormView: showRegistrationEdit =", showRegistrationEdit)
                 }
             )
         }
@@ -367,49 +429,116 @@ struct SettingsView: View {
     }
 
     private var profileCard: some View {
-        HStack(spacing: 8) {
-            if isEnglish {
-                profileIcon
-                profileTextBlock
-            } else {
-                profileTextBlock
-                profileIcon
+        VStack(spacing: 10) {
+            HStack(spacing: 12) {
+                if isEnglish {
+                    profileIcon
+                    profileTextBlock
+                } else {
+                    profileTextBlock
+                    profileIcon
+                }
             }
+
+            HStack(spacing: 8) {
+                if isEnglish {
+                    SettingsHeaderChip(
+                        title: settingsRoleDisplayName(),
+                        systemImage: settingsRoleIconName(),
+                        tint: isCoach ? Color(hex: 0xFF6A1B9A) : Color(hex: 0xFF1565C0),
+                        isEnglish: isEnglish
+                    )
+
+                    SettingsHeaderChip(
+                        title: tr("חגורה \(settingsRankDisplayName())", "Rank \(settingsRankDisplayName())"),
+                        systemImage: "rosette",
+                        tint: currentBeltTextColor(),
+                        isEnglish: isEnglish
+                    )
+
+                    Spacer(minLength: 0)
+                } else {
+                    Spacer(minLength: 0)
+
+                    SettingsHeaderChip(
+                        title: tr("חגורה \(settingsRankDisplayName())", "Rank \(settingsRankDisplayName())"),
+                        systemImage: "rosette",
+                        tint: currentBeltTextColor(),
+                        isEnglish: isEnglish
+                    )
+
+                    SettingsHeaderChip(
+                        title: settingsRoleDisplayName(),
+                        systemImage: settingsRoleIconName(),
+                        tint: isCoach ? Color(hex: 0xFF6A1B9A) : Color(hex: 0xFF1565C0),
+                        isEnglish: isEnglish
+                    )
+                }
+            }
+            .environment(\.layoutDirection, .leftToRight)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color.white.opacity(0.92))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.vertical, 13)
+        .background(Color.white.opacity(0.94))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.36), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 5)
     }
 
     private var profileIcon: some View {
-        Image(systemName: isCoach ? "checkmark.seal.fill" : "person.fill")
-            .font(.system(size: 24, weight: .semibold))
-            .foregroundStyle(isCoach ? Color(hex: 0xFF6A1B9A) : Color(hex: 0xFF1565C0))
-            .frame(width: 28, height: 28)
+        ZStack {
+            Circle()
+                .fill((isCoach ? Color(hex: 0xFF6A1B9A) : Color(hex: 0xFF1565C0)).opacity(0.12))
+                .frame(width: 46, height: 46)
+
+            Image(systemName: isCoach ? "checkmark.seal.fill" : "person.fill")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(isCoach ? Color(hex: 0xFF6A1B9A) : Color(hex: 0xFF1565C0))
+        }
+        .frame(width: 48, height: 48)
     }
 
     private var profileTextBlock: some View {
-        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 4) {
-            Text(fullName.isEmpty || fullName == "שם מלא לא מוגדר" ? tr("משתמש", "User") : fullName)
+        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 5) {
+            Text(settingsProfileName())
                 .font(.system(size: 22, weight: .heavy))
-                .foregroundStyle(Color.black.opacity(0.85))
+                .foregroundStyle(Color.black.opacity(0.88))
+                .lineLimit(2)
+                .minimumScaleFactor(0.76)
                 .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
                 .multilineTextAlignment(primaryTextAlignment)
 
-            if !phone.isEmpty {
+            if !phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(phone)
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(Color.black.opacity(0.72))
+                    .font(.system(size: 15.5, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.68))
+                    .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
                     .multilineTextAlignment(primaryTextAlignment)
             }
 
-            Text(tr("דרגה: \(settingsRankDisplayName())", "Rank: \(settingsRankDisplayName())"))
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(hex: 0xFF475569))
-                .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                .multilineTextAlignment(primaryTextAlignment)
+            if !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(email)
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.54))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.74)
+                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                    .multilineTextAlignment(primaryTextAlignment)
+            }
+
+            if !settingsBranchGroupLine().isEmpty {
+                Text(settingsBranchGroupLine())
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color(hex: 0xFF64748B))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.76)
+                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                    .multilineTextAlignment(primaryTextAlignment)
+            }
         }
         .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
     }
@@ -426,6 +555,75 @@ struct SettingsView: View {
         return value
     }
 
+    private func settingsBranchGroupLine() -> String {
+        let cleanBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanGroup = group.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if cleanBranch.isEmpty && cleanGroup.isEmpty {
+            return ""
+        }
+
+        if cleanBranch.isEmpty {
+            return tr("קבוצה: \(cleanGroup)", "Group: \(cleanGroup)")
+        }
+
+        if cleanGroup.isEmpty {
+            return tr("סניף: \(cleanBranch)", "Branch: \(cleanBranch)")
+        }
+
+        return tr("סניף: \(cleanBranch) · קבוצה: \(cleanGroup)", "Branch: \(cleanBranch) · Group: \(cleanGroup)")
+    }
+
+    private func settingsRoleDisplayName() -> String {
+        isCoach ? tr("מאמן", "Coach") : tr("מתאמן", "Trainee")
+    }
+
+    private func settingsRoleIconName() -> String {
+        isCoach ? "checkmark.seal.fill" : "figure.martial.arts"
+    }
+
+    private func settingsProfileName() -> String {
+        let clean = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if clean.isEmpty || clean == "שם מלא לא מוגדר" {
+            return tr("משתמש", "User")
+        }
+
+        return clean
+    }
+
+    // MARK: Theme helpers
+    
+    private func themeDisplayName() -> String {
+        themeDisplayName(for: themeMode)
+    }
+
+    private func themeDisplayName(for value: String) -> String {
+        switch value {
+        case "light":
+            return tr("בהיר", "Light")
+        case "dark":
+            return tr("כהה", "Dark")
+        case "system":
+            return tr("לפי המכשיר", "System")
+        default:
+            return tr("לפי המכשיר", "System")
+        }
+    }
+
+    private func themeStatusIconName() -> String {
+        switch themeMode {
+        case "light":
+            return "sun.max.fill"
+        case "dark":
+            return "moon.fill"
+        case "system":
+            return "iphone"
+        default:
+            return "iphone"
+        }
+    }
+    
     // MARK: Cards
     private var settingsCards: some View {
         VStack(spacing: 16) {
@@ -471,34 +669,80 @@ struct SettingsView: View {
                 iconSystemName: "alarm.fill",
                 iconTint: sectionIconTint
             ) {
-                VStack(spacing: 8) {
-                    HStack {
-                        Text(
-                            trainingRemindersEnabled
-                            ? tr("כמה דקות לפני האימון לקבל תזכורת?", "How many minutes before training would you like a reminder?")
-                            : ""
-                        )
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                        .multilineTextAlignment(primaryTextAlignment)
+                VStack(spacing: 12) {
+                    HStack(spacing: 12) {
+                        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 6) {
+                            Text(
+                                trainingRemindersEnabled
+                                ? tr("התזכורות פעילות", "Reminders are active")
+                                : tr("התזכורות כבויות", "Reminders are off")
+                            )
+                            .font(.system(size: 16, weight: .heavy))
+                            .foregroundStyle(Color(hex: 0xFF111827))
+                            .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                            .multilineTextAlignment(primaryTextAlignment)
+
+                            Text(
+                                trainingRemindersEnabled
+                                ? tr("תקבל תזכורת \(trainingReminderMinutes) דקות לפני תחילת אימון.", "You will get a reminder \(trainingReminderMinutes) minutes before training starts.")
+                                : tr("הפעל כדי לקבל התראה לפני אימונים קבועים.", "Enable this to get notifications before scheduled trainings.")
+                            )
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                            .multilineTextAlignment(primaryTextAlignment)
+                        }
 
                         Toggle("", isOn: Binding(
                             get: { trainingRemindersEnabled },
                             set: { newValue in
                                 trainingRemindersEnabled = newValue
+
                                 if newValue {
                                     requestNotificationPermissionIfNeeded {
                                         scheduleTrainingReminders(minutes: trainingReminderMinutes)
                                     }
+
+                                    toast(
+                                        tr(
+                                            "תזכורות אימון הופעלו",
+                                            "Training reminders enabled"
+                                        )
+                                    )
                                 } else {
                                     cancelTrainingReminders()
+                                    toast(
+                                        tr(
+                                            "תזכורות אימון בוטלו",
+                                            "Training reminders disabled"
+                                        )
+                                    )
                                 }
+
                                 feedbackTap()
                             }
                         ))
                         .labelsHidden()
                     }
+
+                    HStack(spacing: 8) {
+                        SettingsStatusPill(
+                            title: trainingRemindersEnabled ? tr("פעיל", "Active") : tr("כבוי", "Off"),
+                            systemImage: trainingRemindersEnabled ? "bell.fill" : "bell.slash.fill",
+                            tint: trainingRemindersEnabled ? Color.green.opacity(0.82) : Color.gray.opacity(0.82),
+                            isEnglish: isEnglish
+                        )
+
+                        SettingsStatusPill(
+                            title: tr("\(trainingReminderMinutes) דק׳ לפני", "\(trainingReminderMinutes) min before"),
+                            systemImage: "clock.fill",
+                            tint: sectionIconTint,
+                            isEnglish: isEnglish
+                        )
+
+                        Spacer(minLength: 0)
+                    }
+                    .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
 
                     if trainingRemindersEnabled {
                         KmiSegmentedTabsInt(
@@ -510,6 +754,12 @@ struct SettingsView: View {
                         ) { minutes in
                             trainingReminderMinutes = minutes
                             scheduleTrainingReminders(minutes: minutes)
+                            toast(
+                                tr(
+                                    "התזכורת עודכנה ל-\(minutes) דקות לפני האימון",
+                                    "Reminder updated to \(minutes) minutes before training"
+                                )
+                            )
                             feedbackTap()
                         }
                     }
@@ -525,27 +775,71 @@ struct SettingsView: View {
                 iconSystemName: "bell.badge.fill",
                 iconTint: sectionIconTint
             ) {
-                VStack(spacing: 10) {
-                    HStack {
-                        Text(
-                            isCoach
-                            ? tr(
-                                "המאמן יכול להפעיל או לכבות לעצמו את התרגיל היומי",
-                                "The coach can enable or disable a daily exercise for themselves"
+                VStack(spacing: 12) {
+                    HStack(spacing: 12) {
+                        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 6) {
+                            Text(
+                                dailyReminderEnabledBinding.wrappedValue
+                                ? tr("תרגיל יומי פעיל", "Daily exercise is active")
+                                : tr("תרגיל יומי כבוי", "Daily exercise is off")
                             )
-                            : tr(
-                                "שלח לי כל יום תרגיל חדש מהחגורה הבאה",
-                                "Send me a daily exercise from the next belt"
-                            )
-                        )
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                        .multilineTextAlignment(primaryTextAlignment)
+                            .font(.system(size: 16, weight: .heavy))
+                            .foregroundStyle(Color(hex: 0xFF111827))
+                            .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                            .multilineTextAlignment(primaryTextAlignment)
 
-                        Toggle("", isOn: dailyReminderEnabledBinding)
-                            .labelsHidden()
+                            Text(
+                                isCoach
+                                ? tr(
+                                    "המאמן יכול להפעיל תזכורת יומית לעצמו.",
+                                    "The coach can enable a daily reminder for themselves."
+                                )
+                                : tr(
+                                    "תקבל בכל יום תרגיל מהחגורה הבאה שלך.",
+                                    "You will receive a daily exercise from your next belt."
+                                )
+                            )
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                            .multilineTextAlignment(primaryTextAlignment)
+                        }
+
+                        Toggle("", isOn: Binding(
+                            get: { dailyReminderEnabledBinding.wrappedValue },
+                            set: { newValue in
+                                dailyReminderEnabledBinding.wrappedValue = newValue
+
+                                toast(
+                                    newValue
+                                    ? tr("התרגיל היומי הופעל", "Daily exercise enabled")
+                                    : tr("התרגיל היומי בוטל", "Daily exercise disabled")
+                                )
+
+                                feedbackTap()
+                            }
+                        ))
+                        .labelsHidden()
                     }
+
+                    HStack(spacing: 8) {
+                        SettingsStatusPill(
+                            title: dailyReminderEnabledBinding.wrappedValue ? tr("פעיל", "Active") : tr("כבוי", "Off"),
+                            systemImage: dailyReminderEnabledBinding.wrappedValue ? "bell.badge.fill" : "bell.slash.fill",
+                            tint: dailyReminderEnabledBinding.wrappedValue ? Color.green.opacity(0.82) : Color.gray.opacity(0.82),
+                            isEnglish: isEnglish
+                        )
+
+                        SettingsStatusPill(
+                            title: String(format: "%02d:%02d", dailyReminderHour, dailyReminderMinute),
+                            systemImage: "clock.fill",
+                            tint: sectionIconTint,
+                            isEnglish: isEnglish
+                        )
+
+                        Spacer(minLength: 0)
+                    }
+                    .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
 
                     if dailyReminderEnabledBinding.wrappedValue {
                         DatePicker(
@@ -556,6 +850,16 @@ struct SettingsView: View {
                         .environment(\.locale, Locale(identifier: isEnglish ? "en_US" : "he_IL"))
                         .environment(\.layoutDirection, settingsLayoutDirection)
                         .datePickerStyle(.compact)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color.white.opacity(0.92))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(sectionIconTint.opacity(0.14), lineWidth: 1)
+                        )
 
                         Text(
                             tr(
@@ -581,29 +885,70 @@ struct SettingsView: View {
                 iconSystemName: "bell.badge.fill",
                 iconTint: sectionIconTint
             ) {
-                HStack {
-                    Text(
-                        tr(
-                            "התראות 30 ו-10 דקות לפני אימון חופשי שסימנת \"אני מגיע\"",
-                            "Notifications 30 and 10 minutes before a free training session marked as \"I'm coming\""
-                        )
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                    .multilineTextAlignment(primaryTextAlignment)
+                VStack(spacing: 12) {
+                    HStack(spacing: 12) {
+                        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 6) {
+                            Text(
+                                freeSessionsRemindersEnabled
+                                ? tr("תזכורות אימון חופשי פעילות", "Free training reminders are active")
+                                : tr("תזכורות אימון חופשי כבויות", "Free training reminders are off")
+                            )
+                            .font(.system(size: 16, weight: .heavy))
+                            .foregroundStyle(Color(hex: 0xFF111827))
+                            .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                            .multilineTextAlignment(primaryTextAlignment)
 
-                    Toggle("", isOn: Binding(
-                        get: { freeSessionsRemindersEnabled },
-                        set: { newValue in
-                            freeSessionsRemindersEnabled = newValue
-                            if newValue {
-                                requestNotificationPermissionIfNeeded { }
-                            }
-                            feedbackTap()
+                            Text(
+                                tr(
+                                    "תקבל התראות 30 ו־10 דקות לפני אימון שסימנת אליו הגעה.",
+                                    "You will receive alerts 30 and 10 minutes before a session you marked as attending."
+                                )
+                            )
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                            .multilineTextAlignment(primaryTextAlignment)
                         }
-                    ))
-                    .labelsHidden()
+
+                        Toggle("", isOn: Binding(
+                            get: { freeSessionsRemindersEnabled },
+                            set: { newValue in
+                                freeSessionsRemindersEnabled = newValue
+
+                                if newValue {
+                                    requestNotificationPermissionIfNeeded { }
+                                }
+
+                                toast(
+                                    newValue
+                                    ? tr("תזכורות אימון חופשי הופעלו", "Free training reminders enabled")
+                                    : tr("תזכורות אימון חופשי בוטלו", "Free training reminders disabled")
+                                )
+
+                                feedbackTap()
+                            }
+                        ))
+                        .labelsHidden()
+                    }
+
+                    HStack(spacing: 8) {
+                        SettingsStatusPill(
+                            title: freeSessionsRemindersEnabled ? tr("פעיל", "Active") : tr("כבוי", "Off"),
+                            systemImage: freeSessionsRemindersEnabled ? "bell.fill" : "bell.slash.fill",
+                            tint: freeSessionsRemindersEnabled ? Color.green.opacity(0.82) : Color.gray.opacity(0.82),
+                            isEnglish: isEnglish
+                        )
+
+                        SettingsStatusPill(
+                            title: tr("30 + 10 דק׳", "30 + 10 min"),
+                            systemImage: "timer",
+                            tint: sectionIconTint,
+                            isEnglish: isEnglish
+                        )
+
+                        Spacer(minLength: 0)
+                    }
+                    .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
                 }
             }
 
@@ -617,13 +962,29 @@ struct SettingsView: View {
                 iconSystemName: "calendar",
                 iconTint: sectionIconTint
             ) {
-                VStack(spacing: 10) {
+                VStack(spacing: 12) {
                     HStack(spacing: 12) {
-                        Text(tr("סנכרן ליומן חיצוני", "Sync to external calendar"))
-                            .font(.system(size: 16, weight: .semibold))
-                            .lineLimit(1)
+                        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 6) {
+                            Text(
+                                selectedCalendarSyncEnabled
+                                ? tr("סנכרון יומן פעיל", "Calendar sync is active")
+                                : tr("סנכרון יומן כבוי", "Calendar sync is off")
+                            )
+                            .font(.system(size: 16, weight: .heavy))
+                            .foregroundStyle(Color(hex: 0xFF111827))
                             .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
                             .multilineTextAlignment(primaryTextAlignment)
+
+                            Text(
+                                selectedCalendarIdentifier.isEmpty || selectedCalendarDisplay.isEmpty
+                                ? tr("בחר יומן יעד לפני הפעלת סנכרון.", "Choose a target calendar before enabling sync.")
+                                : tr("יומן יעד: \(selectedCalendarDisplay)", "Target calendar: \(selectedCalendarDisplay)")
+                            )
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                            .multilineTextAlignment(primaryTextAlignment)
+                        }
 
                         Toggle("", isOn: Binding(
                             get: { selectedCalendarSyncEnabled },
@@ -637,6 +998,7 @@ struct SettingsView: View {
                                     calendarSyncEnabled = false
 
                                     UserDefaults.standard.set(false, forKey: "calendar_sync_selected_enabled")
+                                    UserDefaults.standard.set(false, forKey: "calendar_sync_enabled")
 
                                     removeCalendarEvents()
 
@@ -649,25 +1011,39 @@ struct SettingsView: View {
                         .labelsHidden()
                     }
 
-                    Text(
-                        selectedCalendarIdentifier.isEmpty || selectedCalendarDisplay.isEmpty
-                        ? tr("עדיין לא נבחר יומן יעד", "No target calendar selected yet")
-                        : tr("יומן שנבחר: \(selectedCalendarDisplay)", "Selected calendar: \(selectedCalendarDisplay)")
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                    .multilineTextAlignment(primaryTextAlignment)
+                    HStack(spacing: 8) {
+                        SettingsStatusPill(
+                            title: selectedCalendarSyncEnabled ? tr("פעיל", "Active") : tr("כבוי", "Off"),
+                            systemImage: selectedCalendarSyncEnabled ? "calendar.badge.checkmark" : "calendar.badge.exclamationmark",
+                            tint: selectedCalendarSyncEnabled ? Color.green.opacity(0.82) : Color.gray.opacity(0.82),
+                            isEnglish: isEnglish
+                        )
 
-                    Button {
+                        if !selectedCalendarIdentifier.isEmpty {
+                            SettingsStatusPill(
+                                title: tr("יומן נבחר", "Calendar selected"),
+                                systemImage: "checkmark.seal.fill",
+                                tint: sectionIconTint,
+                                isEnglish: isEnglish
+                            )
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+
+                    SettingsPickerLikeButton(
+                        title: tr("בחר יומן יעד", "Choose target calendar"),
+                        subtitle: selectedCalendarIdentifier.isEmpty || selectedCalendarDisplay.isEmpty
+                        ? tr("עדיין לא נבחר יומן", "No calendar selected yet")
+                        : selectedCalendarDisplay,
+                        systemImage: "calendar.badge.plus",
+                        tint: sectionIconTint,
+                        isEnglish: isEnglish
+                    ) {
                         openCalendarPicker()
                         feedbackTap()
-                    } label: {
-                        Text(tr("בחר יומן יעד", "Choose target calendar"))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 44)
                     }
-                    .buttonStyle(.bordered)
 
                     if selectedCalendarSyncEnabled {
                         Text(
@@ -694,28 +1070,66 @@ struct SettingsView: View {
                 iconSystemName: "slider.horizontal.3",
                 iconTint: sectionIconTint
             ) {
-                VStack(spacing: 10) {
+                VStack(spacing: 12) {
+                    HStack(spacing: 8) {
+                        SettingsStatusPill(
+                            title: clickSounds ? tr("צליל פעיל", "Sound on") : tr("צליל כבוי", "Sound off"),
+                            systemImage: clickSounds ? "speaker.wave.2.fill" : "speaker.slash.fill",
+                            tint: clickSounds ? Color.green.opacity(0.82) : Color.gray.opacity(0.82),
+                            isEnglish: isEnglish
+                        )
 
-                    toggleRow(
+                        SettingsStatusPill(
+                            title: hapticsOn ? tr("רטט פעיל", "Haptics on") : tr("רטט כבוי", "Haptics off"),
+                            systemImage: hapticsOn ? "hand.tap.fill" : "hand.raised.slash.fill",
+                            tint: hapticsOn ? Color.green.opacity(0.82) : Color.gray.opacity(0.82),
+                            isEnglish: isEnglish
+                        )
+
+                        Spacer(minLength: 0)
+                    }
+                    .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+
+                    SettingsPremiumToggleRow(
                         title: tr("צליל הקשה בכפתורים", "Button tap sound"),
+                        subtitle: tr("השמעת צליל קצר בעת לחיצה על כפתורים.", "Play a short sound when tapping buttons."),
+                        systemImage: "speaker.wave.2.fill",
+                        tint: sectionIconTint,
+                        isEnglish: isEnglish,
                         isOn: $clickSounds
                     ) { enabled in
-                        clickSounds = enabled
+                        UserDefaults.standard.set(enabled, forKey: "click_sounds")
+                        UserDefaults.standard.set(enabled, forKey: "tap_sound")
 
                         if enabled {
                             playClick()
+                            toast(tr("צלילי הקשה הופעלו", "Button tap sound enabled"))
+                        } else {
+                            toast(tr("צלילי הקשה בוטלו", "Button tap sound disabled"))
                         }
+
+                        feedbackTap()
                     }
 
-                    toggleRow(
+                    SettingsPremiumToggleRow(
                         title: tr("רטט קצר בעת סימון ✓/✗", "Short haptic on ✓/✗ marking"),
+                        subtitle: tr("משוב רטט קצר בפעולות סימון ואישור.", "Short haptic feedback for marking and confirmation actions."),
+                        systemImage: "hand.tap.fill",
+                        tint: sectionIconTint,
+                        isEnglish: isEnglish,
                         isOn: $hapticsOn
                     ) { enabled in
-                        hapticsOn = enabled
+                        UserDefaults.standard.set(enabled, forKey: "haptics_on")
+                        UserDefaults.standard.set(enabled, forKey: "short_haptic")
 
                         if enabled {
                             hapticLight()
+                            toast(tr("רטט קצר הופעל", "Short haptic enabled"))
+                        } else {
+                            toast(tr("רטט קצר בוטל", "Short haptic disabled"))
                         }
+
+                        feedbackTap()
                     }
                 }
             }
@@ -730,25 +1144,57 @@ struct SettingsView: View {
                 iconSystemName: "person.wave.2.fill",
                 iconTint: sectionIconTint
             ) {
-                VStack(spacing: 10) {
-                    Text(tr("בחר קול להשמעה:", "Choose voice playback:"))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                        .multilineTextAlignment(primaryTextAlignment)
-
-                    KmiVoiceTabs(
-                        voice: Binding<String>(
-                            get: { cloudVoice },
-                            set: { newValue in
-                                cloudVoice = newValue
-                                UserDefaults.standard.set(newValue, forKey: "kmi_tts_voice")
-                                feedbackTap()
-                            }
+                VStack(spacing: 12) {
+                    HStack(spacing: 8) {
+                        SettingsStatusPill(
+                            title: cloudVoice == "female" ? tr("קול אישה", "Female voice") : tr("קול גבר", "Male voice"),
+                            systemImage: "waveform",
+                            tint: sectionIconTint,
+                            isEnglish: isEnglish
                         )
-                    ) {
-                        feedbackTap()
+
+                        Spacer(minLength: 0)
                     }
+                    .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+
+                    VStack(spacing: 8) {
+                        Text(tr("בחר קול להשמעה:", "Choose voice playback:"))
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                            .multilineTextAlignment(primaryTextAlignment)
+
+                        KmiVoiceTabs(
+                            voice: Binding<String>(
+                                get: { cloudVoice },
+                                set: { newValue in
+                                    cloudVoice = newValue
+                                    UserDefaults.standard.set(newValue, forKey: "voice")
+                                    UserDefaults.standard.set(newValue, forKey: "kmi_tts_voice")
+
+                                    toast(
+                                        newValue == "female"
+                                        ? tr("נבחר קול אישה", "Female voice selected")
+                                        : tr("נבחר קול גבר", "Male voice selected")
+                                    )
+
+                                    feedbackTap()
+                                }
+                            )
+                        ) {
+                            feedbackTap()
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color.white.opacity(0.92))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(sectionIconTint.opacity(0.14), lineWidth: 1)
+                    )
 
                     Text(
                         tr(
@@ -773,16 +1219,57 @@ struct SettingsView: View {
                 iconSystemName: "paintpalette.fill",
                 iconTint: sectionIconTint
             ) {
-                VStack(spacing: 10) {
-                    Text(tr("בחר מצב תצוגה:", "Choose display mode:"))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                        .multilineTextAlignment(primaryTextAlignment)
+                VStack(spacing: 12) {
+                    HStack(spacing: 8) {
+                        SettingsStatusPill(
+                            title: themeDisplayName(),
+                            systemImage: themeStatusIconName(),
+                            tint: sectionIconTint,
+                            isEnglish: isEnglish
+                        )
 
-                    KmiThemeTabs(themeMode: $themeMode) {
-                        feedbackTap()
+                        Spacer(minLength: 0)
                     }
+                    .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+
+                    VStack(spacing: 8) {
+                        Text(tr("בחר מצב תצוגה:", "Choose display mode:"))
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                            .multilineTextAlignment(primaryTextAlignment)
+
+                        KmiThemeTabs(
+                            themeMode: Binding<String>(
+                                get: { themeMode },
+                                set: { newValue in
+                                    themeMode = newValue
+                                    UserDefaults.standard.set(newValue, forKey: "theme_mode")
+
+                                    toast(
+                                        tr(
+                                            "מצב התצוגה עודכן ל-\(themeDisplayName(for: newValue))",
+                                            "Display mode updated to \(themeDisplayName(for: newValue))"
+                                        )
+                                    )
+
+                                    feedbackTap()
+                                }
+                            )
+                        ) {
+                            feedbackTap()
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color.white.opacity(0.92))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(sectionIconTint.opacity(0.14), lineWidth: 1)
+                    )
 
                     Text(
                         tr(
@@ -807,52 +1294,97 @@ struct SettingsView: View {
                 iconSystemName: "lock.fill",
                 iconTint: sectionIconTint
             ) {
-                VStack(spacing: 10) {
-                    Picker(
-                        "",
-                        selection: Binding<String>(
-                            get: {
-                                appLockMode == "biometric" ? "biometric" : "none"
-                            },
-                            set: { mode in
-                                switch mode {
-                                case "none":
-                                    appLockMode = "none"
-                                    feedbackTap()
-                                    toast(tr("נעילת האפליקציה בוטלה", "App lock disabled"))
+                VStack(spacing: 12) {
+                    HStack(spacing: 8) {
+                        SettingsStatusPill(
+                            title: appLockMode == "biometric" ? tr("נעילה פעילה", "Lock enabled") : tr("ללא נעילה", "No lock"),
+                            systemImage: appLockMode == "biometric" ? "lock.fill" : "lock.open.fill",
+                            tint: appLockMode == "biometric" ? Color.green.opacity(0.82) : Color.gray.opacity(0.82),
+                            isEnglish: isEnglish
+                        )
 
-                                case "biometric":
-                                    appLockMode = "biometric"
-                                    authenticateBiometricIfAvailable { ok in
-                                        if !ok {
-                                            appLockMode = "none"
-                                        }
+                        SettingsStatusPill(
+                            title: biometricAvailable() ? tr("ביומטרי זמין", "Biometric available") : tr("ביומטרי לא זמין", "Biometric unavailable"),
+                            systemImage: biometricAvailable() ? "faceid" : "exclamationmark.triangle.fill",
+                            tint: biometricAvailable() ? sectionIconTint : Color.orange.opacity(0.88),
+                            isEnglish: isEnglish
+                        )
+
+                        Spacer(minLength: 0)
+                    }
+                    .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+
+                    VStack(spacing: 8) {
+                        Picker(
+                            "",
+                            selection: Binding<String>(
+                                get: {
+                                    appLockMode == "biometric" ? "biometric" : "none"
+                                },
+                                set: { mode in
+                                    switch mode {
+                                    case "none":
+                                        appLockMode = "none"
+                                        UserDefaults.standard.set("none", forKey: "app_lock_mode")
                                         feedbackTap()
+                                        toast(tr("נעילת האפליקציה בוטלה", "App lock disabled"))
+
+                                    case "biometric":
+                                        appLockMode = "biometric"
+                                        UserDefaults.standard.set("biometric", forKey: "app_lock_mode")
+
+                                        authenticateBiometricIfAvailable { ok in
+                                            if ok {
+                                                toast(tr("נעילה ביומטרית הופעלה", "Biometric lock enabled"))
+                                                hapticSuccess()
+                                            } else {
+                                                appLockMode = "none"
+                                                UserDefaults.standard.set("none", forKey: "app_lock_mode")
+                                                toast(tr("לא ניתן להפעיל נעילה ביומטרית", "Could not enable biometric lock"))
+                                                hapticError()
+                                            }
+
+                                            feedbackTap()
+                                        }
+
+                                    default:
+                                        appLockMode = "none"
+                                        UserDefaults.standard.set("none", forKey: "app_lock_mode")
                                     }
-
-                                default:
-                                    appLockMode = "none"
                                 }
-                            }
-                        )
-                    ) {
-                        Text(tr("ללא\nנעילה", "No\nlock")).tag("none")
-                        Text(tr("נעילה\nבאצבע", "Biometric\nlock")).tag("biometric")
-                    }
-                    .pickerStyle(.segmented)
-
-                    if !biometricAvailable() {
-                        Text(
-                            tr(
-                                "ביומטרי לא זמין במכשיר או לא הוגדר למשתמש.",
-                                "Biometric authentication is not available or not configured for this user."
                             )
-                        )
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                        .multilineTextAlignment(primaryTextAlignment)
+                        ) {
+                            Text(tr("ללא\nנעילה", "No\nlock")).tag("none")
+                            Text(tr("נעילה\nביומטרית", "Biometric\nlock")).tag("biometric")
+                        }
+                        .pickerStyle(.segmented)
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color.white.opacity(0.92))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(sectionIconTint.opacity(0.14), lineWidth: 1)
+                    )
+
+                    Text(
+                        biometricAvailable()
+                        ? tr(
+                            "כאשר הנעילה פעילה, האפליקציה תדרוש זיהוי ביומטרי בהתאם להגדרות המכשיר.",
+                            "When enabled, the app will require biometric authentication according to the device settings."
+                        )
+                        : tr(
+                            "ביומטרי לא זמין במכשיר או לא הוגדר למשתמש.",
+                            "Biometric authentication is not available or not configured for this user."
+                        )
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                    .multilineTextAlignment(primaryTextAlignment)
                 }
             }
 
@@ -863,20 +1395,70 @@ struct SettingsView: View {
                 iconSystemName: "chart.bar.fill",
                 iconTint: sectionIconTint
             ) {
-                VStack(spacing: 10) {
+                VStack(spacing: 12) {
+                    HStack(spacing: 8) {
+                        if isEnglish {
+                            SettingsStatusPill(
+                                title: tr("חגורה \(settingsRankDisplayName())", "Rank \(settingsRankDisplayName())"),
+                                systemImage: "rosette",
+                                tint: currentBeltTextColor(),
+                                isEnglish: isEnglish
+                            )
 
-                    Text(
-                        tr(
-                            "דרגתי הנוכחית: חגורה \(settingsRankDisplayName())",
-                            "My current rank: \(settingsRankDisplayName())"
+                            SettingsStatusPill(
+                                title: settingsRoleDisplayName(),
+                                systemImage: settingsRoleIconName(),
+                                tint: sectionIconTint,
+                                isEnglish: isEnglish
+                            )
+
+                            Spacer(minLength: 0)
+                        } else {
+                            Spacer(minLength: 0)
+
+                            SettingsStatusPill(
+                                title: settingsRoleDisplayName(),
+                                systemImage: settingsRoleIconName(),
+                                tint: sectionIconTint,
+                                isEnglish: isEnglish
+                            )
+
+                            SettingsStatusPill(
+                                title: tr("חגורה \(settingsRankDisplayName())", "Rank \(settingsRankDisplayName())"),
+                                systemImage: "rosette",
+                                tint: currentBeltTextColor(),
+                                isEnglish: isEnglish
+                            )
+                        }
+                    }
+                    .environment(\.layoutDirection, .leftToRight)
+
+                    VStack(spacing: 10) {
+                        Text(
+                            tr(
+                                "ההתקדמות מחושבת לפי סימוני יודע / לחזרה ששמרת במסכי החומר והתרגול.",
+                                "Progress is calculated from the known / review marks saved in the material and practice screens."
+                            )
                         )
-                    )
-                    .font(.system(size: 16, weight: .heavy))
-                    .foregroundStyle(currentBeltTextColor())
-                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                    .multilineTextAlignment(primaryTextAlignment)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0xFF64748B))
+                        .lineSpacing(2)
+                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                        .multilineTextAlignment(primaryTextAlignment)
 
-                    BeltsProgressBarsIOS(rows: beltProgressRowsFromDefaults())
+                        BeltsProgressBarsIOS(rows: beltProgressRowsFromDefaults())
+                            .padding(.top, 2)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color.white.opacity(0.92))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(sectionIconTint.opacity(0.14), lineWidth: 1)
+                    )
                 }
             }
      
@@ -888,29 +1470,27 @@ struct SettingsView: View {
                 iconTint: sectionIconTint
             ) {
                 VStack(spacing: 10) {
-                    Button {
-                        coachBroadcastRecentsJson = ""
-                        toast(tr("היסטוריית השידורים נוקתה", "Broadcast history was cleared"))
-                        hapticSuccess()
-                    } label: {
-                        Text(tr("נקה היסטוריית שידורים", "Clear broadcast history"))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 44)
+                    SettingsPremiumActionButton(
+                        title: tr("נקה היסטוריית שידורים", "Clear broadcast history"),
+                        subtitle: tr("מוחק רק רשימת שידורים אחרונים", "Clears only recent broadcasts"),
+                        systemImage: "megaphone.fill",
+                        tint: sectionIconTint,
+                        isDestructive: false
+                    ) {
+                        feedbackTap()
+                        showClearBroadcastHistoryConfirm = true
                     }
-                    .buttonStyle(.borderedProminent)
 
-                    Button {
-                        isBusy = true
-                        let ok = clearAppCacheIOS()
-                        isBusy = false
-                        toast(ok ? tr("נוקו קבצי המטמון", "Cache files cleared") : tr("ניקוי נכשל", "Clear failed"))
-                        ok ? hapticSuccess() : hapticError()
-                    } label: {
-                        Text(tr("נקה מטמון אפליקציה", "Clear app cache"))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 44)
+                    SettingsPremiumActionButton(
+                        title: tr("נקה מטמון אפליקציה", "Clear app cache"),
+                        subtitle: tr("לא מוחק חשבון או הרשמה", "Does not delete account or registration"),
+                        systemImage: "trash.fill",
+                        tint: sectionIconTint,
+                        isDestructive: true
+                    ) {
+                        feedbackTap()
+                        showClearCacheConfirm = true
                     }
-                    .buttonStyle(.bordered)
                 }
             }
 
@@ -922,35 +1502,64 @@ struct SettingsView: View {
                 iconTint: sectionIconTint
             ) {
                 VStack(spacing: 12) {
-                    LegalTile(
-                        title: tr("מדיניות פרטיות", "Privacy policy"),
-                        subtitle: tr("איך אנחנו שומרים על הנתונים שלך", "How we protect your data"),
-                        systemIcon: "lock.fill"
-                    ) {
-                        legalInitialTab = 1
-                        goLegal = true
-                        feedbackTap()
-                    }
+                    HStack(spacing: 8) {
+                        SettingsStatusPill(
+                            title: tr("פרטיות", "Privacy"),
+                            systemImage: "lock.fill",
+                            tint: sectionIconTint,
+                            isEnglish: isEnglish
+                        )
 
-                    LegalTile(
-                        title: tr("תנאי שימוש", "Terms of use"),
-                        subtitle: tr("כללי שימוש והתחייבויות המשתמש", "Usage rules and user responsibilities"),
-                        systemIcon: "hammer.fill"
-                    ) {
-                        legalInitialTab = 0
-                        goLegal = true
-                        feedbackTap()
-                    }
+                        SettingsStatusPill(
+                            title: tr("תנאים", "Terms"),
+                            systemImage: "doc.text.fill",
+                            tint: sectionIconTint,
+                            isEnglish: isEnglish
+                        )
 
-                    LegalTile(
-                        title: tr("הצהרת נגישות", "Accessibility statement"),
-                        subtitle: tr("מידע על התאמות ונגישות באפליקציה", "Information about accessibility and adaptations in the app"),
-                        systemIcon: "figure.stand"
-                    ) {
-                        legalInitialTab = 2
-                        goLegal = true
-                        feedbackTap()
+                        SettingsStatusPill(
+                            title: tr("נגישות", "Accessibility"),
+                            systemImage: "figure.stand",
+                            tint: sectionIconTint,
+                            isEnglish: isEnglish
+                        )
+
+                        Spacer(minLength: 0)
                     }
+                    .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+
+                    VStack(spacing: 10) {
+                        LegalTile(
+                            title: tr("מדיניות פרטיות", "Privacy policy"),
+                            subtitle: tr("איך אנחנו שומרים על הנתונים שלך", "How we protect your data"),
+                            systemIcon: "lock.fill"
+                        ) {
+                            legalInitialTab = 1
+                            goLegal = true
+                            feedbackTap()
+                        }
+
+                        LegalTile(
+                            title: tr("תנאי שימוש", "Terms of use"),
+                            subtitle: tr("כללי שימוש והתחייבויות המשתמש", "Usage rules and user responsibilities"),
+                            systemIcon: "hammer.fill"
+                        ) {
+                            legalInitialTab = 0
+                            goLegal = true
+                            feedbackTap()
+                        }
+
+                        LegalTile(
+                            title: tr("הצהרת נגישות", "Accessibility statement"),
+                            subtitle: tr("מידע על התאמות ונגישות באפליקציה", "Information about accessibility and adaptations in the app"),
+                            systemIcon: "figure.stand"
+                        ) {
+                            legalInitialTab = 2
+                            goLegal = true
+                            feedbackTap()
+                        }
+                    }
+                    .padding(.top, 2)
                 }
             }
 
@@ -962,48 +1571,477 @@ struct SettingsView: View {
                 iconTint: sectionIconTint
             ) {
                 VStack(spacing: 10) {
-                    Text(appVersionLine())
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                        .multilineTextAlignment(primaryTextAlignment)
+                    HStack(spacing: 8) {
+                        if isEnglish {
+                            Image(systemName: "info.circle.fill")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(sectionIconTint)
+
+                            Text(appVersionLine())
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .multilineTextAlignment(.leading)
+                        } else {
+                            Text(appVersionLine())
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                .multilineTextAlignment(.trailing)
+
+                            Image(systemName: "info.circle.fill")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(sectionIconTint)
+                        }
+                    }
+                    .environment(\.layoutDirection, .leftToRight)
 
                     HStack(spacing: 10) {
-                        Button {
+                        SettingsPremiumActionButton(
+                            title: tr("שלח משוב", "Send feedback"),
+                            subtitle: nil,
+                            systemImage: "envelope.fill",
+                            tint: sectionIconTint,
+                            isDestructive: false
+                        ) {
                             sendFeedbackEmailWithSystemDetails()
                             hapticSuccess()
-                        } label: {
-                            Text(tr("שלח משוב", "Send feedback"))
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 44)
                         }
-                        .buttonStyle(.borderedProminent)
 
-                        Button {
+                        SettingsPremiumActionButton(
+                            title: tr("דרג בחנות", "Rate in store"),
+                            subtitle: nil,
+                            systemImage: "star.fill",
+                            tint: Color.orange.opacity(0.92),
+                            isDestructive: false
+                        ) {
                             requestReview()
                             hapticSuccess()
-                        } label: {
-                            Text(tr("דרג בחנות", "Rate in store"))
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 44)
                         }
-                        .buttonStyle(.bordered)
                     }
 
-                    Button {
+                    SettingsPremiumActionButton(
+                        title: tr("שתף את האפליקציה", "Share the app"),
+                        subtitle: tr("שליחה לחברים או מתאמנים", "Send to friends or trainees"),
+                        systemImage: "square.and.arrow.up.fill",
+                        tint: sectionIconTint,
+                        isDestructive: false
+                    ) {
                         shareApp()
                         hapticSuccess()
-                    } label: {
-                        Text(tr("שתף את האפליקציה", "Share the app"))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 44)
                     }
-                    .buttonStyle(.bordered)
                 }
             }
         }
     }
 
+    private struct SettingsHeaderChip: View {
+        let title: String
+        let systemImage: String
+        let tint: Color
+        let isEnglish: Bool
+
+        var body: some View {
+            HStack(spacing: 5) {
+                if isEnglish {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 10.5, weight: .black))
+
+                    Text(title)
+                        .font(.system(size: 11.5, weight: .black))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                } else {
+                    Text(title)
+                        .font(.system(size: 11.5, weight: .black))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+
+                    Image(systemName: systemImage)
+                        .font(.system(size: 10.5, weight: .black))
+                }
+            }
+            .foregroundStyle(tint)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                Capsule()
+                    .fill(tint.opacity(0.12))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(tint.opacity(0.18), lineWidth: 1)
+            )
+        }
+    }
+    
+    private struct SettingsPremiumActionButton: View {
+        let title: String
+        let subtitle: String?
+        let systemImage: String
+        let tint: Color
+        let isDestructive: Bool
+        let onTap: () -> Void
+
+        @State private var pressed: Bool = false
+
+        private var effectiveTint: Color {
+            isDestructive ? Color(red: 0.70, green: 0.15, blue: 0.12) : tint
+        }
+
+        private var textAlignment: TextAlignment {
+            .center
+        }
+
+        var body: some View {
+            Button {
+                withAnimation(.easeOut(duration: 0.10)) {
+                    pressed = true
+                }
+
+                onTap()
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.13) {
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        pressed = false
+                    }
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 17, weight: .black))
+                        .frame(width: 24)
+
+                    VStack(spacing: 2) {
+                        Text(title)
+                            .font(.system(size: 15.5, weight: .black))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.78)
+                            .multilineTextAlignment(textAlignment)
+
+                        if let subtitle, !subtitle.isEmpty {
+                            Text(subtitle)
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.74)
+                                .multilineTextAlignment(textAlignment)
+                                .opacity(0.88)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .foregroundStyle(Color.white)
+                .padding(.horizontal, 14)
+                .frame(maxWidth: .infinity)
+                .frame(height: subtitle == nil ? 48 : 58)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(effectiveTint)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                )
+                .shadow(color: effectiveTint.opacity(0.18), radius: 8, x: 0, y: 4)
+                .scaleEffect(pressed ? 0.96 : 1.0)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+    
+    private struct SettingsPremiumToggleRow: View {
+        let title: String
+        let subtitle: String
+        let systemImage: String
+        let tint: Color
+        let isEnglish: Bool
+        @Binding var isOn: Bool
+        let onChange: (Bool) -> Void
+
+        private var textAlignment: TextAlignment {
+            isEnglish ? .leading : .trailing
+        }
+
+        private var frameAlignment: Alignment {
+            isEnglish ? .leading : .trailing
+        }
+
+        var body: some View {
+            HStack(spacing: 12) {
+                if isEnglish {
+                    iconBubble
+                    textBlock
+                    toggleView
+                } else {
+                    toggleView
+                    textBlock
+                    iconBubble
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.white.opacity(0.94))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(tint.opacity(isOn ? 0.26 : 0.14), lineWidth: 1)
+            )
+            .shadow(color: tint.opacity(isOn ? 0.10 : 0.05), radius: 8, x: 0, y: 4)
+            .environment(\.layoutDirection, .leftToRight)
+        }
+
+        private var iconBubble: some View {
+            ZStack {
+                Circle()
+                    .fill(tint.opacity(isOn ? 0.16 : 0.09))
+                    .frame(width: 40, height: 40)
+
+                Image(systemName: systemImage)
+                    .font(.system(size: 16, weight: .black))
+                    .foregroundStyle(tint.opacity(isOn ? 1.0 : 0.62))
+            }
+        }
+
+        private var textBlock: some View {
+            VStack(alignment: isEnglish ? .leading : .trailing, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 15.5, weight: .black))
+                    .foregroundStyle(Color(hex: 0xFF111827))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                    .multilineTextAlignment(textAlignment)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+
+                Text(subtitle)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0xFF64748B))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.76)
+                    .multilineTextAlignment(textAlignment)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+            }
+        }
+
+        private var toggleView: some View {
+            Toggle(
+                "",
+                isOn: Binding(
+                    get: { isOn },
+                    set: { newValue in
+                        isOn = newValue
+                        onChange(newValue)
+                    }
+                )
+            )
+            .labelsHidden()
+        }
+    }
+    
+    private struct SettingsStatusPill: View {
+        let title: String
+        let systemImage: String
+        let tint: Color
+        let isEnglish: Bool
+
+        var body: some View {
+            HStack(spacing: 6) {
+                if isEnglish {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 11, weight: .black))
+
+                    Text(title)
+                        .font(.system(size: 12, weight: .heavy))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                } else {
+                    Text(title)
+                        .font(.system(size: 12, weight: .heavy))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+
+                    Image(systemName: systemImage)
+                        .font(.system(size: 11, weight: .black))
+                }
+            }
+            .foregroundStyle(tint)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                Capsule()
+                    .fill(tint.opacity(0.11))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(tint.opacity(0.18), lineWidth: 1)
+            )
+            .environment(\.layoutDirection, .leftToRight)
+        }
+    }
+    
+    private struct SettingsPickerLikeButton: View {
+        let title: String
+        let subtitle: String?
+        let systemImage: String
+        let tint: Color
+        let isEnglish: Bool
+        let onTap: () -> Void
+
+        @State private var pressed: Bool = false
+
+        private var textAlignment: TextAlignment {
+            isEnglish ? .leading : .trailing
+        }
+
+        private var frameAlignment: Alignment {
+            isEnglish ? .leading : .trailing
+        }
+
+        var body: some View {
+            Button {
+                withAnimation(.easeOut(duration: 0.10)) {
+                    pressed = true
+                }
+
+                onTap()
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.13) {
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        pressed = false
+                    }
+                }
+            } label: {
+                HStack(spacing: 11) {
+                    if isEnglish {
+                        iconBubble
+
+                        textBlock
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .black))
+                            .foregroundStyle(tint.opacity(0.82))
+                    } else {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 13, weight: .black))
+                            .foregroundStyle(tint.opacity(0.82))
+
+                        textBlock
+
+                        iconBubble
+                    }
+                }
+                .padding(.horizontal, 14)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 58)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.white.opacity(0.94))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(tint.opacity(0.18), lineWidth: 1)
+                )
+                .shadow(color: tint.opacity(0.08), radius: 8, x: 0, y: 4)
+                .scaleEffect(pressed ? 0.97 : 1.0)
+            }
+            .buttonStyle(.plain)
+            .environment(\.layoutDirection, .leftToRight)
+        }
+
+        private var iconBubble: some View {
+            ZStack {
+                Circle()
+                    .fill(tint.opacity(0.13))
+                    .frame(width: 38, height: 38)
+
+                Image(systemName: systemImage)
+                    .font(.system(size: 16, weight: .black))
+                    .foregroundStyle(tint)
+            }
+        }
+
+        private var textBlock: some View {
+            VStack(alignment: isEnglish ? .leading : .trailing, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 15.5, weight: .black))
+                    .foregroundStyle(Color(hex: 0xFF111827))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                    .multilineTextAlignment(textAlignment)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0xFF64748B))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.76)
+                        .multilineTextAlignment(textAlignment)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                }
+            }
+        }
+    }
+    
+    private struct SettingsFooterButton: View {
+        let title: String
+        let systemImage: String
+        let isPrimary: Bool
+        let tint: Color
+        let onTap: () -> Void
+
+        @State private var pressed: Bool = false
+
+        private var fillColor: Color {
+            isPrimary ? tint : Color.white.opacity(0.96)
+        }
+
+        private var textColor: Color {
+            isPrimary ? Color.white : tint
+        }
+
+        var body: some View {
+            Button {
+                withAnimation(.easeOut(duration: 0.10)) {
+                    pressed = true
+                }
+
+                onTap()
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.13) {
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        pressed = false
+                    }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 14, weight: .black))
+
+                    Text(title)
+                        .font(.system(size: 16, weight: .black))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                }
+                .foregroundStyle(textColor)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(fillColor)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(isPrimary ? Color.white.opacity(0.22) : tint.opacity(0.20), lineWidth: 1)
+                )
+                .shadow(color: tint.opacity(isPrimary ? 0.18 : 0.08), radius: 8, x: 0, y: 4)
+                .scaleEffect(pressed ? 0.96 : 1.0)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+    
     private func sendFeedbackEmailWithSystemDetails() {
         let bundleId = Bundle.main.bundleIdentifier ?? "-"
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-"
@@ -1024,7 +2062,7 @@ struct SettingsView: View {
         """
 
         mailData = MailData(
-            to: "support@kmi.example",
+            to: supportEmailAddress,
             subject: tr("משוב על האפליקציה", "App feedback"),
             body: body
         )
@@ -1036,13 +2074,24 @@ struct SettingsView: View {
         NavigationStack {
             VStack(spacing: 12) {
                 if availableWritableCalendars.isEmpty {
-                    VStack(spacing: 12) {
-                        Image(systemName: "calendar.badge.exclamationmark")
-                            .font(.system(size: 42, weight: .semibold))
-                            .foregroundStyle(.secondary)
+                    VStack(spacing: 14) {
+                        ZStack {
+                            Circle()
+                                .fill(sectionIconTint.opacity(0.12))
+                                .frame(width: 82, height: 82)
+
+                            Image(systemName: "calendar.badge.exclamationmark")
+                                .font(.system(size: 34, weight: .bold))
+                                .foregroundStyle(sectionIconTint)
+                        }
+
+                        Text(tr("לא נמצאו יומנים זמינים", "No calendars found"))
+                            .font(.system(size: 20, weight: .black))
+                            .foregroundStyle(Color(hex: 0xFF111827))
+                            .multilineTextAlignment(.center)
 
                         Text(tr("לא נמצאו יומנים זמינים לכתיבה במכשיר.", "No writable calendars were found on this device."))
-                            .font(.body)
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 24)
@@ -1080,7 +2129,9 @@ struct SettingsView: View {
     }
 
     private func calendarPickerRow(_ calendar: EKCalendar) -> some View {
-        Button {
+        let selected = tempSelectedCalendarIdentifier == calendar.calendarIdentifier
+
+        return Button {
             tempSelectedCalendarIdentifier = calendar.calendarIdentifier
             feedbackTap()
         } label: {
@@ -1088,37 +2139,50 @@ struct SettingsView: View {
                 if isEnglish {
                     calendarPickerCheckmark(calendar)
 
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text(calendar.title.isEmpty ? tr("יומן ללא שם", "Unnamed calendar") : calendar.title)
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.primary)
+                            .font(.system(size: 16, weight: .heavy))
+                            .foregroundStyle(Color(hex: 0xFF111827))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.78)
 
                         Text(calendar.source.title)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0xFF64748B))
+                            .lineLimit(1)
                     }
 
                     Spacer()
                 } else {
                     Spacer()
 
-                    VStack(alignment: .trailing, spacing: 3) {
+                    VStack(alignment: .trailing, spacing: 4) {
                         Text(calendar.title.isEmpty ? tr("יומן ללא שם", "Unnamed calendar") : calendar.title)
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.primary)
+                            .font(.system(size: 16, weight: .heavy))
+                            .foregroundStyle(Color(hex: 0xFF111827))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.78)
 
                         Text(calendar.source.title)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0xFF64748B))
+                            .lineLimit(1)
                     }
 
                     calendarPickerCheckmark(calendar)
                 }
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(Color(.secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .padding(.vertical, 13)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(selected ? sectionIconTint.opacity(0.10) : Color(.secondarySystemBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(selected ? sectionIconTint.opacity(0.30) : Color.clear, lineWidth: 1)
+            )
+            .shadow(color: selected ? sectionIconTint.opacity(0.10) : Color.black.opacity(0.03), radius: 6, x: 0, y: 3)
         }
         .buttonStyle(.plain)
     }
@@ -1159,11 +2223,15 @@ struct SettingsView: View {
             $0.calendarIdentifier == tempSelectedCalendarIdentifier
         }) else {
             toast(tr("יש לבחור יומן תקין", "Please choose a valid calendar"))
+            hapticError()
             return
         }
 
         selectedCalendarIdentifier = selected.calendarIdentifier
         selectedCalendarDisplay = "\(selected.title) (\(selected.source.title))"
+
+        UserDefaults.standard.set(selectedCalendarIdentifier, forKey: "calendar_sync_selected_calendar_id")
+        UserDefaults.standard.set(selectedCalendarDisplay, forKey: "calendar_sync_selected_calendar_display")
 
         showCalendarPicker = false
         feedbackTap()
@@ -1172,6 +2240,7 @@ struct SettingsView: View {
             enableSelectedCalendarSync()
         } else {
             toast(tr("היומן נשמר. אפשר להפעיל סנכרון.", "Calendar saved. You can now enable sync."))
+            hapticSuccess()
         }
     }
 
@@ -1250,38 +2319,27 @@ struct SettingsView: View {
     // MARK: Action buttons
     private var actionButtons: some View {
         HStack(spacing: 12) {
-            if isEnglish {
-                cancelSettingsButton
-                okSettingsButton
-            } else {
-                okSettingsButton
-                cancelSettingsButton
+            SettingsFooterButton(
+                title: tr("ביטול", "Cancel"),
+                systemImage: "xmark.circle",
+                isPrimary: false,
+                tint: sectionIconTint
+            ) {
+                feedbackTap()
+                nav.pop()
+            }
+
+            SettingsFooterButton(
+                title: tr("אישור", "Confirm"),
+                systemImage: "checkmark.circle.fill",
+                isPrimary: true,
+                tint: sectionIconTint
+            ) {
+                hapticSuccess()
+                nav.pop()
             }
         }
-    }
-
-    private var cancelSettingsButton: some View {
-        Button {
-            // ✅ מסך גלובאלי: חוזרים אחורה בנתיב
-            nav.pop()
-        } label: {
-            Text(tr("ביטול", "Cancel"))
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-        }
-        .buttonStyle(.bordered)
-    }
-
-    private var okSettingsButton: some View {
-        Button {
-            // ✅ ההעדפות נשמרות inline; פשוט חוזרים
-            nav.pop()
-        } label: {
-            Text(tr("אישור", "Confirm"))
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-        }
-        .buttonStyle(.borderedProminent)
+        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
     }
 
     // MARK: - Fix branch/group loading
@@ -1300,6 +2358,8 @@ struct SettingsView: View {
             defaults.string(forKey: "active_branch") ??
             defaults.string(forKey: "branch") ??
             defaults.string(forKey: "kmi.user.branch") ??
+            defaults.string(forKey: "selected_branch") ??
+            defaults.string(forKey: "current_branch") ??
             fallbackBranchFromArray
         )
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1308,16 +2368,16 @@ struct SettingsView: View {
             defaults.string(forKey: "active_group") ??
             defaults.string(forKey: "group") ??
             defaults.string(forKey: "kmi.user.group") ??
+            defaults.string(forKey: "groupKey") ??
+            defaults.string(forKey: "group_key") ??
+            defaults.string(forKey: "primaryGroup") ??
+            defaults.string(forKey: "age_group") ??
+            defaults.string(forKey: "ageGroup") ??
             fallbackGroupFromArray
         )
         .trimmingCharacters(in: .whitespacesAndNewlines)
 
         branch = resolvedBranch
         group = resolvedGroup
-
-        print("⚙️ SettingsView loaded branch =", branch)
-        print("⚙️ SettingsView loaded group =", group)
-        print("⚙️ SettingsView loaded branches array =", defaults.stringArray(forKey: "branches") ?? [])
-        print("⚙️ SettingsView loaded groups array =", defaults.stringArray(forKey: "groups") ?? [])
     }
 }

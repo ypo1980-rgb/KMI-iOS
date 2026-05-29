@@ -14,6 +14,7 @@ import FirebaseStorage
 
 private struct ForumUiMessage: Identifiable, Hashable {
     let id: String
+    let messageId: String
     let branch: String
     let groupKey: String
     let authorName: String
@@ -21,6 +22,8 @@ private struct ForumUiMessage: Identifiable, Hashable {
     let authorUid: String?
     let text: String
     let createdAt: Date
+    let createdAtMillis: Int64
+    let updatedAtMillis: Int64?
     let mediaUrl: String?
     let mediaType: String? // "image" / "video" / nil
 
@@ -334,6 +337,91 @@ struct ForumView: View {
     private func canUseForumFromSubscription(_ defaults: UserDefaults = .standard) -> Bool {
         let isManager = defaults.bool(forKey: "is_manager")
         return isManager || hasActiveSubscriptionAccess(defaults)
+    }
+
+    private func forumSafeDocumentId(_ raw: String) -> String {
+        let clean = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "־", with: "-")
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: "—", with: "-")
+            .replacingOccurrences(of: "\\s+", with: "_", options: .regularExpression)
+            .replacingOccurrences(of: "[^a-z0-9א-ת_\\-]+", with: "_", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+
+        return clean.isEmpty ? "default" : clean
+    }
+
+    private func forumRoomDocumentId(
+        branch: String,
+        groupKey: String
+    ) -> String {
+        "room_\(forumSafeDocumentId(branch))_\(forumSafeDocumentId(groupKey))"
+    }
+
+    private var currentForumRoomId: String {
+        forumRoomDocumentId(
+            branch: branch,
+            groupKey: groupKey
+        )
+    }
+
+    private var currentFirebaseUid: String {
+        Auth.auth().currentUser?.uid ?? ""
+    }
+
+    private var isCurrentUserForumParticipant: Bool {
+        let defaults = UserDefaults.standard
+
+        if defaults.bool(forKey: "is_manager") {
+            return true
+        }
+
+        let cleanUid = currentFirebaseUid.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let cleanName = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return participantsByUsers.contains { participant in
+            if participant.isMe {
+                return true
+            }
+
+            if !cleanUid.isEmpty && participant.id == cleanUid {
+                return true
+            }
+
+            if !cleanEmail.isEmpty && participant.id.lowercased() == cleanEmail {
+                return true
+            }
+
+            if !cleanName.isEmpty && participant.name.trimmingCharacters(in: .whitespacesAndNewlines) == cleanName {
+                return true
+            }
+
+            return false
+        }
+    }
+
+    private func messagePreviewText(
+        text: String,
+        mediaType: String?
+    ) -> String {
+        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !cleanText.isEmpty {
+            return String(cleanText.prefix(120))
+        }
+
+        if mediaType == "image" {
+            return tr("תמונה חדשה", "New image")
+        }
+
+        if mediaType == "video" {
+            return tr("סרטון חדש", "New video")
+        }
+
+        return tr("הודעה חדשה", "New message")
     }
     
     var body: some View {
@@ -1602,14 +1690,23 @@ if attachedMediaType != nil {
     private func startListener() {
         stopListener()
 
-        // כמו באנדרואיד: חייבים סניף, אבל groupKey הוא מידע בהודעה ולא מסנן את חדר הפורום.
-        guard !branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let cleanBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !cleanBranch.isEmpty, !cleanGroup.isEmpty else {
             messages = []
             return
         }
 
+        UserDefaults.standard.set(
+            Date().timeIntervalSince1970 * 1000,
+            forKey: "forum_last_read_at_\(cleanBranch)_\(cleanGroup)"
+        )
+
         let query = db.collection("branches")
-            .document(branch)
+            .document(cleanBranch)
+            .collection("forumRooms")
+            .document(forumRoomDocumentId(branch: cleanBranch, groupKey: cleanGroup))
             .collection("messages")
             .order(by: "createdAt", descending: true)
             .limit(to: 200)
@@ -1620,13 +1717,6 @@ if attachedMediaType != nil {
                     "שגיאה בטעינת הודעות: \(err.localizedDescription)",
                     "Failed to load messages: \(err.localizedDescription)"
                 )
-
-                #if DEBUG
-                print("🟣 FORUM listener error =", err.localizedDescription)
-                print("🟣 FORUM branch =", branch)
-                print("🟣 FORUM groupKey =", groupKey)
-                #endif
-
                 return
             }
 
@@ -1652,15 +1742,42 @@ if attachedMediaType != nil {
                 let mediaUrl = data["mediaUrl"] as? String
                 let mediaType = data["mediaType"] as? String
 
+                let createdAtMillis: Int64
+
+                if let millis = data["createdAtMillis"] as? Int64 {
+                    createdAtMillis = millis
+                } else if let millis = data["createdAtMillis"] as? Int {
+                    createdAtMillis = Int64(millis)
+                } else if let millis = data["createdAtMillis"] as? Double {
+                    createdAtMillis = Int64(millis)
+                } else {
+                    createdAtMillis = Int64(ts.timeIntervalSince1970 * 1000)
+                }
+
+                let updatedAtMillis: Int64?
+
+                if let millis = data["updatedAtMillis"] as? Int64 {
+                    updatedAtMillis = millis
+                } else if let millis = data["updatedAtMillis"] as? Int {
+                    updatedAtMillis = Int64(millis)
+                } else if let millis = data["updatedAtMillis"] as? Double {
+                    updatedAtMillis = Int64(millis)
+                } else {
+                    updatedAtMillis = nil
+                }
+
                 var msg = ForumUiMessage(
                     id: doc.documentID,
-                    branch: data["branch"] as? String ?? branch,
-                    groupKey: data["groupKey"] as? String ?? groupKey,
+                    messageId: data["messageId"] as? String ?? doc.documentID,
+                    branch: data["branch"] as? String ?? cleanBranch,
+                    groupKey: data["groupKey"] as? String ?? cleanGroup,
                     authorName: authorName,
                     authorEmail: authorEmail,
                     authorUid: authorUid,
                     text: txt,
                     createdAt: ts,
+                    createdAtMillis: createdAtMillis,
+                    updatedAtMillis: updatedAtMillis,
                     mediaUrl: mediaUrl,
                     mediaType: mediaType
                 )
@@ -1668,7 +1785,6 @@ if attachedMediaType != nil {
                 return msg
             } ?? []
 
-            // נשארים בסידור ישן->חדש בצד התצוגה כדי שהגלילה לתחתית תמשיך לעבוד נכון ב-iOS.
             messages = list.sorted { $0.createdAt < $1.createdAt }
         }
     }
@@ -1697,7 +1813,28 @@ if attachedMediaType != nil {
             return
         }
 
-        let uid = Auth.auth().currentUser?.uid
+        let currentUser = Auth.auth().currentUser
+        let uid = currentUser?.uid
+
+        guard currentUser != nil, !(uid ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            await MainActor.run {
+                errorText = tr(
+                    "לא ניתן לשלוח הודעה לפני התחברות משתמש.",
+                    "You must be signed in before sending a message."
+                )
+            }
+            return
+        }
+
+        guard isCurrentUserForumParticipant else {
+            await MainActor.run {
+                errorText = tr(
+                    "אין הרשאה לשלוח הודעות בחדר הקבוצה הזה.",
+                    "You do not have permission to send messages in this group room."
+                )
+            }
+            return
+        }
 
         do {
             let safeAuthorName = fullName
@@ -1707,22 +1844,28 @@ if attachedMediaType != nil {
                 .ifEmpty(email)
                 .ifEmpty(tr("משתתף", "Participant"))
 
+            let cleanBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            let roomId = forumRoomDocumentId(
+                branch: cleanBranch,
+                groupKey: cleanGroup
+            )
+
+            let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
             let expiresAtDate = Date().addingTimeInterval(forumMessageRetentionSeconds)
 
             var base: [String: Any] = [
-                "branch": branch,
-                "groupKey": groupKey,
+                "branch": cleanBranch,
+                "groupKey": cleanGroup,
                 "authorName": safeAuthorName,
                 "authorEmail": email,
+                "authorUid": uid ?? "",
                 "text": trimmed,
+                "createdAtMillis": nowMillis,
                 "expiresAt": Timestamp(date: expiresAtDate),
                 "retentionDays": forumMessageRetentionDays,
                 "isPinned": false
             ]
-
-            if let uid {
-                base["authorUid"] = uid
-            }
 
             #if canImport(FirebaseStorage)
             var mediaUrl: String? = nil
@@ -1742,23 +1885,53 @@ if attachedMediaType != nil {
             }
             #endif
 
-            let col = db.collection("branches")
-                .document(branch)
-                .collection("messages")
+            let roomRef = db.collection("branches")
+                .document(cleanBranch)
+                .collection("forumRooms")
+                .document(roomId)
+
+            let messagePreview = messagePreviewText(
+                text: trimmed,
+                mediaType: base["mediaType"] as? String
+            )
+
+            try? await roomRef.setData(
+                [
+                    "roomId": roomId,
+                    "branch": cleanBranch,
+                    "groupKey": cleanGroup,
+                    "participantCount": participantsByUsers.count,
+                    "participantIds": Array(participantsByUsers.map { $0.id }.prefix(200)),
+                    "participantNames": Array(participantsByUsers.map { $0.name }.prefix(200)),
+                    "participantSource": "users_by_branch_and_group",
+                    "pushEnabled": true,
+                    "pushTarget": "forum_room_participants",
+                    "updatedAt": FieldValue.serverTimestamp(),
+                    "updatedAtMillis": nowMillis,
+                    "lastMessagePreview": messagePreview,
+                    "lastMessageSenderName": safeAuthorName,
+                    "lastMessageSenderUid": uid ?? ""
+                ],
+                merge: true
+            )
+
+            let col = roomRef.collection("messages")
 
             if let editId = editingMessageId {
-                // כמו באנדרואיד: עריכה לא מאריכה TTL ולא משנה retention/pin.
+                base.removeValue(forKey: "createdAtMillis")
                 base.removeValue(forKey: "expiresAt")
                 base.removeValue(forKey: "retentionDays")
                 base.removeValue(forKey: "isPinned")
                 base["updatedAt"] = FieldValue.serverTimestamp()
+                base["updatedAtMillis"] = nowMillis
 
                 try await col.document(editId).setData(base, merge: true)
             } else {
-                // הודעה חדשה — מוגדרת למחיקה אוטומטית אחרי 90 יום דרך Firestore TTL.
+                let newDoc = col.document()
+                base["messageId"] = newDoc.documentID
                 base["createdAt"] = FieldValue.serverTimestamp()
 
-                _ = try await col.addDocument(data: base)
+                try await newDoc.setData(base, merge: true)
             }
 
             await MainActor.run {
@@ -1785,11 +1958,13 @@ if attachedMediaType != nil {
         guard msg.isMine else { return }
 
         let messageBranch = msg.branch.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !messageBranch.isEmpty else {
+        let messageGroup = msg.groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !messageBranch.isEmpty, !messageGroup.isEmpty else {
             await MainActor.run {
                 errorText = tr(
-                    "שגיאה במחיקה: לא נמצא סניף להודעה.",
-                    "Delete failed: message branch was not found."
+                    "שגיאה במחיקה: לא נמצא סניף או קבוצה להודעה.",
+                    "Delete failed: message branch or group was not found."
                 )
             }
             return
@@ -1798,6 +1973,8 @@ if attachedMediaType != nil {
         do {
             try await db.collection("branches")
                 .document(messageBranch)
+                .collection("forumRooms")
+                .document(forumRoomDocumentId(branch: messageBranch, groupKey: messageGroup))
                 .collection("messages")
                 .document(msg.id)
                 .delete()
@@ -1815,9 +1992,11 @@ if attachedMediaType != nil {
 
     #if canImport(FirebaseStorage)
     private func uploadImage(data: Data, uid: String?) async throws -> String {
-        let safeUid = uid ?? "anon"
+        let safeUid = forumSafeDocumentId(uid ?? "anon")
+        let safeBranch = forumSafeDocumentId(branch)
+        let safeGroup = forumSafeDocumentId(groupKey)
         let millis = Int(Date().timeIntervalSince1970 * 1000)
-        let path = "forum_media/\(branch)/\(groupKey)/\(safeUid)/\(millis)"
+        let path = "forum_media/\(safeBranch)/\(safeGroup)/\(safeUid)/\(millis).jpg"
         let ref = storage.reference(withPath: path)
 
         let meta = StorageMetadata()
@@ -1829,9 +2008,11 @@ if attachedMediaType != nil {
     }
 
     private func uploadVideo(fileUrl: URL, uid: String?) async throws -> String {
-        let safeUid = uid ?? "anon"
+        let safeUid = forumSafeDocumentId(uid ?? "anon")
+        let safeBranch = forumSafeDocumentId(branch)
+        let safeGroup = forumSafeDocumentId(groupKey)
         let millis = Int(Date().timeIntervalSince1970 * 1000)
-        let path = "forum_media/\(branch)/\(groupKey)/\(safeUid)/\(millis)"
+        let path = "forum_media/\(safeBranch)/\(safeGroup)/\(safeUid)/\(millis).mov"
         let ref = storage.reference(withPath: path)
 
         let meta = StorageMetadata()

@@ -25,9 +25,14 @@ final class DeviceLockService {
 
     private let endpoint = "https://us-central1-app-1c22cc8d.cloudfunctions.net/verifyDeviceLock"
 
+    private let authorizedUidKey = "kmi.device.authorized.uid"
+    private let authorizedAtMillisKey = "kmi.device.authorized.at_millis"
+    private let lastStatusKey = "kmi.device.lock.status"
+    private let lastReasonKey = "kmi.device.lock.reason"
+
     func verifyCurrentUserDevice() async -> DeviceLockResult {
         guard let user = Auth.auth().currentUser else {
-            print("KMI_DEVICE no current user")
+            clearDeviceAuthorization(reason: "no_current_user")
             return .denied(reason: "no_current_user")
         }
 
@@ -35,16 +40,11 @@ final class DeviceLockService {
             let idToken = try await user.getIDTokenResult(forcingRefresh: true).token
 
             guard let url = URL(string: endpoint) else {
-                print("KMI_DEVICE invalid endpoint =", endpoint)
+                clearDeviceAuthorization(reason: "invalid_endpoint_url")
                 return .failed(message: "invalid_endpoint_url")
             }
 
             let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? "unknown-device"
-
-            print("KMI_DEVICE endpoint =", endpoint)
-            print("KMI_DEVICE email =", user.email ?? "nil")
-            print("KMI_DEVICE uid =", user.uid)
-            print("KMI_DEVICE deviceId =", deviceId)
 
             let body: [String: Any] = [
                 "deviceId": deviceId,
@@ -56,6 +56,7 @@ final class DeviceLockService {
 
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
+            request.timeoutInterval = 18
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
             request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
@@ -63,31 +64,86 @@ final class DeviceLockService {
             let (data, response) = try await URLSession.shared.data(for: request)
 
             guard let http = response as? HTTPURLResponse else {
-                print("KMI_DEVICE invalid http response")
+                clearDeviceAuthorization(reason: "invalid_http_response")
                 return .failed(message: "invalid_http_response")
             }
 
-            let rawText = String(data: data, encoding: .utf8) ?? "nil"
-            print("KMI_DEVICE status =", http.statusCode)
-            print("KMI_DEVICE raw response =", rawText)
+            let decoded: DeviceLockVerifyResponse
 
-            let decoded = try JSONDecoder().decode(DeviceLockVerifyResponse.self, from: data)
+            do {
+                decoded = try JSONDecoder().decode(DeviceLockVerifyResponse.self, from: data)
+            } catch {
+                clearDeviceAuthorization(reason: "invalid_server_response")
+                return .failed(message: "invalid_server_response")
+            }
 
             if (200...299).contains(http.statusCode), decoded.allowed == true {
-                print("KMI_DEVICE allowed lockStatus =", decoded.lockStatus ?? "nil")
+                persistDeviceAuthorization(
+                    uid: decoded.uid ?? user.uid,
+                    status: decoded.lockStatus
+                )
+
                 return .allowed(status: decoded.lockStatus)
             }
 
             if http.statusCode == 401 || http.statusCode == 403 || decoded.allowed == false {
-                print("KMI_DEVICE denied reason =", decoded.reason ?? decoded.error ?? "nil")
-                return .denied(reason: decoded.reason ?? decoded.error)
+                let reason = decoded.reason ?? decoded.error ?? "device_not_allowed"
+                clearDeviceAuthorization(reason: reason)
+                return .denied(reason: reason)
             }
 
-            print("KMI_DEVICE failed message =", decoded.message ?? decoded.error ?? "unknown_server_error")
-            return .failed(message: decoded.message ?? decoded.error ?? "unknown_server_error")
+            let message = decoded.message ?? decoded.error ?? "unknown_server_error"
+            clearDeviceAuthorization(reason: message)
+            return .failed(message: message)
+
         } catch {
-            print("KMI_DEVICE error =", error.localizedDescription)
+            clearDeviceAuthorization(reason: "network_or_server_error")
             return .failed(message: error.localizedDescription)
+        }
+    }
+
+    func isCurrentUserDeviceLocallyAuthorized() -> Bool {
+        guard let uid = Auth.auth().currentUser?.uid else {
+            return false
+        }
+
+        let savedUid = UserDefaults.standard
+            .string(forKey: authorizedUidKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        return !savedUid.isEmpty && savedUid == uid
+    }
+
+    func clearLocalAuthorization() {
+        clearDeviceAuthorization(reason: nil)
+    }
+
+    private func persistDeviceAuthorization(
+        uid: String,
+        status: String?
+    ) {
+        let cleanUid = uid.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanUid.isEmpty else { return }
+
+        let defaults = UserDefaults.standard
+
+        defaults.set(cleanUid, forKey: authorizedUidKey)
+        defaults.set(Int64(Date().timeIntervalSince1970 * 1000), forKey: authorizedAtMillisKey)
+        defaults.set(status ?? "allowed", forKey: lastStatusKey)
+        defaults.removeObject(forKey: lastReasonKey)
+    }
+
+    private func clearDeviceAuthorization(reason: String?) {
+        let defaults = UserDefaults.standard
+
+        defaults.removeObject(forKey: authorizedUidKey)
+        defaults.removeObject(forKey: authorizedAtMillisKey)
+        defaults.removeObject(forKey: lastStatusKey)
+
+        if let reason, !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            defaults.set(reason, forKey: lastReasonKey)
+        } else {
+            defaults.removeObject(forKey: lastReasonKey)
         }
     }
 }

@@ -57,9 +57,33 @@ final class AuthViewModel: ObservableObject {
     
     func forceSignOutForFreshLogin() {
         isSignedIn = false
+        registeredBelt = nil
+        nextBelt = BeltFlow.defaultBelt
+        userRole = "trainee"
+        userFullName = ""
+        userRegion = ""
+        userBranch = ""
+        userGroup = ""
 
-        // מנקה cache של הרשאת מכשיר
-        UserDefaults.standard.removeObject(forKey: "kmi.device.authorized.uid")
+        let ud = UserDefaults.standard
+
+        ud.removeObject(forKey: "kmi.device.authorized.uid")
+        ud.removeObject(forKey: "is_logged_in")
+        ud.removeObject(forKey: "forum_open_from_push")
+        ud.removeObject(forKey: "forum_push_message_id")
+        ud.removeObject(forKey: "forum_push_room_id")
+        ud.removeObject(forKey: "forum_push_room_name")
+        ud.removeObject(forKey: "forum_push_branch_id")
+        ud.removeObject(forKey: "forum_push_group_key")
+        ud.removeObject(forKey: "forum_push_sender_id")
+        ud.removeObject(forKey: "forum_push_received_at")
+        ud.removeObject(forKey: "coach_code")
+
+        ud.set("trainee", forKey: roleDefaultsKey)
+        ud.set("trainee", forKey: "user_role")
+        ud.set("trainee", forKey: "role")
+        ud.set("trainee", forKey: "userRole")
+        ud.set("trainee", forKey: "profile_role")
 
         #if canImport(FirebaseAuth)
         do {
@@ -122,10 +146,6 @@ final class AuthViewModel: ObservableObject {
         if let handle {
             Auth.auth().removeStateDidChangeListener(handle)
             self.handle = nil
-
-            #if DEBUG
-            print("AuthViewModel.stop() removed auth state listener")
-            #endif
         }
         #endif
     }
@@ -165,15 +185,34 @@ final class AuthViewModel: ObservableObject {
     ) {
         let ud = UserDefaults.standard
 
-        ud.set(region, forKey: "kmi.user.region")
-        ud.set(branch, forKey: "kmi.user.branch")
-        ud.set(group, forKey: "kmi.user.group")
+        let cleanRegion = region.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanGroup = group.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        ud.set(region, forKey: "region")
-        ud.set(branch, forKey: "branch")
-        ud.set(group, forKey: "group")
-        ud.set(group, forKey: "age_group")
-        ud.set(group, forKey: "age_groups")
+        ud.set(cleanRegion, forKey: "kmi.user.region")
+        ud.set(cleanBranch, forKey: "kmi.user.branch")
+        ud.set(cleanGroup, forKey: "kmi.user.group")
+
+        ud.set(cleanRegion, forKey: "region")
+
+        ud.set(cleanBranch, forKey: "branch")
+        ud.set(cleanBranch, forKey: "activeBranch")
+        ud.set(cleanBranch, forKey: "active_branch")
+        ud.set(cleanBranch, forKey: "selected_branch")
+        ud.set(cleanBranch, forKey: "current_branch")
+        ud.set(cleanBranch, forKey: "branchesCsv")
+
+        ud.set(cleanGroup, forKey: "group")
+        ud.set(cleanGroup, forKey: "groupKey")
+        ud.set(cleanGroup, forKey: "group_key")
+        ud.set(cleanGroup, forKey: "activeGroup")
+        ud.set(cleanGroup, forKey: "active_group")
+        ud.set(cleanGroup, forKey: "primaryGroup")
+        ud.set(cleanGroup, forKey: "age_group")
+        ud.set(cleanGroup, forKey: "ageGroup")
+        ud.set(cleanGroup, forKey: "age_groups")
+        ud.set(cleanGroup, forKey: "current_groupKey")
+        ud.set(cleanGroup, forKey: "selected_groupKey")
     }
 
 #if canImport(FirebaseFirestore)
@@ -297,13 +336,6 @@ private func ensureUserProfileDocumentExists(
         .document(uid)
         .setData(repairedData, merge: true)
 
-    #if DEBUG
-    print("🟡 ensureUserProfileDocumentExists repaired users/\(uid)")
-    print("🟡 ensureUserProfileDocumentExists resolvedBranch =", resolvedBranch)
-    print("🟡 ensureUserProfileDocumentExists resolvedGroup =", resolvedGroup)
-    print("🟡 ensureUserProfileDocumentExists repairedData =", repairedData)
-    #endif
-
     return repairedData
 }
 #endif
@@ -326,26 +358,13 @@ private func ensureUserProfileDocumentExists(
     func reloadProfileIfSignedIn() {
         #if canImport(FirebaseAuth)
         guard let uid = Auth.auth().currentUser?.uid else {
-            #if DEBUG
-            print("🔴 reloadProfileIfSignedIn: no current uid")
-            #endif
             return
         }
 
-        #if DEBUG
-        print("🟠 reloadProfileIfSignedIn uid =", uid)
-        #endif
-
         Task { @MainActor in
             await self.loadUserProfile(uid: uid)
-
-            #if DEBUG
-            print("🟠 reloadProfileIfSignedIn result fullName =", self.userFullName)
-            print("🟠 reloadProfileIfSignedIn result branch =", self.userBranch)
-            print("🟠 reloadProfileIfSignedIn result group =", self.userGroup)
-            print("🟠 reloadProfileIfSignedIn defaults.branch =", UserDefaults.standard.string(forKey: "kmi.user.branch") ?? "")
-            print("🟠 reloadProfileIfSignedIn defaults.group =", UserDefaults.standard.string(forKey: "kmi.user.group") ?? "")
-            #endif
+            KmiPushManager.shared.savePendingFcmTokenAfterLoginIfNeeded()
+            KmiPushManager.shared.refreshAndSaveFcmTokenIfPossible()
         }
         #endif
     }
@@ -363,11 +382,6 @@ private func ensureUserProfileDocumentExists(
             group: cleanGroup
         )
 
-        #if DEBUG
-        print("🟢 saveTrainingAssignment branch =", cleanBranch)
-        print("🟢 saveTrainingAssignment group =", cleanGroup)
-        #endif
-
         #if canImport(FirebaseAuth)
         guard let uid = Auth.auth().currentUser?.uid else { return }
 
@@ -379,20 +393,27 @@ private func ensureUserProfileDocumentExists(
                     .document(uid)
                     .setData([
                         "branch": cleanBranch,
+                        "activeBranch": cleanBranch,
+                        "active_branch": cleanBranch,
+                        "branchesCsv": cleanBranch,
                         "branches": cleanBranch.isEmpty ? [] : [cleanBranch],
                         "group": cleanGroup,
+                        "groupKey": cleanGroup,
+                        "group_key": cleanGroup,
+                        "activeGroup": cleanGroup,
+                        "active_group": cleanGroup,
+                        "primaryGroup": cleanGroup,
                         "groups": cleanGroup.isEmpty ? [] : [cleanGroup],
                         "age_group": cleanGroup,
+                        "ageGroup": cleanGroup,
                         "updatedAt": FieldValue.serverTimestamp()
                     ], merge: true)
 
-                #if DEBUG
-                print("🟢 saveTrainingAssignment saved to Firestore uid =", uid)
-                #endif
+                KmiPushManager.shared.savePendingFcmTokenAfterLoginIfNeeded()
+                KmiPushManager.shared.refreshAndSaveFcmTokenIfPossible()
+
             } catch {
-                #if DEBUG
-                print("🔴 saveTrainingAssignment failed =", error.localizedDescription)
-                #endif
+                self.errorText = error.localizedDescription
             }
             #endif
         }
@@ -407,7 +428,7 @@ private func ensureUserProfileDocumentExists(
     ) {
         errorText = nil
 
-        let e = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let e = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let p = password.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !e.isEmpty, !p.isEmpty else {
@@ -420,23 +441,46 @@ private func ensureUserProfileDocumentExists(
 
         #if canImport(FirebaseAuth)
         Auth.auth().signIn(withEmail: e, password: p) { [weak self] result, err in
-            DispatchQueue.main.async {
-                guard let self else {
+            guard let self else {
+                DispatchQueue.main.async {
                     completion?(false)
-                    return
                 }
+                return
+            }
 
-                self.isLoading = false
-
-                if let err {
+            if let err {
+                DispatchQueue.main.async {
+                    self.isLoading = false
                     self.errorText = err.localizedDescription
                     completion?(false)
-                    return
                 }
+                return
+            }
+
+            guard let uid = result?.user.uid else {
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    self.errorText = "לא התקבל מזהה משתמש"
+                    completion?(false)
+                }
+                return
+            }
+
+            Task { @MainActor in
+                let defaults = UserDefaults.standard
+                defaults.set(e, forKey: "remember_username")
+                defaults.set(e, forKey: "email")
+                defaults.set(true, forKey: "is_logged_in")
+
+                await self.loadUserProfile(uid: uid)
+
+                KmiPushManager.shared.savePendingFcmTokenAfterLoginIfNeeded()
+                KmiPushManager.shared.refreshAndSaveFcmTokenIfPossible()
 
                 self.errorText = nil
-                self.isSignedIn = (result?.user != nil)
-                completion?(result?.user != nil)
+                self.isSignedIn = true
+                self.isLoading = false
+                completion?(true)
             }
         }
         #else
@@ -501,13 +545,6 @@ private func ensureUserProfileDocumentExists(
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                     .lowercased()
             }
-
-            #if DEBUG
-            print("🟡 AUTH_LOGIN identifier =", rawId)
-            print("🟡 AUTH_LOGIN resolved loginEmail =", loginEmail)
-            print("🟡 AUTH_LOGIN wantedRole =", wantedRole)
-            print("🟡 AUTH_LOGIN passwordIsEmpty =", rawPassword.isEmpty)
-            #endif
             
             let result = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<AuthDataResult, Error>) in
                 Auth.auth().signIn(withEmail: loginEmail, password: rawPassword) { res, err in
@@ -620,6 +657,9 @@ private func ensureUserProfileDocumentExists(
             }
 
             await loadUserProfile(uid: uid)
+            KmiPushManager.shared.savePendingFcmTokenAfterLoginIfNeeded()
+            KmiPushManager.shared.refreshAndSaveFcmTokenIfPossible()
+
             isSignedIn = true
             errorText = nil
             return true
@@ -827,15 +867,11 @@ private func ensureUserProfileDocumentExists(
             }
 
             await loadUserProfile(uid: uid)
+            KmiPushManager.shared.savePendingFcmTokenAfterLoginIfNeeded()
+            KmiPushManager.shared.refreshAndSaveFcmTokenIfPossible()
 
             isSignedIn = true
             errorText = nil
-
-            #if DEBUG
-            print("🟢 GOOGLE_LOGIN success uid =", uid)
-            print("🟢 GOOGLE_LOGIN email =", loginEmail)
-            print("🟢 GOOGLE_LOGIN wantedRole =", wantedRole)
-            #endif
 
             return true
 
@@ -978,12 +1014,30 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
     func signOut() {
         errorText = nil
 
-        // מנקה הרשאת מכשיר כדי שמשתמש חדש ייבדק
-        UserDefaults.standard.removeObject(forKey: "kmi.device.authorized.uid")
+        let ud = UserDefaults.standard
+
+        ud.removeObject(forKey: "kmi.device.authorized.uid")
+        ud.removeObject(forKey: "is_logged_in")
+        ud.removeObject(forKey: "forum_open_from_push")
+        ud.removeObject(forKey: "forum_push_message_id")
+        ud.removeObject(forKey: "forum_push_room_id")
+        ud.removeObject(forKey: "forum_push_room_name")
+        ud.removeObject(forKey: "forum_push_branch_id")
+        ud.removeObject(forKey: "forum_push_group_key")
+        ud.removeObject(forKey: "forum_push_sender_id")
+        ud.removeObject(forKey: "forum_push_received_at")
 
         #if canImport(FirebaseAuth)
         do {
             try Auth.auth().signOut()
+            self.isSignedIn = false
+            self.registeredBelt = nil
+            self.nextBelt = BeltFlow.defaultBelt
+            self.userRole = "trainee"
+            self.userFullName = ""
+            self.userRegion = ""
+            self.userBranch = ""
+            self.userGroup = ""
         } catch {
             errorText = error.localizedDescription
         }
@@ -1056,11 +1110,6 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                     .lowercased()
             }
-
-            #if DEBUG
-            print("🟡 AUTH_COACH_CODE_RESET identifier =", rawId)
-            print("🟡 AUTH_COACH_CODE_RESET resolved loginEmail =", loginEmail)
-            #endif
 
             if let devCode = nextDeveloperCoachCode(for: loginEmail) {
                 UserDefaults.standard.set(devCode, forKey: "coach_code")
@@ -1194,18 +1243,11 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
         isLoading = true
         defer { isLoading = false }
 
-        #if DEBUG
-        print("🟠 registerAndSaveProfile: started email=\(email) role=\(form.roleKey)")
-        #endif
-
         #if canImport(FirebaseAuth)
         
         do {
             let uid = try await createUserLegacy(email: email, password: password)
             
-#if DEBUG
-print("🟠 registerAndSaveProfile: created auth user uid=\(uid)")
-#endif
 #if canImport(FirebaseFirestore)
 do {
     let db = Firestore.firestore()
@@ -1255,11 +1297,6 @@ do {
         userData["age_group"] = groupClean
     }
 
-    #if DEBUG
-    print("🟠 registerAndSaveProfile resolved branchClean =", branchClean)
-    print("🟠 registerAndSaveProfile resolved groupClean =", groupClean)
-    #endif
-
     // ✅ מאמן מורשה בלבד + יצירת קוד אוטומטי כמו באנדרואיד
     let generatedCoachCode: String?
     if form.role == .coach {
@@ -1295,10 +1332,6 @@ do {
         .document(uid)
         .setData(userData, merge: true)
 
-    #if DEBUG
-    print("🟠 registerAndSaveProfile: saved Firestore profile uid=\(uid)")
-    #endif
-
     // ✅ שמירה מקומית
     form.persistToUserDefaults()
 
@@ -1310,26 +1343,18 @@ do {
     }
 
 } catch {
-    #if DEBUG
-    print("🔴 registerAndSaveProfile: Firestore save failed: \(error.localizedDescription)")
-    #endif
     self.errorText = "שמירת פרופיל נכשלה: \(error.localizedDescription)"
     return
 }
 
 #endif
 
-// ✅ מרעננים את הפרופיל מהשרת
-await loadUserProfile(uid: uid)
+            // ✅ מרעננים את הפרופיל מהשרת
+            await loadUserProfile(uid: uid)
+            KmiPushManager.shared.savePendingFcmTokenAfterLoginIfNeeded()
+            KmiPushManager.shared.refreshAndSaveFcmTokenIfPossible()
 
-            #if DEBUG
-            print("✅ registerAndSaveProfile success uid=\(uid)")
-            #endif
-
-        } catch {
-            #if DEBUG
-            print("🔴 registerAndSaveProfile: auth/create failed: \(error.localizedDescription)")
-            #endif
+                    } catch {
 
             if let nsError = error as NSError?,
                nsError.code == AuthErrorCode.emailAlreadyInUse.rawValue {
@@ -1519,13 +1544,40 @@ private func loadUserProfileFromFirestore(uid: String) async {
         self.userBranch = primaryBranch
         self.userGroup = primaryGroup
 
+        let ud = UserDefaults.standard
+
+        ud.set(fullName, forKey: "fullName")
+        ud.set(fullName, forKey: "name")
+        ud.set(fullName, forKey: "displayName")
+
+        if let email = Auth.auth().currentUser?.email?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+           !email.isEmpty {
+            ud.set(email, forKey: "email")
+            ud.set(email, forKey: "user_email")
+        }
+
+        ud.set(resolvedRole, forKey: "user_role")
+        ud.set(resolvedRole, forKey: "role")
+        ud.set(resolvedRole, forKey: "userRole")
+        ud.set(resolvedRole, forKey: "profile_role")
+
+        if let belt {
+            ud.set(belt.id, forKey: "belt")
+            ud.set(belt.id, forKey: "beltId")
+            ud.set(belt.id, forKey: "currentBeltId")
+            ud.set(belt.id, forKey: "registeredBelt")
+        }
+
         self.persistTrainingAssignmentToDefaults(
             region: region,
             branch: primaryBranch,
             group: primaryGroup
         )
 
-
+        KmiPushManager.shared.savePendingFcmTokenAfterLoginIfNeeded()
+        KmiPushManager.shared.refreshAndSaveFcmTokenIfPossible()
 
         } catch {
             self.registeredBelt = nil
@@ -1534,8 +1586,6 @@ private func loadUserProfileFromFirestore(uid: String) async {
             self.userRegion = ""
             self.userBranch = ""
             self.userGroup = ""
-
-
         }
     }
     #endif

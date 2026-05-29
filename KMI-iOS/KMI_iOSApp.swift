@@ -4,7 +4,7 @@ import FirebaseCore
 import UserNotifications
 import GoogleSignIn
 
-final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+final class AppDelegate: NSObject, UIApplicationDelegate {
 
     override init() {
         super.init()
@@ -18,13 +18,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        let center = UNUserNotificationCenter.current()
-        center.delegate = self
 
-        // לא מעכבים את הצגת המסך הראשון בגלל הרשאות / Push.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            KmiPushManager.shared.configure()
+        KmiPushManager.shared.configure()
+
+        if let remoteNotification = launchOptions?[.remoteNotification] as? [AnyHashable: Any] {
+            DispatchQueue.main.async {
+                KmiPushManager.shared.handleRemoteNotification(userInfo: remoteNotification)
+            }
         }
+
         return true
     }
 
@@ -33,7 +35,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         open url: URL,
         options: [UIApplication.OpenURLOptionsKey: Any] = [:]
     ) -> Bool {
-        GIDSignIn.sharedInstance.handle(url)
+        return GIDSignIn.sharedInstance.handle(url)
     }
 
     func application(
@@ -48,24 +50,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
         KmiPushManager.shared.didFailToRegisterForRemoteNotifications(error: error)
-    }
-
-    // כשהאפליקציה פתוחה – עדיין נציג באנר/צליל
-    func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification,
-        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
-    ) {
-        completionHandler([.banner, .sound, .badge])
-    }
-
-    // לחיצה על התראה / אקשנים
-    func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        didReceive response: UNNotificationResponse,
-        withCompletionHandler completionHandler: @escaping () -> Void
-    ) {
-        completionHandler()
     }
 }
 
@@ -86,9 +70,17 @@ struct KMI_iOSApp: App {
             }
             .background(Color.clear.ignoresSafeArea())
             .preferredColorScheme(.light)
+            .onAppear {
+                KmiPushManager.shared.savePendingFcmTokenAfterLoginIfNeeded()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                KmiPushManager.shared.refreshAndSaveFcmTokenIfPossible()
+                KmiPushManager.shared.savePendingFcmTokenAfterLoginIfNeeded()
+            }
         }
     }
 }
+
 private struct KmiLaunchBackground: View {
     var body: some View {
         ZStack {

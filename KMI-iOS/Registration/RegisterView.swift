@@ -16,6 +16,18 @@ struct RegisterView: View {
     @State private var submittedForm: RegistrationFormState? = nil
     @State private var showCoachCodeDialog: Bool = false
 
+    private var isEnglish: Bool {
+        KmiStartupLanguage.currentFromDefaults().isEnglish
+    }
+
+    private var screenLayoutDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
     init(
         prefillPhone: String = "",
         prefillEmail: String = "",
@@ -48,17 +60,9 @@ struct RegisterView: View {
                         isSubmitting = true
                         auth.errorText = nil
 
-                        #if DEBUG
-                        print("🟡 RegisterView: submit tapped email=\(form.emailTrimmed)")
-                        #endif
-
                         await auth.registerAndSaveProfile(form: form)
 
                         isSubmitting = false
-
-                        #if DEBUG
-                        print("🟡 RegisterView: register finished error=\(auth.errorText ?? "nil") isSignedIn=\(auth.isSignedIn)")
-                        #endif
 
                         if auth.errorText == nil {
                             form.persistToUserDefaults()
@@ -87,6 +91,7 @@ struct RegisterView: View {
                     .padding(.bottom, 8)
             }
         }
+        .environment(\.layoutDirection, screenLayoutDirection)
         .navigationDestination(isPresented: $goToTerms) {
             LegalView()
         }
@@ -94,13 +99,13 @@ struct RegisterView: View {
             coachDialogTitle,
             isPresented: $showCoachCodeDialog,
             actions: {
-                Button("העתקה") {
+                Button(tr("העתקה", "Copy")) {
                     if let code = auth.issuedCoachCode {
                         UIPasteboard.general.string = code
                     }
                 }
 
-                Button("אישור") {
+                Button(tr("אישור", "OK")) {
                     if let form = submittedForm {
                         onSubmit(form)
                     }
@@ -125,30 +130,19 @@ struct RegisterView: View {
 
         let nameFromPhone = CoachWhitelist.allowedPhones[normalizedPhone]
         let nameFromEmail = CoachWhitelist.allowedEmails[normalizedEmail]
+        let fallback = tr("מאמן", "Coach")
+        let displayName = nameFromPhone ?? nameFromEmail ?? fallback
 
-        return "שלום, \(nameFromPhone ?? nameFromEmail ?? "מאמן")"
+        return tr("שלום, \(displayName)", "Hello, \(displayName)")
     }
 
     private var coachDialogMessage: String {
         let code = auth.issuedCoachCode ?? ""
-        return "קוד המאמן שלך:\n\n\(code)\n\nעליך לשמור את קוד המאמן שהתקבל לכניסה למערכת ולפעולות מתקדמות."
+
+        return tr(
+            "קוד המאמן שלך:\n\n\(code)\n\nעליך לשמור את קוד המאמן שהתקבל לכניסה למערכת ולפעולות מתקדמות.",
+            "Your coach code is:\n\n\(code)\n\nPlease save this coach code for login and advanced actions."
+        )
     }
 }
 
-private struct LegalTermsView: View {
-    var body: some View {
-        VStack(spacing: 12) {
-            Text("תנאי שימוש")
-                .font(.title2).bold()
-
-            Text("כאן תציג את מסך התנאים המשפטיים שבנית.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-
-            Spacer()
-        }
-        .padding(16)
-        .navigationTitle("תנאים משפטיים")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}

@@ -57,6 +57,22 @@ struct LoginView: View {
     private let savedPasswordKey = "remember_password"
     private let rememberMeKey = "remember_me_login"
 
+    private var isEnglish: Bool {
+        KmiStartupLanguage.currentFromDefaults().isEnglish
+    }
+
+    private var screenLayoutDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
+    private var screenTextAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
     var body: some View {
         ZStack {
             LoginGradientBackground(role: role)
@@ -65,7 +81,7 @@ struct LoginView: View {
                 VStack(spacing: 0) {
                     KmiTopBar(
                         roleLabel: "",
-                        title: "התחברות",
+                        title: tr("התחברות", "Login"),
                         rightText: nil,
                         titleColor: Color.black.opacity(0.88),
                         onMenu: { onBackToChoice() }
@@ -113,44 +129,10 @@ struct LoginView: View {
                 )
 
                 VStack(spacing: 14) {
-
-                    if role == .coach, isYoniUser(username) {
-                        VStack(spacing: 6) {
-                            Text("יוני אחי היקר,")
-                                .font(.system(size: 18, weight: .heavy))
-                                .foregroundStyle(.white)
-
-                            Text("בהערכה רבה על הדרך ועל ההשקעה הרבה שלך.")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(Color.white.opacity(0.94))
-                                .multilineTextAlignment(.center)
-
-                            Text("מקווה מאוד שתפיק תועלת מהאפליקציה הזאת.")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(Color.white.opacity(0.94))
-                                .multilineTextAlignment(.center)
-
-                            Text("אלוף! 💪")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(Color.white.opacity(0.94))
-                                .multilineTextAlignment(.center)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(Color.white.opacity(0.12))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                        )
-                        .padding(.horizontal, 4)
-                    }
                     
                     RoleTabs(
-                        leftTitle: "מאמן",
-                        rightTitle: "מתאמן",
+                        leftTitle: tr("מאמן", "Coach"),
+                        rightTitle: tr("מתאמן", "Trainee"),
                         selected: (role == .coach ? .left : .right),
                         onSelect: { sel in
                             role = (sel == .left ? .coach : .trainee)
@@ -180,7 +162,7 @@ struct LoginView: View {
                                             .font(.system(size: 18, weight: .heavy))
                                     }
 
-                                    Text(auth.isLoading ? "מתחבר..." : "כניסה עם Google")
+                                    Text(auth.isLoading ? tr("מתחבר...", "Signing in...") : tr("כניסה עם Google", "Continue with Google"))
                                         .font(.system(size: 17, weight: .heavy))
                                 }
                                 .foregroundStyle(Color.black.opacity(0.82))
@@ -203,7 +185,7 @@ struct LoginView: View {
                                     .fill(Color.black.opacity(0.12))
                                     .frame(height: 1)
 
-                                Text("או")
+                                Text(tr("או", "or"))
                                     .font(.system(size: 13, weight: .bold))
                                     .foregroundStyle(Color.black.opacity(0.45))
 
@@ -213,7 +195,7 @@ struct LoginView: View {
                             }
                             .padding(.vertical, 2)
 
-                            LabeledField(title: "מייל") {
+                            LabeledField(title: tr("מייל", "Email"), isEnglish: isEnglish) {
                                 TextField("", text: $username)
                                     .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled()
@@ -221,7 +203,7 @@ struct LoginView: View {
                                     .multilineTextAlignment(.center)
                             }
 
-                            LabeledField(title: "סיסמה") {
+                            LabeledField(title: tr("סיסמה", "Password"), isEnglish: isEnglish) {
                                 HStack(spacing: 10) {
                                     Button {
                                         showPassword.toggle()
@@ -246,7 +228,7 @@ struct LoginView: View {
                             }
 
                             if role == .coach {
-                                LabeledField(title: "קוד מאמן") {
+                                LabeledField(title: tr("קוד מאמן", "Coach code"), isEnglish: isEnglish) {
                                     HStack(spacing: 10) {
                                         Button {
                                             showCoachCode.toggle()
@@ -284,7 +266,7 @@ struct LoginView: View {
                                         }
                                     }
                                 } label: {
-                                    Text("שכחתי קוד מאמן")
+                                    Text(tr("שכחתי קוד מאמן", "Forgot coach code"))
                                         .font(.system(size: 15, weight: .semibold))
                                         .foregroundStyle(Color.black.opacity(0.70))
                                 }
@@ -307,7 +289,7 @@ struct LoginView: View {
                                 Spacer()
 
                                 Toggle(isOn: $rememberMe) {
-                                    Text("שמירה לכניסה הבאה")
+                                    Text(tr("שמירה לכניסה הבאה", "Remember me"))
                                         .font(.system(size: 16, weight: .semibold))
                                         .foregroundStyle(Color.black.opacity(0.75))
                                 }
@@ -320,7 +302,7 @@ struct LoginView: View {
                             Button {
                                 onLoginTapped()
                             } label: {
-                                Text(auth.isLoading ? "מתחבר..." : "התחבר")
+                                Text(auth.isLoading ? tr("מתחבר...", "Signing in...") : tr("התחבר", "Login"))
                                     .font(.system(size: 18, weight: .heavy))
                                     .foregroundStyle(Color.black.opacity(0.80))
                                     .frame(maxWidth: .infinity)
@@ -349,7 +331,7 @@ struct LoginView: View {
                                 resetMessage = nil
                                 showForgotPasswordSheet = true
                             } label: {
-                                Text("שכחתי סיסמה / מייל")
+                                Text(tr("שכחתי סיסמה / מייל", "Forgot password / email"))
                                     .font(.system(size: 16, weight: .semibold))
                                     .foregroundStyle(Color.black.opacity(0.75))
                             }
@@ -359,7 +341,7 @@ struct LoginView: View {
                             Button {
                                 onGoToRegister()
                             } label: {
-                                Text("משתמש חדש? הרשמה")
+                                Text(tr("משתמש חדש? הרשמה", "New user? Sign up"))
                                     .font(.system(size: 16, weight: .heavy))
                                     .foregroundStyle(Color.black.opacity(0.78))
                             }
@@ -376,10 +358,11 @@ struct LoginView: View {
                 Spacer()
             }
             .overlay(alignment: .bottom) {
-                FooterText()
+                FooterText(isEnglish: isEnglish)
                     .padding(.bottom, 14)
             }
         }
+        .environment(\.layoutDirection, screenLayoutDirection)
         .navigationBarBackButtonHidden()
         .onAppear {
             let defaults = UserDefaults.standard
@@ -400,14 +383,21 @@ struct LoginView: View {
         .sheet(isPresented: $showForgotPasswordSheet) {
             ForgotPasswordSheet(
                 email: $resetEmail,
+                isEnglish: isEnglish,
                 isLoading: auth.isLoading,
                 message: resetMessage,
                 onSend: {
                     auth.sendPasswordReset(email: resetEmail) { ok, error in
                         if ok {
-                            resetMessage = "נשלח מייל לאיפוס סיסמה. בדוק גם ספאם."
+                            resetMessage = tr(
+                                "נשלח מייל לאיפוס סיסמה. בדוק גם ספאם.",
+                                "A password reset email was sent. Please also check spam."
+                            )
                         } else {
-                            resetMessage = error ?? "שליחת מייל האיפוס נכשלה"
+                            resetMessage = error ?? tr(
+                                "שליחת מייל האיפוס נכשלה",
+                                "Sending the reset email failed"
+                            )
                         }
                     }
                 }
@@ -415,21 +405,24 @@ struct LoginView: View {
             .presentationDetents([.medium])
         }
         .alert(
-            "קוד מאמן חדש",
+            tr("קוד מאמן חדש", "New coach code"),
             isPresented: $showResetCoachCodeAlert
         ) {
-            Button("העתקה") {
+            Button(tr("העתקה", "Copy")) {
                 if let code = newCoachCode {
                     UIPasteboard.general.string = code
                 }
             }
 
-            Button("אישור", role: .cancel) { }
+            Button(tr("אישור", "OK"), role: .cancel) { }
         } message: {
             if let code = newCoachCode {
-                Text("קוד המאמן החדש שלך:\n\n\(code)\n\nהקוד הקודם בוטל.")
+                Text(tr(
+                    "קוד המאמן החדש שלך:\n\n\(code)\n\nהקוד הקודם בוטל.",
+                    "Your new coach code is:\n\n\(code)\n\nThe previous code was canceled."
+                ))
             } else {
-                Text("נוצר קוד מאמן חדש.")
+                Text(tr("נוצר קוד מאמן חדש.", "A new coach code was created."))
             }
         }
     }
@@ -614,19 +607,33 @@ private struct FormCard<Content: View>: View {
 
 private struct LabeledField<Content: View>: View {
     let title: String
+    let isEnglish: Bool
     let content: Content
 
-    init(title: String, @ViewBuilder content: () -> Content) {
+    init(
+        title: String,
+        isEnglish: Bool,
+        @ViewBuilder content: () -> Content
+    ) {
         self.title = title
+        self.isEnglish = isEnglish
         self.content = content()
     }
 
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var stackAlignment: HorizontalAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
     var body: some View {
-        VStack(alignment: .trailing, spacing: 6) {
+        VStack(alignment: stackAlignment, spacing: 6) {
             Text(title)
                 .font(.system(size: 16, weight: .heavy))
                 .foregroundStyle(Color.black.opacity(0.80))
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
 
             content
                 .font(.system(size: 18, weight: .semibold))
@@ -667,10 +674,12 @@ private struct CheckboxToggleStyle: ToggleStyle {
 }
 
 private struct FooterText: View {
+    let isEnglish: Bool
+
     var body: some View {
         VStack(spacing: 4) {
 
-            Text("פותחת באהבה ע\"י יובל פולק ❤️")
+            Text(isEnglish ? "Developed with love by Yuval Polak ❤️" : "פותחה באהבה ע\"י יובל פולק ❤️")
                 .font(.system(size: 16, weight: .heavy))
                 .foregroundStyle(Color.white.opacity(0.92))
 
@@ -685,30 +694,50 @@ private struct FooterText: View {
 
 private struct ForgotPasswordSheet: View {
     @Binding var email: String
+    let isEnglish: Bool
     let isLoading: Bool
     let message: String?
     let onSend: () -> Void
 
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var stackAlignment: HorizontalAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
-                VStack(alignment: .trailing, spacing: 8) {
-                    Text("איפוס סיסמה")
+                VStack(alignment: stackAlignment, spacing: 8) {
+                    Text(tr("איפוס סיסמה", "Password reset"))
                         .font(.system(size: 22, weight: .heavy))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
 
-                    Text("הזן את כתובת האימייל שלך ונשלח אליך קישור לאיפוס סיסמה.")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.trailing)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Text(tr(
+                        "הזן את כתובת האימייל שלך ונשלח אליך קישור לאיפוס סיסמה.",
+                        "Enter your email address and we will send you a password reset link."
+                    ))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(textAlignment)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
                 }
 
-                TextField("אימייל", text: $email)
+                TextField(tr("אימייל", "Email"), text: $email)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .keyboardType(.emailAddress)
-                    .multilineTextAlignment(.center)
+                    .multilineTextAlignment(isEnglish ? .leading : .trailing)
                     .padding(.vertical, 14)
                     .padding(.horizontal, 14)
                     .background(
@@ -723,7 +752,11 @@ private struct ForgotPasswordSheet: View {
                 if let message, !message.isEmpty {
                     Text(message)
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(message.contains("נשלח") ? .green : .red)
+                        .foregroundStyle(
+                            message.contains("נשלח") || message.lowercased().contains("sent")
+                            ? .green
+                            : .red
+                        )
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
                 }
@@ -737,7 +770,7 @@ private struct ForgotPasswordSheet: View {
                                 .tint(.white)
                         }
 
-                        Text(isLoading ? "שולח..." : "שלח קישור איפוס")
+                        Text(isLoading ? tr("שולח...", "Sending...") : tr("שלח קישור איפוס", "Send reset link"))
                             .font(.system(size: 17, weight: .heavy))
                     }
                     .foregroundStyle(.white)
@@ -754,6 +787,7 @@ private struct ForgotPasswordSheet: View {
                 Spacer()
             }
             .padding(16)
+            .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
         }
     }
 }

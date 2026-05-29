@@ -69,13 +69,25 @@ struct AuthGateView: View {
             }
         }
         .onChange(of: auth.isLoading) { _, isLoading in
-            if !isLoading {
-                didFinishInitialAuthCheck = true
-            }
+            guard !isLoading else { return }
+
+            didFinishInitialAuthCheck = true
+
+            // חשוב:
+            // גם אם Firebase מזהה משתמש מחובר,
+            // מסך הפתיחה עם "שלום..." והחגורה נשאר על המסך.
+            // מעבר לאפליקציה מתבצע רק אחרי לחיצה יזומה של המשתמש.
         }
         .onChange(of: auth.isSignedIn) { _, isSignedIn in
             if isSignedIn {
+                // לא נכנסים אוטומטית לאפליקציה.
+                // המשתמש חייב ללחוץ על Google או על כניסה רגילה מתוך מסך הפתיחה.
                 didCompleteAuthScreen = true
+            } else {
+                didRequestEnterApp = false
+                didFinishPostLoginLoading = false
+                didCompleteAuthScreen = false
+                step = .intro
             }
         }
         
@@ -92,18 +104,27 @@ struct AuthGateView: View {
                 case .intro:
                     KmiIntroGateScreen(
                         onGoogleLogin: {
-                            Task { @MainActor in
-                                let success = await auth.signInWithGoogle(
-                                    expectedRole: "trainee",
-                                    coachCode: nil
-                                )
-
-                                if success || auth.isSignedIn {
-                                    didFinishPostLoginLoading = false
-                                    didCompleteAuthScreen = true
-                                    didRequestEnterApp = true
-                                }
+                            if auth.isSignedIn {
+                                auth.reloadProfileIfSignedIn()
+                                didFinishPostLoginLoading = false
+                                didCompleteAuthScreen = true
+                                didRequestEnterApp = true
+                                return true
                             }
+
+                            let success = await auth.signInWithGoogle(
+                                expectedRole: "trainee",
+                                coachCode: nil
+                            )
+
+                            if success || auth.isSignedIn {
+                                didFinishPostLoginLoading = false
+                                didCompleteAuthScreen = true
+                                didRequestEnterApp = true
+                                return true
+                            }
+
+                            return false
                         },
                         onRegularLogin: {
                             didEnterAuthFlow = true
@@ -212,7 +233,7 @@ struct AuthGateView: View {
 
 private struct KmiIntroGateScreen: View {
 
-    let onGoogleLogin: () -> Void
+    let onGoogleLogin: () async -> Bool
     let onRegularLogin: () -> Void
 
     @State private var startAnim: Bool = false
@@ -587,8 +608,16 @@ private struct KmiIntroGateScreen: View {
     private var googleButton: some View {
         Button {
             guard !isGoogleLoading else { return }
+
             isGoogleLoading = true
-            onGoogleLogin()
+
+            Task { @MainActor in
+                let success = await onGoogleLogin()
+
+                if !success {
+                    isGoogleLoading = false
+                }
+            }
         } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: 27, style: .continuous)

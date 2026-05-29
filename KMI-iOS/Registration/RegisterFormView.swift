@@ -164,6 +164,111 @@ struct RegisterFormView: View {
         }
     }
 
+    private func regionDisplayName(_ raw: String) -> String {
+        let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard isEnglish else {
+            return clean
+        }
+
+        switch clean {
+        case "השרון":
+            return "Sharon"
+        case "מרכז":
+            return "Center"
+        case "צפון":
+            return "North"
+        case "דרום":
+            return "South"
+        case "ירושלים":
+            return "Jerusalem"
+        default:
+            return clean
+        }
+    }
+    
+    private func beltDisplayNameForRegistration(_ raw: String) -> String {
+        let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard isEnglish else {
+            return clean
+        }
+
+        switch clean {
+        case "לבנה":
+            return "White"
+        case "צהובה":
+            return "Yellow"
+        case "כתומה":
+            return "Orange"
+        case "ירוקה":
+            return "Green"
+        case "כחולה":
+            return "Blue"
+        case "חומה":
+            return "Brown"
+        case "שחורה דאן 1":
+            return "Black Dan 1"
+        case "שחורה דאן 2":
+            return "Black Dan 2"
+        case "שחורה דאן 3":
+            return "Black Dan 3"
+        case "שחורה דאן 4":
+            return "Black Dan 4"
+        case "שחורה דאן 5":
+            return "Black Dan 5"
+        case "שחורה דאן 6":
+            return "Black Dan 6"
+        case "שחורה דאן 7":
+            return "Black Dan 7"
+        case "שחורה דאן 8":
+            return "Black Dan 8"
+        case "שחורה דאן 9":
+            return "Black Dan 9"
+        case "שחורה דאן 10":
+            return "Black Dan 10"
+        default:
+            return clean
+        }
+    }
+    
+    private func groupDisplayNameForRegistration(_ raw: String) -> String {
+        let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard isEnglish else {
+            return clean
+        }
+
+        switch clean {
+        case "ילדים":
+            return "Kids"
+        case "נוער":
+            return "Teens"
+        case "בוגרים":
+            return "Adults"
+        case "נוער + בוגרים":
+            return "Teens + Adults"
+        default:
+            return clean
+        }
+    }
+
+    private func displayJoinedValues(
+        _ values: [String],
+        translateGroupNames: Bool = false
+    ) -> String {
+        let cleaned = values
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { translateGroupNames ? groupDisplayNameForRegistration($0) : $0 }
+
+        if cleaned.isEmpty {
+            return ""
+        }
+
+        return cleaned.sorted().joined(separator: " + ")
+    }
+    
     private var normalizedPhone: String {
         s.phone.filter { $0.isNumber }
     }
@@ -204,27 +309,24 @@ struct RegisterFormView: View {
         let manual = s.activeBranch.trimmingCharacters(in: .whitespacesAndNewlines)
         if !manual.isEmpty { return manual }
 
-        let arr = s.branches
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .sorted()
-
-        return arr.joined(separator: " + ")
+        return displayJoinedValues(Array(s.branches))
     }
 
     private var displayedGroupsText: String {
         let persisted = storedActiveGroup.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !persisted.isEmpty { return persisted }
+        if !persisted.isEmpty {
+            return groupDisplayNameForRegistration(persisted)
+        }
 
         let manual = s.activeGroup.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !manual.isEmpty { return manual }
+        if !manual.isEmpty {
+            return groupDisplayNameForRegistration(manual)
+        }
 
-        let arr = s.groups
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .sorted()
-
-        return arr.joined(separator: " + ")
+        return displayJoinedValues(
+            Array(s.groups),
+            translateGroupNames: true
+        )
     }
 
     private var isWhitelistedCoach: Bool {
@@ -242,14 +344,6 @@ struct RegisterFormView: View {
         normalizedEmail == "ypo1980@gmail.com" ||
         normalizedPhone == "0526664660" ||
         firebaseUid == "DBoyoVVpsrVUX0ukhKwNyQlKUKY2"
-    }
-
-    private var lockToCoach: Bool {
-        isWhitelistedCoach && !isSuperTester
-    }
-
-    private var lockToTrainee: Bool {
-        !isWhitelistedCoach && !isSuperTester
     }
 
     init(
@@ -308,11 +402,9 @@ struct RegisterFormView: View {
             }
             .onChange(of: normalizedPhone) { _, _ in
                 applyRoleGate()
-                print("🧭 phone changed, role after gate =", s.role.rawValue)
             }
             .onChange(of: normalizedEmail) { _, _ in
                 applyRoleGate()
-                print("🧭 email changed, role after gate =", s.role.rawValue)
             }
     }
     
@@ -486,10 +578,7 @@ struct RegisterFormView: View {
     }
     
     private func handleRegionChange(oldRegion: String, newRegion: String) {
-        print("🧭 region changed ->", newRegion)
-
         guard didFinishInitialLoad else {
-            print("🧭 skip clearing branches/groups during initial load")
             return
         }
 
@@ -497,7 +586,6 @@ struct RegisterFormView: View {
         let newClean = newRegion.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !oldClean.isEmpty else {
-            print("🧭 skip clearing because old region is empty during initial setup")
             return
         }
 
@@ -668,31 +756,13 @@ struct RegisterFormView: View {
         s.role = initialRole
         applyRoleGate()
 
-        print("📝 RegisterFormView.onAppear")
-        print("📝 region =", s.region)
-        print("📝 branchType =", s.branchType)
-        print("📝 gender =", s.gender)
-        print("📝 belt =", s.belt)
-        print("📝 branches =", Array(s.branches))
-        print("📝 groups =", Array(s.groups))
-        print("📝 isWhitelistedCoach =", isWhitelistedCoach)
-        print("📝 isSuperTester =", isSuperTester)
-        print("📝 initialRole =", initialRole.rawValue)
-        print("📝 active role =", s.role.rawValue)
-        print("📝 displayedBranchValue =", displayedBranchValue)
-        print("📝 displayedGroupValue =", displayedGroupValue)
-        print("📝 storedActiveBranch =", storedActiveBranch)
-        print("📝 storedActiveGroup =", storedActiveGroup)
-
         DispatchQueue.main.async {
             didFinishInitialLoad = true
-            print("🧭 didFinishInitialLoad = true")
         }
     }
     
     private func applyRoleGate() {
         if isSuperTester {
-            print("KMI_REGISTRATION iOS: role gate bypassed for super tester")
             return
         }
 
@@ -757,13 +827,11 @@ struct RegisterFormView: View {
             if !isSuperTester {
                 if role == .coach && !isWhitelistedCoach {
                     s.role = .trainee
-                    print("KMI_REGISTRATION iOS: coach tab blocked - not whitelisted")
                     return
                 }
 
                 if role == .trainee && isWhitelistedCoach {
                     s.role = .coach
-                    print("KMI_REGISTRATION iOS: trainee tab blocked - whitelisted coach")
                     return
                 }
             }
@@ -788,13 +856,6 @@ struct RegisterFormView: View {
         .buttonStyle(.plain)
     }
     
-    private func card(@ViewBuilder _ content: () -> some View) -> some View {
-        VStack(spacing: 10, content: content)
-            .padding(14)
-            .background(Color.white.opacity(0.95))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-    }
-
     private func sectionCard(
         title: String,
         @ViewBuilder content: () -> some View
@@ -826,12 +887,14 @@ struct RegisterFormView: View {
     }
 
     private func field(title: String, text: Binding<String>, keyboard: UIKeyboardType = .default) -> some View {
-        TextField(title, text: text)
+        let forceLtr = keyboard == .phonePad || keyboard == .emailAddress
+
+        return TextField(title, text: text)
             .keyboardType(keyboard)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
-            .multilineTextAlignment((keyboard == .phonePad || keyboard == .emailAddress) ? .leading : .trailing)
-            .environment(\.layoutDirection, (keyboard == .phonePad || keyboard == .emailAddress) ? .leftToRight : .rightToLeft)
+            .multilineTextAlignment(forceLtr ? .leading : formTextAlignment)
+            .environment(\.layoutDirection, forceLtr ? .leftToRight : screenLayoutDirection)
             .padding(12)
             .frame(minHeight: 46)
             .background(Color.white)
@@ -858,18 +921,9 @@ struct RegisterFormView: View {
                 guard !isSubmitting, validationError == nil else { return }
                 isSubmitting = true
 
-                // ✅ snapshot מלא של הטופס לפני שליחה
                 let submitted = s
-                print("📝 RegisterFormView: captured snapshot before submit")
-                print("📝 submitted.fullName =", submitted.fullName)
-                print("📝 submitted.phone =", submitted.phone)
-                print("📝 submitted.email =", submitted.email)
-                print("📝 submitted.region =", submitted.region)
-                print("📝 submitted.branches =", Array(submitted.branches))
-                print("📝 submitted.groups =", Array(submitted.groups))
 
                 DispatchQueue.main.async {
-                    print("📝 RegisterFormView: calling onSubmit(snapshot)")
                     onSubmit(submitted)
                 }
 
@@ -889,7 +943,10 @@ struct RegisterFormView: View {
                             : localizedSubmitTitle(submitTitle)
                     )
                     .font(.system(size: 15, weight: .bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
                 }
+                .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
                 .frame(maxWidth: .infinity)
                 .frame(height: 46)
             }
@@ -899,7 +956,7 @@ struct RegisterFormView: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill((validationError == nil && !isSubmitting)
                           ? Color(red: 0.486, green: 0.302, blue: 1.0)
-                          : Color(red: 0.690, green: 0.745, blue: 0.773)) // #B0BEC5
+                          : Color(red: 0.690, green: 0.745, blue: 0.773))
             )
             .disabled(validationError != nil || isSubmitting)
         }
@@ -931,11 +988,12 @@ struct RegisterFormView: View {
     
     private var dobRow: some View {
         HStack(spacing: 10) {
-            dobField("יום", $s.birthDay, maxLen: 2)
-            dobField("חודש", $s.birthMonth, maxLen: 2)
-            dobField("שנה", $s.birthYear, maxLen: 4)
+            dobField(tr("יום", "Day"), $s.birthDay, maxLen: 2)
+            dobField(tr("חודש", "Month"), $s.birthMonth, maxLen: 2)
+            dobField(tr("שנה", "Year"), $s.birthYear, maxLen: 4)
         }
         .frame(minHeight: 56)
+        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
     }
 
     private func dobField(_ title: String, _ binding: Binding<String>, maxLen: Int) -> some View {
@@ -963,28 +1021,53 @@ struct RegisterFormView: View {
 
     private var passwordField: some View {
         HStack(spacing: 10) {
-            Button {
-                s.showPassword.toggle()
-            } label: {
-                Image(systemName: s.showPassword ? "eye.slash.fill" : "eye.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.gray)
-                    .frame(width: 30, height: 30)
-            }
-            .buttonStyle(.plain)
-
-            Group {
-                if s.showPassword {
-                    TextField("סיסמה", text: $s.password)
-                } else {
-                    SecureField("סיסמה", text: $s.password)
+            if isEnglish {
+                Group {
+                    if s.showPassword {
+                        TextField(tr("סיסמה", "Password"), text: $s.password)
+                    } else {
+                        SecureField(tr("סיסמה", "Password"), text: $s.password)
+                    }
                 }
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .multilineTextAlignment(.leading)
+                .environment(\.layoutDirection, .leftToRight)
+                .foregroundStyle(.black)
+
+                Button {
+                    s.showPassword.toggle()
+                } label: {
+                    Image(systemName: s.showPassword ? "eye.slash.fill" : "eye.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color.gray)
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Button {
+                    s.showPassword.toggle()
+                } label: {
+                    Image(systemName: s.showPassword ? "eye.slash.fill" : "eye.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color.gray)
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+
+                Group {
+                    if s.showPassword {
+                        TextField(tr("סיסמה", "Password"), text: $s.password)
+                    } else {
+                        SecureField(tr("סיסמה", "Password"), text: $s.password)
+                    }
+                }
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .multilineTextAlignment(.trailing)
+                .environment(\.layoutDirection, .rightToLeft)
+                .foregroundStyle(.black)
             }
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .multilineTextAlignment(.trailing)
-            .environment(\.layoutDirection, .rightToLeft)
-            .foregroundStyle(.black)
         }
         .padding(.horizontal, 12)
         .frame(height: 46)
@@ -997,20 +1080,23 @@ struct RegisterFormView: View {
     }
 
     private var regionPicker: some View {
-        VStack(alignment: .trailing, spacing: 6) {
-            Text(isAbroadSelection ? "מדינה" : "אזור")
+        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 6) {
+            Text(isAbroadSelection ? tr("מדינה", "Country") : tr("אזור", "Region"))
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(registrationLabelColor)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: formFrameAlignment)
+                .multilineTextAlignment(formTextAlignment)
 
             Picker("", selection: $s.region) {
-                Text(isAbroadSelection ? "בחר מדינה" : "בחר אזור").tag("")
+                Text(isAbroadSelection ? tr("בחר מדינה", "Choose country") : tr("בחר אזור", "Choose region"))
+                    .tag("")
+
                 ForEach(regions, id: \.self) { region in
-                    Text(region).tag(region)
+                    Text(regionDisplayName(region)).tag(region)
                 }
             }
             .pickerStyle(.menu)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: formFrameAlignment)
             .padding(.horizontal, 12)
             .frame(height: 52)
             .background(Color.white)
@@ -1019,7 +1105,7 @@ struct RegisterFormView: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .stroke(registrationFieldBorder, lineWidth: 1)
             )
-            .environment(\.layoutDirection, .rightToLeft)
+            .environment(\.layoutDirection, screenLayoutDirection)
         }
     }
 
@@ -1088,13 +1174,13 @@ struct RegisterFormView: View {
     private var genderPicker: some View {
         HStack(spacing: 12) {
             genderChip(
-                title: "זכר",
+                title: tr("זכר", "Male"),
                 value: "male",
                 selectedColor: Color(red: 0.055, green: 0.647, blue: 0.914)
             )
 
             genderChip(
-                title: "נקבה",
+                title: tr("נקבה", "Female"),
                 value: "female",
                 selectedColor: Color(red: 0.925, green: 0.282, blue: 0.600)
             )
@@ -1132,49 +1218,70 @@ struct RegisterFormView: View {
     }
     
     private var beltPicker: some View {
-        VStack(alignment: .trailing, spacing: 6) {
-            Text("דרגת חגורה נוכחית (ק.מ.י)")
+        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 6) {
+            Text(tr("דרגת חגורה נוכחית (ק.מ.י)", "Current KAMI belt rank"))
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Color(red: 0.28, green: 0.33, blue: 0.41))
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: formFrameAlignment)
+                .multilineTextAlignment(formTextAlignment)
 
             Picker("", selection: $s.belt) {
-                Text("בחר דרגת חגורה").tag("")
+                Text(tr("בחר דרגת חגורה", "Choose belt rank")).tag("")
+
                 ForEach(belts, id: \.self) { belt in
-                    Text(belt).tag(belt)
+                    Text(beltDisplayNameForRegistration(belt)).tag(belt)
                 }
             }
             .pickerStyle(.menu)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .padding(12)
+            .frame(maxWidth: .infinity, alignment: formFrameAlignment)
+            .padding(.horizontal, 12)
+            .frame(height: 52)
             .background(Color.white)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color(red: 0.82, green: 0.77, blue: 0.89), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(registrationFieldBorder, lineWidth: 1)
             )
+            .environment(\.layoutDirection, screenLayoutDirection)
         }
     }
-
+    
     private func multiSelectRow(title: String, valueText: String, onTap: @escaping () -> Void) -> some View {
-        Button(action: onTap) {
-            VStack(alignment: .trailing, spacing: 6) {
+        let cleanValue = valueText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayValue = cleanValue.isEmpty ? tr("בחר…", "Choose…") : cleanValue
+
+        return Button(action: onTap) {
+            VStack(alignment: isEnglish ? .leading : .trailing, spacing: 6) {
                 Text(title)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(registrationLabelColor)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .frame(maxWidth: .infinity, alignment: formFrameAlignment)
+                    .multilineTextAlignment(formTextAlignment)
 
                 HStack(spacing: 10) {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(Color.gray)
+                    if isEnglish {
+                        Text(displayValue)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(cleanValue.isEmpty ? .gray : .black)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Text(valueText.isEmpty ? "בחר…" : valueText)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(valueText.isEmpty ? .gray : .black)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.trailing)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(Color.gray)
+                    } else {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(Color.gray)
+
+                        Text(displayValue)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(cleanValue.isEmpty ? .gray : .black)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
                 }
                 .padding(.horizontal, 12)
                 .frame(minHeight: 52)
@@ -1184,6 +1291,7 @@ struct RegisterFormView: View {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .stroke(registrationFieldBorder, lineWidth: 1)
                 )
+                .environment(\.layoutDirection, .leftToRight)
             }
         }
         .buttonStyle(.plain)
@@ -1191,89 +1299,149 @@ struct RegisterFormView: View {
 
     private var termsRow: some View {
         HStack(alignment: .center, spacing: 8) {
-            Toggle("", isOn: $s.acceptsTerms)
-                .labelsHidden()
-                .toggleStyle(.switch)
+            if isEnglish {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(tr(
+                        "אני מאשר את תנאי השימוש ומדיניות הפרטיות",
+                        "I approve the Terms of Use and Privacy Policy"
+                    ))
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
 
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("אני מאשר את תנאי השימוש ומדיניות הפרטיות")
+                    Button(action: onReadMoreTerms) {
+                        Text(tr("קרא עוד", "Read more"))
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundStyle(Color(red: 0.486, green: 0.302, blue: 1.0))
+                            .underline()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .frame(maxWidth: .infinity)
+
+                Toggle("", isOn: $s.acceptsTerms)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            } else {
+                Toggle("", isOn: $s.acceptsTerms)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(tr(
+                        "אני מאשר את תנאי השימוש ומדיניות הפרטיות",
+                        "I approve the Terms of Use and Privacy Policy"
+                    ))
                     .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .multilineTextAlignment(.trailing)
 
-                Button(action: onReadMoreTerms) {
-                    Text("קרא עוד")
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(Color(red: 0.486, green: 0.302, blue: 1.0))
-                        .underline()
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Button(action: onReadMoreTerms) {
+                        Text(tr("קרא עוד", "Read more"))
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundStyle(Color(red: 0.486, green: 0.302, blue: 1.0))
+                            .underline()
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
         }
         .environment(\.layoutDirection, .leftToRight)
     }
 
     private var validationError: String? {
-        if s.fullName.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 { return "נא להזין שם מלא תקין" }
-        if s.phone.filter({ $0.isNumber }).count < 9 { return "נא להזין מספר טלפון תקין" }
-        if !s.email.contains("@") || !s.email.contains(".") { return "נא להזין מייל תקין" }
+        if s.fullName.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 {
+            return tr("נא להזין שם מלא תקין", "Please enter a valid full name")
+        }
 
-        if let d = Int(s.birthDay), !(1...31).contains(d) { return "יום לידה לא תקין" }
-        if s.birthDay.isEmpty { return "חובה להזין יום לידה" }
+        if s.phone.filter({ $0.isNumber }).count < 9 {
+            return tr("נא להזין מספר טלפון תקין", "Please enter a valid phone number")
+        }
 
-        if let m = Int(s.birthMonth), !(1...12).contains(m) { return "חודש לידה לא תקין" }
-        if s.birthMonth.isEmpty { return "חובה להזין חודש לידה" }
+        if !s.email.contains("@") || !s.email.contains(".") {
+            return tr("נא להזין מייל תקין", "Please enter a valid email")
+        }
 
-        if let y = Int(s.birthYear), !(1900...2100).contains(y) { return "שנת לידה לא תקינה" }
-        if s.birthYear.count != 4 { return "חובה להזין שנת לידה (4 ספרות)" }
+        if let d = Int(s.birthDay), !(1...31).contains(d) {
+            return tr("יום לידה לא תקין", "Invalid birth day")
+        }
 
-        if s.gender.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "חובה לבחור מין" }
+        if s.birthDay.isEmpty {
+            return tr("חובה להזין יום לידה", "Birth day is required")
+        }
+
+        if let m = Int(s.birthMonth), !(1...12).contains(m) {
+            return tr("חודש לידה לא תקין", "Invalid birth month")
+        }
+
+        if s.birthMonth.isEmpty {
+            return tr("חובה להזין חודש לידה", "Birth month is required")
+        }
+
+        if let y = Int(s.birthYear), !(1900...2100).contains(y) {
+            return tr("שנת לידה לא תקינה", "Invalid birth year")
+        }
+
+        if s.birthYear.count != 4 {
+            return tr("חובה להזין שנת לידה (4 ספרות)", "Birth year is required (4 digits)")
+        }
+
+        if s.gender.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return tr("חובה לבחור מין", "Gender is required")
+        }
 
         if !isGoogleAuth {
-            if s.username.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 { return "שם משתמש קצר מדי" }
-            if s.password.count < 6 { return "סיסמה חייבת להכיל לפחות 6 תווים" }
+            if s.username.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 {
+                return tr("שם משתמש קצר מדי", "Username is too short")
+            }
+
+            if s.password.count < 6 {
+                return tr("סיסמה חייבת להכיל לפחות 6 תווים", "Password must contain at least 6 characters")
+            }
         }
 
         if s.belt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "חובה לבחור דרגת חגורה"
+            return tr("חובה לבחור דרגת חגורה", "Belt rank is required")
         }
 
-        if !s.acceptsTerms { return "חובה לאשר תנאי שימוש ומדיניות פרטיות" }
+        if !s.acceptsTerms {
+            return tr(
+                "חובה לאשר תנאי שימוש ומדיניות פרטיות",
+                "You must approve the Terms of Use and Privacy Policy"
+            )
+        }
 
         if s.region.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return isAbroadSelection ? "חובה לבחור מדינה" : "חובה לבחור אזור"
+            return isAbroadSelection
+                ? tr("חובה לבחור מדינה", "Country is required")
+                : tr("חובה לבחור אזור", "Region is required")
         }
 
         if s.branches.isEmpty {
-            return isAbroadSelection ? "חובה לבחור לפחות סניף אחד בחו״ל" : "חובה לבחור לפחות סניף אחד בארץ"
+            return isAbroadSelection
+                ? tr("חובה לבחור לפחות סניף אחד בחו״ל", "Please choose at least one branch abroad")
+                : tr("חובה לבחור לפחות סניף אחד בארץ", "Please choose at least one branch in Israel")
         }
 
         if !isAbroadSelection && s.groups.isEmpty {
-            return "חובה לבחור לפחות קבוצה אחת"
+            return tr("חובה לבחור לפחות קבוצה אחת", "Please choose at least one group")
         }
 
         if s.role == .coach, !isWhitelistedCoach {
-            return "הרישום כמאמן מותר רק למאמנים מורשים"
+            return tr(
+                "הרישום כמאמן מותר רק למאמנים מורשים",
+                "Coach registration is allowed only for authorized coaches"
+            )
         }
 
         return nil
     }
     
-    private func summarizeSet(_ set: Set<String>) -> String {
-        let cleaned = set
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        if cleaned.isEmpty {
-            return ""
-        }
-
-        return cleaned.sorted().joined(separator: " + ")
-    }
-
     private func resetBranchSelectionAfterScopeChange() {
         s.region = ""
         s.branches.removeAll()
@@ -1460,11 +1628,5 @@ struct RegisterFormView: View {
                 defaults.string(forKey: "coach_code") ??
                 ""
         }
-
-        print("📝 loadSavedProfileIfNeeded loaded region =", s.region)
-        print("📝 loadSavedProfileIfNeeded loaded branches =", Array(s.branches))
-        print("📝 loadSavedProfileIfNeeded loaded groups =", Array(s.groups))
-        print("📝 loadSavedProfileIfNeeded activeBranch =", s.activeBranch)
-        print("📝 loadSavedProfileIfNeeded activeGroup =", s.activeGroup)
     }
 }

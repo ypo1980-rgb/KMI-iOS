@@ -18,41 +18,125 @@ struct InternalExamView: View {
     @State private var hasUnsavedChanges = false
     @State private var showTraineeNameBox = true
     @State private var showExitDialog = false
+    @State private var showExamActionAlert = false
+    @State private var examActionMessage: String = ""
+    @State private var shouldDismissAfterExamAction = false
     
     @State private var marksMap: [String: Int] = [:]
     @State private var expandedTopic: String? = nil
+
+    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
+    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+    @AppStorage("selected_language_code") private var selectedLanguageCode: String = "he"
 
     init(belt: Belt) {
         self.belt = belt
         _currentBelt = State(initialValue: belt)
     }
 
+    private var effectiveLanguageCode: String {
+        let orderedValues = [
+            kmiAppLanguageCode,
+            selectedLanguageCode,
+            appLanguageRaw,
+            initialLanguageCode
+        ]
+
+        for raw in orderedValues {
+            let clean = raw
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            if clean == "he" || clean == "hebrew" || clean == "עברית" {
+                return "he"
+            }
+
+            if clean == "en" || clean == "english" {
+                return "en"
+            }
+        }
+
+        return "he"
+    }
+
+    private var isEnglish: Bool {
+        effectiveLanguageCode == "en"
+    }
+
+    private var screenLayoutDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
+    private var examTextAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var examFrameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
+    private func beltNameForUi(_ belt: Belt) -> String {
+        guard isEnglish else {
+            return belt.heb
+        }
+
+        switch belt {
+        case .white:
+            return "White"
+        case .yellow:
+            return "Yellow"
+        case .orange:
+            return "Orange"
+        case .green:
+            return "Green"
+        case .blue:
+            return "Blue"
+        case .brown:
+            return "Brown"
+        case .black:
+            return "Black"
+        default:
+            return belt.heb
+        }
+    }
+
     var body: some View {
         Group {
             if coach.isLoading {
-                ProgressView("בודק הרשאות…")
+                ProgressView(tr("בודק הרשאות…", "Checking permissions…"))
             } else if coach.isCoach {
                 examContent
             } else {
                 VStack(spacing: 10) {
-                    Text("גישה למאמנים בלבד")
+                    Text(tr("גישה למאמנים בלבד", "Coach access only"))
                         .font(.title3.weight(.heavy))
+                        .frame(maxWidth: .infinity, alignment: examFrameAlignment)
+                        .multilineTextAlignment(examTextAlignment)
 
-                    Text("ההרשאה נקבעת בשרת לפי מספר טלפון")
+                    Text(tr("ההרשאה נקבעת בשרת לפי מספר טלפון", "Permission is determined on the server by phone number"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: examFrameAlignment)
+                        .multilineTextAlignment(examTextAlignment)
                 }
+                .padding(.horizontal, 24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .environment(\.layoutDirection, screenLayoutDirection)
         .task {
             await coach.checkCoach(userRole: auth.userRole)
             bootstrapInitialState()
         }
-        .onChange(of: traineeName) { _ in
+        .onChange(of: traineeName) { _, _ in
             recentTrainees = loadRecentTrainees()
         }
-        .onChange(of: currentBelt) { _ in
+        .onChange(of: currentBelt) { _, _ in
             expandedTopic = nil
             checkForDraft()
         }
@@ -68,7 +152,7 @@ struct InternalExamView: View {
                         dismiss()
                     }
                 } label: {
-                    Image(systemName: "chevron.left")
+                    Image(systemName: isEnglish ? "chevron.left" : "chevron.right")
                 }
             }
         }
@@ -77,29 +161,45 @@ struct InternalExamView: View {
 
         .sheet(isPresented: $showPickTraineeDialog) {
             traineePickerSheet
+                .environment(\.layoutDirection, screenLayoutDirection)
         }
-        .alert("שמירת מבחן", isPresented: $showExitDialog) {
+        .alert(tr("שמירת טיוטה", "Save draft"), isPresented: $showExitDialog) {
 
-            Button("שמור") {
-                saveCurrentExam()
+            Button(tr("שמור טיוטה", "Save draft")) {
+                let cleanName = traineeName.trimmed()
+
+                if !cleanName.isEmpty {
+                    saveExamDraft(
+                        traineeName: cleanName,
+                        belt: currentBelt,
+                        marksMap: marksMap
+                    )
+                    pushRecentTrainee(cleanName)
+                    saveLastTrainee(cleanName)
+                }
+
+                hasUnsavedChanges = false
                 dismiss()
             }
 
-            Button("צא בלי לשמור", role: .destructive) {
+            Button(tr("צא בלי לשמור", "Exit without saving"), role: .destructive) {
                 dismiss()
             }
 
-            Button("ביטול", role: .cancel) { }
+            Button(tr("ביטול", "Cancel"), role: .cancel) { }
 
         } message: {
-            Text("האם לשמור את המבחן לפני היציאה?")
+            Text(tr(
+                "האם לשמור טיוטה לפני היציאה?",
+                "Save a draft before exiting?"
+            ))
         }
-        .alert("מבחן שמור נמצא", isPresented: $showResumeDialog) {
-            Button("המשך") {
+        .alert(tr("מבחן שמור נמצא", "Saved exam found"), isPresented: $showResumeDialog) {
+            Button(tr("המשך", "Continue")) {
                 marksMap = pendingLoadedDraft
                 hasUnsavedChanges = false
             }
-            Button("מבחן חדש", role: .destructive) {
+            Button(tr("מבחן חדש", "New exam"), role: .destructive) {
                 marksMap.removeAll()
                 removeExamDraft(traineeName: traineeName, belt: currentBelt)
                 traineeName = ""
@@ -107,9 +207,21 @@ struct InternalExamView: View {
                 resumeCheckedKey = nil
                 hasUnsavedChanges = false
             }
-            Button("ביטול", role: .cancel) { }
+            Button(tr("ביטול", "Cancel"), role: .cancel) { }
         } message: {
-            Text("נמצא מבחן שמור מהפעם האחרונה. להמשיך ממנו או להתחיל מבחן חדש?")
+            Text(tr(
+                "נמצא מבחן שמור מהפעם האחרונה. להמשיך ממנו או להתחיל מבחן חדש?",
+                "A saved exam was found from the last session. Continue from it or start a new exam?"
+            ))
+        }
+        .alert(tr("מבחן פנימי", "Internal Exam"), isPresented: $showExamActionAlert) {
+            Button(tr("אישור", "OK")) {
+                if shouldDismissAfterExamAction {
+                    dismiss()
+                }
+            }
+        } message: {
+            Text(examActionMessage)
         }
     }
 
@@ -117,19 +229,22 @@ struct InternalExamView: View {
 
     private var examContent: some View {
         ZStack {
-            KmiGradientBackground(forceTraineeStyle: false)
+            examBeltBackground
 
             VStack(spacing: 8) {
                 traineeHeaderSection
 
                 BeltSelectorView(
                     currentBelt: $currentBelt,
-                    accent: beltAccentColor(for: currentBelt)
+                    accent: beltAccentColor(for: currentBelt),
+                    belt: currentBelt,
+                    isEnglish: isEnglish
                 )
 
                 SummaryCardView(
                     currentBelt: currentBelt,
                     marksMap: marksMap,
+                    isEnglish: isEnglish,
                     itemsProvider: { belt in
                         examItems(for: belt)
                     }
@@ -142,8 +257,11 @@ struct InternalExamView: View {
                     LazyVStack(spacing: 8, pinnedViews: []) {
                         ForEach(groupedTopics, id: \.topic) { group in
                             TopicHeaderView(
-                                title: group.topic,
-                                expanded: expandedTopic == group.topic
+                                title: examTitleForUi(group.topic, isEnglish: isEnglish),
+                                expanded: expandedTopic == group.topic,
+                                exerciseCount: group.items.count,
+                                isEnglish: isEnglish,
+                                belt: currentBelt
                             ) {
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     expandedTopic = (expandedTopic == group.topic ? nil : group.topic)
@@ -153,8 +271,10 @@ struct InternalExamView: View {
                             if expandedTopic == group.topic {
                                 ForEach(group.items) { item in
                                     ExerciseRowView(
-                                        name: item.name,
+                                        name: examTitleForUi(item.name, isEnglish: isEnglish),
                                         score: marksMap[item.id],
+                                        isEnglish: isEnglish,
+                                        belt: currentBelt,
                                         onScoreChange: { newScore in
                                             hasUnsavedChanges = true
                                             if let newScore {
@@ -177,11 +297,12 @@ struct InternalExamView: View {
 
                 BottomActionBarView(
                     session: session,
+                    isEnglish: isEnglish,
                     onSave: saveCurrentExam,
                     onShare: shareSummaryText
                 )
                 .contextMenu {
-                    Button("ייצוא PDF") {
+                    Button(tr("ייצוא PDF", "Export PDF")) {
                         exportPdf()
                     }
                 }
@@ -189,23 +310,67 @@ struct InternalExamView: View {
         }
     }
 
+    private var examBeltBackground: some View {
+        LinearGradient(
+            colors: [
+                Color.white.opacity(0.98),
+                beltSoftColor(for: currentBelt).opacity(0.98),
+                Color.white.opacity(0.96),
+                beltSoftColor(for: currentBelt).opacity(0.88)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .ignoresSafeArea()
+        .overlay(
+            LinearGradient(
+                colors: [
+                    beltAccentColor(for: currentBelt).opacity(0.10),
+                    Color.clear,
+                    beltDarkColor(for: currentBelt).opacity(0.10)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+        )
+    }
+    
     private var traineeHeaderSection: some View {
         VStack(spacing: 6) {
             if showTraineeNameBox {
                 HStack(spacing: 10) {
-                    TextField("שם הנבחן", text: $traineeName)
-                        .textFieldStyle(.roundedBorder)
-                        .multilineTextAlignment(.trailing)
-                        .submitLabel(.done)
-                        .onSubmit {
+                    if isEnglish {
+                        TextField(tr("שם הנבחן", "Trainee name"), text: $traineeName)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.leading)
+                            .environment(\.layoutDirection, .leftToRight)
+                            .submitLabel(.done)
+                            .onSubmit {
+                                _ = commitTraineeNameAndCollapse()
+                            }
+
+                        Button(tr("אישור", "OK")) {
                             _ = commitTraineeNameAndCollapse()
                         }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(traineeName.trimmed().isEmpty)
+                    } else {
+                        Button(tr("אישור", "OK")) {
+                            _ = commitTraineeNameAndCollapse()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(traineeName.trimmed().isEmpty)
 
-                    Button("אישור") {
-                        _ = commitTraineeNameAndCollapse()
+                        TextField(tr("שם הנבחן", "Trainee name"), text: $traineeName)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.trailing)
+                            .environment(\.layoutDirection, .rightToLeft)
+                            .submitLabel(.done)
+                            .onSubmit {
+                                _ = commitTraineeNameAndCollapse()
+                            }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(traineeName.trimmed().isEmpty)
                 }
                 .padding(10)
                 .background(Color(red: 0.88, green: 0.95, blue: 0.99))
@@ -214,25 +379,47 @@ struct InternalExamView: View {
                 .padding(.top, 6)
             } else if !traineeName.trimmed().isEmpty {
                 HStack(spacing: 8) {
-                    Text(traineeName.trimmed())
-                        .fontWeight(.bold)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    if isEnglish {
+                        Text(traineeName.trimmed())
+                            .fontWeight(.bold)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Button("החלף") {
-                        recentTrainees = loadRecentTrainees()
-                        showPickTraineeDialog = true
-                    }
-                    .buttonStyle(.bordered)
+                        Button(tr("החלף", "Change")) {
+                            recentTrainees = loadRecentTrainees()
+                            showPickTraineeDialog = true
+                        }
+                        .buttonStyle(.bordered)
 
-                    Button("חדש") {
-                        marksMap.removeAll()
-                        traineeName = ""
-                        showTraineeNameBox = true
-                        resumeCheckedKey = nil
+                        Button(tr("חדש", "New")) {
+                            marksMap.removeAll()
+                            traineeName = ""
+                            showTraineeNameBox = true
+                            resumeCheckedKey = nil
+                        }
+                        .buttonStyle(.bordered)
+                    } else {
+                        Button(tr("חדש", "New")) {
+                            marksMap.removeAll()
+                            traineeName = ""
+                            showTraineeNameBox = true
+                            resumeCheckedKey = nil
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button(tr("החלף", "Change")) {
+                            recentTrainees = loadRecentTrainees()
+                            showPickTraineeDialog = true
+                        }
+                        .buttonStyle(.bordered)
+
+                        Text(traineeName.trimmed())
+                            .fontWeight(.bold)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                     }
-                    .buttonStyle(.bordered)
                 }
+                .environment(\.layoutDirection, .leftToRight)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(Color(red: 0.88, green: 0.95, blue: 0.99))
@@ -247,8 +434,10 @@ struct InternalExamView: View {
         NavigationStack {
             List {
                 if recentTrainees.isEmpty {
-                    Text("אין נבחנים שמורים עדיין.")
+                    Text(tr("אין נבחנים שמורים עדיין.", "No saved trainees yet."))
                         .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: examFrameAlignment)
+                        .multilineTextAlignment(examTextAlignment)
                 } else {
                     ForEach(recentTrainees, id: \.self) { name in
                         Button {
@@ -260,9 +449,15 @@ struct InternalExamView: View {
                             checkForDraft()
                         } label: {
                             HStack {
-                                Spacer()
-                                Text(name)
-                                    .foregroundStyle(.primary)
+                                if isEnglish {
+                                    Text(name)
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                } else {
+                                    Spacer()
+                                    Text(name)
+                                        .foregroundStyle(.primary)
+                                }
                             }
                         }
                     }
@@ -276,16 +471,21 @@ struct InternalExamView: View {
                     showPickTraineeDialog = false
                 } label: {
                     HStack {
-                        Spacer()
-                        Text("נבחן חדש")
+                        if isEnglish {
+                            Text(tr("נבחן חדש", "New trainee"))
+                            Spacer()
+                        } else {
+                            Spacer()
+                            Text(tr("נבחן חדש", "New trainee"))
+                        }
                     }
                 }
             }
-            .navigationTitle("בחר נבחן")
+            .navigationTitle(tr("בחר נבחן", "Select trainee"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("סגור") {
+                    Button(tr("סגור", "Close")) {
                         showPickTraineeDialog = false
                     }
                 }
@@ -363,16 +563,54 @@ struct InternalExamView: View {
     }
 
     private func saveCurrentExam() {
-        guard commitTraineeNameAndCollapse() else { return }
-        saveExamDraft(traineeName: traineeName.trimmed(), belt: currentBelt, marksMap: marksMap)
-        pushRecentTrainee(traineeName.trimmed())
-        saveLastTrainee(traineeName.trimmed())
+        let cleanName = traineeName.trimmed()
+
+        guard !cleanName.isEmpty else {
+            examActionMessage = tr(
+                "נא להזין שם נבחן לפני סיום המבחן.",
+                "Please enter a trainee name before finishing the exam."
+            )
+            shouldDismissAfterExamAction = false
+            showExamActionAlert = true
+            return
+        }
+
+        guard !marksMap.isEmpty else {
+            examActionMessage = tr(
+                "אין ציונים לשמירה. יש לבחור לפחות ציון אחד לפני סיום המבחן.",
+                "There are no scores to save. Choose at least one score before finishing the exam."
+            )
+            shouldDismissAfterExamAction = false
+            showExamActionAlert = true
+            return
+        }
+
+        traineeName = cleanName
+        showTraineeNameBox = false
+
+        saveExamDraft(
+            traineeName: cleanName,
+            belt: currentBelt,
+            marksMap: marksMap
+        )
+
+        pushRecentTrainee(cleanName)
+        saveLastTrainee(cleanName)
+
         hasUnsavedChanges = false
+        resumeCheckedKey = draftKey(traineeName: cleanName, belt: currentBelt)
+
+        examActionMessage = tr(
+            "המבחן הסתיים ונשמר בהצלחה.",
+            "The exam was finished and saved successfully."
+        )
+        shouldDismissAfterExamAction = true
+        showExamActionAlert = true
     }
 
     private func shareSummaryText() {
 
-        let text = session.shareText
+        let text = session.shareText(isEnglish: isEnglish)
 
         let activity = UIActivityViewController(
             activityItems: [text],
@@ -393,10 +631,15 @@ struct InternalExamView: View {
         let data = renderer.pdfData { ctx in
             ctx.beginPage()
 
-            let text = session.shareText
+            let text = session.shareText(isEnglish: isEnglish)
+
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.alignment = isEnglish ? .left : .right
+            paragraphStyle.baseWritingDirection = isEnglish ? .leftToRight : .rightToLeft
 
             let attrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 16)
+                .font: UIFont.systemFont(ofSize: 16),
+                .paragraphStyle: paragraphStyle
             ]
 
             text.draw(
@@ -406,7 +649,8 @@ struct InternalExamView: View {
         }
 
         let tmp = FileManager.default.temporaryDirectory
-        let file = tmp.appendingPathComponent("internal_exam.pdf")
+        let fileName = isEnglish ? "internal_exam_report.pdf" : "internal_exam_hebrew_report.pdf"
+        let file = tmp.appendingPathComponent(fileName)
 
         try? data.write(to: file)
 
@@ -437,6 +681,98 @@ struct InternalExamView: View {
         }
     }
 }
+
+private func examTr(_ isEnglish: Bool, _ he: String, _ en: String) -> String {
+    isEnglish ? en : he
+}
+
+private func examBeltNameForUi(_ belt: Belt, isEnglish: Bool) -> String {
+    guard isEnglish else {
+        return belt.heb
+    }
+
+    switch belt {
+    case .white:
+        return "White"
+    case .yellow:
+        return "Yellow"
+    case .orange:
+        return "Orange"
+    case .green:
+        return "Green"
+    case .blue:
+        return "Blue"
+    case .brown:
+        return "Brown"
+    case .black:
+        return "Black"
+    default:
+        return belt.heb
+    }
+}
+
+private func examTitleForUi(_ raw: String, isEnglish: Bool) -> String {
+    let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    guard isEnglish else {
+        return clean
+    }
+
+    return KmiEnglishTitleResolver.title(for: clean, isEnglish: true)
+}
+
+private func examStatusText(percent: Int, isEnglish: Bool) -> String {
+    if isEnglish {
+        switch percent {
+        case 85...:
+            return "Passed with excellence"
+        case 70...:
+            return "Passed"
+        case 50...:
+            return "Needs improvement"
+        default:
+            return "Did not pass"
+        }
+    } else {
+        switch percent {
+        case 85...:
+            return "עבר בהצטיינות"
+        case 70...:
+            return "עבר"
+        case 50...:
+            return "נדרש שיפור"
+        default:
+            return "לא עבר"
+        }
+    }
+}
+
+private func examSummaryText(percent: Int, isEnglish: Bool) -> String {
+    if isEnglish {
+        switch percent {
+        case 85...:
+            return "Passed very successfully"
+        case 70...:
+            return "Passed successfully"
+        case 50...:
+            return "Average - needs improvement"
+        default:
+            return "Did not pass the exam"
+        }
+    } else {
+        switch percent {
+        case 85...:
+            return "עבר בהצלחה רבה"
+        case 70...:
+            return "עבר בהצלחה"
+        case 50...:
+            return "בינוני – נדרש שיפור"
+        default:
+            return "לא עבר את המבחן"
+        }
+    }
+}
+
 
 // MARK: - UI Models
 private struct ExamTopicGroup {
@@ -475,28 +811,37 @@ private struct InternalExamSession {
         return Int((totalScore / maxScore) * 100.0)
     }
 
-    var summaryText: String {
-        switch percent {
-        case 85...: return "עבר בהצטיינות"
-        case 70...: return "עבר"
-        case 50...: return "נדרש שיפור"
-        default: return "לא עבר"
-        }
-    }
-
     var score10: Double {
         guard maxScore > 0 else { return 0 }
         return (totalScore / maxScore) * 10.0
     }
 
-    var shareText: String {
-        """
-        דו״ח מבחן פנימי
-        נבחן: \(traineeName.isEmpty ? "—" : traineeName)
-        חגורה: \(belt.heb)
-        ציון: \(score10.scoreString()) / 10 (\(percent)%)
-        סטטוס: \(summaryText)
-        """
+    func summaryText(isEnglish: Bool) -> String {
+        examStatusText(percent: percent, isEnglish: isEnglish)
+    }
+
+    func shareText(isEnglish: Bool) -> String {
+        let trainee = traineeName.isEmpty ? "—" : traineeName
+        let beltName = examBeltNameForUi(belt, isEnglish: isEnglish)
+        let status = summaryText(isEnglish: isEnglish)
+
+        if isEnglish {
+            return """
+            Internal Exam Report
+            Trainee: \(trainee)
+            Belt: \(beltName)
+            Score: \(score10.scoreString()) / 10 (\(percent)%)
+            Status: \(status)
+            """
+        } else {
+            return """
+            דו״ח מבחן פנימי
+            נבחן: \(trainee)
+            חגורה: \(beltName)
+            ציון: \(score10.scoreString()) / 10 (\(percent)%)
+            סטטוס: \(status)
+            """
+        }
     }
 }
 
@@ -520,52 +865,126 @@ private struct BeltScore {
 private struct BeltSelectorView: View {
     @Binding var currentBelt: Belt
     let accent: Color
+    let belt: Belt
+    let isEnglish: Bool
 
     private let belts: [Belt] = [.yellow, .orange, .green, .blue, .brown, .black]
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var stackAlignment: HorizontalAlignment {
+        isEnglish ? .leading : .trailing
+    }
 
     var body: some View {
         Menu {
             ForEach(belts, id: \.id) { belt in
-                Button(belt.heb) {
+                Button(examBeltNameForUi(belt, isEnglish: isEnglish)) {
                     currentBelt = belt
                 }
             }
         } label: {
-            HStack {
-                Image(systemName: "chevron.down")
-                    .foregroundStyle(.white.opacity(0.85))
+            HStack(spacing: 12) {
+                if isEnglish {
+                    beltIcon
 
-                Spacer()
+                    VStack(alignment: stackAlignment, spacing: 4) {
+                        Text(examTr(isEnglish, "חגורה במבחן", "Exam belt"))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color.white.opacity(0.88))
 
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("חגורה במבחן")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.9))
+                        Text(examBeltNameForUi(currentBelt, isEnglish: isEnglish))
+                            .font(.system(size: 21, weight: .heavy))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                    }
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
 
-                    Text(currentBelt.heb)
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(.white)
+                    chevronIcon
+                } else {
+                    chevronIcon
+
+                    VStack(alignment: stackAlignment, spacing: 4) {
+                        Text(examTr(isEnglish, "חגורה במבחן", "Exam belt"))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color.white.opacity(0.88))
+
+                        Text(examBeltNameForUi(currentBelt, isEnglish: isEnglish))
+                            .font(.system(size: 21, weight: .heavy))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                    }
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+
+                    beltIcon
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(accent.opacity(0.30))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(accent.opacity(0.95), lineWidth: 1.2)
+            .environment(\.layoutDirection, .leftToRight)
+            .padding(.horizontal, 15)
+            .padding(.vertical, 13)
+            .background(
+                LinearGradient(
+                    colors: [
+                        beltDarkColor(for: belt).opacity(0.88),
+                        accent.opacity(0.78),
+                        Color.purple.opacity(0.72)
+                    ],
+                    startPoint: isEnglish ? .leading : .trailing,
+                    endPoint: isEnglish ? .trailing : .leading
+                )
             )
-            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.white.opacity(0.34), lineWidth: 1.1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: beltDarkColor(for: belt).opacity(0.22), radius: 9, x: 0, y: 5)
             .padding(.horizontal, 12)
         }
+    }
+
+    private var beltIcon: some View {
+        ZStack {
+            Circle()
+                .fill(Color.white.opacity(0.18))
+                .frame(width: 44, height: 44)
+
+            Image(systemName: "rosette")
+                .font(.system(size: 19, weight: .heavy))
+                .foregroundStyle(.white)
+        }
+    }
+
+    private var chevronIcon: some View {
+        Image(systemName: "chevron.down.circle.fill")
+            .font(.system(size: 23, weight: .heavy))
+            .foregroundStyle(Color.white.opacity(0.88))
     }
 }
 
 private struct SummaryCardView: View {
     let currentBelt: Belt
     let marksMap: [String: Int]
+    let isEnglish: Bool
     let itemsProvider: (Belt) -> [ExamExerciseItem]
 
     @State private var expanded = false
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var stackAlignment: HorizontalAlignment {
+        isEnglish ? .leading : .trailing
+    }
 
     var body: some View {
         let orderedBelts = beltsUpTo(currentBelt)
@@ -587,106 +1006,338 @@ private struct SummaryCardView: View {
         let maxScore = beltScores.reduce(0.0) { $0 + $1.1.max }
         let totalScore10 = maxScore == 0 ? 0 : (totalScore / maxScore) * 10.0
         let percent = maxScore == 0 ? 0 : Int((totalScore / maxScore) * 100.0)
-
-        let summaryText: String = {
-            switch percent {
-            case 85...: return "עבר בהצלחה רבה"
-            case 70...: return "עבר בהצלחה"
-            case 50...: return "בינוני – נדרש שיפור"
-            default: return "לא עבר את המבחן"
-            }
-        }()
+        let summaryText = examSummaryText(percent: percent, isEnglish: isEnglish)
 
         return Button {
             withAnimation(.easeInOut(duration: 0.2)) {
                 expanded.toggle()
             }
         } label: {
-            VStack(alignment: .trailing, spacing: 6) {
-                HStack {
-                    Text(expanded ? "▲" : "▼")
-                        .fontWeight(.bold)
-                        .foregroundStyle(.primary)
+            VStack(alignment: stackAlignment, spacing: 8) {
+                HStack(spacing: 10) {
+                    if isEnglish {
+                        summaryIcon
 
-                    Spacer()
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(examTr(isEnglish, "סיכום מבחן", "Exam summary"))
+                                .font(.system(size: 17, weight: .heavy))
+                                .foregroundStyle(Color.black.opacity(0.86))
 
-                    Text("סיכום מבחן")
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(.primary)
+                            Text(summaryText)
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(statusColor(percent: percent).opacity(0.92))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        chevronIcon
+                    } else {
+                        chevronIcon
+
+                        VStack(alignment: .trailing, spacing: 3) {
+                            Text(examTr(isEnglish, "סיכום מבחן", "Exam summary"))
+                                .font(.system(size: 17, weight: .heavy))
+                                .foregroundStyle(Color.black.opacity(0.86))
+
+                            Text(summaryText)
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(statusColor(percent: percent).opacity(0.92))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+
+                        summaryIcon
+                    }
                 }
+                .environment(\.layoutDirection, .leftToRight)
 
-                Text("מצטבר: \(totalScore10.scoreString()) / 10 (\(percent)%)")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                HStack(spacing: 8) {
+                    miniStat(
+                        title: isEnglish ? "Score" : "ציון",
+                        value: "\(totalScore10.scoreString()) / 10"
+                    )
 
-                Text(summaryText)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    miniStat(
+                        title: isEnglish ? "Percent" : "אחוז",
+                        value: "\(percent)%"
+                    )
+                }
+                .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
 
                 if expanded && !beltScores.isEmpty {
                     Divider()
-                    ForEach(beltScores, id: \.0.id) { belt, score in
-                        Text("\(belt.heb): \(score.score10.scoreString()) / 10 (\(score.percent)%)")
-                            .font(.footnote)
-                            .foregroundStyle(.primary)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.vertical, 2)
+
+                    VStack(spacing: 5) {
+                        ForEach(beltScores, id: \.0.id) { belt, score in
+                            HStack {
+                                if isEnglish {
+                                    Text(examBeltNameForUi(belt, isEnglish: isEnglish))
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundStyle(Color.black.opacity(0.78))
+
+                                    Spacer()
+
+                                    Text("\(score.score10.scoreString()) / 10 (\(score.percent)%)")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(statusColor(percent: score.percent).opacity(0.94))
+                                } else {
+                                    Text("\(score.score10.scoreString()) / 10 (\(score.percent)%)")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(statusColor(percent: score.percent).opacity(0.94))
+
+                                    Spacer()
+
+                                    Text(examBeltNameForUi(belt, isEnglish: isEnglish))
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundStyle(Color.black.opacity(0.78))
+                                }
+                            }
+                            .environment(\.layoutDirection, .leftToRight)
+                        }
                     }
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(Color(red: 1.0, green: 0.95, blue: 0.80))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.98),
+                        Color(red: 1.0, green: 0.95, blue: 0.80).opacity(0.92),
+                        Color.white.opacity(0.96)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.orange.opacity(0.28), lineWidth: 1.1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: Color.black.opacity(0.10), radius: 7, x: 0, y: 3)
             .padding(.horizontal, 12)
         }
         .buttonStyle(.plain)
+    }
+
+    private var summaryIcon: some View {
+        ZStack {
+            Circle()
+                .fill(Color.orange.opacity(0.18))
+                .frame(width: 40, height: 40)
+
+            Image(systemName: "chart.bar.fill")
+                .font(.system(size: 16, weight: .heavy))
+                .foregroundStyle(Color.orange.opacity(0.92))
+        }
+    }
+
+    private var chevronIcon: some View {
+        Image(systemName: expanded ? "chevron.up.circle.fill" : "chevron.down.circle.fill")
+            .font(.system(size: 22, weight: .heavy))
+            .foregroundStyle(Color.orange.opacity(0.84))
+    }
+
+    private func miniStat(title: String, value: String) -> some View {
+        VStack(spacing: 2) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.black.opacity(0.52))
+
+            Text(value)
+                .font(.system(size: 14, weight: .heavy))
+                .foregroundStyle(Color.black.opacity(0.84))
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(Color.white.opacity(0.76))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .stroke(Color.orange.opacity(0.14), lineWidth: 1)
+                )
+        )
     }
 }
 
 private struct TopicHeaderView: View {
     let title: String
     let expanded: Bool
+    let exerciseCount: Int
+    let isEnglish: Bool
+    let belt: Belt
     let onTap: () -> Void
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var countText: String {
+        isEnglish ? "\(exerciseCount) exercises" : "\(exerciseCount) תרגילים"
+    }
 
     var body: some View {
         Button(action: onTap) {
-            HStack {
-                Text(expanded ? "▲" : "▼")
-                    .fontWeight(.bold)
-                    .foregroundStyle(.primary)
+            HStack(spacing: 12) {
+                if isEnglish {
+                    iconBubble
 
-                Spacer()
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(title)
+                            .font(.system(size: 17, weight: .heavy))
+                            .foregroundStyle(Color.black.opacity(0.86))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.82)
+                            .frame(maxWidth: .infinity, alignment: frameAlignment)
+                            .multilineTextAlignment(textAlignment)
 
-                Text(title)
-                    .fontWeight(.bold)
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.trailing)
+                        Text(countText)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(beltDarkColor(for: belt).opacity(0.78))
+                            .frame(maxWidth: .infinity, alignment: frameAlignment)
+                            .multilineTextAlignment(textAlignment)
+                    }
+
+                    chevron
+                } else {
+                    chevron
+
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(title)
+                            .font(.system(size: 17, weight: .heavy))
+                            .foregroundStyle(Color.black.opacity(0.86))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.82)
+                            .frame(maxWidth: .infinity, alignment: frameAlignment)
+                            .multilineTextAlignment(textAlignment)
+
+                        Text(countText)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(beltDarkColor(for: belt).opacity(0.78))
+                            .frame(maxWidth: .infinity, alignment: frameAlignment)
+                            .multilineTextAlignment(textAlignment)
+                    }
+
+                    iconBubble
+                }
             }
+            .environment(\.layoutDirection, .leftToRight)
             .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(Color(red: 0.88, green: 0.95, blue: 0.99))
-            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .padding(.vertical, 12)
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.98),
+                        beltSoftColor(for: belt).opacity(0.96),
+                        Color.white.opacity(0.94)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(beltAccentColor(for: belt).opacity(0.32), lineWidth: 1.2)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: Color.black.opacity(0.10), radius: 6, x: 0, y: 3)
         }
         .buttonStyle(.plain)
         .padding(.top, 6)
+    }
+
+    private var iconBubble: some View {
+        ZStack {
+            Circle()
+                .fill(beltAccentColor(for: belt).opacity(0.18))
+                .frame(width: 38, height: 38)
+
+            Image(systemName: "list.bullet.rectangle.fill")
+                .font(.system(size: 15, weight: .heavy))
+                .foregroundStyle(beltDarkColor(for: belt).opacity(0.88))
+        }
+    }
+
+    private var chevron: some View {
+        Image(systemName: expanded ? "chevron.up.circle.fill" : "chevron.down.circle.fill")
+            .font(.system(size: 22, weight: .heavy))
+            .foregroundStyle(beltDarkColor(for: belt).opacity(0.80))
     }
 }
 
 private struct ExerciseRowView: View {
     let name: String
     let score: Int?
+    let isEnglish: Bool
+    let belt: Belt
     let onScoreChange: (Int?) -> Void
 
+    private var stackAlignment: HorizontalAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var scoreCaption: String {
+        if let score {
+            return isEnglish ? "Score \(score) / 10" : "ציון \(score) / 10"
+        }
+
+        return isEnglish ? "Choose score" : "בחר ציון"
+    }
+
     var body: some View {
-        VStack(alignment: .trailing, spacing: 10) {
-            Text(name)
-                .font(.body)
-                .foregroundStyle(.primary)
-                .multilineTextAlignment(.trailing)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+        VStack(alignment: stackAlignment, spacing: 10) {
+            HStack(spacing: 10) {
+                if isEnglish {
+                    accentLine
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(name)
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(Color.black.opacity(0.84))
+                            .multilineTextAlignment(textAlignment)
+                            .frame(maxWidth: .infinity, alignment: frameAlignment)
+
+                        Text(scoreCaption)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(score == nil ? Color.black.opacity(0.46) : beltDarkColor(for: belt).opacity(0.82))
+                            .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    }
+                } else {
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(name)
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(Color.black.opacity(0.84))
+                            .multilineTextAlignment(textAlignment)
+                            .frame(maxWidth: .infinity, alignment: frameAlignment)
+
+                        Text(scoreCaption)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(score == nil ? Color.black.opacity(0.46) : beltDarkColor(for: belt).opacity(0.82))
+                            .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    }
+
+                    accentLine
+                }
+            }
+            .environment(\.layoutDirection, .leftToRight)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
+                HStack(spacing: 7) {
                     ForEach(0...10, id: \.self) { value in
                         ScoreChipView(
                             value: value,
@@ -698,11 +1349,33 @@ private struct ExerciseRowView: View {
                 }
                 .padding(.vertical, 2)
             }
+            .environment(\.layoutDirection, .leftToRight)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .padding(.vertical, 11)
+        .background(
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(0.98),
+                    beltSoftColor(for: belt).opacity(0.34),
+                    Color.white.opacity(0.96)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: Color.black.opacity(0.055), radius: 4, x: 0, y: 2)
+    }
+
+    private var accentLine: some View {
+        RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .fill(beltAccentColor(for: belt))
+            .frame(width: 5, height: 42)
     }
 }
 
@@ -713,19 +1386,31 @@ private struct ScoreChipView: View {
 
     var body: some View {
         let base = scoreColor(value)
-        let background = selected ? base.opacity(0.95) : base.opacity(0.40)
+        let background = selected ? base.opacity(0.96) : base.opacity(0.26)
 
         Button(action: onTap) {
             Text("\(value)")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.black)
-                .frame(width: 36, height: 36)
-                .background(background)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(selected ? base : base.opacity(0.85), lineWidth: selected ? 2 : 1.5)
+                .font(.system(size: selected ? 14 : 13, weight: .heavy))
+                .foregroundStyle(selected ? Color.black.opacity(0.92) : Color.black.opacity(0.66))
+                .frame(width: selected ? 39 : 36, height: selected ? 39 : 36)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(background)
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(
+                            selected ? base.opacity(0.98) : base.opacity(0.58),
+                            lineWidth: selected ? 2.4 : 1.2
+                        )
+                )
+                .shadow(
+                    color: selected ? base.opacity(0.30) : Color.clear,
+                    radius: selected ? 5 : 0,
+                    x: 0,
+                    y: selected ? 2 : 0
+                )
+                .scaleEffect(selected ? 1.03 : 1.0)
         }
         .buttonStyle(.plain)
     }
@@ -733,26 +1418,96 @@ private struct ScoreChipView: View {
 
 private struct BottomActionBarView: View {
     let session: InternalExamSession
+    let isEnglish: Bool
     let onSave: () -> Void
     let onShare: () -> Void
 
+    private var scoreText: String {
+        isEnglish
+        ? "Score: \(session.score10.scoreString()) / 10 (\(session.percent)%)"
+        : "ציון: \(session.score10.scoreString()) / 10 (\(session.percent)%)"
+    }
+
     var body: some View {
-        HStack(spacing: 12) {
-            Text("ציון: \(session.score10.scoreString()) / 10 (\(session.percent)%)")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
+        VStack(spacing: 8) {
+            Text(scoreText)
+                .font(.system(size: 14, weight: .heavy))
+                .foregroundStyle(Color.black.opacity(0.82))
                 .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .minimumScaleFactor(0.78)
+                .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
+                .multilineTextAlignment(isEnglish ? .leading : .trailing)
 
-            Button("שמור", action: onSave)
-                .buttonStyle(.borderedProminent)
+            HStack(spacing: 10) {
+                Button(action: onShare) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 14, weight: .bold))
 
-            Button("שתף", action: onShare)
-                .buttonStyle(.bordered)
+                        Text(examTr(isEnglish, "שתף", "Share"))
+                            .font(.system(size: 14, weight: .bold))
+                    }
+                    .foregroundStyle(Color.purple.opacity(0.92))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 42)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color.white.opacity(0.92))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(Color.purple.opacity(0.20), lineWidth: 1)
+                            )
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Button(action: onSave) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 15, weight: .bold))
+
+                        Text(examTr(isEnglish, "סיום מבחן", "Finish exam"))
+                            .font(.system(size: 15, weight: .heavy))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.78)
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 42)
+                    .background(
+                        LinearGradient(
+                            colors: [
+                                Color.purple.opacity(0.95),
+                                Color.blue.opacity(0.86)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 3)
+                }
+                .buttonStyle(.plain)
+            }
+            .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial)
+        .padding(.top, 10)
+        .padding(.bottom, 10)
+        .background(
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    Rectangle()
+                        .fill(Color.white.opacity(0.58))
+                )
+        )
+        .overlay(
+            Rectangle()
+                .fill(Color.black.opacity(0.08))
+                .frame(height: 1),
+            alignment: .top
+        )
     }
 }
 
@@ -779,6 +1534,19 @@ private func scoreColor(_ value: Int) -> Color {
     return Color(hue: hue, saturation: saturation, brightness: brightness)
 }
 
+private func statusColor(percent: Int) -> Color {
+    switch percent {
+    case 85...:
+        return Color.green
+    case 70...:
+        return Color(red: 0.44, green: 0.68, blue: 0.08)
+    case 50...:
+        return Color.orange
+    default:
+        return Color.red
+    }
+}
+
 private func beltAccentColor(for belt: Belt) -> Color {
     switch belt {
     case .white: return Color.gray.opacity(0.55)
@@ -789,6 +1557,48 @@ private func beltAccentColor(for belt: Belt) -> Color {
     case .brown: return Color(red: 0.55, green: 0.35, blue: 0.20).opacity(0.85)
     case .black: return Color.black.opacity(0.75)
     default: return Color.black.opacity(0.25)
+    }
+}
+
+private func beltSoftColor(for belt: Belt) -> Color {
+    switch belt {
+    case .white:
+        return Color(red: 0.94, green: 0.96, blue: 0.98)
+    case .yellow:
+        return Color(red: 1.00, green: 0.98, blue: 0.80)
+    case .orange:
+        return Color(red: 1.00, green: 0.91, blue: 0.78)
+    case .green:
+        return Color(red: 0.84, green: 0.96, blue: 0.88)
+    case .blue:
+        return Color(red: 0.84, green: 0.91, blue: 1.00)
+    case .brown:
+        return Color(red: 0.94, green: 0.86, blue: 0.74)
+    case .black:
+        return Color(red: 0.88, green: 0.90, blue: 0.94)
+    default:
+        return Color(red: 0.93, green: 0.91, blue: 1.00)
+    }
+}
+
+private func beltDarkColor(for belt: Belt) -> Color {
+    switch belt {
+    case .white:
+        return Color(red: 0.38, green: 0.42, blue: 0.50)
+    case .yellow:
+        return Color(red: 0.58, green: 0.36, blue: 0.05)
+    case .orange:
+        return Color(red: 0.66, green: 0.25, blue: 0.05)
+    case .green:
+        return Color(red: 0.04, green: 0.32, blue: 0.23)
+    case .blue:
+        return Color(red: 0.10, green: 0.23, blue: 0.54)
+    case .brown:
+        return Color(red: 0.28, green: 0.13, blue: 0.07)
+    case .black:
+        return Color(red: 0.02, green: 0.03, blue: 0.06)
+    default:
+        return Color(red: 0.20, green: 0.18, blue: 0.50)
     }
 }
 

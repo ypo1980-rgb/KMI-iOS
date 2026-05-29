@@ -29,14 +29,36 @@ struct RandomPracticeView: View {
     @State private var weightedItems: [String] = []
     @State private var currentIndex: Int = 0
 
-    // MARK: - Weighting
+    // MARK: - Weighting / Status
     @State private var dontKnow: Set<String> = []
+    @State private var currentPracticeStatus: Bool? = nil
 
     private var dontKnowStorageKey: String {
         let cleanTopic = topicTitle
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: " ", with: "_")
         return "random_practice_wrong_\(belt.id)_\(cleanTopic)"
+    }
+
+    private var practiceStatusStoragePrefix: String {
+        let cleanTopic = topicTitle
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: " ", with: "_")
+        return "random_practice_status_\(belt.id)_\(cleanTopic)"
+    }
+
+    private func normalizedPracticeId(_ item: String) -> String {
+        item
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\u{200F}", with: "")
+            .replacingOccurrences(of: "\u{200E}", with: "")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .replacingOccurrences(of: " ", with: "_")
+            .lowercased()
+    }
+
+    private func practiceStatusKey(for item: String) -> String {
+        "\(practiceStatusStoragePrefix)_\(normalizedPracticeId(item))"
     }
 
     // MARK: - Favorites
@@ -87,10 +109,144 @@ struct RandomPracticeView: View {
     @State private var showSearchSheet: Bool = false
     @State private var searchQuery: String = ""
     @State private var pickedSearchItem: String? = nil
+
     @AppStorage("user_role") private var storedUserRole: String = "trainee"
     @AppStorage("user_logged_in") private var isLoggedIn: Bool = false
-    
+
+    @AppStorage("kmi_app_language") private var kmiAppLanguage: String = ""
+    @AppStorage("app_language") private var appLanguage: String = ""
+    @AppStorage("initial_language_code") private var initialLanguageCode: String = ""
+    @AppStorage("selected_language_code") private var selectedLanguageCode: String = ""
+
     private var beltColor: Color { KmiBeltPalette.color(for: belt) }
+
+    private var practiceBackgroundColor: Color {
+        switch belt.id.lowercased() {
+        case "white":
+            return Color(red: 0.96, green: 0.96, blue: 0.96)
+        case "yellow":
+            return Color(red: 1.00, green: 0.98, blue: 0.76)
+        case "orange":
+            return Color(red: 1.00, green: 0.89, blue: 0.72)
+        case "green":
+            return Color(red: 0.84, green: 0.94, blue: 0.82)
+        case "blue":
+            return Color(red: 0.82, green: 0.90, blue: 1.00)
+        case "brown":
+            return Color(red: 0.86, green: 0.76, blue: 0.66)
+        case "black":
+            return Color(red: 0.14, green: 0.14, blue: 0.16)
+        default:
+            return beltColor.opacity(0.18)
+        }
+    }
+
+    private var exerciseCardColor: Color {
+        switch belt.id.lowercased() {
+        case "black":
+            return Color.white.opacity(0.92)
+        default:
+            return Color(red: 1.00, green: 0.97, blue: 0.73)
+        }
+    }
+
+    private var timerAccentColor: Color {
+        Color.purple.opacity(0.86)
+    }
+
+    private var effectiveLanguageCode: String {
+        let candidates = [
+            kmiAppLanguage,
+            appLanguage,
+            selectedLanguageCode,
+            initialLanguageCode
+        ]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+
+        return candidates.first ?? "he"
+    }
+
+    private var isEnglish: Bool {
+        effectiveLanguageCode.hasPrefix("en")
+    }
+
+    private var screenLayoutDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
+    private var practiceTextAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var practiceFrameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
+    private func beltNameForUi(_ belt: Belt) -> String {
+        guard isEnglish else { return belt.heb }
+
+        switch belt.id.lowercased() {
+        case "white":
+            return "White Belt"
+        case "yellow":
+            return "Yellow Belt"
+        case "orange":
+            return "Orange Belt"
+        case "green":
+            return "Green Belt"
+        case "blue":
+            return "Blue Belt"
+        case "brown":
+            return "Brown Belt"
+        case "black":
+            return "Black Belt"
+        default:
+            return belt.heb
+        }
+    }
+
+    private func itemTitleForUi(_ item: String) -> String {
+        item.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func topicTitleForUi(_ title: String) -> String {
+        let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isEnglish else { return clean }
+
+        switch clean {
+        case "כללי":
+            return "General"
+        case "עמידות מוצא":
+            return "Starting Positions"
+        case "תנועה":
+            return "Movement"
+        case "מכות ידיים":
+            return "Hand Strikes"
+        case "בעיטות":
+            return "Kicks"
+        case "הגנות":
+            return "Defenses"
+        case "שחרורים":
+            return "Releases"
+        case "עבודת קרקע":
+            return "Ground Work"
+        case "סכין":
+            return "Knife"
+        case "מקל":
+            return "Stick"
+        case "אקדח":
+            return "Gun"
+        case "רובה":
+            return "Rifle"
+        default:
+            return clean
+        }
+    }
 
     private var currentItem: String? {
         guard currentIndex >= 0, currentIndex < weightedItems.count else { return nil }
@@ -108,7 +264,12 @@ struct RandomPracticeView: View {
         guard !q.isEmpty else { return [] }
 
         return cleanItems(items)
-            .filter { $0.localizedCaseInsensitiveContains(q) }
+            .filter { item in
+                let raw = item.trimmingCharacters(in: .whitespacesAndNewlines)
+                let ui = itemTitleForUi(raw)
+                return raw.localizedCaseInsensitiveContains(q)
+                    || ui.localizedCaseInsensitiveContains(q)
+            }
             .prefix(50)
             .map { $0 }
     }
@@ -120,12 +281,17 @@ struct RandomPracticeView: View {
 
     private func speak(_ text: String) {
         guard !isMuted else { return }
-        let u = AVSpeechUtterance(string: text)
-        u.voice = AVSpeechSynthesisVoice(language: "he-IL")
-        u.rate = 0.48
-        u.pitchMultiplier = 1.0
+
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+
+        let utterance = AVSpeechUtterance(string: clean)
+        utterance.voice = AVSpeechSynthesisVoice(language: isEnglish ? "en-US" : "he-IL")
+        utterance.rate = isEnglish ? 0.46 : 0.48
+        utterance.pitchMultiplier = 1.0
+
         speaker.stopSpeaking(at: .immediate)
-        speaker.speak(u)
+        speaker.speak(utterance)
     }
 
     private func cleanItems(_ arr: [String]) -> [String] {
@@ -152,6 +318,65 @@ struct RandomPracticeView: View {
 
     private func saveDontKnow() {
         UserDefaults.standard.set(Array(dontKnow).sorted(), forKey: dontKnowStorageKey)
+    }
+
+    private func loadPracticeStatus(for item: String?) -> Bool? {
+        guard let item else { return nil }
+
+        let raw = UserDefaults.standard
+            .string(forKey: practiceStatusKey(for: item))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        switch raw {
+        case "known":
+            return true
+        case "unknown":
+            return false
+        default:
+            return nil
+        }
+    }
+
+    private func savePracticeStatus(_ status: Bool?, for item: String?) {
+        guard let item else { return }
+
+        let key = practiceStatusKey(for: item)
+
+        switch status {
+        case true:
+            UserDefaults.standard.set("known", forKey: key)
+            dontKnow.remove(item)
+        case false:
+            UserDefaults.standard.set("unknown", forKey: key)
+            dontKnow.insert(item)
+        case nil:
+            UserDefaults.standard.removeObject(forKey: key)
+            dontKnow.remove(item)
+        }
+
+        saveDontKnow()
+    }
+
+    private func refreshCurrentPracticeStatus() {
+        currentPracticeStatus = loadPracticeStatus(for: currentItem)
+    }
+
+    private func toggleCurrentPracticeStatus() {
+        let nextStatus: Bool?
+
+        switch currentPracticeStatus {
+        case nil:
+            nextStatus = true
+        case true:
+            nextStatus = false
+        case false:
+            nextStatus = nil
+        }
+
+        savePracticeStatus(nextStatus, for: currentItem)
+        currentPracticeStatus = nextStatus
+        rebuildWeightedItems(resetIndex: false)
     }
 
     private func weightedPool() -> [String] {
@@ -194,8 +419,10 @@ struct RandomPracticeView: View {
             rebuildWeightedItems(resetIndex: true)
         }
 
+        refreshCurrentPracticeStatus()
+
         if let currentItem {
-            speak(currentItem)
+            speak(itemTitleForUi(currentItem))
         }
     }
 
@@ -210,9 +437,10 @@ struct RandomPracticeView: View {
         isRunning = false
         resetTimer()
         rebuildWeightedItems(resetIndex: true)
+        refreshCurrentPracticeStatus()
 
         if let currentItem {
-            speak(currentItem)
+            speak(itemTitleForUi(currentItem))
         }
 
         isRunning = true
@@ -254,7 +482,7 @@ struct RandomPracticeView: View {
                 if timeLeft == halfPoint {
                     halfAnnounced = true
                     beep()
-                    speak("עבר חצי מזמן התרגול")
+                    speak(tr("עבר חצי מזמן התרגול", "Half of the practice time has passed"))
                 }
             }
         }
@@ -267,113 +495,128 @@ struct RandomPracticeView: View {
     }
 
     private var dynamicRoleLabel: String {
-        guard isLoggedIn else { return "מצב\nמתאמן" }
+        guard isLoggedIn else {
+            return tr("מצב\nמתאמן", "Trainee\nMode")
+        }
 
         let normalizedRole = storedUserRole
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
 
         if normalizedRole.contains("coach") {
-            return "מצב\nמאמן"
+            return tr("מצב\nמאמן", "Coach\nMode")
         }
 
-        return "מצב\nמתאמן"
+        return tr("מצב\nמתאמן", "Trainee\nMode")
+    }
+
+    private var screenTitle: String {
+        tr("תרגול", "Practice")
+    }
+
+    private var screenRightText: String {
+        "\(beltNameForUi(belt)) • \(topicTitleForUi(topicTitle))"
+    }
+
+    private var statusCircleIcon: String {
+        switch currentPracticeStatus {
+        case true:
+            return "checkmark"
+        case false:
+            return "xmark"
+        case nil:
+            return "circle"
+        }
+    }
+
+    private var statusCircleFill: Color {
+        switch currentPracticeStatus {
+        case true:
+            return Color.green.opacity(0.16)
+        case false:
+            return Color.red.opacity(0.14)
+        case nil:
+            return Color.white.opacity(0.94)
+        }
+    }
+
+    private var statusCircleBorder: Color {
+        switch currentPracticeStatus {
+        case true:
+            return Color.green.opacity(0.82)
+        case false:
+            return Color.red.opacity(0.78)
+        case nil:
+            return beltColor.opacity(0.55)
+        }
+    }
+
+    private var statusCircleIconColor: Color {
+        switch currentPracticeStatus {
+        case true:
+            return Color.green.opacity(0.92)
+        case false:
+            return Color.red.opacity(0.86)
+        case nil:
+            return beltColor.opacity(0.72)
+        }
     }
     
     var body: some View {
         KmiRootLayout(
-            title: "תרגול",
+            title: screenTitle,
             nav: nav,
             roleLabel: dynamicRoleLabel,
             selectedIcon: nil,
-            rightText: "\(belt.heb) • \(topicTitle)",
+            rightText: screenRightText,
             titleColor: beltColor
         ) {
             ZStack {
-                KmiGradientBackground(forceTraineeStyle: false)
+                practiceBackgroundColor
+                    .ignoresSafeArea()
+
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(belt.id.lowercased() == "black" ? 0.04 : 0.24),
+                        practiceBackgroundColor,
+                        Color.white.opacity(belt.id.lowercased() == "black" ? 0.02 : 0.18)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
 
                 VStack(spacing: 14) {
 
                     // Timer row
                     WhiteCard {
-                        HStack(spacing: 12) {
+                        HStack(spacing: 10) {
                             Text("⏳")
-                                .font(.system(size: 22, weight: .heavy))
+                                .font(.system(size: 30, weight: .heavy))
 
                             Text(formatTime(timeLeft))
-                                .font(.system(size: 26, weight: .heavy))
-                                .foregroundStyle(beltColor)
-
-                            Spacer()
-
-                            Button(action: togglePause) {
-                                Image(systemName: isRunning ? "pause.fill" : "play.fill")
-                                    .font(.system(size: 18, weight: .heavy))
-                                    .foregroundStyle(Color.black.opacity(0.75))
-                                    .frame(width: 44, height: 44)
-                                    .background(Circle().fill(Color.black.opacity(0.06)))
-                            }
-                            .buttonStyle(.plain)
-
-                            Button {
-                                showSearchSheet = true
-                            } label: {
-                                Image(systemName: "magnifyingglass")
-                                    .font(.system(size: 18, weight: .heavy))
-                                    .foregroundStyle(Color.black.opacity(0.70))
-                                    .frame(width: 44, height: 44)
-                                    .background(Circle().fill(Color.black.opacity(0.06)))
-                            }
-                            .buttonStyle(.plain)
-
-                            Button {
-                                isMuted.toggle()
-                                if isMuted { speaker.stopSpeaking(at: .immediate) }
-                                else if let currentItem { speak(currentItem) }
-                            } label: {
-                                Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                                    .font(.system(size: 18, weight: .heavy))
-                                    .foregroundStyle(Color.black.opacity(0.70))
-                                    .frame(width: 44, height: 44)
-                                    .background(Circle().fill(Color.black.opacity(0.06)))
-                            }
-                            .buttonStyle(.plain)
+                                .font(.system(size: 34, weight: .black))
+                                .monospacedDigit()
+                                .foregroundStyle(timerAccentColor)
                         }
+                        .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
 
-                    WhiteCard {
-                        Toggle(isOn: Binding(
-                            get: { favoritesOnlyMode },
-                            set: { newValue in
-                                favoritesOnlyMode = newValue
-                                saveFavoritesOnlyMode()
-                                rebuildWeightedItems(resetIndex: true)
-                            }
-                        )) {
-                            VStack(alignment: .trailing, spacing: 2) {
-                                Text("תרגול ממועדפים בלבד")
-                                    .font(.system(size: 16, weight: .heavy))
-                                    .foregroundStyle(Color.black.opacity(0.82))
-
-                                Text("אם אין מועדפים, התרגול יחזור לרשימה הרגילה")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(Color.black.opacity(0.55))
-                            }
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                        }
-                        .toggleStyle(SwitchToggleStyle(tint: beltColor.opacity(0.85)))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                    }
-                    .padding(.horizontal, 16)
-
                     // Current exercise card
-                    WhiteCard {
-                        VStack(spacing: 10) {
+                    ZStack(alignment: .topLeading) {
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .fill(exerciseCardColor)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                    .stroke(Color.white.opacity(0.70), lineWidth: 1)
+                            )
+                            .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 7)
+
+                        VStack(spacing: 12) {
                             HStack {
                                 Button {
                                     if let currentItem {
@@ -387,11 +630,11 @@ struct RandomPracticeView: View {
                                     .font(.system(size: 20, weight: .heavy))
                                     .foregroundStyle(
                                         (currentItem != nil && favoriteIds.contains(currentItem!))
-                                        ? Color.yellow.opacity(0.95)
+                                        ? Color.yellow.opacity(0.98)
                                         : Color.black.opacity(0.55)
                                     )
-                                    .frame(width: 40, height: 40)
-                                    .background(Circle().fill(Color.black.opacity(0.06)))
+                                    .frame(width: 42, height: 42)
+                                    .background(Circle().fill(Color.white.opacity(0.72)))
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(currentItem == nil)
@@ -399,18 +642,20 @@ struct RandomPracticeView: View {
                                 Spacer()
                             }
 
-                            Text(currentItem ?? "בחר זמן והתחל")
-                                .font(.system(size: 22, weight: .heavy))
-                                .foregroundStyle(Color.black.opacity(0.85))
+                            Text(currentItem.map { itemTitleForUi($0) } ?? tr("בחר זמן והתחל", "Choose duration and start"))
+                                .font(.system(size: 28, weight: .black))
+                                .foregroundStyle(Color.black.opacity(0.90))
                                 .multilineTextAlignment(.center)
+                                .minimumScaleFactor(0.72)
                                 .frame(maxWidth: .infinity)
 
-                            Text("לחץ כדי לראות הסבר")
-                                .font(.system(size: 13, weight: .semibold))
+                            Text(tr("לחץ כדי לראות הסבר", "Tap to view explanation"))
+                                .font(.system(size: 13, weight: .bold))
                                 .foregroundStyle(Color.black.opacity(0.55))
+                                .multilineTextAlignment(.center)
                         }
-                        .padding(.vertical, 18)
-                        .padding(.horizontal, 14)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 28)
                     }
                     .padding(.horizontal, 16)
                     .onTapGesture {
@@ -418,61 +663,93 @@ struct RandomPracticeView: View {
                         showExplanationSheet = true
                     }
 
-                    HStack(spacing: 12) {
+                    HStack(spacing: 18) {
                         Button {
-                            advanceToNextItem()
+                            isMuted.toggle()
+                            if isMuted {
+                                speaker.stopSpeaking(at: .immediate)
+                            } else if let currentItem {
+                                speak(itemTitleForUi(currentItem))
+                            }
                         } label: {
-                            Text("דלג")
-                                .font(.system(size: 18, weight: .heavy))
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(Capsule().fill(Color.purple.opacity(0.75)))
+                            Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                                .font(.system(size: 24, weight: .heavy))
+                                .foregroundStyle(isMuted ? Color.gray.opacity(0.90) : Color.purple.opacity(0.90))
+                                .frame(width: 58, height: 58)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                        .fill(Color.white.opacity(0.92))
+                                        .shadow(color: Color.black.opacity(0.10), radius: 8, x: 0, y: 5)
+                                )
                         }
                         .buttonStyle(.plain)
 
                         Button {
-                            if let it = currentItem {
-                                dontKnow.insert(it)
-                                saveDontKnow()
-                                rebuildWeightedItems(resetIndex: false)
-                            }
-                            advanceToNextItem()
+                            toggleCurrentPracticeStatus()
                         } label: {
-                            Text("לא יודע")
-                                .font(.system(size: 18, weight: .heavy))
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(Capsule().fill(Color.red.opacity(0.85)))
+                            ZStack {
+                                Circle()
+                                    .fill(statusCircleFill)
+                                    .frame(width: 62, height: 62)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(statusCircleBorder, lineWidth: 3)
+                                    )
+                                    .shadow(color: statusCircleBorder.opacity(0.22), radius: 8, x: 0, y: 5)
+
+                                Image(systemName: statusCircleIcon)
+                                    .font(.system(size: 26, weight: .black))
+                                    .foregroundStyle(statusCircleIconColor)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(currentItem == nil)
+
+                        Button(action: togglePause) {
+                            Image(systemName: isRunning ? "pause.fill" : "play.fill")
+                                .font(.system(size: 24, weight: .heavy))
+                                .foregroundStyle(Color.black.opacity(0.82))
+                                .frame(width: 58, height: 58)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                        .fill(Color.white.opacity(0.92))
+                                        .shadow(color: Color.black.opacity(0.10), radius: 8, x: 0, y: 5)
+                                )
                         }
                         .buttonStyle(.plain)
                     }
+                    .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.horizontal, 16)
 
                     Spacer(minLength: 0)
 
-                    Button {
-                        stopSession()
-                        dismiss()
-                    } label: {
-                        Text("סיום וחזרה")
-                            .font(.system(size: 16, weight: .heavy))
-                            .foregroundStyle(Color.black.opacity(0.80))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(Color.white.opacity(0.92))
-                            )
-                    }
-                    .buttonStyle(.plain)
+                    RandomPracticeBottomActionCard(
+                        isEnglish: isEnglish,
+                        canShowHelp: currentItem != nil,
+                        onHelp: {
+                            showExplanationSheet = true
+                        },
+                        onSkip: {
+                            advanceToNextItem()
+                        },
+                        onFinish: {
+                            stopSession()
+                            dismiss()
+                        }
+                    )
                     .padding(.horizontal, 16)
                     .padding(.bottom, 18)
                 }
             }
+            .environment(\.layoutDirection, screenLayoutDirection)
             .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
                 tick()
+            }
+            .onChange(of: currentIndex) { _, _ in
+                refreshCurrentPracticeStatus()
+            }
+            .onChange(of: weightedItems.count) { _, _ in
+                refreshCurrentPracticeStatus()
             }
             .onAppear {
                 loadDontKnow()
@@ -483,6 +760,7 @@ struct RandomPracticeView: View {
                 isRunning = false
                 weightedItems = []
                 currentIndex = 0
+                currentPracticeStatus = nil
                 resetTimer()
 
                 searchQuery = ""
@@ -500,6 +778,7 @@ struct RandomPracticeView: View {
             .sheet(isPresented: $showDurationSheet) {
                 PracticeDurationPickerSheet(
                     belt: belt,
+                    isEnglish: isEnglish,
                     selectedMinutes: $durationMinutes,
                     alertHalfTime: $alertHalfTime,
                     beepLast10: $beepLast10,
@@ -514,12 +793,14 @@ struct RandomPracticeView: View {
                         dismiss()
                     }
                 )
+                .environment(\.layoutDirection, screenLayoutDirection)
                 .presentationDetents([.fraction(0.46)])
                 .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showExplanationSheet) {
                 PracticeExplanationSheet(
                     belt: belt,
+                    isEnglish: isEnglish,
                     itemTitle: pickedSearchItem ?? currentItem ?? "",
                     onClose: {
                         loadFavorites()
@@ -528,6 +809,7 @@ struct RandomPracticeView: View {
                         pickedSearchItem = nil
                     }
                 )
+                .environment(\.layoutDirection, screenLayoutDirection)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .onDisappear {
@@ -538,6 +820,7 @@ struct RandomPracticeView: View {
             .sheet(isPresented: $showSearchSheet) {
                 PracticeSearchSheet(
                     belt: belt,
+                    isEnglish: isEnglish,
                     query: $searchQuery,
                     results: searchResults,
                     onPick: { picked in
@@ -552,6 +835,7 @@ struct RandomPracticeView: View {
                         searchQuery = ""
                     }
                 )
+                .environment(\.layoutDirection, screenLayoutDirection)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
             }
@@ -565,11 +849,101 @@ struct RandomPracticeView: View {
     }
 }
 
-// MARK: - Picker Sheet (partial)
+// MARK: - Bottom Action Card
+
+private struct RandomPracticeBottomActionCard: View {
+
+    let isEnglish: Bool
+    let canShowHelp: Bool
+    let onHelp: () -> Void
+    let onSkip: () -> Void
+    let onFinish: () -> Void
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 14) {
+                Button(action: onHelp) {
+                    Label(tr("עזרה", "Help"), systemImage: "info.circle")
+                        .font(.system(size: 15, weight: .black))
+                        .foregroundStyle(Color.purple.opacity(0.92))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 58)
+                        .background(
+                            Capsule()
+                                .fill(Color(red: 0.93, green: 0.90, blue: 1.00))
+                                .overlay(
+                                    Capsule()
+                                        .stroke(Color.white.opacity(0.62), lineWidth: 1)
+                                )
+                                .shadow(color: Color.black.opacity(0.10), radius: 8, x: 0, y: 5)
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(!canShowHelp)
+                .opacity(canShowHelp ? 1.0 : 0.45)
+
+                Button(action: onSkip) {
+                    Label(tr("דלג", "Skip"), systemImage: "play.fill")
+                        .font(.system(size: 15, weight: .black))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 58)
+                        .background(
+                            Capsule()
+                                .fill(Color.purple.opacity(0.80))
+                                .overlay(
+                                    Capsule()
+                                        .stroke(Color.white.opacity(0.42), lineWidth: 1)
+                                )
+                                .shadow(color: Color.black.opacity(0.14), radius: 9, x: 0, y: 6)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+
+            Button(action: onFinish) {
+                Text(tr("סיום וחזרה", "Finish and Return"))
+                    .font(.system(size: 20, weight: .black))
+                    .foregroundStyle(Color.black.opacity(0.86))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 58)
+                    .background(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .fill(Color.white.opacity(0.98))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                            )
+                            .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 5)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .fill(Color.white.opacity(0.92))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 30, style: .continuous)
+                        .stroke(Color.white.opacity(0.82), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.14), radius: 14, x: 0, y: 8)
+        )
+    }
+}
+
+// MARK: - Picker Sheet
 
 private struct PracticeDurationPickerSheet: View {
 
     let belt: Belt
+    let isEnglish: Bool
+
     @Binding var selectedMinutes: Int
     @Binding var alertHalfTime: Bool
     @Binding var beepLast10: Bool
@@ -580,13 +954,26 @@ private struct PracticeDurationPickerSheet: View {
     private var beltColor: Color { KmiBeltPalette.color(for: belt) }
     private let options: [Int] = [1, 3, 5]
 
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
 
-                Text("בחר זמן תרגול")
+                Text(tr("בחר זמן תרגול", "Choose Practice Duration"))
                     .font(.title2.weight(.heavy))
                     .foregroundStyle(Color.black.opacity(0.85))
+                    .multilineTextAlignment(.center)
                     .padding(.top, 10)
 
                 Text(String(format: "%02d:00", selectedMinutes))
@@ -604,7 +991,8 @@ private struct PracticeDurationPickerSheet: View {
                             VStack(spacing: 6) {
                                 Text("\(m)")
                                     .font(.system(size: 20, weight: .heavy))
-                                Text("דק׳")
+
+                                Text(tr("דק׳", "min"))
                                     .font(.system(size: 12, weight: .bold))
                                     .opacity(0.85)
                             }
@@ -623,25 +1011,31 @@ private struct PracticeDurationPickerSheet: View {
 
                 VStack(spacing: 10) {
                     Toggle(isOn: $alertHalfTime) {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("התראה באמצע הזמן")
+                        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 2) {
+                            Text(tr("התראה באמצע הזמן", "Mid-time alert"))
                                 .font(.system(size: 16, weight: .heavy))
-                            Text("צפצוף + הודעה קולית בחצי הזמן")
+                                .multilineTextAlignment(textAlignment)
+
+                            Text(tr("צפצוף + הודעה קולית בחצי הזמן", "Beep + voice announcement at halfway point"))
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundStyle(Color.black.opacity(0.55))
+                                .multilineTextAlignment(textAlignment)
                         }
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
                     }
 
                     Toggle(isOn: $beepLast10) {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("צליל ב-10 השניות האחרונות")
+                        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 2) {
+                            Text(tr("צליל ב-10 השניות האחרונות", "Sound in the last 10 seconds"))
                                 .font(.system(size: 16, weight: .heavy))
-                            Text("צפצוף קצר כל שנייה עד לסיום")
+                                .multilineTextAlignment(textAlignment)
+
+                            Text(tr("צפצוף קצר כל שנייה עד לסיום", "Short beep every second until the end"))
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundStyle(Color.black.opacity(0.55))
+                                .multilineTextAlignment(textAlignment)
                         }
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
                     }
                 }
                 .toggleStyle(SwitchToggleStyle(tint: beltColor.opacity(0.85)))
@@ -649,7 +1043,7 @@ private struct PracticeDurationPickerSheet: View {
 
                 HStack(spacing: 12) {
                     Button(action: onStart) {
-                        Text("התחל")
+                        Text(tr("התחל", "Start"))
                             .font(.system(size: 16, weight: .heavy))
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
@@ -662,7 +1056,7 @@ private struct PracticeDurationPickerSheet: View {
                     .buttonStyle(.plain)
 
                     Button(action: onCancel) {
-                        Text("בטל")
+                        Text(tr("בטל", "Cancel"))
                             .font(.system(size: 16, weight: .heavy))
                             .foregroundStyle(Color.black.opacity(0.72))
                             .frame(maxWidth: .infinity)
@@ -687,6 +1081,7 @@ private struct PracticeDurationPickerSheet: View {
 private struct PracticeExplanationSheet: View {
 
     let belt: Belt
+    let isEnglish: Bool
     let itemTitle: String
     let onClose: () -> Void
 
@@ -697,6 +1092,41 @@ private struct PracticeExplanationSheet: View {
     }()
 
     private var beltColor: Color { KmiBeltPalette.color(for: belt) }
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
+    private var beltNameForUi: String {
+        guard isEnglish else { return belt.heb }
+
+        switch belt.id.lowercased() {
+        case "white":
+            return "White Belt"
+        case "yellow":
+            return "Yellow Belt"
+        case "orange":
+            return "Orange Belt"
+        case "green":
+            return "Green Belt"
+        case "blue":
+            return "Blue Belt"
+        case "brown":
+            return "Brown Belt"
+        case "black":
+            return "Black Belt"
+        default:
+            return belt.heb
+        }
+    }
 
     private var favoriteId: String {
         itemTitle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -736,12 +1166,12 @@ private struct PracticeExplanationSheet: View {
                 Spacer()
 
                 VStack(spacing: 4) {
-                    Text(itemTitle)
+                    Text(itemTitle.trimmingCharacters(in: .whitespacesAndNewlines))
                         .font(.system(size: 18, weight: .heavy))
                         .foregroundStyle(Color.black.opacity(0.85))
                         .multilineTextAlignment(.center)
 
-                    Text("(\(belt.heb))")
+                    Text("(\(beltNameForUi))")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(beltColor.opacity(0.85))
                 }
@@ -761,16 +1191,17 @@ private struct PracticeExplanationSheet: View {
             .padding(.top, 10)
 
             WhiteCard {
-                VStack(alignment: .trailing, spacing: 10) {
-                    Text("הסבר לתרגיל")
+                VStack(alignment: isEnglish ? .leading : .trailing, spacing: 10) {
+                    Text(tr("הסבר לתרגיל", "Exercise Explanation"))
                         .font(.system(size: 16, weight: .heavy))
                         .foregroundStyle(Color.black.opacity(0.85))
+                        .multilineTextAlignment(textAlignment)
 
-                    Text(explanationText(for: belt, itemTitle: itemTitle))
+                    Text(explanationText(for: belt, itemTitle: itemTitle, isEnglish: isEnglish))
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Color.black.opacity(0.65))
-                        .multilineTextAlignment(.trailing)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .multilineTextAlignment(textAlignment)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
                 }
                 .padding(.vertical, 14)
                 .padding(.horizontal, 14)
@@ -785,36 +1216,56 @@ private struct PracticeExplanationSheet: View {
 private struct PracticeSearchSheet: View {
 
     let belt: Belt
+    let isEnglish: Bool
+
     @Binding var query: String
+
     let results: [String]
     let onPick: (String) -> Void
     let onClose: () -> Void
 
     private var beltColor: Color { KmiBeltPalette.color(for: belt) }
 
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
 
-                Text("חיפוש תרגיל")
+                Text(tr("חיפוש תרגיל", "Search Exercise"))
                     .font(.title2.weight(.heavy))
                     .foregroundStyle(Color.black.opacity(0.85))
+                    .multilineTextAlignment(.center)
                     .padding(.top, 10)
 
-                TextField("הקלד שם תרגיל", text: $query)
+                TextField(tr("הקלד שם תרגיל", "Type exercise name"), text: $query)
                     .textFieldStyle(.roundedBorder)
-                    .multilineTextAlignment(.trailing)
+                    .multilineTextAlignment(textAlignment)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
                     .padding(.horizontal, 16)
 
                 if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("התחל להקליד כדי לחפש תרגיל")
+                    Text(tr("התחל להקליד כדי לחפש תרגיל", "Start typing to search for an exercise"))
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Color.black.opacity(0.55))
+                        .multilineTextAlignment(.center)
                         .padding(.top, 8)
                 } else if results.isEmpty {
-                    Text("לא נמצאו תרגילים תואמים")
+                    Text(tr("לא נמצאו תרגילים תואמים", "No matching exercises found"))
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Color.black.opacity(0.55))
+                        .multilineTextAlignment(.center)
                         .padding(.top, 8)
                 } else {
                     LazyVStack(spacing: 10) {
@@ -822,17 +1273,30 @@ private struct PracticeSearchSheet: View {
                             Button {
                                 onPick(result)
                             } label: {
-                                HStack {
-                                    Image(systemName: "magnifyingglass")
-                                        .foregroundStyle(beltColor.opacity(0.85))
+                                HStack(spacing: 12) {
+                                    if isEnglish {
+                                        Image(systemName: "magnifyingglass")
+                                            .foregroundStyle(beltColor.opacity(0.85))
 
-                                    Spacer()
+                                        Text(result.trimmingCharacters(in: .whitespacesAndNewlines))
+                                            .font(.system(size: 16, weight: .heavy))
+                                            .foregroundStyle(Color.black.opacity(0.82))
+                                            .multilineTextAlignment(.leading)
 
-                                    Text(result)
-                                        .font(.system(size: 16, weight: .heavy))
-                                        .foregroundStyle(Color.black.opacity(0.82))
-                                        .multilineTextAlignment(.trailing)
+                                        Spacer()
+                                    } else {
+                                        Spacer()
+
+                                        Text(result.trimmingCharacters(in: .whitespacesAndNewlines))
+                                            .font(.system(size: 16, weight: .heavy))
+                                            .foregroundStyle(Color.black.opacity(0.82))
+                                            .multilineTextAlignment(.trailing)
+
+                                        Image(systemName: "magnifyingglass")
+                                            .foregroundStyle(beltColor.opacity(0.85))
+                                    }
                                 }
+                                .frame(maxWidth: .infinity, alignment: frameAlignment)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 14)
                                 .background(
@@ -847,7 +1311,7 @@ private struct PracticeSearchSheet: View {
                 }
 
                 Button(action: onClose) {
-                    Text("סגור")
+                    Text(tr("סגור", "Close"))
                         .font(.system(size: 16, weight: .heavy))
                         .foregroundStyle(Color.black.opacity(0.72))
                         .frame(maxWidth: .infinity)
@@ -866,11 +1330,17 @@ private struct PracticeSearchSheet: View {
     }
 }
 
-private func explanationText(for belt: Belt, itemTitle: String) -> String {
+private func explanationText(
+    for belt: Belt,
+    itemTitle: String,
+    isEnglish: Bool
+) -> String {
     let clean = itemTitle.trimmingCharacters(in: .whitespacesAndNewlines)
 
     guard !clean.isEmpty else {
-        return "לא נבחר תרגיל להצגה."
+        return isEnglish
+            ? "No exercise selected to display."
+            : "לא נבחר תרגיל להצגה."
     }
 
     let explanations = Explanations()
@@ -894,7 +1364,9 @@ private func explanationText(for belt: Belt, itemTitle: String) -> String {
         return fallback
     }
 
-    return "אין כרגע הסבר לתרגיל הזה."
+    return isEnglish
+        ? "No explanation is currently available for this exercise."
+        : "אין כרגע הסבר לתרגיל הזה."
 }
 
 private extension String {

@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import FirebaseAuth
 
+@MainActor
 final class AuthDeviceGate: ObservableObject {
     static let shared = AuthDeviceGate()
 
@@ -25,43 +26,58 @@ final class AuthDeviceGate: ObservableObject {
             return "מספר הטלפון אינו תואם לרשומת ההרשאה."
         case "bundle_id_mismatch":
             return "גרסת האפליקציה או הזיהוי שלה אינם תואמים."
+        case "device_mismatch":
+            return "המשתמש הזה מחובר ממכשיר שאינו מורשה."
         case "no_current_user":
             return "אין משתמש מחובר."
-        case .some(let value) where !value.isEmpty:
+        case .some(let value) where !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
             return value
         default:
-            return "הגישה נחסמה למשתמש זה"
+            return "הגישה נחסמה למשתמש זה."
         }
     }
 
     func verifyCurrentSession() async {
         guard let user = Auth.auth().currentUser else {
-            await MainActor.run {
-                self.isAuthorized = false
-                self.blockMessage = "אין משתמש מחובר"
-                self.isChecking = false
-            }
+            isAuthorized = false
+            blockMessage = displayMessage(for: "no_current_user")
+            isChecking = false
+            UserDefaults.standard.removeObject(forKey: authorizedUidKey)
             return
         }
 
-        await MainActor.run {
-            self.isChecking = true
-            self.blockMessage = nil
+        isChecking = true
+        blockMessage = nil
+
+        let result = await DeviceLockService.shared.verifyCurrentUserDevice()
+
+        switch result {
+        case .allowed(_):
+            UserDefaults.standard.set(user.uid, forKey: authorizedUidKey)
+            isAuthorized = true
+            blockMessage = nil
+            isChecking = false
+
+        case .denied(let reason):
+            UserDefaults.standard.removeObject(forKey: authorizedUidKey)
+            isAuthorized = false
+            blockMessage = displayMessage(for: reason)
+            isChecking = false
+
+        case .failed(let message):
+            UserDefaults.standard.removeObject(forKey: authorizedUidKey)
+            isAuthorized = false
+            blockMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? displayMessage(for: nil)
+                : message
+            isChecking = false
         }
+    }
 
-        print("KMI_AUTH device gate disabled")
-        print("KMI_AUTH email =", user.email ?? "nil")
-        print("KMI_AUTH uid =", user.uid)
-
-        // ✅ חסימת מכשיר מבוטלת:
-        // עדיין דורשים משתמש מחובר ב-Firebase,
-        // אבל לא בודקים התאמת מכשיר מול השרת ולא חוסמים לפי device_mismatch.
-        UserDefaults.standard.set(user.uid, forKey: self.authorizedUidKey)
-
-        await MainActor.run {
-            self.isAuthorized = true
-            self.blockMessage = nil
-            self.isChecking = false
-        }
+    func reset() {
+        isChecking = false
+        isAuthorized = false
+        blockMessage = nil
+        UserDefaults.standard.removeObject(forKey: authorizedUidKey)
     }
 }

@@ -23,15 +23,15 @@ extension SettingsView {
         acceptsTerms: Bool,
         coachCode: String
     ) {
-        print("⚙️ [2] submittedFullName =", fullName)
-        print("⚙️ [3] submittedPhone =", phone)
-        print("⚙️ [4] submittedEmail =", email)
-        print("⚙️ [5] submittedRegion =", region)
-        print("⚙️ [6] submittedBranches =", branches)
-        print("⚙️ [7] submittedGroups =", groups)
-        print("⚙️ [8] submittedBelt =", belt)
-
         let defaults = UserDefaults.standard
+
+        let cleanedFullName = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedPhone = phone.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedRegion = region.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedGender = gender.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedCoachCode = coachCode.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let existingRole = (
             defaults.string(forKey: "user_role")
@@ -40,133 +40,155 @@ extension SettingsView {
         .trimmingCharacters(in: .whitespacesAndNewlines)
         .lowercased()
 
-        let resolvedRole = existingRole.isEmpty ? "trainee" : existingRole
+        let submittedRole = isCoach ? "coach" : "trainee"
+        let resolvedRole = existingRole.isEmpty ? submittedRole : existingRole
 
-        print("⚙️ [9] submittedRole =", isCoach ? "coach" : "trainee")
-        print("⚙️ [10] keepingExistingRole =", resolvedRole)
-
-        // ✅ מנקים רווחים ובוחרים ערך ראשון אמיתי
         let cleanedBranches = branches
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+            .removingDuplicatesKeepingOrder()
 
         let cleanedGroups = groups
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+            .removingDuplicatesKeepingOrder()
 
         let firstBranch = cleanedBranches.first ?? ""
         let firstGroup = cleanedGroups.first ?? ""
 
-        // ✅ direct keys
-        defaults.set(fullName, forKey: "fullName")
+        defaults.set(cleanedFullName, forKey: "fullName")
+        defaults.set(cleanedFullName, forKey: "full_name")
+        defaults.set(cleanedFullName, forKey: "kmi.user.fullName")
 
-        defaults.set(phone, forKey: "phone")
-        defaults.set(email, forKey: "email")
+        defaults.set(cleanedPhone, forKey: "phone")
+        defaults.set(cleanedPhone, forKey: "kmi.user.phone")
 
-        defaults.set(region, forKey: "region")
+        defaults.set(cleanedEmail, forKey: "email")
+        defaults.set(cleanedEmail, forKey: "kmi.user.email")
+
+        defaults.set(cleanedRegion, forKey: "region")
         defaults.set(firstBranch, forKey: "branch")
         defaults.set(firstGroup, forKey: "group")
 
         defaults.set(resolvedRole, forKey: "user_role")
-        defaults.set(username, forKey: "username")
+        defaults.set(cleanedUsername, forKey: "username")
 
-        defaults.set(birthDay, forKey: "birthDay")
-        defaults.set(birthDay, forKey: "birth_day")
+        defaults.set(birthDay.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "birthDay")
+        defaults.set(birthDay.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "birth_day")
 
-        defaults.set(birthMonth, forKey: "birthMonth")
-        defaults.set(birthMonth, forKey: "birth_month")
+        defaults.set(birthMonth.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "birthMonth")
+        defaults.set(birthMonth.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "birth_month")
 
-        defaults.set(birthYear, forKey: "birthYear")
-        defaults.set(birthYear, forKey: "birth_year")
+        defaults.set(birthYear.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "birthYear")
+        defaults.set(birthYear.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "birth_year")
 
-        defaults.set(gender, forKey: "gender")
+        defaults.set(cleanedGender, forKey: "gender")
         defaults.set(password, forKey: "password")
 
         defaults.set(cleanedBranches, forKey: "branches")
         defaults.set(cleanedGroups, forKey: "groups")
 
         defaults.set(wantsSms, forKey: "wantsSms")
+        defaults.set(wantsSms, forKey: "wants_sms")
+
         defaults.set(acceptsTerms, forKey: "acceptsTerms")
+        defaults.set(acceptsTerms, forKey: "accepts_terms")
 
-        defaults.set(coachCode, forKey: "coachCode")
-        defaults.set(coachCode, forKey: "coach_code")
+        defaults.set(cleanedCoachCode, forKey: "coachCode")
+        defaults.set(cleanedCoachCode, forKey: "coach_code")
 
-        saveRegionKeys(region, defaults: defaults)
+        saveRegionKeys(cleanedRegion, defaults: defaults)
         saveBranchKeys(firstBranch, defaults: defaults)
         saveGroupKeys(firstGroup, defaults: defaults)
         saveBeltKeys(from: belt, defaults: defaults)
 
-        print("⚙️ saved fullName =", defaults.string(forKey: "fullName") ?? "nil")
-        print("⚙️ saved full_name =", defaults.string(forKey: "full_name") ?? "nil")
-        print("⚙️ saved user_role =", defaults.string(forKey: "user_role") ?? "nil")
-        print("⚙️ saved birthDay =", defaults.string(forKey: "birthDay") ?? "nil")
-        print("⚙️ saved birthMonth =", defaults.string(forKey: "birthMonth") ?? "nil")
+        defaults.synchronize()
 
-        print("⚙️ saved region =", defaults.string(forKey: "region") ?? "nil")
-        print("⚙️ saved active_region =", defaults.string(forKey: "active_region") ?? "nil")
-        print("⚙️ saved kmi.user.region =", defaults.string(forKey: "kmi.user.region") ?? "nil")
-
-        print("⚙️ saved branch =", defaults.string(forKey: "branch") ?? "nil")
-        print("⚙️ saved active_branch =", defaults.string(forKey: "active_branch") ?? "nil")
-        print("⚙️ saved kmi.user.branch =", defaults.string(forKey: "kmi.user.branch") ?? "nil")
-
-        print("⚙️ saved group =", defaults.string(forKey: "group") ?? "nil")
-        print("⚙️ saved active_group =", defaults.string(forKey: "active_group") ?? "nil")
-        print("⚙️ saved kmi.user.group =", defaults.string(forKey: "kmi.user.group") ?? "nil")
-        print("⚙️ saved branches array =", defaults.stringArray(forKey: "branches") ?? [])
-        print("⚙️ saved groups array =", defaults.stringArray(forKey: "groups") ?? [])
-
-        // ✅ מרענן את ה-UI אחרי שמירה
         DispatchQueue.main.async {
-            self.fullName = fullName
-            self.phone = phone
-            self.email = email
-            self.region = region
+            self.fullName = cleanedFullName
+            self.phone = cleanedPhone
+            self.email = cleanedEmail
+            self.region = cleanedRegion
             self.branch = firstBranch
             self.group = firstGroup
             self.userRole = resolvedRole
         }
     }
-
+    
     func saveRegionKeys(_ value: String, defaults: UserDefaults) {
-        defaults.set(value, forKey: "region")
-        defaults.set(value, forKey: "active_region")
-        defaults.set(value, forKey: "kmi.user.region")
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        defaults.set(clean, forKey: "region")
+        defaults.set(clean, forKey: "active_region")
+        defaults.set(clean, forKey: "selected_region")
+        defaults.set(clean, forKey: "current_region")
+        defaults.set(clean, forKey: "kmi.user.region")
     }
 
     func saveBranchKeys(_ value: String, defaults: UserDefaults) {
-        defaults.set(value, forKey: "branch")
-        defaults.set(value, forKey: "active_branch")
-        defaults.set(value, forKey: "kmi.user.branch")
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        defaults.set(clean, forKey: "branch")
+        defaults.set(clean, forKey: "active_branch")
+        defaults.set(clean, forKey: "selected_branch")
+        defaults.set(clean, forKey: "current_branch")
+        defaults.set(clean, forKey: "kmi.user.branch")
     }
 
     func saveGroupKeys(_ value: String, defaults: UserDefaults) {
-        defaults.set(value, forKey: "group")
-        defaults.set(value, forKey: "active_group")
-        defaults.set(value, forKey: "kmi.user.group")
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        defaults.set(clean, forKey: "group")
+        defaults.set(clean, forKey: "active_group")
+        defaults.set(clean, forKey: "groupKey")
+        defaults.set(clean, forKey: "group_key")
+        defaults.set(clean, forKey: "primaryGroup")
+        defaults.set(clean, forKey: "age_group")
+        defaults.set(clean, forKey: "ageGroup")
+        defaults.set(clean, forKey: "kmi.user.group")
     }
 
     func saveBeltKeys(from belt: String, defaults: UserDefaults) {
+        let clean = belt
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "חגורה", with: "")
+            .replacingOccurrences(of: "belt", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
         let beltId: String
 
-        switch belt {
-        case "צהובה":
+        switch clean {
+        case "white", "לבנה", "לבן":
+            beltId = "white"
+        case "yellow", "צהובה", "צהוב":
             beltId = "yellow"
-        case "כתומה":
+        case "orange", "כתומה", "כתום":
             beltId = "orange"
-        case "ירוקה":
+        case "green", "ירוקה", "ירוק":
             beltId = "green"
-        case "כחולה":
+        case "blue", "כחולה", "כחול":
             beltId = "blue"
-        case "חומה":
+        case "brown", "חומה", "חום":
             beltId = "brown"
-        case "שחורה":
+        case "black", "שחורה", "שחור":
             beltId = "black"
         default:
-            beltId = "white"
+            beltId = currentBeltId.isEmpty ? "white" : currentBeltId
         }
 
         defaults.set(beltId, forKey: "current_belt")
         defaults.set(beltId, forKey: "belt_current")
+        defaults.set(beltId, forKey: "kmi.user.belt")
+        defaults.set(beltId, forKey: "registered_belt")
+        defaults.set(beltId, forKey: "rank")
+        defaults.set(beltId, forKey: "rank_id")
+    }
+}
+
+private extension Array where Element: Hashable {
+    func removingDuplicatesKeepingOrder() -> [Element] {
+        var seen = Set<Element>()
+        return filter { seen.insert($0).inserted }
     }
 }

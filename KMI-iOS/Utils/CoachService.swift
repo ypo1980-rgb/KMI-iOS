@@ -14,6 +14,11 @@ final class CoachService: ObservableObject {
 
     private init() {}
 
+    private var localCoachAccessEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "is_coach") ||
+        UserDefaults.standard.bool(forKey: "coach_access_enabled")
+    }
+
     func checkCoach(userRole: String? = nil, forceRefresh: Bool = false) async {
         if !forceRefresh && !isLoading {
             return
@@ -41,20 +46,8 @@ final class CoachService: ObservableObject {
         let normalizedEmail = normalizeEmail(authUser?.email)
         let normalizedPhone = normalizePhone(authUser?.phoneNumber)
 
-        print("COACH CHECK uid =", uid)
-        print("COACH CHECK role.argument =", roleFromArgument ?? "")
-        print("COACH CHECK role.defaults =", roleFromDefaults ?? "")
-        print("COACH CHECK email =", normalizedEmail)
-        print("COACH CHECK phone =", normalizedPhone)
-
         // 1) הרשאה לפי role מהפרופיל / UserDefaults
-        if isCoachRole(roleFromArgument) || isCoachRole(roleFromDefaults) {
-            markCoach(true)
-            return
-        }
-
-        // 2) הרשאה מיוחדת למייל שלך לצורכי פיתוח/בדיקה
-        if normalizedEmail == "ypo1980@gmail.com" {
+        if isCoachRole(roleFromArgument) || isCoachRole(roleFromDefaults) || localCoachAccessEnabled {
             markCoach(true)
             return
         }
@@ -77,8 +70,6 @@ final class CoachService: ObservableObject {
                         normalizeRole(userDoc.get("userRole") as? String) ??
                         normalizeRole(userDoc.get("type") as? String) ??
                         ""
-
-                    print("COACH CHECK users/{uid}.role =", role)
 
                     if isCoachRole(role) {
                         markCoach(true)
@@ -130,7 +121,7 @@ final class CoachService: ObservableObject {
                     }
                 }
             } catch {
-                print("COACH CHECK users/{uid} lookup failed:", error.localizedDescription)
+                // Silent fallback: continue with phone/email coach checks.
             }
         }
 
@@ -149,7 +140,7 @@ final class CoachService: ObservableObject {
                     return
                 }
             } catch {
-                print("COACH CHECK phone lookup failed for \(phone):", error.localizedDescription)
+                // Silent fallback: continue with the next phone candidate.
             }
         }
 
@@ -178,7 +169,7 @@ final class CoachService: ObservableObject {
                     return
                 }
             } catch {
-                print("COACH CHECK email lookup failed:", error.localizedDescription)
+                // Silent fallback: deny only after all checks fail.
             }
         }
 
@@ -188,48 +179,69 @@ final class CoachService: ObservableObject {
     private func persistCoachProfileSnapshot(from document: DocumentSnapshot) {
         let defaults = UserDefaults.standard
 
-        let branch =
+        let branch = (
             (document.get("coachBranch") as? String) ??
             (document.get("branch") as? String) ??
             firstString(from: document.get("branches")) ??
             ""
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let groupKey =
+        let groupKey = (
             (document.get("coachGroupKey") as? String) ??
             (document.get("groupKey") as? String) ??
+            (document.get("group_key") as? String) ??
             (document.get("group") as? String) ??
+            (document.get("primaryGroup") as? String) ??
             firstString(from: document.get("groups")) ??
             ""
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let fullName =
+        let fullName = (
             (document.get("fullName") as? String) ??
+            (document.get("full_name") as? String) ??
             (document.get("name") as? String) ??
             (document.get("displayName") as? String) ??
             ""
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let email =
+        let email = (
             (document.get("email") as? String) ??
             (document.get("emailLower") as? String) ??
             ""
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if !branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if !branch.isEmpty {
             defaults.set(branch, forKey: "coach_branch")
             defaults.set(branch, forKey: "active_branch")
+            defaults.set(branch, forKey: "selected_branch")
+            defaults.set(branch, forKey: "current_branch")
             defaults.set(branch, forKey: "branch")
+            defaults.set(branch, forKey: "kmi.user.branch")
         }
 
-        if !groupKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if !groupKey.isEmpty {
             defaults.set(groupKey, forKey: "coach_groupKey")
             defaults.set(groupKey, forKey: "active_group")
+            defaults.set(groupKey, forKey: "groupKey")
+            defaults.set(groupKey, forKey: "group_key")
+            defaults.set(groupKey, forKey: "primaryGroup")
             defaults.set(groupKey, forKey: "group")
+            defaults.set(groupKey, forKey: "kmi.user.group")
         }
 
-        if !fullName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if !fullName.isEmpty {
             defaults.set(fullName, forKey: "fullName")
+            defaults.set(fullName, forKey: "full_name")
+            defaults.set(fullName, forKey: "kmi.user.fullName")
         }
 
-        if !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if !email.isEmpty {
             defaults.set(email, forKey: "email")
+            defaults.set(email, forKey: "kmi.user.email")
         }
     }
 
@@ -259,6 +271,15 @@ final class CoachService: ObservableObject {
 
         if value {
             UserDefaults.standard.set("coach", forKey: "user_role")
+        } else {
+            let currentRole = UserDefaults.standard
+                .string(forKey: "user_role")?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased() ?? ""
+
+            if isCoachRole(currentRole) {
+                UserDefaults.standard.set("trainee", forKey: "user_role")
+            }
         }
     }
     
@@ -327,6 +348,7 @@ struct CoachOnlyGateView<Content: View>: View {
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
     @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+    @AppStorage("selected_language_code") private var selectedLanguageCode: String = "he"
 
     let content: () -> Content
 
@@ -337,6 +359,7 @@ struct CoachOnlyGateView<Content: View>: View {
     private var isEnglish: Bool {
         let values = [
             kmiAppLanguageCode.lowercased(),
+            selectedLanguageCode.lowercased(),
             appLanguageRaw.lowercased(),
             initialLanguageCode.lowercased()
         ]
@@ -422,8 +445,8 @@ struct CoachOnlyGateView<Content: View>: View {
 
                 Text(
                     tr(
-                        "ההרשאה נקבעת לפי תפקיד המשתמש, מספר טלפון או אימייל המאמן.",
-                        "Access is based on the user role, phone number, or coach email."
+                        "ההרשאה נקבעת לפי פרטי המשתמש שנשמרו במערכת.",
+                        "Access is based on the user details saved in the system."
                     )
                 )
                 .font(.system(size: 14, weight: .medium))

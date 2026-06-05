@@ -91,6 +91,7 @@ struct ForumView: View {
     }
 
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @AppStorage("selected_language_code") private var selectedLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
     @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
 
@@ -264,12 +265,20 @@ struct ForumView: View {
 
     private var isEnglish: Bool {
         let values = [
-            kmiAppLanguageCode.lowercased(),
-            appLanguageRaw.lowercased(),
-            initialLanguageCode.lowercased()
+            kmiAppLanguageCode,
+            selectedLanguageCode,
+            appLanguageRaw,
+            initialLanguageCode
         ]
+        .map {
+            $0
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+        }
 
-        return values.contains("en") || values.contains("english")
+        return values.contains("en") ||
+            values.contains("english") ||
+            values.contains("eng")
     }
 
     private var layoutDirection: LayoutDirection {
@@ -1366,7 +1375,10 @@ if attachedMediaType != nil {
             await MainActor.run {
                 canUseExtras = false
                 lockText = tr("שגיאה בטעינת פרטי המשתמש.", "Failed to load user details.")
-                errorText = tr("שגיאה בטעינת פרטי משתמש: \(error.localizedDescription)", "Failed to load user details: \(error.localizedDescription)")
+                errorText = tr(
+                    "לא הצלחנו לטעון את פרטי המשתמש. נסו שוב מאוחר יותר.",
+                    "We could not load your user details. Please try again later."
+                )
                 stopListener()
             }
         }
@@ -1554,9 +1566,6 @@ if attachedMediaType != nil {
 
                 return snap.documents
             } catch {
-                #if DEBUG
-                print("🟣 FORUM users query failed field=\(field) value=\(value) error=\(error.localizedDescription)")
-                #endif
                 return []
             }
         }
@@ -1569,9 +1578,6 @@ if attachedMediaType != nil {
 
                 return snap.documents
             } catch {
-                #if DEBUG
-                print("🟣 FORUM users array query failed field=\(field) value=\(value) error=\(error.localizedDescription)")
-                #endif
                 return []
             }
         }
@@ -1616,14 +1622,8 @@ if attachedMediaType != nil {
                         docsById[doc.documentID] = doc
                     }
                 }
-
-                #if DEBUG
-                print("🟣 FORUM users fallback matched=\(docsById.count) branch=\(cleanBranch)")
-                #endif
             } catch {
-                #if DEBUG
-                print("🟣 FORUM users fallback failed error=\(error.localizedDescription)")
-                #endif
+                docsById = [:]
             }
         }
 
@@ -1680,10 +1680,6 @@ if attachedMediaType != nil {
 
         await MainActor.run {
             participantsByUsers = participants
-
-            #if DEBUG
-            print("🟣 FORUM participants loaded from users count=\(participants.count) branch=\(cleanBranch) names=\(participants.map { $0.name })")
-            #endif
         }
     }
     
@@ -1714,8 +1710,8 @@ if attachedMediaType != nil {
         listener = query.addSnapshotListener { snap, err in
             if let err {
                 errorText = tr(
-                    "שגיאה בטעינת הודעות: \(err.localizedDescription)",
-                    "Failed to load messages: \(err.localizedDescription)"
+                    "לא הצלחנו לטעון את הודעות הפורום. נסו שוב מאוחר יותר.",
+                    "We could not load the forum messages. Please try again later."
                 )
                 return
             }
@@ -1787,10 +1783,6 @@ if attachedMediaType != nil {
 
             messages = list.sorted { $0.createdAt < $1.createdAt }
         }
-    }
-
-    private func ensureAnonAuth() async {
-        // הפורום עובד רק עם משתמש מחובר אמיתי
     }
 
     // MARK: - Send / Update / Delete
@@ -1947,8 +1939,8 @@ if attachedMediaType != nil {
         } catch {
             await MainActor.run {
                 errorText = tr(
-                    "שגיאה בשמירת ההודעה: \(error.localizedDescription)",
-                    "Error saving message: \(error.localizedDescription)"
+                    "לא הצלחנו לשמור את ההודעה. נסו שוב.",
+                    "We could not save the message. Please try again."
                 )
             }
         }
@@ -1981,8 +1973,8 @@ if attachedMediaType != nil {
         } catch {
             await MainActor.run {
                 errorText = tr(
-                    "שגיאה במחיקת ההודעה: \(error.localizedDescription)",
-                    "Error deleting message: \(error.localizedDescription)"
+                    "לא הצלחנו למחוק את ההודעה. נסו שוב.",
+                    "We could not delete the message. Please try again."
                 )
             }
         }
@@ -2035,8 +2027,8 @@ if attachedMediaType != nil {
         } catch {
             await MainActor.run {
                 errorText = tr(
-                    "שגיאה בטעינת תמונה: \(error.localizedDescription)",
-                    "Failed to load image: \(error.localizedDescription)"
+                    "לא הצלחנו לטעון את התמונה.",
+                    "We could not load the image."
                 )
             }
         }
@@ -2054,8 +2046,8 @@ if attachedMediaType != nil {
         } catch {
             await MainActor.run {
                 errorText = tr(
-                    "שגיאה בטעינת וידאו: \(error.localizedDescription)",
-                    "Failed to load video: \(error.localizedDescription)"
+                    "לא הצלחנו לטעון את הסרטון.",
+                    "We could not load the video."
                 )
             }
         }
@@ -2621,8 +2613,8 @@ private struct ForumExerciseExplanationSheet: View {
             showEditor = false
         } catch {
             errorText = tr(
-                "שגיאה בשמירת הסבר: \(error.localizedDescription)",
-                "Failed to save explanation: \(error.localizedDescription)"
+                "לא הצלחנו לשמור את ההסבר. נסו שוב.",
+                "We could not save the explanation. Please try again."
             )
         }
     }

@@ -516,11 +516,11 @@ struct ContentView: View {
                         }
                     
                     case .coachTrainees:
-                        KmiRootLayout(title: "אודות מתאמנים", nav: nav, selectedIcon: .home) {
+                        KmiRootLayout(title: tr("רשימת המתאמנים", "Trainees list"), nav: nav, selectedIcon: .home) {
                             CoachTraineesView()
                                 .navigationBarBackButtonHidden(true)
                         }
-                  
+                        
                     case .coachBroadcast:
                         KmiRootLayout(title: "שליחת הודעה לקבוצה", nav: nav, selectedIcon: .home) {
                             CoachBroadcastView()

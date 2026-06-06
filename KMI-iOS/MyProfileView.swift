@@ -440,123 +440,131 @@ struct MyProfileView: View {
         VStack(alignment: profileStackAlignment, spacing: 0) {
             headerSection
 
-            Spacer().frame(height: 10)
+            Spacer().frame(height: 12)
 
             editProfileButton
 
-            Spacer().frame(height: 16)
-
-            thinDividerForLightCard
-
-            Spacer().frame(height: 10)
+            Spacer().frame(height: 14)
 
             profileInfoSections
 
-            Spacer().frame(height: 8)
+            Spacer().frame(height: 10)
 
             trainingTowardBeltCard
         }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 22)
+        .padding(.horizontal, 18)
+        .padding(.top, 16)
+        .padding(.bottom, 16)
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(Color(red: 0.88, green: 0.93, blue: 1.00))
+                .fill(Color(red: 0.91, green: 0.95, blue: 1.00))
                 .overlay(
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(Color(red: 0.75, green: 0.82, blue: 0.92), lineWidth: 1)
+                        .stroke(Color(red: 0.74, green: 0.82, blue: 0.94), lineWidth: 1)
                 )
                 .shadow(color: Color.black.opacity(0.18), radius: 12, x: 0, y: 7)
         )
     }
-    
+
     private var headerSection: some View {
-        HStack(alignment: .top, spacing: 12) {
-            if isEnglish {
-                profileBeltImage
-                    .frame(width: 110, height: 82)
+        VStack(spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                if isEnglish {
+                    headerTextBlock(
+                        alignment: .leading,
+                        frameAlignment: .leading,
+                        textAlignment: .leading
+                    )
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(displayedUserName)
-                        .font(.system(size: 27, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.08, green: 0.12, blue: 0.20))
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.72)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .multilineTextAlignment(.leading)
+                    closeButton
+                } else {
+                    closeButton
 
-                    Text(displayedBelt)
-                        .font(.system(size: 20, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.12, green: 0.27, blue: 0.52))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.76)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .multilineTextAlignment(.leading)
+                    headerTextBlock(
+                        alignment: .trailing,
+                        frameAlignment: .trailing,
+                        textAlignment: .trailing
+                    )
                 }
-
-                closeButton
-            } else {
-                closeButton
-
-                VStack(alignment: .trailing, spacing: 6) {
-                    Text(displayedUserName)
-                        .font(.system(size: 27, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.08, green: 0.12, blue: 0.20))
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.72)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .multilineTextAlignment(.trailing)
-
-                    Text(displayedBelt)
-                        .font(.system(size: 20, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.12, green: 0.27, blue: 0.52))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.76)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .multilineTextAlignment(.trailing)
-                }
-
-                profileBeltImage
-                    .frame(width: 110, height: 82)
             }
+            .frame(maxWidth: .infinity)
+            .environment(\.layoutDirection, .leftToRight)
+
+            profileBeltImage
+                .frame(maxWidth: .infinity)
+                .frame(height: 76)
+                .padding(.horizontal, 8)
+                .padding(.top, -2)
+                .padding(.bottom, 2)
         }
-        .frame(maxWidth: .infinity)
-        .environment(\.layoutDirection, .leftToRight)
     }
-    
+
+    private func headerTextBlock(
+        alignment: HorizontalAlignment,
+        frameAlignment: Alignment,
+        textAlignment: TextAlignment
+    ) -> some View {
+        VStack(alignment: alignment, spacing: 4) {
+            Text(displayedUserName)
+                .font(.system(size: 24, weight: .heavy))
+                .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.18))
+                .lineLimit(2)
+                .minimumScaleFactor(0.72)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .multilineTextAlignment(textAlignment)
+
+            Text(displayedBelt)
+                .font(.system(size: 17, weight: .heavy))
+                .foregroundStyle(Color(red: 0.16, green: 0.24, blue: 0.58))
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .multilineTextAlignment(textAlignment)
+        }
+    }
+
     private var profileBeltImage: some View {
         Image(profileBeltImageName(for: resolvedBeltId))
             .resizable()
             .scaledToFit()
-            .rotationEffect(.degrees(-8))
-            .padding(.top, 2)
-            .padding(.horizontal, 2)
+            .rotationEffect(.degrees(isEnglish ? -5 : 5))
+            .shadow(color: Color.black.opacity(0.17), radius: 7, x: 0, y: 4)
             .accessibilityHidden(true)
     }
-    
+
     private var beltSubtitleSection: some View {
         Text(displayedBelt)
-            .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(Color(red: 0.75, green: 0.84, blue: 1.0))
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(Color(red: 0.16, green: 0.24, blue: 0.58))
             .lineLimit(1)
             .minimumScaleFactor(0.76)
             .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
             .multilineTextAlignment(profileTextAlignment)
     }
-    
+
     private var closeButton: some View {
         Button {
             dismiss()
         } label: {
             Image(systemName: "xmark")
-                .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(Color(red: 0.16, green: 0.20, blue: 0.30))
+                .font(.system(size: 17, weight: .black))
+                .foregroundStyle(Color(red: 0.14, green: 0.17, blue: 0.25))
                 .frame(width: 38, height: 38)
-                .contentShape(Rectangle())
+                .background(
+                    Circle()
+                        .fill(Color.white.opacity(0.96))
+                        .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 3)
+                )
+                .overlay(
+                    Circle()
+                        .stroke(Color.black.opacity(0.07), lineWidth: 1)
+                )
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
     }
-    
+
     private var editProfileButton: some View {
         Button {
             dismiss()
@@ -566,30 +574,45 @@ struct MyProfileView: View {
             }
         } label: {
             Text(tr("עריכת פרופיל", "Edit profile"))
-                .font(.system(size: 18, weight: .heavy))
+                .font(.system(size: 16, weight: .heavy))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
-                .frame(height: 48)
+                .frame(height: 46)
                 .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color(red: 0.46, green: 0.32, blue: 0.73))
+                    RoundedRectangle(cornerRadius: 17, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.44, green: 0.30, blue: 0.74),
+                                    Color(red: 0.30, green: 0.20, blue: 0.62)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .shadow(
+                            color: Color(red: 0.30, green: 0.20, blue: 0.62).opacity(0.25),
+                            radius: 8,
+                            x: 0,
+                            y: 4
+                        )
                 )
         }
         .buttonStyle(.plain)
     }
-    
+
     private var thinDivider: some View {
         Rectangle()
-            .fill(Color(red: 0.70, green: 0.78, blue: 0.88))
+            .fill(Color(red: 0.72, green: 0.79, blue: 0.89))
             .frame(height: 1)
     }
 
     private var thinDividerForLightCard: some View {
         Rectangle()
-            .fill(Color(red: 0.70, green: 0.78, blue: 0.88))
+            .fill(Color(red: 0.72, green: 0.79, blue: 0.89))
             .frame(height: 1)
     }
-    
+
     private var profileInfoSections: some View {
         VStack(spacing: 0) {
             labeledValueBlock(
@@ -622,11 +645,11 @@ struct MyProfileView: View {
                 value: displayedNextTraining
             )
 
-            Spacer().frame(height: 6)
+            Spacer().frame(height: 4)
 
             thinDivider.opacity(0.75)
 
-            Spacer().frame(height: 6)
+            Spacer().frame(height: 4)
 
             labeledValueBlock(
                 label: tr("מייל:", "Email:"),
@@ -651,50 +674,50 @@ struct MyProfileView: View {
     }
 
     private func labeledValueBlock(label: String, value: String) -> some View {
-        VStack(alignment: profileStackAlignment, spacing: 4) {
+        VStack(alignment: profileStackAlignment, spacing: 3) {
             Text(label)
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Color(red: 0.34, green: 0.40, blue: 0.50))
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Color(red: 0.35, green: 0.40, blue: 0.50))
                 .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                 .multilineTextAlignment(profileTextAlignment)
 
             Text(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "—" : value)
-                .font(.system(size: 18, weight: .heavy))
-                .foregroundStyle(Color(red: 0.08, green: 0.12, blue: 0.20))
+                .font(.system(size: 15, weight: .heavy))
+                .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.18))
                 .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                 .multilineTextAlignment(profileTextAlignment)
                 .lineLimit(4)
                 .minimumScaleFactor(0.80)
 
-            Spacer().frame(height: 6)
+            Spacer().frame(height: 5)
 
             Rectangle()
-                .fill(Color(red: 0.70, green: 0.78, blue: 0.88))
+                .fill(Color(red: 0.72, green: 0.79, blue: 0.89))
                 .frame(height: 1)
         }
-        .padding(.vertical, 7)
+        .padding(.vertical, 5)
     }
-    
+
     private func passwordRow(label: String, password: String) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 if isEnglish {
                     Text(label)
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(Color(red: 0.34, green: 0.40, blue: 0.50))
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color(red: 0.35, green: 0.40, blue: 0.50))
 
                     Spacer()
 
                     Text(passwordVisible ? password : "••••••••")
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.08, green: 0.12, blue: 0.20))
+                        .font(.system(size: 15, weight: .heavy))
+                        .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.18))
 
                     Button {
                         passwordVisible.toggle()
                     } label: {
                         Image(systemName: passwordVisible ? "eye.slash" : "eye")
-                            .font(.system(size: 19, weight: .bold))
-                            .foregroundStyle(Color(red: 0.28, green: 0.32, blue: 0.42))
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(Color(red: 0.28, green: 0.24, blue: 0.62))
                     }
                     .buttonStyle(.plain)
                 } else {
@@ -702,64 +725,85 @@ struct MyProfileView: View {
                         passwordVisible.toggle()
                     } label: {
                         Image(systemName: passwordVisible ? "eye.slash" : "eye")
-                            .font(.system(size: 19, weight: .bold))
-                            .foregroundStyle(Color(red: 0.28, green: 0.32, blue: 0.42))
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(Color(red: 0.28, green: 0.24, blue: 0.62))
                     }
                     .buttonStyle(.plain)
 
                     Text(passwordVisible ? password : "••••••••")
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.08, green: 0.12, blue: 0.20))
+                        .font(.system(size: 15, weight: .heavy))
+                        .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.18))
 
                     Spacer()
 
                     Text(label)
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(Color(red: 0.34, green: 0.40, blue: 0.50))
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color(red: 0.35, green: 0.40, blue: 0.50))
                 }
             }
-            .padding(.vertical, 8)
+            .padding(.vertical, 7)
 
             Rectangle()
-                .fill(Color(red: 0.70, green: 0.78, blue: 0.88))
+                .fill(Color(red: 0.72, green: 0.79, blue: 0.89))
                 .frame(height: 1)
         }
     }
-    
+
     private var trainingTowardBeltCard: some View {
-        VStack(alignment: .center, spacing: 8) {
+        VStack(alignment: profileStackAlignment, spacing: 7) {
             Text(tr("מתאמן לחגורה", "Training toward belt"))
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Color(red: 0.34, green: 0.40, blue: 0.50))
-                .frame(maxWidth: .infinity, alignment: .center)
-                .multilineTextAlignment(.center)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Color(red: 0.35, green: 0.40, blue: 0.50))
+                .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
+                .multilineTextAlignment(profileTextAlignment)
                 .lineLimit(1)
 
-            Text(displayedNextBelt)
-                .font(.system(size: 20, weight: .heavy))
-                .foregroundStyle(Color(red: 0.12, green: 0.27, blue: 0.52))
-                .frame(maxWidth: .infinity, alignment: .center)
-                .multilineTextAlignment(.center)
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
+            HStack(spacing: 10) {
+                if isEnglish {
+                    Image(profileBeltImageName(for: displayedNextBelt))
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 90, height: 38)
+                        .rotationEffect(.degrees(-5))
+                        .accessibilityHidden(true)
 
-            Image(profileBeltImageName(for: displayedNextBelt))
-                .resizable()
-                .scaledToFit()
-                .frame(height: 58)
-                .padding(.horizontal, 18)
-                .accessibilityHidden(true)
+                    Text(displayedNextBelt)
+                        .font(.system(size: 18, weight: .heavy))
+                        .foregroundStyle(Color(red: 0.16, green: 0.24, blue: 0.58))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.80)
+
+                    Spacer(minLength: 0)
+                } else {
+                    Spacer(minLength: 0)
+
+                    Text(displayedNextBelt)
+                        .font(.system(size: 18, weight: .heavy))
+                        .foregroundStyle(Color(red: 0.16, green: 0.24, blue: 0.58))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.80)
+
+                    Image(profileBeltImageName(for: displayedNextBelt))
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 90, height: 38)
+                        .rotationEffect(.degrees(5))
+                        .accessibilityHidden(true)
+                }
+            }
+            .environment(\.layoutDirection, .leftToRight)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
         .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color(red: 0.86, green: 0.92, blue: 1.00))
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.white.opacity(0.74))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
                         .stroke(Color(red: 0.70, green: 0.78, blue: 0.88), lineWidth: 1)
                 )
+                .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 3)
         )
     }
     

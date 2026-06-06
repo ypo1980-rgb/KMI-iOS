@@ -25,6 +25,7 @@ struct CoachTraineesView: View {
     @State private var alertText: String?
     @State private var showAlert = false
     @State private var showGroupStatsSheet = false
+    @State private var isTopStatsExpanded: Bool = true
 
     @AppStorage("kmi_app_language") private var kmiAppLanguage: String = ""
     @AppStorage("app_language") private var appLanguage: String = ""
@@ -275,7 +276,6 @@ struct CoachTraineesView: View {
 
     var body: some View {
         ZStack {
-
             LinearGradient(
                 colors: [
                     Color(red: 0.08, green: 0.12, blue: 0.19),
@@ -294,12 +294,14 @@ struct CoachTraineesView: View {
                 loadingView
 
             } else {
-                ScrollView {
-                    VStack(spacing: 12) {
-
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 10) {
                         contextCard
 
-                        statsCard
+                        if isTopStatsExpanded {
+                            statsCard
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
 
                         searchCard
 
@@ -311,7 +313,9 @@ struct CoachTraineesView: View {
 
                         groupStatisticsButton
                     }
-                    .padding(12)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+                    .padding(.bottom, 24)
                 }
             }
         }
@@ -349,7 +353,7 @@ struct CoachTraineesView: View {
             Text(alertText ?? "")
         }
     }
-
+    
     private var coachOnlyView: some View {
         VStack(spacing: 12) {
             Spacer()
@@ -378,111 +382,185 @@ struct CoachTraineesView: View {
     }
 
     private var contextCard: some View {
-        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 6) {
-            Text(tr("רשימת המתאמנים", "Trainees list"))
-                .font(.system(size: 22, weight: .black))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(screenTextAlignment)
-                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+        Button {
+            withAnimation(.easeInOut(duration: 0.22)) {
+                isTopStatsExpanded.toggle()
+            }
+        } label: {
+            VStack(alignment: isEnglish ? .leading : .trailing, spacing: 9) {
+                HStack(spacing: 10) {
+                    if isEnglish {
+                        Image(systemName: "person.3.fill")
+                            .font(.system(size: 20, weight: .black))
+                            .foregroundStyle(.white)
 
-            Text(tr("סניף: \(branchLabel)", "Branch: \(branchLabel)"))
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.82))
-                .multilineTextAlignment(screenTextAlignment)
-                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(tr("רשימת המתאמנים", "Trainees list"))
+                                .font(.system(size: 22, weight: .black))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.76)
 
-            Text(tr("קבוצה: \(groupLabel)", "Group: \(groupLabel)"))
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.82))
-                .multilineTextAlignment(screenTextAlignment)
-                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                            Text(tr("ניהול מתאמנים, חגורות, נוכחות והערות מאמן", "Manage trainees, belts, attendance and coach notes"))
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.72))
+                                .lineLimit(2)
+                        }
+
+                        Spacer(minLength: 0)
+
+                        Image(systemName: isTopStatsExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 15, weight: .black))
+                            .foregroundStyle(.white.opacity(0.82))
+                    } else {
+                        Image(systemName: isTopStatsExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 15, weight: .black))
+                            .foregroundStyle(.white.opacity(0.82))
+
+                        Spacer(minLength: 0)
+
+                        VStack(alignment: .trailing, spacing: 3) {
+                            Text(tr("רשימת המתאמנים", "Trainees list"))
+                                .font(.system(size: 22, weight: .black))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.76)
+
+                            Text(tr("ניהול מתאמנים, חגורות, נוכחות והערות מאמן", "Manage trainees, belts, attendance and coach notes"))
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.72))
+                                .lineLimit(2)
+                                .multilineTextAlignment(.trailing)
+                        }
+
+                        Image(systemName: "person.3.fill")
+                            .font(.system(size: 20, weight: .black))
+                            .foregroundStyle(.white)
+                    }
+                }
+                .environment(\.layoutDirection, .leftToRight)
+
+                VStack(alignment: isEnglish ? .leading : .trailing, spacing: 4) {
+                    Text(tr("סניף: \(branchLabel)", "Branch: \(branchLabel)"))
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.82))
+                        .multilineTextAlignment(screenTextAlignment)
+                        .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+
+                    Text(tr("קבוצה: \(groupLabel)", "Group: \(groupLabel)"))
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.82))
+                        .multilineTextAlignment(screenTextAlignment)
+                        .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                }
+            }
+            .padding(.horizontal, 15)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Color.black.opacity(0.20))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.16), radius: 10, x: 0, y: 6)
         }
-        .padding(14)
-        .background(Color.black.opacity(0.18))
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .buttonStyle(.plain)
+    }
+
+    private var statsCard: some View {
+        VStack(spacing: 9) {
+            HStack(spacing: 9) {
+                statItem(
+                    title: tr("מתאמנים", "Trainees"),
+                    value: "\(groupStats.total)",
+                    icon: "person.3.fill"
+                )
+
+                statItem(
+                    title: tr("מסוננים", "Filtered"),
+                    value: "\(groupStats.filtered)",
+                    icon: "line.3.horizontal.decrease.circle.fill"
+                )
+
+                statItem(
+                    title: tr("גיל ממוצע", "Avg age"),
+                    value: groupStats.avgAge > 0 ? "\(groupStats.avgAge)" : "—",
+                    icon: "calendar"
+                )
+            }
+
+            HStack(spacing: 9) {
+                statItem(
+                    title: tr("נוכחות", "Attendance"),
+                    value: groupStats.avgAttendance > 0 ? "\(groupStats.avgAttendance)%" : "—",
+                    icon: "checkmark.circle.fill"
+                )
+
+                statItem(
+                    title: tr("נוכחות גבוהה", "High attendance"),
+                    value: "\(groupStats.highAttendance)",
+                    icon: "star.circle.fill"
+                )
+
+                statItem(
+                    title: tr("חגורות", "Belts"),
+                    value: "\(groupStats.beltCounts.count)",
+                    icon: "seal.fill"
+                )
+            }
+        }
+        .padding(11)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color.black.opacity(0.16))
+        )
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .stroke(Color.white.opacity(0.12), lineWidth: 1)
         )
     }
 
-    private var statsCard: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                statItem(
-                    title: tr("מתאמנים", "Trainees"),
-                    value: "\(groupStats.total)"
-                )
-
-                statItem(
-                    title: tr("מסוננים", "Filtered"),
-                    value: "\(groupStats.filtered)"
-                )
-
-                statItem(
-                    title: tr("גיל ממוצע", "Avg age"),
-                    value: groupStats.avgAge > 0 ? "\(groupStats.avgAge)" : "—"
-                )
-            }
-
-            HStack(spacing: 10) {
-                statItem(
-                    title: tr("נוכחות", "Attendance"),
-                    value: groupStats.avgAttendance > 0 ? "\(groupStats.avgAttendance)%" : "—"
-                )
-
-                statItem(
-                    title: tr("נוכחות גבוהה", "High attendance"),
-                    value: "\(groupStats.highAttendance)"
-                )
-
-                statItem(
-                    title: tr("חגורות", "Belts"),
-                    value: "\(groupStats.beltCounts.count)"
-                )
-            }
-        }
-    }
-
     private var groupStatisticsButton: some View {
         Button {
             showGroupStatsSheet = true
         } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: 9) {
                 if isEnglish {
                     Image(systemName: "chart.bar.xaxis")
-                        .font(.system(size: 18, weight: .heavy))
+                        .font(.system(size: 16, weight: .black))
 
                     Text(tr("סטטיסטיקה לקבוצה", "Group statistics"))
-                        .font(.system(size: 17, weight: .heavy))
+                        .font(.system(size: 15, weight: .heavy))
 
-                    Spacer()
+                    Spacer(minLength: 0)
 
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 14, weight: .heavy))
+                        .font(.system(size: 13, weight: .black))
                 } else {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 14, weight: .heavy))
+                        .font(.system(size: 13, weight: .black))
 
-                    Spacer()
+                    Spacer(minLength: 0)
 
                     Text(tr("סטטיסטיקה לקבוצה", "Group statistics"))
-                        .font(.system(size: 17, weight: .heavy))
+                        .font(.system(size: 15, weight: .heavy))
 
                     Image(systemName: "chart.bar.xaxis")
-                        .font(.system(size: 18, weight: .heavy))
+                        .font(.system(size: 16, weight: .black))
                 }
             }
             .foregroundStyle(.white)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 15)
+            .padding(.horizontal, 15)
+            .padding(.vertical, 12)
             .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [
-                                Color.blue.opacity(0.92),
-                                Color.cyan.opacity(0.88)
+                                Color(red: 0.17, green: 0.36, blue: 0.92),
+                                Color(red: 0.05, green: 0.70, blue: 0.88)
                             ],
                             startPoint: isEnglish ? .leading : .trailing,
                             endPoint: isEnglish ? .trailing : .leading
@@ -490,36 +568,49 @@ struct CoachTraineesView: View {
                     )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .stroke(Color.white.opacity(0.22), lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.18), radius: 12, x: 0, y: 8)
+            .shadow(color: Color.black.opacity(0.16), radius: 9, x: 0, y: 5)
         }
         .buttonStyle(.plain)
     }
 
-    private func statItem(title: String, value: String) -> some View {
+    private func statItem(
+        title: String,
+        value: String,
+        icon: String
+    ) -> some View {
         VStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .black))
+                .foregroundStyle(.white.opacity(0.86))
+
             Text(value)
-                .font(.system(size: 20, weight: .black))
+                .font(.system(size: 19, weight: .black))
                 .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
 
             Text(title)
-                .font(.system(size: 11, weight: .bold))
+                .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(.white.opacity(0.72))
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
+                .minimumScaleFactor(0.72)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .background(Color.white.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .frame(height: 82)
+        .background(
+            RoundedRectangle(cornerRadius: 17, style: .continuous)
+                .fill(Color.white.opacity(0.10))
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 17, style: .continuous)
                 .stroke(Color.white.opacity(0.12), lineWidth: 1)
         )
     }
-
+    
     private var searchCard: some View {
         HStack(spacing: 10) {
             if isEnglish {

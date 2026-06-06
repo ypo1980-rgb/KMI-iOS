@@ -10,6 +10,9 @@ struct AttendanceView: View {
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
 
+    @State private var showDatePickerSheet = false
+    @State private var draftAttendanceDate = Date()
+
     @State private var newMemberName: String = ""
     @State private var newMemberPhone: String = ""
     @State private var newMemberNotes: String = ""
@@ -113,11 +116,7 @@ struct AttendanceView: View {
             .ignoresSafeArea()
 
             ScrollView {
-                VStack(spacing: 12) {
-                    if showsInternalTopStrip {
-                        attendanceTopStrip
-                    }
-
+                VStack(spacing: 10) {
                     attendanceHeroCard
                     attendanceSummaryCard
 
@@ -137,9 +136,9 @@ struct AttendanceView: View {
 
                     actionsCard
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 130)
+                .padding(.horizontal, 14)
+                .padding(.top, 8)
+                .padding(.bottom, 104)
             }
 
             VStack {
@@ -177,6 +176,26 @@ struct AttendanceView: View {
         .sheet(isPresented: $showShareSheet) {
             AttendanceShareSheet(items: shareItems)
         }
+        .sheet(isPresented: $showDatePickerSheet) {
+            AttendancePremiumDatePickerSheet(
+                selectedDate: $draftAttendanceDate,
+                isEnglish: isEnglish,
+                onCancel: {
+                    showDatePickerSheet = false
+                },
+                onToday: {
+                    draftAttendanceDate = Date()
+                    vm.setDateIso(isoString(from: Date()))
+                    showDatePickerSheet = false
+                },
+                onConfirm: {
+                    vm.setDateIso(isoString(from: draftAttendanceDate))
+                    showDatePickerSheet = false
+                }
+            )
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+        }
         .confirmationDialog(
             tr("מחיקת מתאמן", "Delete trainee"),
             isPresented: Binding(
@@ -199,7 +218,11 @@ struct AttendanceView: View {
                 pendingDeleteRow = nil
             }
         } message: {
-            Text(deleteConfirmationMessage)
+            Text(
+                isEnglish
+                ? "Delete \(pendingDeleteRow?.memberName ?? "this trainee") from the list?"
+                : "האם למחוק את \(pendingDeleteRow?.memberName ?? "המתאמן") מהרשימה?"
+            )
         }
         .onChange(of: vm.state.messageEventId) { _, _ in
             guard let msg = vm.state.lastMessage else { return }
@@ -215,7 +238,6 @@ struct AttendanceView: View {
         .onAppear {
             let storedBranch = UserDefaults.standard.string(forKey: "kmi.user.branch") ?? ""
             let storedGroup = UserDefaults.standard.string(forKey: "kmi.user.group") ?? ""
-
             let resolvedBranch =
                 auth.userBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? storedBranch
@@ -291,16 +313,6 @@ struct AttendanceView: View {
             }
         }
     }
-
-    private var deleteConfirmationMessage: String {
-        let fallback = tr("המתאמן", "this trainee")
-        let name = pendingDeleteRow?.memberName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayName = (name?.isEmpty == false) ? (name ?? fallback) : fallback
-
-        return isEnglish
-            ? "Delete \(displayName) from the list?"
-            : "האם למחוק את \(displayName) מהרשימה?"
-    }
     
     private var addMemberFloatingButton: some View {
         Button {
@@ -323,222 +335,149 @@ struct AttendanceView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(tr("הוספת מתאמן", "Add trainee"))
     }
-    private var attendanceTopStrip: some View {
-        VStack(spacing: 10) {
-            KmiIconStripBar(
-                items: [.share, .assistant, .settings, .home, .search],
-                selected: nil
-            ) { item in
-                switch item {
-                case .share:
-                    shareReport()
-
-                case .assistant:
-                    onAssistantTap()
-
-                case .settings:
-                    onSettingsTap()
-
-                case .home:
-                    onHomeTap()
-
-                case .search:
-                    onSearchTap()
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color.white.opacity(0.92))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(Color.white.opacity(0.55), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.16), radius: 10, x: 0, y: 5)
-
-            HStack(spacing: 10) {
-                if isEnglish {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(tr("ניהול נוכחות", "Attendance management"))
-                            .font(.system(size: 21, weight: .black, design: .rounded))
-                            .foregroundStyle(.white)
-
-                        Text(tr("סימון, שמירה ושיתוף דו״ח נוכחות", "Mark, save and share an attendance report"))
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.74))
-                    }
-
-                    Spacer()
-
-                    Image(systemName: "checklist")
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(.white)
-                        .frame(width: 38, height: 38)
-                        .background(Color.white.opacity(0.13))
-                        .clipShape(Circle())
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white.opacity(0.16), lineWidth: 1)
-                        )
-                } else {
-                    Image(systemName: "checklist")
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(.white)
-                        .frame(width: 38, height: 38)
-                        .background(Color.white.opacity(0.13))
-                        .clipShape(Circle())
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white.opacity(0.16), lineWidth: 1)
-                        )
-
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 3) {
-                        Text(tr("ניהול נוכחות", "Attendance management"))
-                            .font(.system(size: 21, weight: .black, design: .rounded))
-                            .foregroundStyle(.white)
-
-                        Text(tr("סימון, שמירה ושיתוף דו״ח נוכחות", "Mark, save and share an attendance report"))
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.74))
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 2)
-        }
-    }
     
     private var attendanceHeroCard: some View {
-        let summary = vm.state.summary
         let branch = vm.state.branchName.trimmingCharacters(in: .whitespacesAndNewlines)
         let group = vm.state.groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let dateText = formattedDate(vm.state.dateIso)
+        let total = vm.state.summary.totalMembers
 
-        return VStack(alignment: screenHorizontalAlignment, spacing: 14) {
-            HStack(alignment: .center, spacing: 12) {
-                if isEnglish {
-                    heroIcon
+        return VStack(alignment: screenHorizontalAlignment, spacing: 12) {
+            Text(tr("בחירת אימון לנוכחות", "Select attendance class"))
+                .font(.system(size: 20, weight: .black, design: .rounded))
+                .foregroundStyle(Color(red: 0.08, green: 0.10, blue: 0.18))
+                .frame(maxWidth: .infinity, alignment: .center)
+                .multilineTextAlignment(.center)
 
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(tr("נוכחות", "Attendance"))
-                            .font(.system(size: 26, weight: .black, design: .rounded))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Text(dateText)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Color(red: 0.86, green: 0.94, blue: 1.0))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Text("\(branch.isEmpty ? tr("לא נבחר סניף", "No branch selected") : branch) · \(group.isEmpty ? tr("לא נבחרה קבוצה", "No group selected") : group)")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.72))
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.82)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                } else {
-                    heroIcon
-
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 5) {
-                        Text(tr("נוכחות", "Attendance"))
-                            .font(.system(size: 26, weight: .black, design: .rounded))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-
-                        Text(dateText)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Color(red: 0.86, green: 0.94, blue: 1.0))
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-
-                        Text("\(branch.isEmpty ? tr("לא נבחר סניף", "No branch selected") : branch) · \(group.isEmpty ? tr("לא נבחרה קבוצה", "No group selected") : group)")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.72))
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.82)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                }
-            }
-
-            HStack(spacing: 10) {
-                VStack(spacing: 4) {
-                    Text("\(summary.totalMembers)")
-                        .font(.system(size: 22, weight: .black, design: .rounded))
-                        .foregroundStyle(.white)
-
-                    Text(tr("מתאמנים", "Trainees"))
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.78))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.white.opacity(0.10))
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-
-                VStack(spacing: 4) {
-                    Text("\(summary.attendancePercent)%")
-                        .font(.system(size: 22, weight: .black, design: .rounded))
-                        .foregroundStyle(.white)
-
-                    Text(tr("נוכחות", "Attendance"))
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.78))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 0.06, green: 0.65, blue: 0.91).opacity(0.85),
-                            Color(red: 0.13, green: 0.83, blue: 0.93).opacity(0.75)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
+            Button {
+                draftAttendanceDate = dateFromIso(vm.state.dateIso) ?? Date()
+                showDatePickerSheet = true
+            } label: {
+                premiumSelectionField(
+                    label: tr("תאריך אימון", "Class date"),
+                    value: dateText,
+                    icon: "calendar",
+                    trailingIcon: "chevron.down"
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
+            .buttonStyle(.plain)
 
-            if !vm.state.reportDaysInMonth.isEmpty {
-                Text(
-                    isEnglish
-                    ? "This month has \(vm.state.reportDaysInMonth.count) saved report days"
-                    : "בחודש הנוכחי קיימים \(vm.state.reportDaysInMonth.count) ימים עם דו״ח שמור"
-                )
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.72))
-                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-                .multilineTextAlignment(screenTextAlignment)
-            }
+            premiumSelectionField(
+                label: tr("סניף", "Branch"),
+                value: branch.isEmpty ? tr("לא נבחר סניף", "No branch selected") : branch,
+                icon: "mappin.and.ellipse",
+                trailingIcon: nil
+            )
+
+            premiumSelectionField(
+                label: tr("קבוצה", "Group"),
+                value: group.isEmpty ? tr("לא נבחרה קבוצה", "No group selected") : group,
+                icon: "person.3.fill",
+                trailingIcon: nil
+            )
+
+            Text(
+                isEnglish
+                ? "The list loads by date + branch + group · trainees in class: \(total)"
+                : "הרשימה נטענת לפי תאריך + סניף + קבוצה · מתאמנים בשיעור: \(total)"
+            )
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(Color(red: 0.21, green: 0.25, blue: 0.36))
+            .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+            .multilineTextAlignment(screenTextAlignment)
+            .lineLimit(2)
+            .minimumScaleFactor(0.82)
+            .padding(.top, 2)
         }
-        .padding(16)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 15)
         .background(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.16),
-                            Color.white.opacity(0.08)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                .fill(Color(red: 0.96, green: 0.94, blue: 1.0).opacity(0.97))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                .stroke(Color.white.opacity(0.82), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.18), radius: 10, x: 0, y: 6)
     }
+    
+    private func premiumSelectionField(
+        label: String,
+        value: String,
+        icon: String,
+        trailingIcon: String?
+    ) -> some View {
+        HStack(spacing: 10) {
+            if isEnglish {
+                fieldIcon(icon)
 
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(label)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color(red: 0.36, green: 0.43, blue: 0.56))
+
+                    Text(value.isEmpty ? "—" : value)
+                        .font(.system(size: 14, weight: .black))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.78)
+                        .multilineTextAlignment(.leading)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let trailingIcon {
+                    Image(systemName: trailingIcon)
+                        .font(.system(size: 13, weight: .black))
+                        .foregroundStyle(.white.opacity(0.82))
+                }
+            } else {
+                if let trailingIcon {
+                    Image(systemName: trailingIcon)
+                        .font(.system(size: 13, weight: .black))
+                        .foregroundStyle(.white.opacity(0.82))
+                }
+
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(label)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color(red: 0.36, green: 0.43, blue: 0.56))
+
+                    Text(value.isEmpty ? "—" : value)
+                        .font(.system(size: 14, weight: .black))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.78)
+                        .multilineTextAlignment(.trailing)
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+
+                fieldIcon(icon)
+            }
+        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 10)
+        .background(Color.white.opacity(0.86))
+        .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 17, style: .continuous)
+                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+        )
+    }
+
+    private func fieldIcon(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 14, weight: .heavy))
+            .foregroundStyle(Color(red: 0.56, green: 0.86, blue: 1.0))
+            .frame(width: 30, height: 30)
+            .background(Color.white.opacity(0.10))
+            .clipShape(Circle())
+            .overlay(
+                Circle()
+                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
+            )
+    }
+    
     private var heroIcon: some View {
         Circle()
             .fill(
@@ -799,13 +738,26 @@ struct AttendanceView: View {
                 }
             }
         }
-        .padding(16)
-        .background(Color.white.opacity(0.09))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.13),
+                            Color.white.opacity(0.08)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
         )
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
     
     private var actionsCard: some View {
@@ -873,10 +825,10 @@ struct AttendanceView: View {
                     Image(systemName: "checkmark.circle.fill")
                     Text(vm.state.isSaving ? tr("שומר...", "Saving...") : tr("שמירת דו״ח נוכחות", "Save attendance report"))
                 }
-                .font(.system(size: 16, weight: .heavy))
+                .font(.system(size: 15, weight: .heavy))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 15)
+                .padding(.vertical, 12)
                 .background(
                     LinearGradient(
                         colors: [
@@ -898,7 +850,7 @@ struct AttendanceView: View {
             .disabled(vm.state.isSaving)
             .opacity(vm.state.isSaving ? 0.65 : 1.0)
         }
-        .padding(16)
+        .padding(14)
         .background(Color.white.opacity(0.09))
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
@@ -908,9 +860,14 @@ struct AttendanceView: View {
     }
     
     private func memberRow(_ row: AttendanceRowUi) -> some View {
-        VStack(alignment: screenHorizontalAlignment, spacing: 10) {
+        let cleanName = row.memberName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPhone = row.phone.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return VStack(alignment: screenHorizontalAlignment, spacing: 10) {
             HStack(alignment: .center, spacing: 10) {
                 if isEnglish {
+                    traineeAvatar(row)
+
                     NavigationLink {
                         AttendanceStatsView(
                             ownerUid: vm.state.ownerUid,
@@ -920,31 +877,32 @@ struct AttendanceView: View {
                             memberName: row.memberName
                         )
                     } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(row.memberName.isEmpty ? tr("מתאמן ללא שם", "Unnamed trainee") : row.memberName)
-                                .font(.system(size: 17, weight: .heavy))
-                                .foregroundStyle(.white)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(cleanName.isEmpty ? tr("מתאמן ללא שם", "Unnamed trainee") : cleanName)
+                                .font(.system(size: 16, weight: .black))
+                                .foregroundStyle(Color(red: 0.08, green: 0.13, blue: 0.22))
                                 .lineLimit(1)
-                                .minimumScaleFactor(0.82)
+                                .minimumScaleFactor(0.78)
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                            if !row.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Text(row.phone)
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(.white.opacity(0.72))
+                            if !cleanPhone.isEmpty {
+                                Text(cleanPhone)
+                                    .font(.system(size: 11.5, weight: .semibold))
+                                    .foregroundStyle(Color(red: 0.39, green: 0.45, blue: 0.55))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            } else {
+                                Text(tr("לחץ לפתיחת סטטיסטיקה", "Tap for statistics"))
+                                    .font(.system(size: 11.5, weight: .semibold))
+                                    .foregroundStyle(Color(red: 0.39, green: 0.45, blue: 0.55))
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
                     }
                     .buttonStyle(.plain)
 
-                    Spacer()
-
                     deleteMemberButton(row)
                 } else {
                     deleteMemberButton(row)
-
-                    Spacer()
 
                     NavigationLink {
                         AttendanceStatsView(
@@ -955,29 +913,37 @@ struct AttendanceView: View {
                             memberName: row.memberName
                         )
                     } label: {
-                        VStack(alignment: .trailing, spacing: 4) {
-                            Text(row.memberName.isEmpty ? tr("מתאמן ללא שם", "Unnamed trainee") : row.memberName)
-                                .font(.system(size: 17, weight: .heavy))
-                                .foregroundStyle(.white)
+                        VStack(alignment: .trailing, spacing: 3) {
+                            Text(cleanName.isEmpty ? tr("מתאמן ללא שם", "Unnamed trainee") : cleanName)
+                                .font(.system(size: 16, weight: .black))
+                                .foregroundStyle(Color(red: 0.08, green: 0.13, blue: 0.22))
                                 .lineLimit(1)
-                                .minimumScaleFactor(0.82)
+                                .minimumScaleFactor(0.78)
                                 .frame(maxWidth: .infinity, alignment: .trailing)
 
-                            if !row.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Text(row.phone)
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(.white.opacity(0.72))
+                            if !cleanPhone.isEmpty {
+                                Text(cleanPhone)
+                                    .font(.system(size: 11.5, weight: .semibold))
+                                    .foregroundStyle(Color(red: 0.39, green: 0.45, blue: 0.55))
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                            } else {
+                                Text(tr("לחץ לפתיחת סטטיסטיקה", "Tap for statistics"))
+                                    .font(.system(size: 11.5, weight: .semibold))
+                                    .foregroundStyle(Color(red: 0.39, green: 0.45, blue: 0.55))
                                     .frame(maxWidth: .infinity, alignment: .trailing)
                             }
                         }
                     }
                     .buttonStyle(.plain)
+
+                    traineeAvatar(row)
                 }
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 statusButton(
                     title: tr("הגיע", "Present"),
+                    icon: "checkmark.circle.fill",
                     selected: row.status == .present,
                     selectedColor: Color(red: 0.13, green: 0.77, blue: 0.37)
                 ) {
@@ -986,6 +952,7 @@ struct AttendanceView: View {
 
                 statusButton(
                     title: tr("מוצדק", "Excused"),
+                    icon: "clock.badge.checkmark",
                     selected: row.status == .excused,
                     selectedColor: Color(red: 0.96, green: 0.62, blue: 0.04)
                 ) {
@@ -994,6 +961,7 @@ struct AttendanceView: View {
 
                 statusButton(
                     title: tr("לא הגיע", "Absent"),
+                    icon: "xmark.circle.fill",
                     selected: row.status == .absent,
                     selectedColor: Color(red: 0.94, green: 0.27, blue: 0.27)
                 ) {
@@ -1002,6 +970,7 @@ struct AttendanceView: View {
 
                 statusButton(
                     title: tr("נקה", "Clear"),
+                    icon: "minus.circle.fill",
                     selected: row.status == .unknown,
                     selectedColor: Color(red: 0.38, green: 0.45, blue: 0.55)
                 ) {
@@ -1017,42 +986,82 @@ struct AttendanceView: View {
                 ),
                 axis: .vertical
             )
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(Color.white.opacity(0.10))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .font(.system(size: 12.5, weight: .semibold))
+            .foregroundStyle(Color(red: 0.15, green: 0.20, blue: 0.30))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color(red: 0.95, green: 0.98, blue: 1.0))
+            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .stroke(Color(red: 0.80, green: 0.88, blue: 0.95), lineWidth: 1)
             )
             .multilineTextAlignment(screenTextAlignment)
         }
-        .padding(12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.98),
+                            Color(red: 0.94, green: 0.98, blue: 1.0).opacity(0.97)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color(red: 0.55, green: 0.82, blue: 0.96), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.14), radius: 8, x: 0, y: 5)
+    }
+    
+    private func traineeAvatar(_ row: AttendanceRowUi) -> some View {
+        let tint: Color = {
+            switch row.status {
+            case .present:
+                return Color(red: 0.13, green: 0.77, blue: 0.37)
+            case .excused:
+                return Color(red: 0.96, green: 0.62, blue: 0.04)
+            case .absent:
+                return Color(red: 0.94, green: 0.27, blue: 0.27)
+            default:
+                return Color(red: 0.38, green: 0.45, blue: 0.55)
+            }
+        }()
+
+        return ZStack {
+            Circle()
+                .fill(tint.opacity(0.14))
+
+            Image(systemName: "person.fill")
+                .font(.system(size: 16, weight: .black))
+                .foregroundStyle(tint)
+        }
+        .frame(width: 38, height: 38)
+        .overlay(
+            Circle()
+                .stroke(tint.opacity(0.28), lineWidth: 1)
         )
     }
-
+    
     private func deleteMemberButton(_ row: AttendanceRowUi) -> some View {
         Button {
             pendingDeleteRow = row
         } label: {
-            Image(systemName: "trash")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(Color(red: 0.98, green: 0.45, blue: 0.45))
-                .frame(width: 34, height: 34)
-                .background(Color.white.opacity(0.10))
+            Image(systemName: "trash.fill")
+                .font(.system(size: 12.5, weight: .black))
+                .foregroundStyle(Color(red: 0.86, green: 0.12, blue: 0.12))
+                .frame(width: 32, height: 32)
+                .background(Color(red: 1.0, green: 0.93, blue: 0.93))
                 .clipShape(Circle())
                 .overlay(
                     Circle()
-                        .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                        .stroke(Color(red: 0.98, green: 0.65, blue: 0.65), lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
@@ -1060,24 +1069,34 @@ struct AttendanceView: View {
     
     private func statusButton(
         title: String,
+        icon: String,
         selected: Bool,
         selectedColor: Color,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Text(title)
-                .font(.system(size: 12, weight: .heavy))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(selected ? selectedColor : Color.white.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(selected ? Color.white.opacity(0.28) : Color.white.opacity(0.10), lineWidth: 1)
-                )
+            VStack(spacing: 3) {
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .black))
+
+                Text(title)
+                    .font(.system(size: 10.5, weight: .black))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.68)
+            }
+            .foregroundStyle(selected ? .white : selectedColor)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 7)
+            .background(
+                selected
+                ? selectedColor
+                : selectedColor.opacity(0.10)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(selected ? selectedColor.opacity(0.26) : selectedColor.opacity(0.22), lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
     }
@@ -1156,6 +1175,20 @@ struct AttendanceView: View {
         return output.string(from: date)
     }
 
+    private func dateFromIso(_ iso: String) -> Date? {
+        let input = DateFormatter()
+        input.locale = Locale(identifier: "en_US_POSIX")
+        input.dateFormat = "yyyy-MM-dd"
+        return input.date(from: iso)
+    }
+
+    private func isoString(from date: Date) -> String {
+        let output = DateFormatter()
+        output.locale = Locale(identifier: "en_US_POSIX")
+        output.dateFormat = "yyyy-MM-dd"
+        return output.string(from: date)
+    }
+    
     private func dateComponents(from iso: String) -> DateComponents {
         let input = DateFormatter()
         input.locale = Locale(identifier: "en_US_POSIX")
@@ -1165,22 +1198,15 @@ struct AttendanceView: View {
     }
 
     private func uniqueMembers(_ rows: [AttendanceRowUi]) -> [AttendanceRowUi] {
+
         var unique: [String: AttendanceRowUi] = [:]
 
         for row in rows {
-            let nameKey = row.memberName
+
+            let key =
+                row.memberName
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
-
-            let phoneKey = row.phone
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-
-            let key = phoneKey.isEmpty ? nameKey : "\(nameKey)|\(phoneKey)"
-
-            guard !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                continue
-            }
 
             if unique[key] == nil {
                 unique[key] = row
@@ -1189,6 +1215,93 @@ struct AttendanceView: View {
 
         return unique.values.sorted {
             $0.memberName.localizedCaseInsensitiveCompare($1.memberName) == .orderedAscending
+        }
+    }
+}
+
+private struct AttendancePremiumDatePickerSheet: View {
+    @Binding var selectedDate: Date
+
+    let isEnglish: Bool
+    let onCancel: () -> Void
+    let onToday: () -> Void
+    let onConfirm: () -> Void
+
+    private var title: String {
+        isEnglish ? "Select attendance date" : "בחירת תאריך אימון"
+    }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.03, green: 0.09, blue: 0.18),
+                    Color(red: 0.03, green: 0.18, blue: 0.30)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 18) {
+                Text(title)
+                    .font(.system(size: 22, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 6)
+
+                DatePicker(
+                    "",
+                    selection: $selectedDate,
+                    displayedComponents: [.date]
+                )
+                .datePickerStyle(.graphical)
+                .tint(Color(red: 0.13, green: 0.83, blue: 0.93))
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(Color.white.opacity(0.96))
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+
+                HStack(spacing: 12) {
+                    Button(action: onCancel) {
+                        Text(isEnglish ? "Cancel" : "ביטול")
+                            .font(.system(size: 15, weight: .heavy))
+                            .foregroundStyle(.white.opacity(0.88))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color.white.opacity(0.12))
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: onToday) {
+                        Text(isEnglish ? "Today" : "היום")
+                            .font(.system(size: 15, weight: .heavy))
+                            .foregroundStyle(Color(red: 0.03, green: 0.09, blue: 0.18))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color(red: 0.13, green: 0.83, blue: 0.93))
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: onConfirm) {
+                        Text(isEnglish ? "Apply" : "אישור")
+                            .font(.system(size: 15, weight: .heavy))
+                            .foregroundStyle(Color(red: 0.03, green: 0.09, blue: 0.18))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 16)
         }
     }
 }

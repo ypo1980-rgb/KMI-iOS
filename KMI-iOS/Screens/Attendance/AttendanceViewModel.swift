@@ -62,8 +62,8 @@ final class AttendanceViewModel: ObservableObject {
 
     func setDateIso(_ value: String) {
         state.dateIso = value.trimmed()
-        reloadRecordsFromRemoteThenLocal()
-        reloadMonthMarkersFromRemoteThenLocal()
+        reloadRecordsOnly()
+        reloadMonthMarkers()
     }
 
     func setBranchName(_ value: String) {
@@ -136,7 +136,7 @@ final class AttendanceViewModel: ObservableObject {
         )
 
         state.members.append(member)
-        state.members = uniqueMembers(state.members)
+        state.members.sort { $0.fullName < $1.fullName }
 
         persistMembers()
 
@@ -167,7 +167,6 @@ final class AttendanceViewModel: ObservableObject {
             if let existing = state.recordsByMemberId[member.id] {
                 return existing
             }
-
             return AttendanceRecord(
                 id: "\(state.dateIso)_\(member.id)",
                 dateIso: state.dateIso,
@@ -177,18 +176,18 @@ final class AttendanceViewModel: ObservableObject {
             )
         }
 
-        state.recordsByMemberId = Dictionary(
-            uniqueKeysWithValues: records.map { ($0.memberId, $0) }
-        )
-
-        repository.saveReport(
-            state: state,
+        repository.saveRecords(
+            ownerUid: state.ownerUid,
+            branchName: state.branchName,
+            groupKey: state.groupKey,
+            dateIso: state.dateIso,
             records: records
         )
 
+        state.recordsByMemberId = Dictionary(uniqueKeysWithValues: records.map { ($0.memberId, $0) })
         state.isSaving = false
 
-        reloadMonthMarkersFromRemoteThenLocal()
+        reloadMonthMarkers()
         publishMessage(
             tr("דו״ח הנוכחות נשמר", "The attendance report was saved"),
             isError: false
@@ -204,41 +203,13 @@ final class AttendanceViewModel: ObservableObject {
             return
         }
 
-        let startIso = Self.isoString(start)
-        let endIsoExclusive = Self.isoString(end)
-
         state.reportDaysInMonth = repository.listReportDaysInRange(
             ownerUid: state.ownerUid,
             branchName: state.branchName,
             groupKey: state.groupKey,
-            startIso: startIso,
-            endIsoExclusive: endIsoExclusive
+            startIso: Self.isoString(start),
+            endIsoExclusive: Self.isoString(end)
         )
-
-        let ownerUid = state.ownerUid
-        let branchName = state.branchName
-        let groupKey = state.groupKey
-        let repository = self.repository
-
-        Task.detached(priority: nil) {
-            do {
-                let remoteDays = try await repository.listReportDaysInRangeFromFirestore(
-                    ownerUid: ownerUid,
-                    branchName: branchName,
-                    groupKey: groupKey,
-                    startIso: startIso,
-                    endIsoExclusive: endIsoExclusive
-                )
-
-                await MainActor.run {
-                    self.state.reportDaysInMonth.formUnion(remoteDays)
-                }
-            } catch {
-                await MainActor.run {
-                    self.state.reportDaysInMonth = self.state.reportDaysInMonth
-                }
-            }
-        }
     }
 
     private func reloadCurrentContext() {
@@ -256,21 +227,22 @@ final class AttendanceViewModel: ObservableObject {
                 )
 
                 await MainActor.run {
+                
                     if !realMembers.isEmpty {
-                        self.state.members = uniqueMembers(realMembers)
-                    } else {
-                        let fallbackMembers = repository.loadMembers(
-                            ownerUid: ownerUid,
-                            branchName: branchName,
-                            groupKey: groupKey
-                        )
-
-                        self.state.members = uniqueMembers(fallbackMembers)
+                                          self.state.members = realMembers
+                                      } else {
+                                          let fallbackMembers =
+                                              repository.loadMembers(
+                                                  ownerUid: ownerUid,
+                                                  branchName: branchName,
+                                                  groupKey: groupKey
+                                              )
+ 
+                                          self.state.members = fallbackMembers
+                                                              }
+                    self.reloadRecordsOnly()
+                    self.reloadMonthMarkers()
                     }
-
-                    self.reloadRecordsFromRemoteThenLocal()
-                    self.reloadMonthMarkersFromRemoteThenLocal()
-                }
             } catch {
                 await MainActor.run {
                     let fallbackMembers = repository.loadMembers(
@@ -279,13 +251,13 @@ final class AttendanceViewModel: ObservableObject {
                         groupKey: groupKey
                     )
 
-                    self.state.members = uniqueMembers(fallbackMembers)
-                    self.reloadRecordsFromRemoteThenLocal()
-                    self.reloadMonthMarkersFromRemoteThenLocal()
+                    self.state.members = fallbackMembers
+                    self.reloadRecordsOnly()
+                    self.reloadMonthMarkers()
                     self.publishMessage(
                         self.tr(
-                            "לא נטענו מתאמנים מהשרת, נטען גיבוי מקומי",
-                            "Server trainees could not be loaded. Local backup was loaded."
+                            "לא נטענו מתאמנים אמיתיים, נטען גיבוי מקומי",
+                            "Real trainees could not be loaded. Local backup was loaded."
                         ),
                         isError: true
                     )
@@ -302,52 +274,7 @@ final class AttendanceViewModel: ObservableObject {
             dateIso: state.dateIso
         )
 
-        state.recordsByMemberId = Dictionary(
-            uniqueKeysWithValues: loaded.map { ($0.memberId, $0) }
-        )
-    }
-
-    private func reloadRecordsFromRemoteThenLocal() {
-        reloadRecordsOnly()
-
-        let ownerUid = state.ownerUid
-        let branchName = state.branchName
-        let groupKey = state.groupKey
-        let dateIso = state.dateIso
-        let repository = self.repository
-
-        Task.detached(priority: nil) {
-            do {
-                let remoteRecords = try await repository.loadRecordsFromFirestore(
-                    ownerUid: ownerUid,
-                    branchName: branchName,
-                    groupKey: groupKey,
-                    dateIso: dateIso
-                )
-
-                guard !remoteRecords.isEmpty else {
-                    return
-                }
-
-                await MainActor.run {
-                    self.state.recordsByMemberId = Dictionary(
-                        uniqueKeysWithValues: remoteRecords.map { ($0.memberId, $0) }
-                    )
-
-                    repository.saveRecords(
-                        ownerUid: ownerUid,
-                        branchName: branchName,
-                        groupKey: groupKey,
-                        dateIso: dateIso,
-                        records: remoteRecords
-                    )
-                }
-            } catch {
-                await MainActor.run {
-                    self.reloadRecordsOnly()
-                }
-            }
-        }
+        state.recordsByMemberId = Dictionary(uniqueKeysWithValues: loaded.map { ($0.memberId, $0) })
     }
 
     private func reloadMonthMarkers() {
@@ -359,19 +286,12 @@ final class AttendanceViewModel: ObservableObject {
         }
     }
 
-    private func reloadMonthMarkersFromRemoteThenLocal() {
-        reloadMonthMarkers()
-    }
-
     private func persistMembers() {
-        let cleanMembers = uniqueMembers(state.members)
-        state.members = cleanMembers
-
         repository.saveMembers(
             ownerUid: state.ownerUid,
             branchName: state.branchName,
             groupKey: state.groupKey,
-            members: cleanMembers
+            members: state.members
         )
     }
 
@@ -406,22 +326,15 @@ final class AttendanceViewModel: ObservableObject {
 }
 
 private func uniqueMembers(_ members: [AttendanceMember]) -> [AttendanceMember] {
+
     var unique: [String: AttendanceMember] = [:]
 
     for member in members {
-        let nameKey = member.fullName
+
+        let key =
+            member.fullName
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-
-        let phoneKey = member.phone
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
-        let key = phoneKey.isEmpty ? nameKey : "\(nameKey)|\(phoneKey)"
-
-        guard !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            continue
-        }
 
         if unique[key] == nil {
             unique[key] = member

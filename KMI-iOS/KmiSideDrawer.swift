@@ -84,6 +84,8 @@ struct KmiSideDrawer: View {
     @AppStorage("branch") private var storedBranch: String = ""
     @AppStorage("active_branch") private var storedActiveBranch: String = ""
 
+    @Binding var isOpen: Bool
+
     let onClose: () -> Void
     let onSelect: (KmiDrawerItem) -> Void
 
@@ -110,14 +112,14 @@ struct KmiSideDrawer: View {
 
     private func titleSize(for item: KmiDrawerItem, isCoachButton: Bool) -> CGFloat {
         if isCoachButton {
-            return 16
+            return 15
         }
 
         switch item.routeKey {
         case .aboutAvi, .aboutNetworkCoaches:
-            return 15
+            return 14
         default:
-            return 16
+            return 15
         }
     }
 
@@ -219,8 +221,7 @@ struct KmiSideDrawer: View {
             .order(by: "createdAt", descending: true)
             .limit(to: forumUnreadLimit)
             .addSnapshotListener { snapshot, error in
-                if let error {
-                    print("KMI_FORUM_UNREAD iOS failed branch=\(branch) error=\(error.localizedDescription)")
+                if error != nil {
                     forumUnreadCount = 0
                     return
                 }
@@ -231,8 +232,6 @@ struct KmiSideDrawer: View {
                 }.count ?? 0
 
                 forumUnreadCount = unread
-
-                print("KMI_FORUM_UNREAD iOS unread=\(unread) branch=\(branch) lastRead=\(lastReadMillis)")
             }
     }
 
@@ -270,21 +269,17 @@ struct KmiSideDrawer: View {
 
         // חשוב: אם אחד המקורות אומר מאמן — נעדיף מאמן ולא ניתקע על trainee ישן.
         if isCoachRole(profileRole) {
-            print("DRAWER ROLE resolved coach from auth.userRole =", profileRole)
             return profileRole
         }
 
         if let coachStoredRole = storedCandidates.first(where: { isCoachRole($0) }) {
-            print("DRAWER ROLE resolved coach from defaults =", coachStoredRole)
             return coachStoredRole
         }
 
         if let firstStoredRole = storedCandidates.first {
-            print("DRAWER ROLE resolved from defaults =", firstStoredRole)
             return firstStoredRole
         }
 
-        print("DRAWER ROLE resolved from profile =", profileRole)
         return profileRole
     }
 
@@ -343,20 +338,24 @@ struct KmiSideDrawer: View {
             ])
         }
 
-        if isAdminUser {
-            items.append(
-                .init(
-                    routeKey: .adminUsers,
-                    titleHe: "ניהול משתמשים",
-                    titleEn: "Manage Users",
-                    subtitleHe: "צפייה בכל המשתמשים באפליקציה",
-                    subtitleEn: "View all app users",
-                    systemImage: "person.3.sequence.fill"
-                )
-            )
+        return items
+    }
+    
+    private var adminItems: [KmiDrawerItem] {
+        guard isAdminUser else {
+            return []
         }
 
-        return items
+        return [
+            .init(
+                routeKey: .adminUsers,
+                titleHe: "ניהול משתמשים",
+                titleEn: "Manage Users",
+                subtitleHe: "צפייה בכל המשתמשים באפליקציה",
+                subtitleEn: "View all app users",
+                systemImage: "person.3.sequence.fill"
+            )
+        ]
     }
     
     private var items: [KmiDrawerItem] {
@@ -451,85 +450,73 @@ struct KmiSideDrawer: View {
     }
     
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.055, green: 0.086, blue: 0.188), // #0E1630
-                    Color(red: 0.122, green: 0.165, blue: 0.322), // #1F2A52
-                    Color(red: 0.145, green: 0.459, blue: 0.737)  // #2575BC
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+        GeometryReader { geo in
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.055, green: 0.086, blue: 0.188), // #0E1630
+                        Color(red: 0.122, green: 0.165, blue: 0.322), // #1F2A52
+                        Color(red: 0.145, green: 0.459, blue: 0.737)  // #2575BC
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
 
-            VStack(spacing: 8) {
-                HStack {
-                    if isEnglish {
-                        Text("Menu")
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
-
-                        Spacer()
-
-                        Button(action: onClose) {
-                            Image(systemName: closeIconName)
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 40, height: 40)
-                        }
-                        .buttonStyle(.plain)
-                    } else {
-                        Button(action: onClose) {
-                            Image(systemName: closeIconName)
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 40, height: 40)
-                        }
-                        .buttonStyle(.plain)
+                VStack(spacing: 8) {
+                    HStack {
+                        Text(isEnglish ? "Menu" : "תפריט")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
 
                         Spacer()
 
-                        Text("תפריט")
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
+                        Button {
+                            withAnimation(.easeOut(duration: 0.18)) {
+                                isOpen = false
+                            }
+                        } label: {
+                            Image(systemName: closeIconName)
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
-                }
-                .frame(height: 48)
-                .padding(.top, 12)
-                .padding(.horizontal, 18)
+                    .frame(height: 48)
+                    .padding(.horizontal, 18)
+                    .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
 
                 ScrollView {
-                    VStack(spacing: 0) {
+                    VStack(spacing: 14) {
 
                         if !coachItems.isEmpty {
                             coachAreaCard
-
-                            Divider()
-                                .overlay(Color.white.opacity(0.32))
-                                .padding(.horizontal, 16)
-                                .padding(.top, 14)
-                                .padding(.bottom, 14)
                         }
 
-                        ForEach(items) { it in
-                            drawerButton(it, isCoachButton: false)
+                        if !adminItems.isEmpty {
+                            adminAreaCard
                         }
 
-                        Text("© KAMI")
+                        traineeAreaCard
+
+                        Text("© K.M.I")
                             .font(.system(size: 12, weight: .regular))
                             .foregroundStyle(Color(red: 0.72, green: 0.77, blue: 0.85)) // #B8C4DA
                             .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
                             .padding(.horizontal, 18)
-                            .padding(.top, 8)
+                            .padding(.top, 0)
                             .padding(.bottom, 8)
                     }
                     .padding(.horizontal, 0)
                     .padding(.top, 8)
-                    .padding(.bottom, 12)
+                    .padding(.bottom, 18)
                 }
 
-                Spacer(minLength: 0)
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, 42)
             }
         }
         .onAppear {
@@ -579,24 +566,26 @@ struct KmiSideDrawer: View {
         }
     }
 
-    private var coachAreaCard: some View {
+    private func drawerSectionCard(
+        titleHe: String,
+        titleEn: String,
+        items sectionItems: [KmiDrawerItem],
+        colors: [Color],
+        borderColor: Color,
+        isCoachButton: Bool
+    ) -> some View {
         VStack(spacing: 0) {
-            HStack {
-                if isEnglish {
-                    Text("Coach area")
-                        .font(.system(size: 16, weight: .black))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Text("אזור מאמן")
-                        .font(.system(size: 16, weight: .black))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 6)
+            Text(isEnglish ? titleEn : titleHe)
+                .font(.system(size: 15, weight: .black, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: isEnglish ? .leading : .trailing
+                )
+                .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
 
             Rectangle()
                 .fill(Color.white.opacity(0.16))
@@ -604,31 +593,72 @@ struct KmiSideDrawer: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 2)
 
-            ForEach(coachItems) { it in
-                drawerButton(it, isCoachButton: true)
+            ForEach(sectionItems) { it in
+                drawerButton(it, isCoachButton: isCoachButton)
             }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(
                     LinearGradient(
-                        colors: [
-                            Color(red: 0.118, green: 0.106, blue: 0.294).opacity(0.92), // #1E1B4B
-                            Color(red: 0.192, green: 0.180, blue: 0.506).opacity(0.78), // #312E81
-                            Color(red: 0.114, green: 0.306, blue: 0.847).opacity(0.36)  // #1D4ED8
-                        ],
+                        colors: colors,
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(Color(red: 1.0, green: 0.54, blue: 0.85).opacity(0.22), lineWidth: 1)
+                        .stroke(borderColor.opacity(0.28), lineWidth: 1)
                 )
+                .shadow(color: Color.black.opacity(0.14), radius: 8, x: 0, y: 4)
         )
         .padding(.horizontal, 10)
-        .padding(.top, 8)
+    }
+
+    private var coachAreaCard: some View {
+        drawerSectionCard(
+            titleHe: "אזור מאמן",
+            titleEn: "Coach area",
+            items: coachItems,
+            colors: [
+                Color(red: 0.118, green: 0.106, blue: 0.294).opacity(0.94), // #1E1B4B
+                Color(red: 0.192, green: 0.180, blue: 0.506).opacity(0.82), // #312E81
+                Color(red: 0.114, green: 0.306, blue: 0.847).opacity(0.42)  // #1D4ED8
+            ],
+            borderColor: Color(red: 1.0, green: 0.54, blue: 0.85),
+            isCoachButton: true
+        )
+    }
+
+    private var adminAreaCard: some View {
+        drawerSectionCard(
+            titleHe: "אזור מנהל",
+            titleEn: "Admin area",
+            items: adminItems,
+            colors: [
+                Color(red: 0.031, green: 0.322, blue: 0.255).opacity(0.94), // #085241
+                Color(red: 0.047, green: 0.443, blue: 0.345).opacity(0.82), // #0C7158
+                Color(red: 0.027, green: 0.624, blue: 0.420).opacity(0.34)  // #079F6B
+            ],
+            borderColor: Color(red: 0.251, green: 0.878, blue: 0.659),
+            isCoachButton: false
+        )
+    }
+
+    private var traineeAreaCard: some View {
+        drawerSectionCard(
+            titleHe: "אזור מתאמן",
+            titleEn: "Trainee area",
+            items: items,
+            colors: [
+                Color(red: 0.055, green: 0.180, blue: 0.345).opacity(0.96), // #0E2E58
+                Color(red: 0.082, green: 0.294, blue: 0.525).opacity(0.84), // #154B86
+                Color(red: 0.145, green: 0.459, blue: 0.737).opacity(0.48)  // #2575BC
+            ],
+            borderColor: Color(red: 0.310, green: 0.650, blue: 1.0),
+            isCoachButton: false
+        )
     }
 
     private func drawerButton(_ it: KmiDrawerItem, isCoachButton: Bool) -> some View {
@@ -659,7 +689,11 @@ struct KmiSideDrawer: View {
                 return
 
             case .myProfile:
-                onSelect(it)
+                onClose()
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
+                    AppNavModel.sharedInstance?.push(.editProfile)
+                }
                 return
 
             case .editProfile:
@@ -699,7 +733,7 @@ struct KmiSideDrawer: View {
 
                     if let sub = it.subtitle(isEnglish: isEnglish), !sub.isEmpty {
                         Text(sub)
-                            .font(.system(size: isCoachButton ? 12 : 13, weight: isCoachButton ? .medium : .semibold))
+                            .font(.system(size: isCoachButton ? 11 : 12, weight: isCoachButton ? .medium : .semibold))
                             .foregroundStyle(.white.opacity(isCoachButton ? 0.82 : 0.72))
                             .lineLimit(2)
                             .minimumScaleFactor(0.86)
@@ -714,7 +748,7 @@ struct KmiSideDrawer: View {
             }
             .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
             .padding(rowHorizontalPadding(isCoachButton: isCoachButton))
-            .padding(.vertical, isCoachButton ? 9 : 8)
+            .padding(.vertical, isCoachButton ? 7 : 6)
             .frame(maxWidth: .infinity)
             .background(
                 Rectangle()
@@ -824,7 +858,7 @@ struct KmiSideDrawerContainer<Content: View>: View {
 
     var body: some View {
         GeometryReader { geo in
-            let drawerWidth = min(geo.size.width * 0.84, 340)
+            let drawerWidth = min(geo.size.width * 0.82, 336)
 
             ZStack(alignment: drawerAlignment) {
                 content
@@ -846,6 +880,7 @@ struct KmiSideDrawerContainer<Content: View>: View {
 
                 if isOpen {
                     KmiSideDrawer(
+                        isOpen: $isOpen,
                         onClose: {
                             withAnimation(.easeOut(duration: 0.18)) {
                                 isOpen = false
@@ -855,10 +890,21 @@ struct KmiSideDrawerContainer<Content: View>: View {
                             withAnimation(.easeOut(duration: 0.18)) {
                                 isOpen = false
                             }
-                            onItem(item)
+
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
+                                onItem(item)
+                            }
                         }
                     )
                     .frame(width: drawerWidth)
+                    .frame(maxHeight: .infinity)
+                    .ignoresSafeArea()
+                    .shadow(
+                        color: Color.black.opacity(0.28),
+                        radius: 18,
+                        x: isEnglish ? 8 : -8,
+                        y: 0
+                    )
                     .transition(.move(edge: drawerTransitionEdge))
                     .zIndex(2)
                 }
@@ -866,24 +912,34 @@ struct KmiSideDrawerContainer<Content: View>: View {
             .animation(.easeOut(duration: 0.18), value: isOpen)
         }
     }
-
+    
     private func edgeOpenGesture(containerWidth: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 18, coordinateSpace: .local)
+        DragGesture(minimumDistance: 16, coordinateSpace: .local)
             .onEnded { value in
+                let edgeHitWidth: CGFloat = 28
+                let openDistance: CGFloat = 54
+                let closeDistance: CGFloat = 54
+
                 if isEnglish {
-                    if !isOpen, value.startLocation.x < 18, value.translation.width > 60 {
+                    if !isOpen,
+                       value.startLocation.x <= edgeHitWidth,
+                       value.translation.width > openDistance {
                         isOpen = true
                     }
 
-                    if isOpen, value.translation.width < -60 {
+                    if isOpen,
+                       value.translation.width < -closeDistance {
                         isOpen = false
                     }
                 } else {
-                    if !isOpen, value.startLocation.x > containerWidth - 18, value.translation.width < -60 {
+                    if !isOpen,
+                       value.startLocation.x >= containerWidth - edgeHitWidth,
+                       value.translation.width < -openDistance {
                         isOpen = true
                     }
 
-                    if isOpen, value.translation.width > 60 {
+                    if isOpen,
+                       value.translation.width > closeDistance {
                         isOpen = false
                     }
                 }

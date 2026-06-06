@@ -692,7 +692,7 @@ struct KmiSideDrawer: View {
                 onClose()
 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
-                    AppNavModel.sharedInstance?.push(.editProfile)
+                    AppNavModel.sharedInstance?.push(.myProfile)
                 }
                 return
 

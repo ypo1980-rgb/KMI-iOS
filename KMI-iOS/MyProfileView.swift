@@ -122,6 +122,18 @@ struct MyProfileView: View {
             .first { !$0.isEmpty } ?? ""
     }
 
+    private func profileBranchList(from raw: String) -> [String] {
+        raw
+            .components(separatedBy: CharacterSet(charactersIn: "\n|;,"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0 != "—" }
+            .reduce(into: [String]()) { result, branch in
+                if !result.contains(branch) {
+                    result.append(branch)
+                }
+            }
+    }
+    
     private var resolvedFullName: String {
         firstNonEmpty(
             firestoreInfo.fullName,
@@ -201,18 +213,44 @@ struct MyProfileView: View {
     }
 
     private var displayedBranch: String {
-        resolvedBranch.isEmpty ? "—" : resolvedBranch
+        let branches = profileBranchList(from: resolvedBranch)
+
+        guard !branches.isEmpty else {
+            return "—"
+        }
+
+        return branches.joined(separator: "\n")
     }
 
     private var displayedBranchAddress: String {
-        firstNonEmpty(
+        let explicitAddress = firstNonEmpty(
             firestoreInfo.branchAddress,
             branchAddress,
             branchAddressSnake,
-            address,
-            branchAddressFallback(for: displayedBranch)
+            address
         )
-        .ifBlankDash()
+
+        let branches = profileBranchList(from: resolvedBranch)
+
+        if branches.count <= 1 {
+            return firstNonEmpty(
+                explicitAddress,
+                branchAddressFallback(for: displayedBranch)
+            )
+            .ifBlankDash()
+        }
+
+        let explicitAddresses = profileBranchList(from: explicitAddress)
+
+        if explicitAddresses.count == branches.count {
+            return explicitAddresses.joined(separator: "\n").ifBlankDash()
+        }
+
+        let resolvedAddresses = branches.map { branchValue in
+            branchAddressFallback(for: branchValue)
+        }
+
+        return resolvedAddresses.joined(separator: "\n").ifBlankDash()
     }
 
     private var displayedGroup: String {
@@ -284,7 +322,7 @@ struct MyProfileView: View {
                             profileGlassCard
                         }
                         .padding(.horizontal, 20)
-                        .padding(.top, 12)
+                        .padding(.top, 20)
                         .padding(.bottom, max(34, geo.safeAreaInsets.bottom + 24))
                     }
                 }
@@ -402,65 +440,56 @@ struct MyProfileView: View {
         VStack(alignment: profileStackAlignment, spacing: 0) {
             headerSection
 
-            Spacer().frame(height: 12)
+            Spacer().frame(height: 10)
 
             editProfileButton
 
-            Spacer().frame(height: 14)
+            Spacer().frame(height: 16)
 
-            thinDivider
+            thinDividerForLightCard
 
-            Spacer().frame(height: 8)
+            Spacer().frame(height: 10)
 
             profileInfoSections
-
-            Spacer().frame(height: 6)
-
-            thinDivider.opacity(0.7)
 
             Spacer().frame(height: 8)
 
             trainingTowardBeltCard
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 20)
+        .padding(.horizontal, 22)
+        .padding(.vertical, 22)
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(Color.white.opacity(0.078))
+                .fill(Color(red: 0.88, green: 0.93, blue: 1.00))
                 .overlay(
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.55),
-                                    Color.white.opacity(0.12)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
+                        .stroke(Color(red: 0.75, green: 0.82, blue: 0.92), lineWidth: 1)
                 )
-                .shadow(color: Color.black.opacity(0.22), radius: 12, x: 0, y: 7)
+                .shadow(color: Color.black.opacity(0.18), radius: 12, x: 0, y: 7)
         )
     }
-
+    
     private var headerSection: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 12) {
             if isEnglish {
+                profileBeltImage
+                    .frame(width: 110, height: 82)
+
                 VStack(alignment: .leading, spacing: 6) {
                     Text(displayedUserName)
-                        .font(.system(size: 24, weight: .heavy))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
+                        .font(.system(size: 27, weight: .heavy))
+                        .foregroundStyle(Color(red: 0.08, green: 0.12, blue: 0.20))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.72)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .multilineTextAlignment(.leading)
 
                     Text(displayedBelt)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.75, green: 0.84, blue: 1.0))
+                        .font(.system(size: 20, weight: .heavy))
+                        .foregroundStyle(Color(red: 0.12, green: 0.27, blue: 0.52))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.76)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .multilineTextAlignment(.leading)
                 }
@@ -471,47 +500,63 @@ struct MyProfileView: View {
 
                 VStack(alignment: .trailing, spacing: 6) {
                     Text(displayedUserName)
-                        .font(.system(size: 23, weight: .heavy))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.68)
+                        .font(.system(size: 27, weight: .heavy))
+                        .foregroundStyle(Color(red: 0.08, green: 0.12, blue: 0.20))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.72)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                         .multilineTextAlignment(.trailing)
 
                     Text(displayedBelt)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.75, green: 0.84, blue: 1.0))
+                        .font(.system(size: 20, weight: .heavy))
+                        .foregroundStyle(Color(red: 0.12, green: 0.27, blue: 0.52))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.72)
+                        .minimumScaleFactor(0.76)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                         .multilineTextAlignment(.trailing)
                 }
+
+                profileBeltImage
+                    .frame(width: 110, height: 82)
             }
         }
+        .frame(maxWidth: .infinity)
         .environment(\.layoutDirection, .leftToRight)
     }
-
+    
+    private var profileBeltImage: some View {
+        Image(profileBeltImageName(for: resolvedBeltId))
+            .resizable()
+            .scaledToFit()
+            .rotationEffect(.degrees(-8))
+            .padding(.top, 2)
+            .padding(.horizontal, 2)
+            .accessibilityHidden(true)
+    }
+    
+    private var beltSubtitleSection: some View {
+        Text(displayedBelt)
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(Color(red: 0.75, green: 0.84, blue: 1.0))
+            .lineLimit(1)
+            .minimumScaleFactor(0.76)
+            .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
+            .multilineTextAlignment(profileTextAlignment)
+    }
+    
     private var closeButton: some View {
         Button {
             dismiss()
         } label: {
             Image(systemName: "xmark")
-                .font(.system(size: 19, weight: .black))
-                .foregroundStyle(.white)
-                .frame(width: 40, height: 40)
-                .background(
-                    Circle()
-                        .fill(Color.white.opacity(0.10))
-                )
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                )
-                .contentShape(Circle())
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(Color(red: 0.16, green: 0.20, blue: 0.30))
+                .frame(width: 38, height: 38)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
-
+    
     private var editProfileButton: some View {
         Button {
             dismiss()
@@ -521,28 +566,30 @@ struct MyProfileView: View {
             }
         } label: {
             Text(tr("עריכת פרופיל", "Edit profile"))
-                .font(.system(size: 16, weight: .bold))
+                .font(.system(size: 18, weight: .heavy))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
                 .background(
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color.white.opacity(0.18))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(Color.white.opacity(0.42), lineWidth: 1)
-                        )
+                        .fill(Color(red: 0.46, green: 0.32, blue: 0.73))
                 )
         }
         .buttonStyle(.plain)
     }
-
+    
     private var thinDivider: some View {
         Rectangle()
-            .fill(Color.white.opacity(0.16))
+            .fill(Color(red: 0.70, green: 0.78, blue: 0.88))
             .frame(height: 1)
     }
 
+    private var thinDividerForLightCard: some View {
+        Rectangle()
+            .fill(Color(red: 0.70, green: 0.78, blue: 0.88))
+            .frame(height: 1)
+    }
+    
     private var profileInfoSections: some View {
         VStack(spacing: 0) {
             labeledValueBlock(
@@ -604,118 +651,126 @@ struct MyProfileView: View {
     }
 
     private func labeledValueBlock(label: String, value: String) -> some View {
-        VStack(alignment: profileStackAlignment, spacing: 2) {
+        VStack(alignment: profileStackAlignment, spacing: 4) {
             Text(label)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color.white.opacity(0.78))
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Color(red: 0.34, green: 0.40, blue: 0.50))
                 .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                 .multilineTextAlignment(profileTextAlignment)
 
             Text(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "—" : value)
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(.white)
+                .font(.system(size: 18, weight: .heavy))
+                .foregroundStyle(Color(red: 0.08, green: 0.12, blue: 0.20))
                 .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                 .multilineTextAlignment(profileTextAlignment)
-                .lineLimit(3)
-                .minimumScaleFactor(0.82)
+                .lineLimit(4)
+                .minimumScaleFactor(0.80)
 
             Spacer().frame(height: 6)
 
             Rectangle()
-                .fill(Color.white.opacity(0.12))
+                .fill(Color(red: 0.70, green: 0.78, blue: 0.88))
                 .frame(height: 1)
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, 7)
     }
-
+    
     private func passwordRow(label: String, password: String) -> some View {
-        HStack(spacing: 8) {
-            if isEnglish {
-                Text(label)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.78))
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                if isEnglish {
+                    Text(label)
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Color(red: 0.34, green: 0.40, blue: 0.50))
 
-                Spacer()
+                    Spacer()
 
-                Text(passwordVisible ? password : "••••••••")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white)
+                    Text(passwordVisible ? password : "••••••••")
+                        .font(.system(size: 18, weight: .heavy))
+                        .foregroundStyle(Color(red: 0.08, green: 0.12, blue: 0.20))
 
-                Button {
-                    passwordVisible.toggle()
-                } label: {
-                    Image(systemName: passwordVisible ? "eye.slash" : "eye")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Color.white.opacity(0.9))
+                    Button {
+                        passwordVisible.toggle()
+                    } label: {
+                        Image(systemName: passwordVisible ? "eye.slash" : "eye")
+                            .font(.system(size: 19, weight: .bold))
+                            .foregroundStyle(Color(red: 0.28, green: 0.32, blue: 0.42))
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Button {
+                        passwordVisible.toggle()
+                    } label: {
+                        Image(systemName: passwordVisible ? "eye.slash" : "eye")
+                            .font(.system(size: 19, weight: .bold))
+                            .foregroundStyle(Color(red: 0.28, green: 0.32, blue: 0.42))
+                    }
+                    .buttonStyle(.plain)
+
+                    Text(passwordVisible ? password : "••••••••")
+                        .font(.system(size: 18, weight: .heavy))
+                        .foregroundStyle(Color(red: 0.08, green: 0.12, blue: 0.20))
+
+                    Spacer()
+
+                    Text(label)
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Color(red: 0.34, green: 0.40, blue: 0.50))
                 }
-                .buttonStyle(.plain)
-            } else {
-                Button {
-                    passwordVisible.toggle()
-                } label: {
-                    Image(systemName: passwordVisible ? "eye.slash" : "eye")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Color.white.opacity(0.9))
-                }
-                .buttonStyle(.plain)
-
-                Text(passwordVisible ? password : "••••••••")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white)
-
-                Spacer()
-
-                Text(label)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.78))
             }
-        }
-        .padding(.vertical, 6)
-    }
+            .padding(.vertical, 8)
 
+            Rectangle()
+                .fill(Color(red: 0.70, green: 0.78, blue: 0.88))
+                .frame(height: 1)
+        }
+    }
+    
     private var trainingTowardBeltCard: some View {
-        VStack(alignment: profileStackAlignment, spacing: 4) {
+        VStack(alignment: .center, spacing: 8) {
             Text(tr("מתאמן לחגורה", "Training toward belt"))
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.76))
-                .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
-                .multilineTextAlignment(profileTextAlignment)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Color(red: 0.34, green: 0.40, blue: 0.50))
+                .frame(maxWidth: .infinity, alignment: .center)
+                .multilineTextAlignment(.center)
+                .lineLimit(1)
 
             Text(displayedNextBelt)
-                .font(.system(size: 17, weight: .heavy))
-                .foregroundStyle(Color(red: 0.92, green: 0.95, blue: 1.0))
-                .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
-                .multilineTextAlignment(profileTextAlignment)
+                .font(.system(size: 20, weight: .heavy))
+                .foregroundStyle(Color(red: 0.12, green: 0.27, blue: 0.52))
+                .frame(maxWidth: .infinity, alignment: .center)
+                .multilineTextAlignment(.center)
                 .lineLimit(1)
                 .minimumScaleFactor(0.82)
+
+            Image(profileBeltImageName(for: displayedNextBelt))
+                .resizable()
+                .scaledToFit()
+                .frame(height: 58)
+                .padding(.horizontal, 18)
+                .accessibilityHidden(true)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white.opacity(0.11))
+                .fill(Color(red: 0.86, green: 0.92, blue: 1.00))
                 .overlay(
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.75, green: 0.84, blue: 1.0).opacity(0.70),
-                                    Color(red: 0.48, green: 0.70, blue: 1.0).opacity(0.30),
-                                    Color.white.opacity(0.18)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
+                        .stroke(Color(red: 0.70, green: 0.78, blue: 0.88), lineWidth: 1)
                 )
         )
     }
-
+    
     // MARK: - Firestore
 
     private func loadFirestoreProfileIfNeeded() {
         guard let uid = Auth.auth().currentUser?.uid, !uid.isEmpty else {
+            return
+        }
+
+        guard !isLoadingFirestoreProfile else {
             return
         }
 
@@ -724,39 +779,139 @@ struct MyProfileView: View {
         Firestore.firestore()
             .collection("users")
             .document(uid)
-            .getDocument { snapshot, error in
+            .getDocument { snapshot, _ in
                 DispatchQueue.main.async {
                     defer {
                         isLoadingFirestoreProfile = false
                     }
 
-                    if let error {
-                        print("KMI_PROFILE iOS Firestore failed: \(error.localizedDescription)")
-                        return
-                    }
-
-                    guard let data = snapshot?.data() else {
+                    guard let data = snapshot?.data(), snapshot?.exists == true else {
                         return
                     }
 
                     let loaded = MyProfileFirestoreInfo(
-                        fullName: firstFirestoreString(data, keys: ["fullName", "name", "displayName"]),
-                        email: firstFirestoreString(data, keys: ["email"]),
-                        phone: firstFirestoreString(data, keys: ["phone", "phoneNumber", "phone_number"]),
-                        username: firstFirestoreString(data, keys: ["username", "userName", "accountUserName"]),
-                        region: firstFirestoreString(data, keys: ["region", "activeRegion", "active_region"]),
-                        branch: firstFirestoreString(data, keys: ["activeBranch", "active_branch", "branch", "branchesCsv", "branches"]),
-                        branchAddress: firstFirestoreString(data, keys: ["branchAddress", "branch_address", "address", "branchLocation", "branch_location"]),
-                        group: firstFirestoreString(data, keys: ["activeGroup", "active_group", "primaryGroup", "groupKey", "group_key", "age_group", "group", "groupsCsv", "groups"]),
-                        belt: firstFirestoreString(data, keys: ["current_belt", "belt_current", "belt", "rank"]),
-                        role: firstFirestoreString(data, keys: ["role", "user_role", "userType", "type"]),
-                        headCoach: firstFirestoreString(data, keys: ["headCoach", "head_coach", "seniorCoach", "senior_coach"]),
-                        coach: firstFirestoreString(data, keys: ["coach", "coachName", "coach_name", "trainer", "trainerName", "instructor"]),
-                        nextTraining: firstFirestoreString(data, keys: ["nextTraining", "next_training", "upcomingTraining", "upcoming_training"])
+                        fullName: firstFirestoreString(
+                            data,
+                            keys: [
+                                "fullName",
+                                "name",
+                                "displayName"
+                            ]
+                        ),
+                        email: firstFirestoreString(
+                            data,
+                            keys: [
+                                "email"
+                            ]
+                        ),
+                        phone: firstFirestoreString(
+                            data,
+                            keys: [
+                                "phone",
+                                "phoneNumber",
+                                "phone_number"
+                            ]
+                        ),
+                        username: firstFirestoreString(
+                            data,
+                            keys: [
+                                "username",
+                                "userName",
+                                "accountUserName"
+                            ]
+                        ),
+                        region: firstFirestoreString(
+                            data,
+                            keys: [
+                                "region",
+                                "activeRegion",
+                                "active_region"
+                            ]
+                        ),
+                        branch: firstFirestoreString(
+                            data,
+                            keys: [
+                                "activeBranch",
+                                "active_branch",
+                                "branch",
+                                "branchesCsv",
+                                "branches"
+                            ]
+                        ),
+                        branchAddress: firstFirestoreString(
+                            data,
+                            keys: [
+                                "branchAddress",
+                                "branch_address",
+                                "address",
+                                "branchLocation",
+                                "branch_location"
+                            ]
+                        ),
+                        group: firstFirestoreString(
+                            data,
+                            keys: [
+                                "activeGroup",
+                                "active_group",
+                                "primaryGroup",
+                                "groupKey",
+                                "group_key",
+                                "age_group",
+                                "group",
+                                "groupsCsv",
+                                "groups"
+                            ]
+                        ),
+                        belt: firstFirestoreString(
+                            data,
+                            keys: [
+                                "current_belt",
+                                "belt_current",
+                                "belt",
+                                "rank"
+                            ]
+                        ),
+                        role: firstFirestoreString(
+                            data,
+                            keys: [
+                                "role",
+                                "user_role",
+                                "userType",
+                                "type"
+                            ]
+                        ),
+                        headCoach: firstFirestoreString(
+                            data,
+                            keys: [
+                                "headCoach",
+                                "head_coach",
+                                "seniorCoach",
+                                "senior_coach"
+                            ]
+                        ),
+                        coach: firstFirestoreString(
+                            data,
+                            keys: [
+                                "coach",
+                                "coachName",
+                                "coach_name",
+                                "trainer",
+                                "trainerName",
+                                "instructor"
+                            ]
+                        ),
+                        nextTraining: firstFirestoreString(
+                            data,
+                            keys: [
+                                "nextTraining",
+                                "next_training",
+                                "upcomingTraining",
+                                "upcoming_training"
+                            ]
+                        )
                     )
 
                     firestoreInfo = loaded
-
                     syncLoadedProfileToDefaults(loaded)
                 }
             }
@@ -860,6 +1015,42 @@ struct MyProfileView: View {
 
     // MARK: - Belt helpers
 
+    private func profileBeltImageName(for raw: String) -> String {
+        let clean = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        switch clean {
+        case "white", "לבנה":
+            return "belt_white"
+        case "yellow", "צהובה":
+            return "belt_yellow"
+        case "orange", "כתומה":
+            return "belt_orange"
+        case "green", "ירוקה":
+            return "belt_green"
+        case "blue", "כחולה":
+            return "belt_blue"
+        case "brown", "חומה":
+            return "belt_brown"
+        case "black",
+             "שחורה",
+             "שחורה דאן 1",
+             "black_dan_2",
+             "black_dan_3",
+             "black_dan_4",
+             "black_dan_5",
+             "black_dan_6",
+             "black_dan_7",
+             "black_dan_8",
+             "black_dan_9",
+             "black_dan_10":
+            return "belt_black"
+        default:
+            return "belt_orange"
+        }
+    }
+    
     private func beltDisplayNameForUi(_ raw: String) -> String {
         let clean = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1029,6 +1220,13 @@ struct MyProfileView: View {
 
         guard !clean.isEmpty, clean != "—" else {
             return "—"
+        }
+
+        let catalogAddress = TrainingCatalogIOS.addressFor(clean)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !catalogAddress.isEmpty && catalogAddress != clean {
+            return catalogAddress
         }
 
         let separators = CharacterSet(charactersIn: "–-")

@@ -184,6 +184,7 @@ enum AppRoute: Hashable {
     case aboutAvi
     case aboutNetworkCoaches
     case forum
+    case myProfile
     case editProfile
 
     case subscription
@@ -562,6 +563,11 @@ struct ContentView: View {
                             ForumView(onClose: { nav.pop() })
                                 .navigationBarBackButtonHidden(true)
                         }
+
+                    case .myProfile:
+                        MyProfileView()
+                            .navigationBarBackButtonHidden(true)
+                            .toolbar(.hidden, for: .navigationBar)
 
                     case .editProfile:
                         KmiRootLayout(

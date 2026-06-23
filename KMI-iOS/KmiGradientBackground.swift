@@ -1,77 +1,29 @@
 import SwiftUI
 
 struct KmiGradientBackground: View {
+    // נשאר בפרמטר כדי לא לשבור מסכים קיימים שקוראים עם forceTraineeStyle / isCoach.
+    // בפועל מתעלמים ממנו כדי שכל האפליקציה תקבל רקע אחיד כמו Android.
+    var forceTraineeStyle: Bool = false
+    var isCoach: Bool? = nil
 
-    let forceTraineeStyle: Bool
-
-    @AppStorage("user_role") private var storedUserRole: String = "trainee"
-
-    private var isCoach: Bool {
-        if forceTraineeStyle { return false }
-
-        return storedUserRole
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .contains("coach")
-    }
-    
     var body: some View {
-        
-        ZStack {
-            if isCoach {
+        KmiAppBackground()
+    }
+}
 
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.04, green: 0.04, blue: 0.06),
-                        Color(red: 0.15, green: 0.02, blue: 0.03),
-                        Color(red: 0.26, green: 0.03, blue: 0.05),
-                        Color(red: 0.34, green: 0.03, blue: 0.06)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-
-                ZStack {
-                    Circle()
-                        .fill(Color.red.opacity(0.18))
-                        .frame(width: 240, height: 240)
-                        .blur(radius: 10)
-                        .offset(x: 160, y: -180)
-
-                    Circle()
-                        .fill(Color.black.opacity(0.35))
-                        .frame(width: 360, height: 360)
-                        .blur(radius: 20)
-                        .offset(x: -180, y: 240)
-                }
-
-            } else {
-
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.01, green: 0.05, blue: 0.14),
-                        Color(red: 0.07, green: 0.10, blue: 0.23),
-                        Color(red: 0.11, green: 0.33, blue: 0.80)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(0.08))
-                        .frame(width: 240, height: 240)
-                        .blur(radius: 2)
-                        .offset(x: 140, y: -160)
-
-                    Circle()
-                        .fill(Color.white.opacity(0.06))
-                        .frame(width: 320, height: 320)
-                        .blur(radius: 4)
-                        .offset(x: -140, y: 220)
-                }
-            }
-        }
+struct KmiAppBackground: View {
+    var body: some View {
+        LinearGradient(
+            colors: [
+                Color(red: 0.973, green: 0.984, blue: 1.000), // F8FBFF
+                Color(red: 0.918, green: 0.957, blue: 1.000), // EAF4FF
+                Color(red: 0.718, green: 0.867, blue: 0.969), // B7DDF7
+                Color(red: 0.122, green: 0.471, blue: 0.706), // 1F78B4
+                Color(red: 0.024, green: 0.169, blue: 0.290)  // 062B4A
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
         .ignoresSafeArea()
     }
 }

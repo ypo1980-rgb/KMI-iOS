@@ -5,9 +5,19 @@ struct DeviceGateRootView<Content: View>: View {
     @StateObject private var gate = AuthDeviceGate.shared
     let content: () -> Content
 
+    private var shouldBypassDeviceGateForDebug: Bool {
+        #if DEBUG
+        return true
+        #else
+        return false
+        #endif
+    }
+
     var body: some View {
         Group {
             if Auth.auth().currentUser == nil {
+                content()
+            } else if shouldBypassDeviceGateForDebug {
                 content()
             } else if gate.isChecking {
                 ProgressView("בודק הרשאת מכשיר...")
@@ -20,7 +30,7 @@ struct DeviceGateRootView<Content: View>: View {
             }
         }
         .task(id: Auth.auth().currentUser?.uid) {
-            if Auth.auth().currentUser != nil {
+            if Auth.auth().currentUser != nil && !shouldBypassDeviceGateForDebug {
                 await gate.verifyCurrentSession()
             }
         }

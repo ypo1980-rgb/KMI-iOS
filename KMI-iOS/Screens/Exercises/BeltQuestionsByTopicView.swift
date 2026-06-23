@@ -343,8 +343,8 @@ struct BeltQuestionsByTopicView: View {
                 }
             }
             .environment(\.layoutDirection, .leftToRight)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 17, style: .continuous)
@@ -360,7 +360,7 @@ struct BeltQuestionsByTopicView: View {
         private var textBlock: some View {
             VStack(alignment: stackAlignment, spacing: 6) {
                 Text(title)
-                    .font(.system(size: 19, weight: .heavy))
+                    .font(.system(size: 16, weight: .heavy))
                     .foregroundStyle(Color.black.opacity(0.84))
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
                     .multilineTextAlignment(textAlignment)
@@ -407,8 +407,8 @@ struct BeltQuestionsByTopicView: View {
                     Image(imageName)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: 72, height: 56)
-                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                        .frame(width: 54, height: 44)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 13, style: .continuous)
                                 .stroke(Color.white.opacity(0.72), lineWidth: 1)
@@ -420,13 +420,13 @@ struct BeltQuestionsByTopicView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .frame(width: 76, height: 58)
+            .frame(width: 58, height: 46)
         }
 
         private var accentBar: some View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(accent)
-                .frame(width: 6, height: 52)
+                .frame(width: 4, height: 38)
         }
     }
     
@@ -1453,44 +1453,121 @@ struct BeltQuestionsByTopicView: View {
         )
     }
     
+    private var topicModeTabs: some View {
+        HStack(spacing: 8) {
+            topicModeTabButton(
+                title: tr("לפי נושא", "By Topic"),
+                selected: true
+            ) {
+                // כבר נמצאים במסך לפי נושא
+            }
+
+            topicModeTabButton(
+                title: tr("לפי חגורה", "By Belt"),
+                selected: false
+            ) {
+                if embeddedMode {
+                    onSwitchToByBelt?()
+                } else {
+                    nav.pop()
+                }
+            }
+        }
+        .environment(\.layoutDirection, .leftToRight)
+        .frame(maxWidth: .infinity)
+        .padding(5)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(0.18))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.42), lineWidth: 1)
+        )
+    }
+
+    private func topicModeTabButton(
+        title: String,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 15, weight: .heavy))
+                .foregroundStyle(
+                    selected
+                    ? Color.white
+                    : Color(red: 0.28, green: 0.22, blue: 0.56)
+                )
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(
+                            selected
+                            ? LinearGradient(
+                                colors: [
+                                    Color(red: 0.50, green: 0.00, blue: 1.00),
+                                    Color(red: 0.25, green: 0.32, blue: 0.72)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            : LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.96),
+                                    Color.white.opacity(0.86)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(
+                            selected
+                            ? Color.white.opacity(0.42)
+                            : Color(red: 0.50, green: 0.00, blue: 1.00).opacity(0.22),
+                            lineWidth: 1
+                        )
+                )
+                .shadow(
+                    color: selected ? Color.black.opacity(0.16) : Color.black.opacity(0.06),
+                    radius: selected ? 8 : 4,
+                    x: 0,
+                    y: selected ? 5 : 2
+                )
+        }
+        .buttonStyle(.plain)
+    }
+    
     var body: some View {
         ZStack {
-            KmiGradientBackground(forceTraineeStyle: false)
+            KmiAppBackground()
 
             VStack(spacing: 0) {
-
-                SegmentedTabs(
-                    leftTitle: tr("לפי נושא", "By Topic"),
-                    rightTitle: tr("לפי חגורה", "By Belt"),
-                    selected: .left,
-                    onSelect: { sel in
-                        if sel == .right {
-                            if embeddedMode {
-                                onSwitchToByBelt?()
-                            } else {
-                                nav.pop()
-                            }
-                        }
-                    }
-                )
-                .padding(.horizontal, 18)
-                .padding(.top, 10)
-
+                
+                topicModeTabs
+                    .padding(.horizontal, 18)
+                    .padding(.top, 10)
                 GeometryReader { geo in
-                    let reservedBottomForQuickView: CGFloat = 112
+                    let reservedBottomForQuickView: CGFloat = embeddedMode ? 18 : 112
                     let cardHeight = max(360, geo.size.height - reservedBottomForQuickView)
 
                     WhiteCard {
                         VStack(alignment: isEnglish ? .leading : .trailing, spacing: 14) {
 
                             Text(tr("נושאים (קטגוריות)", "Topics (Categories)"))
-                                .font(.system(size: 23, weight: .heavy))
+                                .font(.system(size: 18, weight: .heavy))
                                 .foregroundStyle(Color.black.opacity(0.84))
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .multilineTextAlignment(.center)
 
                             ScrollView(showsIndicators: false) {
-                                VStack(spacing: 9) {
+                                VStack(spacing: 5) {
                                     ForEach(Array(mainTopics.enumerated()), id: \.offset) { _, topic in
                                         Button {
                                             openTopic(topic)
@@ -1526,7 +1603,7 @@ struct BeltQuestionsByTopicView: View {
                     }
                     .frame(height: cardHeight)
                     .padding(.horizontal, 18)
-                    .padding(.top, 6)
+                    .padding(.top, 8)
                 }
 
                 if !embeddedMode {
@@ -1985,8 +2062,8 @@ private struct SubjectSubTopicsListView: View {
                     accentBar
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 17, style: .continuous)
@@ -2002,7 +2079,7 @@ private struct SubjectSubTopicsListView: View {
         private var textBlock: some View {
             VStack(alignment: stackAlignment, spacing: 7) {
                 Text(title)
-                    .font(.system(size: 19, weight: .heavy))
+                    .font(.system(size: 16, weight: .heavy))
                     .foregroundStyle(Color.black.opacity(0.84))
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
                     .multilineTextAlignment(textAlignment)
@@ -2051,11 +2128,11 @@ private struct SubjectSubTopicsListView: View {
 
     var body: some View {
         ZStack {
-            KmiGradientBackground(forceTraineeStyle: false)
+            KmiAppBackground()
 
             ScrollView {
                 WhiteCard {
-                    VStack(alignment: isEnglish ? .leading : .trailing, spacing: 14) {
+                    VStack(alignment: isEnglish ? .leading : .trailing, spacing: 9) {
                         HStack(spacing: 10) {
                             if isEnglish {
                                 VStack(alignment: .leading, spacing: 3) {
@@ -2572,7 +2649,7 @@ private struct SubjectSectionsListView: View {
     
     var body: some View {
         ZStack {
-            KmiGradientBackground(forceTraineeStyle: false)
+            KmiAppBackground()
 
             ScrollView {
                 WhiteCard {

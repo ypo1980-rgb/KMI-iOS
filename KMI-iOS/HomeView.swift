@@ -48,6 +48,9 @@ struct HomeView: View {
 
     @State private var selectedTraining: TrainingData? = nil
     @State private var showNavigationSheet: Bool = false
+
+    // Android parity: quick menu icon must always be visible on Home
+    @State private var showHomeQuickMenu: Bool = false
     
     // Global search navigation
     @State private var pickedExercise: ExerciseSelection? = nil
@@ -61,13 +64,39 @@ struct HomeView: View {
     private let calendar = Calendar(identifier: .gregorian)
     
     private var isEnglish: Bool {
-        let values = [
-            kmiAppLanguageCode.lowercased(),
-            appLanguageRaw.lowercased(),
-            initialLanguageCode.lowercased()
-        ]
-        
-        return values.contains("en") || values.contains("english")
+        let primary = kmiAppLanguageCode
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if primary == "he" || primary == "hebrew" || primary == "עברית" {
+            return false
+        }
+
+        if primary == "en" || primary == "english" {
+            return true
+        }
+
+        let secondary = appLanguageRaw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if secondary == "he" || secondary == "hebrew" || secondary == "עברית" {
+            return false
+        }
+
+        if secondary == "en" || secondary == "english" {
+            return true
+        }
+
+        let initial = initialLanguageCode
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if initial == "en" || initial == "english" {
+            return true
+        }
+
+        return false
     }
     
     private var screenLayoutDirection: LayoutDirection {
@@ -127,29 +156,60 @@ struct HomeView: View {
     
     private var hasFullAccess: Bool {
         let nowMillis = Date().timeIntervalSince1970 * 1000
-        
+
         let hasSubscriptionFlags =
-        googleSubscriptionVerifiedFlag ||
-        hasFullAccessFlag ||
-        fullAccessFlag ||
-        subscriptionActiveFlag ||
-        isSubscribedFlag ||
-        !subscriptionProduct.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        
-        // Same idea as Android HomeScreen:
-        // subscription flags open premium actions only while access time is valid.
-        if hasSubscriptionFlags && subscriptionAccessUntil > nowMillis {
-            return true
+            googleSubscriptionVerifiedFlag ||
+            hasFullAccessFlag ||
+            fullAccessFlag ||
+            subscriptionActiveFlag ||
+            isSubscribedFlag ||
+            !subscriptionProduct.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        // Android parity:
+        // premium access is valid only when flags exist AND accessUntil is still in the future.
+        // If accessUntil is missing or expired, premium actions stay locked.
+        guard hasSubscriptionFlags else {
+            return false
         }
-        
-        return false
+
+        guard subscriptionAccessUntil > nowMillis else {
+            return false
+        }
+
+        return true
     }
     
     private var lockSuffix: String {
         hasFullAccess ? "" : " 🔒"
     }
     
+    private func clearExpiredSubscriptionFlagsIfNeeded() {
+        let nowMillis = Date().timeIntervalSince1970 * 1000
+
+        let hasSubscriptionFlags =
+            googleSubscriptionVerifiedFlag ||
+            hasFullAccessFlag ||
+            fullAccessFlag ||
+            subscriptionActiveFlag ||
+            isSubscribedFlag ||
+            !subscriptionProduct.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        guard hasSubscriptionFlags else { return }
+        guard subscriptionAccessUntil > 0 else { return }
+        guard subscriptionAccessUntil <= nowMillis else { return }
+
+        hasFullAccessFlag = false
+        fullAccessFlag = false
+        subscriptionActiveFlag = false
+        isSubscribedFlag = false
+        googleSubscriptionVerifiedFlag = false
+        subscriptionProduct = ""
+        subscriptionAccessUntil = 0
+    }
+
     private func runPremiumHomeAction(_ action: @escaping () -> Void) {
+        clearExpiredSubscriptionFlagsIfNeeded()
+
         if hasFullAccess {
             action()
         } else {
@@ -319,7 +379,9 @@ struct HomeView: View {
     }
     
     private var homeQuickMenuItems: [HomeQuickMenuItem] {
-        var items: [HomeQuickMenuItem] = [
+        var items: [HomeQuickMenuItem] = []
+
+        items.append(
             HomeQuickMenuItem(
                 title: tr("עוזר קולי", "Voice Assistant") + lockSuffix,
                 systemImage: "mic.fill"
@@ -328,17 +390,9 @@ struct HomeView: View {
                     goVoiceAssistant = true
                 }
             }
-        ]
-        
-        if isAbroadUser {
-            items.append(
-                HomeQuickMenuItem(
-                    title: tr("יש להתעדכן מול המאמן המקומי", "Check with the local coach"),
-                    systemImage: "globe.europe.africa.fill"
-                ) {
-                }
-            )
-        } else {
+        )
+
+        if !isAbroadUser {
             items.append(
                 HomeQuickMenuItem(
                     title: tr("לוח אימונים חודשי", "Monthly Calendar") + lockSuffix,
@@ -349,7 +403,7 @@ struct HomeView: View {
                     }
                 }
             )
-            
+
             items.append(
                 HomeQuickMenuItem(
                     title: tr("סיכום אימון", "Training Summary") + lockSuffix,
@@ -360,12 +414,12 @@ struct HomeView: View {
                         formatter.locale = Locale(identifier: "en_US_POSIX")
                         formatter.dateFormat = "yyyy-MM-dd"
                         let todayIso = formatter.string(from: Date())
-                        
+
                         nav.push(.trainingSummary(pickedDateIso: todayIso))
                     }
                 }
             )
-            
+
             items.append(
                 HomeQuickMenuItem(
                     title: tr("אימונים חופשיים", "Free Sessions") + lockSuffix,
@@ -384,46 +438,13 @@ struct HomeView: View {
                 }
             )
         }
-        
-        items.append(
-            HomeQuickMenuItem(
-                title: isCoachUser
-                ? tr("כרטיס מאמן", "Coach Card")
-                : tr("כרטיס אישי", "My Card"),
-                systemImage: isCoachUser ? "checkmark.seal.fill" : "person.crop.circle.fill"
-            ) {
-                goCard = true
-            }
-        )
-        
-        if isCoachUser {
-            items.append(
-                HomeQuickMenuItem(
-                    title: tr("מבחן פנימי", "Internal Exam"),
-                    systemImage: "checklist"
-                ) {
-                    nav.push(.internalExam(belt: resolvedBelt))
-                }
-            )
-            
-            if !isAbroadUser {
-                items.append(
-                    HomeQuickMenuItem(
-                        title: tr("דו״ח נוכחות", "Attendance Report"),
-                        systemImage: "person.text.rectangle"
-                    ) {
-                        nav.push(.attendance)
-                    }
-                )
-            }
-        }
-        
+
         return items
     }
     
     var body: some View {
         ZStack {
-            KmiGradientBackground(forceTraineeStyle: false)
+            KmiAppBackground()
             
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 12) {
@@ -441,7 +462,7 @@ struct HomeView: View {
                         : currentWeekSubtitle
                     )
                     .padding(.top, 8)
-                    
+
                     if isAbroadUser {
                         HomeAbroadBranchNotice(
                             region: resolvedRegion,
@@ -479,9 +500,9 @@ struct HomeView: View {
                             value: effectiveUpcomingTrainings
                         )
                     }
-                    
+
                     Spacer(minLength: 4)
-                    
+
                     CoachMessagesCard(
                         title: isAbroadUser
                         ? tr("עדכונים מהסניף המקומי", "Local Branch Updates")
@@ -503,11 +524,15 @@ struct HomeView: View {
                         }
                     )
                     .padding(.horizontal, 18)
-                    
+
                     Button {
+                        // Android parity:
+                        // במסך לפי חגורה פותחים את החגורה הבאה אחרי החגורה הרשומה.
+                        // אם המשתמש לבנה / לא מוגדרת חגורה — מתחילים מכתומה.
                         let target = BeltFlow.nextBeltForUser(
                             registeredBelt: resolvedBelt
                         )
+
                         nav.push(.beltQuestionsByBelt(belt: target))
                     } label: {
                         HomePremiumExerciseButton(
@@ -515,15 +540,18 @@ struct HomeView: View {
                             subtitle: buttonSubtitleForBelt(),
                             isEnglish: isEnglish
                         )
-                        .frame(height: 36)
+                        .frame(height: 42)
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 16)
                     .padding(.top, 0)
 
-                    Spacer(minLength: 52)
+                    Spacer(minLength: 96)
                 }
             }
+        }
+        .overlay {
+            quickMenuOverlay
         }
         .onReceive(
             NotificationCenter.default.publisher(
@@ -534,15 +562,18 @@ struct HomeView: View {
             pickedExercise = ExerciseSelection.fromSearchKey(key)
         }
         .task {
+            clearExpiredSubscriptionFlagsIfNeeded()
             reloadTrainingsIfNeeded()
         }
         .onAppear {
+            clearExpiredSubscriptionFlagsIfNeeded()
             startCoachBroadcastListener()
         }
         .onDisappear {
             stopCoachBroadcastListener()
         }
         .refreshable {
+            clearExpiredSubscriptionFlagsIfNeeded()
             reloadTrainingsIfNeeded()
         }
         .onChange(of: auth.userRegion) { _, _ in
@@ -574,7 +605,9 @@ struct HomeView: View {
                 for: UIApplication.willEnterForegroundNotification
             )
         ) { _ in
+            clearExpiredSubscriptionFlagsIfNeeded()
             reloadTrainingsIfNeeded()
+            startCoachBroadcastListener()
         }
         .navigationDestination(isPresented: $goVoiceAssistant) {
             VoiceAssistantView()
@@ -617,6 +650,72 @@ struct HomeView: View {
             .presentationDragIndicator(.visible)
         }
         .environment(\.layoutDirection, screenLayoutDirection)
+    }
+    
+    private var quickMenuOverlay: some View {
+        GeometryReader { geo in
+            let fabWidth: CGFloat = 44
+            let panelWidth: CGFloat = 196
+
+            // עברית: צד ימין כמו Android.
+            // אנגלית: צד שמאל.
+            let fabX = isEnglish
+                ? (fabWidth / 2)
+                : (geo.size.width - fabWidth / 2)
+
+            // Android parity: side quick menu tab near the upper content area.
+            let fabY: CGFloat = 132
+
+            let panelX = isEnglish
+                ? (fabWidth + 8 + panelWidth / 2)
+                : (geo.size.width - fabWidth - 8 - panelWidth / 2)
+
+            let panelY: CGFloat = 188
+
+            ZStack {
+                if showHomeQuickMenu {
+                    HomePremiumQuickMenuPanel(
+                        title: tr("קיצורי דרך", "Quick Actions"),
+                        isEnglish: isEnglish,
+                        items: homeQuickMenuItems,
+                        onClose: {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                                showHomeQuickMenu = false
+                            }
+                        }
+                    )
+                    .position(x: panelX, y: panelY)
+                    .transition(
+                        .scale(scale: 0.94)
+                        .combined(with: .opacity)
+                    )
+                    .zIndex(51)
+                }
+
+                Button {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                        showHomeQuickMenu.toggle()
+                    }
+                } label: {
+                    ModernHomeQuickFab(
+                        isOpen: showHomeQuickMenu,
+                        isEnglish: isEnglish
+                    )
+                }
+                .buttonStyle(.plain)
+                .position(x: fabX, y: fabY)
+                .accessibilityLabel(
+                    showHomeQuickMenu
+                    ? tr("סגור קיצורי דרך", "Close quick actions")
+                    : tr("פתח קיצורי דרך", "Open quick actions")
+                )
+                .zIndex(52)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+        .allowsHitTesting(true)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .zIndex(50)
     }
     
     // MARK: - User Header Card
@@ -903,13 +1002,25 @@ struct HomeView: View {
     
     private func startCoachBroadcastListener() {
         stopCoachBroadcastListener()
-        
-        let currentUid = Auth.auth().currentUser?.uid.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let currentEmail = Auth.auth().currentUser?.email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let currentName = freeSessionsName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let currentUid = Auth.auth().currentUser?.uid
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        let currentEmail = Auth.auth().currentUser?.email?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        let currentName = freeSessionsName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
         let currentBranch = normalizeCoachBroadcastText(resolvedBranch)
-        let currentGroup = normalizeCoachBroadcastText(TrainingCatalogIOS.displayGroup(resolvedGroup, isEnglish: false))
-        
+
+        let currentGroup = normalizeCoachBroadcastText(
+            TrainingCatalogIOS.displayGroup(
+                resolvedGroup,
+                isEnglish: false
+            )
+        )
+
         guard !currentUid.isEmpty ||
                 !currentEmail.isEmpty ||
                 !currentName.isEmpty ||
@@ -918,74 +1029,133 @@ struct HomeView: View {
             recentCoachMessages = []
             return
         }
-        
-        coachBroadcastListener = Firestore.firestore()
-            .collection("coachBroadcasts")
-            .order(by: "createdAt", descending: true)
-            .limit(to: 40)
-            .addSnapshotListener { snapshot, error in
-                if let error {
-                    return
+
+        // Android parity:
+        // first try direct targeting by UID, which is the source-of-truth path on Android.
+        // iOS then still filters defensively, because old documents may contain branch/group/name targets.
+        let baseQuery: Query
+
+        if !currentUid.isEmpty {
+            baseQuery = Firestore.firestore()
+                .collection("coachBroadcasts")
+                .whereField("targetUids", arrayContains: currentUid)
+                .order(by: "createdAt", descending: true)
+                .limit(to: 20)
+        } else {
+            baseQuery = Firestore.firestore()
+                .collection("coachBroadcasts")
+                .order(by: "createdAt", descending: true)
+                .limit(to: 40)
+        }
+
+        coachBroadcastListener = baseQuery.addSnapshotListener { snapshot, error in
+            if let error {
+                // Do not clear existing messages on listener error.
+                // This matches the Android behavior where a transient listener error should not erase the card.
+                return
+            }
+
+            let docs = snapshot?.documents ?? []
+
+            let directMessages = mapCoachBroadcastDocs(
+                docs: docs,
+                currentUid: currentUid,
+                currentEmail: currentEmail,
+                currentName: currentName,
+                currentBranch: currentBranch,
+                currentGroup: currentGroup
+            )
+
+            if !directMessages.isEmpty {
+                recentCoachMessages = Array(directMessages.prefix(5))
+                return
+            }
+
+            // Fallback for older broadcast documents that were not saved with targetUids.
+            Firestore.firestore()
+                .collection("coachBroadcasts")
+                .order(by: "createdAt", descending: true)
+                .limit(to: 40)
+                .getDocuments { fallbackSnapshot, fallbackError in
+                    if fallbackError != nil {
+                        return
+                    }
+
+                    let fallbackDocs = fallbackSnapshot?.documents ?? []
+
+                    let fallbackMessages = mapCoachBroadcastDocs(
+                        docs: fallbackDocs,
+                        currentUid: currentUid,
+                        currentEmail: currentEmail,
+                        currentName: currentName,
+                        currentBranch: currentBranch,
+                        currentGroup: currentGroup
+                    )
+
+                    recentCoachMessages = Array(fallbackMessages.prefix(5))
                 }
-                
-                let docs = snapshot?.documents ?? []
-                
-                let mappedMessages: [CoachHomeMessage] = docs
-                    .filter { doc in
-                        docTargetsCurrentUser(
-                            doc: doc,
-                            currentUid: currentUid,
-                            currentEmail: currentEmail,
-                            currentName: currentName,
-                            currentBranch: currentBranch,
-                            currentGroup: currentGroup
-                        )
-                    }
-                    .compactMap { doc in
-                        let text = firstString(
-                            doc,
-                            keys: ["text", "message", "body", "content"]
-                        )
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                        
-                        guard !text.isEmpty else { return nil }
-                        
-                        let coachName = firstString(
-                            doc,
-                            keys: ["coachName", "coach_name", "senderName", "fromName"]
-                        )
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                        
-                        let sentAt =
-                        (doc.get("createdAt") as? Timestamp)?.dateValue() ??
-                        (doc.get("sentAt") as? Timestamp)?.dateValue() ??
-                        (doc.get("timestamp") as? Timestamp)?.dateValue()
-                        
-                        let branch = firstString(
-                            doc,
-                            keys: ["branch", "branchName", "branch_name", "targetBranch", "selectedBranch"]
-                        )
-                        
-                        let group = firstString(
-                            doc,
-                            keys: ["group", "groupKey", "group_key", "targetGroup", "selectedGroup"]
-                        )
-                        
-                        return CoachHomeMessage(
-                            id: doc.documentID,
-                            text: text,
-                            coachName: coachName.isEmpty
-                            ? (isEnglish ? "Coach" : "המאמן")
-                            : coachName,
-                            sentAt: sentAt,
-                            branch: branch,
-                            group: group
-                        )
-                    }
-                    .prefix(5)
-                    .map { $0 }
-                
-                recentCoachMessages = mappedMessages
+        }
+    }
+    
+    private func mapCoachBroadcastDocs(
+        docs: [QueryDocumentSnapshot],
+        currentUid: String,
+        currentEmail: String,
+        currentName: String,
+        currentBranch: String,
+        currentGroup: String
+    ) -> [CoachHomeMessage] {
+        docs
+            .filter { doc in
+                docTargetsCurrentUser(
+                    doc: doc,
+                    currentUid: currentUid,
+                    currentEmail: currentEmail,
+                    currentName: currentName,
+                    currentBranch: currentBranch,
+                    currentGroup: currentGroup
+                )
+            }
+            .compactMap { doc in
+                let text = firstString(
+                    doc,
+                    keys: ["text", "message", "body", "content"]
+                )
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                guard !text.isEmpty else { return nil }
+
+                let coachName = firstString(
+                    doc,
+                    keys: ["coachName", "coach_name", "senderName", "fromName"]
+                )
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                let sentAt =
+                    (doc.get("createdAt") as? Timestamp)?.dateValue() ??
+                    (doc.get("sentAt") as? Timestamp)?.dateValue() ??
+                    (doc.get("timestamp") as? Timestamp)?.dateValue()
+
+                let branch = firstString(
+                    doc,
+                    keys: ["branch", "branchName", "branch_name", "targetBranch", "selectedBranch"]
+                )
+
+                let group = firstString(
+                    doc,
+                    keys: ["group", "groupKey", "group_key", "targetGroup", "selectedGroup"]
+                )
+
+                return CoachHomeMessage(
+                    id: doc.documentID,
+                    text: text,
+                    coachName: coachName.isEmpty
+                    ? (isEnglish ? "Coach" : "המאמן")
+                    : coachName,
+                    sentAt: sentAt,
+                    branch: branch,
+                    group: group
+                )
             }
     }
     
@@ -1861,7 +2031,7 @@ private struct HomePremiumQuickMenuPanel: View {
             }
         }
         .padding(.bottom, 7)
-        .frame(width: 218)
+        .frame(width: 196)
         .compositingGroup()
         .background(
             ZStack {
@@ -1925,7 +2095,7 @@ private struct HomePremiumQuickMenuRow: View {
             }
             .environment(\.layoutDirection, rowDirection)
             .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.vertical, 5)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1934,44 +2104,66 @@ private struct HomePremiumQuickMenuRow: View {
 
 private struct ModernHomeQuickFab: View {
     let isOpen: Bool
-    
+    let isEnglish: Bool
+
     var body: some View {
         ZStack {
-            UnevenRoundedRectangle(
-                topLeadingRadius: 0,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: 18,
-                topTrailingRadius: 18,
-                style: .continuous
-            )
-            .fill(
-                LinearGradient(
-                    colors: [
-                        Color(red: 1.00, green: 0.91, blue: 0.64),
-                        Color(red: 1.00, green: 0.76, blue: 0.23),
-                        Color(red: 1.00, green: 0.63, blue: 0.15)
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
+            if isEnglish {
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 18,
+                    topTrailingRadius: 18,
+                    style: .continuous
                 )
-            )
-            
-            UnevenRoundedRectangle(
-                topLeadingRadius: 0,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: 18,
-                topTrailingRadius: 18,
-                style: .continuous
-            )
-            .stroke(Color.white.opacity(0.72), lineWidth: 1)
-            
-            Image(systemName: "line.3.horizontal")
+                .fill(fabGradient)
+
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 18,
+                    topTrailingRadius: 18,
+                    style: .continuous
+                )
+                .stroke(Color.white.opacity(0.58), lineWidth: 1)
+            } else {
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 18,
+                    bottomLeadingRadius: 18,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 0,
+                    style: .continuous
+                )
+                .fill(fabGradient)
+
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 18,
+                    bottomLeadingRadius: 18,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 0,
+                    style: .continuous
+                )
+                .stroke(Color.white.opacity(0.58), lineWidth: 1)
+            }
+
+            Image(systemName: isOpen ? "xmark" : "line.3.horizontal")
                 .font(.system(size: 22, weight: .heavy))
-                .foregroundStyle(.white)
-                .rotationEffect(.degrees(isOpen ? 90 : 0))
+                .foregroundStyle(Color.white)
         }
-        .frame(width: 38, height: 72)
-        .shadow(color: Color.black.opacity(0.20), radius: 8, x: 0, y: 5)
+        .frame(width: 44, height: 68)
+        .shadow(color: Color.black.opacity(0.24), radius: 9, x: 0, y: 5)
+    }
+
+    private var fabGradient: LinearGradient {
+        LinearGradient(
+            colors: [
+                Color(red: 0.50, green: 0.00, blue: 1.00),
+                Color(red: 0.25, green: 0.32, blue: 0.72),
+                Color(red: 0.02, green: 0.66, blue: 0.96)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 }
     

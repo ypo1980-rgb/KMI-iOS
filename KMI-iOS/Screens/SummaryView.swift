@@ -37,6 +37,7 @@ struct SummaryView: View {
     
     @ObservedObject var nav: AppNavModel
     @State private var showProgressCard: Bool = false
+    @State private var showComparisonCard: Bool = false
     
     // אותו key כמו TopicExercisesListView (חשוב!)
     private func markKey(topicTitle: String, item: String) -> String {
@@ -121,22 +122,74 @@ struct SummaryView: View {
         return Int(round((Double(doneCount) / Double(totalCount)) * 100.0))
     }
 
+    private var comparisonTraineesCount: Int {
+        // זמני עד חיבור לנתוני אמת של מתאמנים אחרים.
+        // באנדרואיד זה מגיע מלוגיקת השוואה מול מתאמנים באותה חגורה.
+        return 2
+    }
+
+    private var comparisonAveragePercent: Int {
+        // זמני עד חיבור לנתוני אמת.
+        // כרגע מציג ממוצע לפי אחוז ההתקדמות המקומי כדי שהכרטיס יעבוד יציב.
+        return percentAll
+    }
+
+    private var comparisonBetterThanPercent: Int {
+        guard comparisonAveragePercent > 0 else {
+            return percentAll > 0 ? 100 : 0
+        }
+
+        if percentAll >= comparisonAveragePercent {
+            return 100
+        }
+
+        return max(
+            0,
+            Int(round((Double(percentAll) / Double(comparisonAveragePercent)) * 100.0))
+        )
+    }
+
+    private var comparisonStatusText: String {
+        if percentAll >= comparisonAveragePercent {
+            return "אתה מעל \(comparisonBetterThanPercent)% מהמתאמנים בחגורה שלך."
+        }
+
+        return "אתה מתחת לממוצע המתאמנים בחגורה שלך."
+    }
+
     private var summaryTitle: String {
         if let topic,
            !topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            let subTopic,
            !subTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "סיכום \(subTopic)"
+            return "\(subTopic) - \(percentAll)%"
         }
 
         if let topic,
            !topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "סיכום \(topic)"
+            return "\(topic) - \(percentAll)%"
         }
 
-        return "סיכום \(belt.heb)"
+        return "\(beltDisplayTitleForSummary()) - \(percentAll)%"
+    }
+    
+    private func beltDisplayTitleForSummary() -> String {
+        let clean = belt.heb.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if clean.hasPrefix("חגורה") {
+            return clean
+        }
+
+        return "חגורה \(clean)"
     }
 
+    private func postSummaryTopTitleOverride() {
+        NotificationCenter.default.post(
+            name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
+            object: summaryTitle
+        )
+    }
+    
     private var progressCardTitle: String {
         if let topic,
            !topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -179,133 +232,404 @@ struct SummaryView: View {
         ZStack {
             KmiGradientBackground(forceTraineeStyle: false)
 
-            ScrollView {
-                VStack(spacing: 14) {
+            VStack(spacing: 0) {
 
-                    WhiteCard {
-                        HStack(spacing: 10) {
-                            SummaryStatPill(title: "בוצעו", value: doneCount, tint: .green)
-                            SummaryStatPill(title: "לא בוצעו", value: notDoneCount, tint: .red)
-                            SummaryStatPill(title: "נותרו", value: remainingCount, tint: .gray)
+                summaryTopControls
 
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 10)
+                ScrollView {
+                    VStack(spacing: 12) {
 
-                    // Chip "התקדמות"  ✅ toggle
-                    HStack {
-                        Spacer()
-
-                        Button {
-                            withAnimation(.easeOut(duration: 0.15)) {
-                                showProgressCard.toggle()
+                        if showComparisonCard {
+                            WhiteCard {
+                                BeltComparisonStatusCard(
+                                    traineesCount: comparisonTraineesCount,
+                                    averagePercent: comparisonAveragePercent,
+                                    userPercent: percentAll,
+                                    statusText: comparisonStatusText,
+                                    onClose: {
+                                        withAnimation(.easeOut(duration: 0.15)) {
+                                            showComparisonCard = false
+                                        }
+                                    }
+                                )
+                                .padding(.vertical, 12)
+                                .padding(.horizontal, 12)
                             }
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "chart.line.uptrend.xyaxis")
-                                    .font(.system(size: 14, weight: .heavy))
-
-                                Text("התקדמות")
-                                    .font(.system(size: 16, weight: .heavy))
-
-                                Image(systemName: showProgressCard ? "chevron.up" : "chevron.down")
-                                    .font(.system(size: 13, weight: .heavy))
-                                    .opacity(0.65)
-                            }
-                            .foregroundStyle(Color.black.opacity(0.82))
                             .padding(.horizontal, 16)
-                            .padding(.vertical, 11)
-                            .background(
-                                Capsule()
-                                    .fill(Color.white.opacity(0.92))
-                            )
-                            .overlay(
-                                Capsule()
-                                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
-                            )
-                            .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 2)
+                            .padding(.top, 8)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
                         }
-                        .buttonStyle(.plain)
+                        
+                        if showProgressCard {
+                            WhiteCard {
+                                VStack(spacing: 10) {
+                                    HStack {
+                                        Spacer()
 
-                        Spacer()
-                    }
-                    .padding(.leading, 16)
-                    .padding(.trailing, 16)
-                    .padding(.top, 10)
+                                        Button {
+                                            withAnimation(.easeOut(duration: 0.15)) {
+                                                showProgressCard = false
+                                            }
+                                        } label: {
+                                            Image(systemName: "xmark")
+                                                .font(.system(size: 13, weight: .black))
+                                                .foregroundStyle(Color.black.opacity(0.62))
+                                                .frame(width: 32, height: 32)
+                                                .background(Circle().fill(Color.black.opacity(0.06)))
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
 
-                    // Progress Card (עיגול)
-                    if showProgressCard {
-                        WhiteCard {
-                            VStack(spacing: 10) {
-                                Text(progressCardTitle)
-                                    .font(.system(size: 17, weight: .heavy))
-                                    .foregroundStyle(Color.black.opacity(0.82))
+                                    Text(progressCardTitle)
+                                        .font(.system(size: 17, weight: .heavy))
+                                        .foregroundStyle(Color.black.opacity(0.76))
+                                        .frame(maxWidth: .infinity, alignment: .center)
+                                        .multilineTextAlignment(.center)
 
-                                ProgressRing(percent: percentAll)
-                                    .frame(width: 170, height: 170)
-                                    .padding(.vertical, 4)
+                                    ProgressRing(percent: percentAll)
+                                        .frame(width: 190, height: 190)
+                                        .padding(.vertical, 4)
 
-                                Text("\(doneCount) מתוך \(totalCount)")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(Color.black.opacity(0.70))
+                                    Text("\(doneCount) מתוך \(totalCount)")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundStyle(Color.black.opacity(0.62))
+                                }
+                                .padding(.vertical, 12)
+                                .padding(.horizontal, 12)
                             }
-                            .padding(.vertical, 14)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
                         }
-                        .padding(.horizontal, 16)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
 
-                    if blocks.isEmpty {
-                        WhiteCard {
-                            VStack(spacing: 10) {
-                                Text("אין נתוני סיכום להצגה")
-                                    .font(.system(size: 20, weight: .heavy))
-                                    .foregroundStyle(Color.black.opacity(0.82))
+                        if blocks.isEmpty {
+                            WhiteCard {
+                                VStack(spacing: 10) {
+                                    Text("אין נתוני סיכום להצגה")
+                                        .font(.system(size: 20, weight: .heavy))
+                                        .foregroundStyle(Color.black.opacity(0.82))
 
-                                Text("עדיין לא סומנו תרגילים עבור הבחירה הנוכחית")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(Color.black.opacity(0.56))
-                                    .multilineTextAlignment(.center)
+                                    Text("עדיין לא סומנו תרגילים עבור הבחירה הנוכחית")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(Color.black.opacity(0.56))
+                                        .multilineTextAlignment(.center)
+                                }
+                                .padding(.vertical, 18)
                             }
-                            .padding(.vertical, 18)
-                        }
-                        .padding(.leading, 16)
-                        .padding(.trailing, 16)
-                    } else {
-                        ForEach(blocks) { b in
-                            TopicSummaryCard(block: b)
-                                .padding(.leading, 16)
-                                .padding(.trailing, 16)
-                        }
-                    }
-
-                    WhiteCard {
-                        ShareLink(
-                            item: shareSummaryText
-                        ) {
-                            HStack {
-                                Image(systemName: "square.and.arrow.up")
-                                Text("שתף סיכום אימון")
-                                    .font(.system(size: 16, weight: .heavy))
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                        } else {
+                            ForEach(blocks) { block in
+                                TopicSummaryCard(block: block)
+                                    .padding(.horizontal, 16)
                             }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
                         }
-                    }
-                    .padding(.horizontal, 16)
 
-                    Spacer(minLength: 20)
+                        Spacer(minLength: 18)
+                    }
+                    .padding(.top, 8)
+                    .padding(.bottom, 88)
                 }
-                .padding(.bottom, 22)
+            }
+
+            VStack {
+                Spacer()
+
+                summaryBottomBackButton
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 10)
+            }
+        }
+        .onAppear {
+            postSummaryTopTitleOverride()
+
+            DispatchQueue.main.async {
+                postSummaryTopTitleOverride()
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                postSummaryTopTitleOverride()
+            }
+        }
+        .onChange(of: percentAll) { _, _ in
+            postSummaryTopTitleOverride()
+
+            DispatchQueue.main.async {
+                postSummaryTopTitleOverride()
             }
         }
     }
     
+    private var summaryTopControls: some View {
+        HStack(spacing: 12) {
+            summaryTopActionButton(
+                title: "השוואה",
+                systemImage: "chart.line.uptrend.xyaxis",
+                isOpen: showComparisonCard
+            ) {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    showProgressCard = false
+                    showComparisonCard.toggle()
+                }
+            }
+
+            summaryTopActionButton(
+                title: "התקדמות",
+                systemImage: "chart.line.uptrend.xyaxis",
+                isOpen: showProgressCard
+            ) {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    showComparisonCard = false
+                    showProgressCard.toggle()
+                }
+            }
+        }
+        .environment(\.layoutDirection, .leftToRight)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.horizontal, 28)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
+    }
+
+    private func summaryTopActionButton(
+        title: String,
+        systemImage: String,
+        isOpen: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 15, weight: .heavy))
+                    .foregroundStyle(Color.orange.opacity(0.90))
+
+                Text(title)
+                    .font(.system(size: 17, weight: .black))
+                    .foregroundStyle(Color.black.opacity(0.78))
+
+                Image(systemName: isOpen ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 12, weight: .black))
+                    .foregroundStyle(Color.black.opacity(0.48))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.98),
+                                isOpen ? Color.orange.opacity(0.11) : Color.white.opacity(0.90),
+                                Color.orange.opacity(0.06)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(
+                        isOpen ? Color.orange.opacity(0.26) : Color.black.opacity(0.06),
+                        lineWidth: 1
+                    )
+            )
+            .shadow(color: Color.black.opacity(0.10), radius: 7, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private var beltBadgeForSummary: some View {
+        ZStack {
+            Circle()
+                .fill(Color.white.opacity(0.88))
+                .overlay(
+                    Circle()
+                        .stroke(beltAccentForSummary().opacity(0.16), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 2)
+
+            Text(beltShortTextForSummary())
+                .font(.system(size: 12, weight: .black))
+                .foregroundStyle(beltAccentForSummary())
+                .minimumScaleFactor(0.72)
+        }
+        .frame(width: 42, height: 42)
+    }
+
+    private var summaryBottomBackButton: some View {
+        Button {
+            nav.pop()
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.50, green: 0.00, blue: 1.00),
+                                Color(red: 0.25, green: 0.32, blue: 0.72),
+                                Color(red: 0.02, green: 0.66, blue: 0.96)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+
+                HStack(spacing: 8) {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 15, weight: .black))
+
+                    Text("חזרה למסך הנושאים")
+                        .font(.system(size: 17, weight: .black))
+                }
+                .foregroundStyle(.white)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 58)
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.white.opacity(0.45), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 5)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func beltShortTextForSummary() -> String {
+        switch belt {
+        case .white:
+            return "ל"
+        case .yellow:
+            return "צ"
+        case .orange:
+            return "כ"
+        case .green:
+            return "י"
+        case .blue:
+            return "כח"
+        case .brown:
+            return "ח"
+        case .black:
+            return "ש"
+        default:
+            return "ח"
+        }
+    }
+
+    private func beltAccentForSummary() -> Color {
+        switch belt {
+        case .white:
+            return Color.gray.opacity(0.80)
+        case .yellow:
+            return Color(red: 0.95, green: 0.82, blue: 0.18)
+        case .orange:
+            return Color(red: 0.96, green: 0.62, blue: 0.16)
+        case .green:
+            return Color(red: 0.22, green: 0.76, blue: 0.35)
+        case .blue:
+            return Color(red: 0.22, green: 0.52, blue: 0.92)
+        case .brown:
+            return Color(red: 0.57, green: 0.38, blue: 0.24)
+        case .black:
+            return Color(red: 0.42, green: 0.42, blue: 0.46)
+        default:
+            return Color.black.opacity(0.45)
+        }
+    }
     
     // MARK: - UI pieces
+    
+    private struct BeltComparisonStatusCard: View {
+        let traineesCount: Int
+        let averagePercent: Int
+        let userPercent: Int
+        let statusText: String
+        let onClose: () -> Void
+
+        var body: some View {
+            VStack(spacing: 14) {
+                HStack(spacing: 10) {
+                    Button {
+                        onClose()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 17, weight: .heavy))
+                            .foregroundStyle(Color(red: 0.18, green: 0.27, blue: 0.38))
+                            .frame(width: 34, height: 34)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer(minLength: 0)
+
+                    Text("המצב שלך בחגורה")
+                        .font(.system(size: 25, weight: .black))
+                        .foregroundStyle(Color(red: 0.12, green: 0.17, blue: 0.24))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                }
+                .padding(.horizontal, 4)
+
+                HStack(spacing: 8) {
+                    ComparisonMetricBox(
+                        value: "\(userPercent)%",
+                        title: "אתה יודע",
+                        tint: Color.green.opacity(0.82)
+                    )
+
+                    ComparisonMetricBox(
+                        value: "\(averagePercent)%",
+                        title: "ממוצע",
+                        tint: Color.blue.opacity(0.72)
+                    )
+
+                    ComparisonMetricBox(
+                        value: "\(traineesCount)",
+                        title: "מתאמנים",
+                        tint: Color.gray.opacity(0.72)
+                    )
+                }
+
+                Text(statusText)
+                    .font(.system(size: 21, weight: .black))
+                    .foregroundStyle(Color.green.opacity(0.84))
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
+                    .padding(.top, 2)
+            }
+        }
+    }
+
+    private struct ComparisonMetricBox: View {
+        let value: String
+        let title: String
+        let tint: Color
+
+        var body: some View {
+            VStack(spacing: 5) {
+                Text(value)
+                    .font(.system(size: 20, weight: .black))
+                    .foregroundStyle(tint)
+
+                Text(title)
+                    .font(.system(size: 14, weight: .black))
+                    .foregroundStyle(Color(red: 0.25, green: 0.34, blue: 0.42))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.74)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 76)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(tint.opacity(0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(tint.opacity(0.26), lineWidth: 1)
+            )
+        }
+    }
     
     private struct SummaryBackground: View {
         var body: some View {
@@ -344,39 +668,77 @@ struct SummaryView: View {
         @State private var expanded: Bool = true
         
         var body: some View {
-            WhiteCard {
-                VStack(spacing: 10) {
-                    
-                    HStack {
-                        Text("\(block.percent)% — \(block.title)")
-                            .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(Color.black.opacity(0.82))
-                        
-                        Spacer()
-                        
-                        Button {
-                            withAnimation(.easeOut(duration: 0.12)) { expanded.toggle() }
-                        } label: {
-                            Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 16, weight: .heavy))
-                                .foregroundStyle(Color.black.opacity(0.45))
-                                .frame(width: 34, height: 34)
-                                .background(Circle().fill(Color.gray.opacity(0.12)))
-                        }
-                        .buttonStyle(.plain)
+            VStack(spacing: 8) {
+                Button {
+                    withAnimation(.easeOut(duration: 0.14)) {
+                        expanded.toggle()
                     }
-                    
-                    if expanded {
-                        VStack(spacing: 0) {
-                            ForEach(block.items) { it in
-                                SummaryRow(title: it.title, mark: it.mark)
-                                Divider().opacity(0.18)
+                } label: {
+                    HStack(spacing: 8) {
+                        ButtonIcon(expanded: expanded)
+
+                        Spacer(minLength: 0)
+
+                        Text("\(block.title) — \(block.percent)%")
+                            .font(.system(size: 18, weight: .black))
+                            .foregroundStyle(Color.black.opacity(0.84))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.78)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+
+                if expanded {
+                    VStack(spacing: 0) {
+                        ForEach(block.items) { item in
+                            SummaryRow(title: item.title, mark: item.mark)
+
+                            if item.id != block.items.last?.id {
+                                Divider()
+                                    .opacity(0.14)
                             }
                         }
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
-                .padding(.vertical, 10)
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.98),
+                                Color.white.opacity(0.88),
+                                Color.white.opacity(0.95)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.black.opacity(0.04), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 3)
+        }
+
+        private struct ButtonIcon: View {
+            let expanded: Bool
+
+            var body: some View {
+                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 15, weight: .black))
+                    .foregroundStyle(Color.black.opacity(0.42))
+                    .frame(width: 30, height: 30)
+                    .background(Circle().fill(Color.black.opacity(0.08)))
             }
         }
     }

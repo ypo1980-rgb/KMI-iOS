@@ -47,7 +47,15 @@ struct BeltQuestionsByTopicView: View {
     private func tr(_ he: String, _ en: String) -> String {
         isEnglish ? en : he
     }
-    
+
+    private func exercisesCountText(_ count: Int) -> String {
+        if isEnglish {
+            return count == 1 ? "1 exercise" : "\(count) exercises"
+        } else {
+            return count == 1 ? "תרגיל 1" : "\(count) תרגילים"
+        }
+    }
+        
     private var activeBeltFill: Color {
         beltColor(for: belt)
     }
@@ -74,7 +82,7 @@ struct BeltQuestionsByTopicView: View {
     }
 
     @State private var pickedMainTopic: MainTopic? = nil
-    @State private var goSubTopics: Bool = false
+    @State private var expandedMainTopicId: String? = nil
     @State private var pickedSectionedSubject: SubjectTopic? = nil
     @State private var pickedAcrossBeltsSubject: SubjectTopic? = nil
     @State private var pickedAcrossBeltsSubTopicTitle: String? = nil
@@ -301,6 +309,8 @@ struct BeltQuestionsByTopicView: View {
         let symbolName: String
         let imageName: String?
         let isLocked: Bool
+        let hasSubTopics: Bool
+        let isExpanded: Bool
 
         private var textAlignment: TextAlignment {
             isEnglish ? .leading : .trailing
@@ -314,6 +324,14 @@ struct BeltQuestionsByTopicView: View {
             isEnglish ? .leading : .trailing
         }
 
+        private var navigationIconName: String {
+            if hasSubTopics {
+                return isExpanded ? "chevron.up" : "chevron.down"
+            }
+
+            return isEnglish ? "chevron.right" : "chevron.left"
+        }
+
         var body: some View {
             HStack(spacing: 12) {
                 if isEnglish {
@@ -325,13 +343,9 @@ struct BeltQuestionsByTopicView: View {
                         TopicPulsingLockBadge()
                     }
 
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color.black.opacity(0.30))
+                    navigationIcon
                 } else {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color.black.opacity(0.30))
+                    navigationIcon
 
                     if isLocked {
                         TopicPulsingLockBadge()
@@ -357,6 +371,17 @@ struct BeltQuestionsByTopicView: View {
             .shadow(color: Color.black.opacity(0.045), radius: 5, x: 0, y: 2)
         }
 
+        private var navigationIcon: some View {
+            Image(systemName: navigationIconName)
+                .font(.system(size: hasSubTopics ? 14 : 13, weight: .bold))
+                .foregroundStyle(
+                    hasSubTopics
+                    ? accent.opacity(0.82)
+                    : Color.black.opacity(0.30)
+                )
+                .frame(width: 18)
+        }
+
         private var textBlock: some View {
             VStack(alignment: stackAlignment, spacing: 6) {
                 Text(title)
@@ -369,7 +394,7 @@ struct BeltQuestionsByTopicView: View {
                 if let top = subtitleTop, !top.isEmpty {
                     Text(top)
                         .font(.system(size: 13, weight: .heavy))
-                        .foregroundStyle(Color.purple.opacity(0.82))
+                        .foregroundStyle(accent.opacity(0.86))
                         .frame(maxWidth: .infinity, alignment: frameAlignment)
                         .multilineTextAlignment(textAlignment)
                         .lineLimit(1)
@@ -1265,7 +1290,9 @@ struct BeltQuestionsByTopicView: View {
         pickedMainTopic = topic
 
         if topic.subjects.count > 1 {
-            goSubTopics = true
+            withAnimation(.easeInOut(duration: 0.22)) {
+                expandedMainTopicId = expandedMainTopicId == topic.id ? nil : topic.id
+            }
             return
         }
 
@@ -1273,19 +1300,260 @@ struct BeltQuestionsByTopicView: View {
             return
         }
 
+        openSubjectFromInlineList(subject)
+    }
+
+    private func openSubjectFromInlineList(_ subject: SubjectTopic) {
+        triggerTapHaptic()
+
         let sections = resolvedSections(for: subject)
 
-        if sections.count > 1 {
-            pickedSectionedSubject = subject
-        } else if sections.count == 1 {
+        if sections.count == 1 {
             pickedAcrossBeltsSubject = subject
             pickedAcrossBeltsSubTopicTitle = sections.first?.title
         } else {
+            // Android parity:
+            // אחרי בחירת תת־נושא מתוך "לפי נושא" פותחים את מסך התרגילים,
+            // ולא מסך ביניים נוסף של תתי־נושאים.
             pickedAcrossBeltsSubject = subject
             pickedAcrossBeltsSubTopicTitle = nil
         }
     }
 
+    @ViewBuilder
+    private func expandedSubTopicsBlock(
+        for topic: MainTopic,
+        accent: Color
+    ) -> some View {
+        VStack(spacing: 7) {
+            ForEach(Array(topic.subjects.enumerated()), id: \.offset) { _, subject in
+                Button {
+                    openSubjectFromInlineList(subject)
+                } label: {
+                    inlineSubTopicRow(
+                        subject: subject,
+                        accent: accent
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 6)
+        .padding(.bottom, 11)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            accent.opacity(0.10),
+                            Color.white.opacity(0.74),
+                            accent.opacity(0.06)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+        )
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    private func inlineSubTopicRow(
+        subject: SubjectTopic,
+        accent: Color
+    ) -> some View {
+        HStack(spacing: 10) {
+            if isEnglish {
+                inlineSubTopicIcon(subject: subject, accent: accent)
+
+                inlineSubTopicText(subject: subject, isEnglish: isEnglish)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(accent.opacity(0.70))
+            } else {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(accent.opacity(0.70))
+
+                inlineSubTopicText(subject: subject, isEnglish: isEnglish)
+
+                inlineSubTopicIcon(subject: subject, accent: accent)
+            }
+        }
+        .environment(\.layoutDirection, .leftToRight)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .fill(Color.white.opacity(0.86))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .stroke(accent.opacity(0.11), lineWidth: 1)
+        )
+    }
+
+    private func inlineSubTopicText(
+        subject: SubjectTopic,
+        isEnglish: Bool
+    ) -> some View {
+        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 2) {
+            Text(uiSubjectTitleForInline(subject))
+                .font(.system(size: 15.5, weight: .heavy))
+                .foregroundStyle(Color.black.opacity(0.84))
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: isEnglish ? .leading : .trailing
+                )
+                .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+
+            Text(exercisesCountText(totalExercisesCountForSubjectId(subject.id)))
+                .font(.system(size: 12, weight: .black))
+                .foregroundStyle(accentForTopicSubject(subject).opacity(0.90))
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: isEnglish ? .leading : .trailing
+                )
+                .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                .lineLimit(1)
+        }
+    }
+
+    private func inlineSubTopicIcon(
+        subject: SubjectTopic,
+        accent: Color
+    ) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(accent.opacity(0.10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(accent.opacity(0.18), lineWidth: 1)
+                )
+
+            Image(systemName: symbolForSubjectInline(subject))
+                .font(.system(size: 15, weight: .heavy))
+                .foregroundStyle(accent.opacity(0.86))
+        }
+        .frame(width: 34, height: 34)
+    }
+
+    private func uiSubjectTitleForInline(_ subject: SubjectTopic) -> String {
+        let cleanId = subject.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanTitle = subject.titleHeb.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard isEnglish else { return cleanTitle }
+
+        switch cleanId {
+        case "def_internal_punch":
+            return "Internal Defenses"
+        case "def_external_punch":
+            return "External Defenses"
+        case "kicks_hard":
+            return "Kick Defenses"
+        case "releases_hands_hair_shirt":
+            return "Releases from Hand / Hair / Shirt Grabs"
+        case "releases_chokes":
+            return "Choke Releases"
+        case "releases_hugs":
+            return "Hug Releases"
+        case "hands_strikes":
+            return "Hand Strikes"
+        case "hands_elbows":
+            return "Elbow Strikes"
+        case "hands_stick_rifle":
+            return "Stick / Rifle Strikes"
+        default:
+            if let titleFromId = KmiEnglishTitleResolver.englishTitle(for: cleanId) {
+                return titleFromId
+            }
+
+            return KmiEnglishTitleResolver.title(for: cleanTitle, isEnglish: true)
+        }
+    }
+
+    private func accentForTopicSubject(_ subject: SubjectTopic) -> Color {
+        let id = subject.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let title = subject.titleHeb.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if id.contains("internal") || title.contains("פנימ") {
+            return Color.green.opacity(0.82)
+        }
+
+        if id.contains("external") || title.contains("חיצונ") {
+            return Color.blue.opacity(0.82)
+        }
+
+        if id.contains("kick") || title.contains("בעיטה") {
+            return Color.orange.opacity(0.85)
+        }
+
+        if id.contains("release") || title.contains("שחרור") || title.contains("חביקה") {
+            return Color.blue.opacity(0.72)
+        }
+
+        if id.contains("hand") || id.contains("punch") || title.contains("יד") || title.contains("מרפק") {
+            return Color.red.opacity(0.78)
+        }
+
+        return accentForTopic(
+            MainTopic(
+                id: subject.id,
+                titleHeb: subject.titleHeb,
+                subjects: [subject]
+            )
+        )
+    }
+
+    private func symbolForSubjectInline(_ subject: SubjectTopic) -> String {
+        let id = subject.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let title = subject.titleHeb.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if id.contains("internal") || title.contains("פנימ") {
+            return "arrow.down.left.and.arrow.up.right"
+        }
+
+        if id.contains("external") || title.contains("חיצונ") {
+            return "arrow.up.forward.and.arrow.down.backward"
+        }
+
+        if id.contains("knife") || title.contains("סכין") {
+            return "shield.lefthalf.filled"
+        }
+
+        if id.contains("gun") || title.contains("אקדח") {
+            return "scope"
+        }
+
+        if id.contains("stick") || title.contains("מקל") || title.contains("רובה") {
+            return "figure.fencing"
+        }
+
+        if id.contains("release") || title.contains("שחרור") || title.contains("חביקה") {
+            return "hand.raised.fill"
+        }
+
+        if id.contains("kick") || title.contains("בעיטה") {
+            return "figure.kickboxing"
+        }
+
+        if id.contains("hand") || id.contains("punch") || title.contains("יד") || title.contains("מרפק") {
+            return "hand.tap.fill"
+        }
+
+        return "list.bullet.rectangle.fill"
+    }
+    
+    private func postTopicTopTitleOverride() {
+        NotificationCenter.default.post(
+            name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
+            object: tr("תרגילים לפי נושא", "Exercises by Topic")
+        )
+    }
+    
     private var quickViewButton: some View {
         Button {
             triggerTapHaptic()
@@ -1569,23 +1837,38 @@ struct BeltQuestionsByTopicView: View {
                             ScrollView(showsIndicators: false) {
                                 VStack(spacing: 5) {
                                     ForEach(Array(mainTopics.enumerated()), id: \.offset) { _, topic in
-                                        Button {
-                                            openTopic(topic)
-                                        } label: {
-                                            TopicRowCard(
-                                                title: displayTitle(for: topic),
-                                                accent: accentForTopic(topic),
-                                                subtitleTop: subtitleLineTop(for: topic),
-                                                subtitleBottom: subtitleLineBottom(for: topic),
-                                                isEnglish: isEnglish,
-                                                symbolName: symbolForTopic(topic),
-                                                imageName: imageNameForTopic(topic),
-                                                isLocked: isTopicLocked(topic)
-                                            )
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
+                                        let hasSubTopics = topic.subjects.count > 1
+                                        let isExpanded = expandedMainTopicId == topic.id
+                                        let accent = accentForTopic(topic)
 
+                                        VStack(spacing: 0) {
+                                            Button {
+                                                openTopic(topic)
+                                            } label: {
+                                                TopicRowCard(
+                                                    title: displayTitle(for: topic),
+                                                    accent: accent,
+                                                    subtitleTop: subtitleLineTop(for: topic),
+                                                    subtitleBottom: subtitleLineBottom(for: topic),
+                                                    isEnglish: isEnglish,
+                                                    symbolName: symbolForTopic(topic),
+                                                    imageName: imageNameForTopic(topic),
+                                                    isLocked: isTopicLocked(topic),
+                                                    hasSubTopics: hasSubTopics,
+                                                    isExpanded: isExpanded
+                                                )
+                                            }
+                                            .buttonStyle(.plain)
+
+                                            if hasSubTopics && isExpanded {
+                                                expandedSubTopicsBlock(
+                                                    for: topic,
+                                                    accent: accent
+                                                )
+                                            }
+                                        }
+                                    }
+                                    
                                     if mainTopics.isEmpty {
                                         Text(tr("אין נושאים להצגה", "No topics to display"))
                                             .font(.system(size: 16, weight: .semibold))
@@ -1622,11 +1905,31 @@ struct BeltQuestionsByTopicView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             onActiveBeltChange?(belt)
+
+            postTopicTopTitleOverride()
+
+            DispatchQueue.main.async {
+                postTopicTopTitleOverride()
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                postTopicTopTitleOverride()
+            }
         }
         .onChange(of: belt) { _, newValue in
             onActiveBeltChange?(newValue)
-        }
 
+            postTopicTopTitleOverride()
+
+            DispatchQueue.main.async {
+                postTopicTopTitleOverride()
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                postTopicTopTitleOverride()
+            }
+        }
+        
         // navigation לקטלוג הוסר – אין שימוש במסך "כל התרגילים"
 
         .navigationDestination(item: $pickedAcrossBeltsSubject) { subject in
@@ -1644,24 +1947,6 @@ struct BeltQuestionsByTopicView: View {
                     pickedAcrossBeltsSubTopicTitle = section
                 }
             )
-        }
-        .navigationDestination(isPresented: $goSubTopics) {
-            if let topic = pickedMainTopic {
-                SubjectSubTopicsListView(
-                    belt: belt,
-                    mainTopic: topic,
-                    onPickSubject: { subject in
-                        let sections = resolvedSections(for: subject)
-
-                        if sections.count > 1 {
-                            pickedSectionedSubject = subject
-                        } else {
-                            pickedAcrossBeltsSubject = subject
-                            pickedAcrossBeltsSubTopicTitle = nil
-                        }
-                    }
-                )
-            }
         }
     }
 }

@@ -403,7 +403,8 @@ struct KmiRootLayout<Content: View>: View {
 
     @State private var drawerOpen: Bool = false
     @State private var showGlobalIconMenu: Bool = false
-
+    @State private var titleOverride: String? = nil
+    
     // ✅ Global Search Sheet
     @State private var showGlobalSearch: Bool = false
 
@@ -450,6 +451,17 @@ struct KmiRootLayout<Content: View>: View {
         return r.contains("coach") || r.contains("trainer") || r.contains("מאמן")
     }
 
+    private var effectiveTopBarTitle: String {
+        let cleanOverride = titleOverride?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let cleanOverride, !cleanOverride.isEmpty {
+            return cleanOverride
+        }
+
+        return title
+    }
+    
     private var globalRoleBadgeText: String {
         let r = effectiveRole.lowercased()
 
@@ -592,7 +604,7 @@ struct KmiRootLayout<Content: View>: View {
 
                     KmiTopBar(
                         roleLabel: globalRoleBadgeText,
-                        title: title,
+                        title: effectiveTopBarTitle,
                         rightText: rightText,
                         titleColor: titleColor,
                         onMenu: { drawerOpen = true }
@@ -637,6 +649,16 @@ struct KmiRootLayout<Content: View>: View {
                 .presentationDragIndicator(.visible)
         }
         .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name("KMI_TOP_TITLE_OVERRIDE")
+            )
+        ) { notification in
+            if let newTitle = notification.object as? String {
+                let clean = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                titleOverride = clean.isEmpty ? nil : clean
+            }
+        }
     }
 
     private var globalIconRailToggle: some View {

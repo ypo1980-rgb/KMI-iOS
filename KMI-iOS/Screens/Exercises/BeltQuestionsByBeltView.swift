@@ -895,10 +895,14 @@ struct BeltQuestionsByBeltView: View {
                     onSwitchToByBelt: {
                         withAnimation(.spring(response: 0.24, dampingFraction: 0.92)) {
                             quickMenuOpen = false
-                        }
-                        
-                        withAnimation(.easeInOut(duration: 0.20)) {
                             tab = .byBelt
+                        }
+
+                        DispatchQueue.main.async {
+                            NotificationCenter.default.post(
+                                name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
+                                object: screenTitleForMode
+                            )
                         }
                     },
                     onActiveBeltChange: { activeBelt in
@@ -961,24 +965,34 @@ struct BeltQuestionsByBeltView: View {
             .zIndex(1200)
         }
         .environment(\.layoutDirection, screenLayoutDirection)
-        .navigationTitle(screenTitleForMode)
         .onAppear {
+            quickMenuOpen = false
+
+            guard !didInitializeSelectedBelt else {
+                NotificationCenter.default.post(
+                    name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
+                    object: screenTitleForMode
+                )
+                return
+            }
 
             // Android parity:
-            // כניסה למסך דרך מסך הבית מתחילה במצב לפי חגורה.
+            // כניסה ראשונה למסך דרך מסך הבית מתחילה במצב לפי חגורה.
             tab = .byBelt
-            quickMenuOpen = false
             expandedTopic = nil
 
-            guard !didInitializeSelectedBelt else { return }
-            
             // Android parity:
             // אם אין חגורה רשומה / המשתמש לבנה — מתחילים מכתומה.
             // אחרת מתחילים מהחגורה הבאה אחרי החגורה הרשומה.
             selectedBelt = initialBeltLikeAndroid()
             byTopicActiveBelt = selectedBelt
-            
+
             didInitializeSelectedBelt = true
+
+            NotificationCenter.default.post(
+                name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
+                object: screenTitleForMode
+            )
         }
         .onChange(of: selectedBelt) { _, newValue in
             expandedTopic = nil
@@ -992,6 +1006,17 @@ struct BeltQuestionsByBeltView: View {
                     quickMenuOpen = false
                 }
             }
+
+            NotificationCenter.default.post(
+                name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
+                object: screenTitleForMode
+            )
+        }
+        .onChange(of: tab) { _, _ in
+            NotificationCenter.default.post(
+                name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
+                object: screenTitleForMode
+            )
         }
         .onReceive(
             NotificationCenter.default.publisher(
@@ -1010,6 +1035,12 @@ struct BeltQuestionsByBeltView: View {
         }
         .onReceive(accessRefreshTimer) { _ in
             accessRefreshTick += 1
+        }
+        .onDisappear {
+            NotificationCenter.default.post(
+                name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
+                object: ""
+            )
         }
         .navigationDestination(item: $selectedLinkedTopicRoute) { route in
             LinkedTopicSubTopicsView(

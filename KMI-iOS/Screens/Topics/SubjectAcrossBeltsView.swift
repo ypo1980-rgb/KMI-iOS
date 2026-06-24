@@ -1,6 +1,12 @@
 import SwiftUI
 import Shared
 
+fileprivate enum ExerciseMarkState: String {
+    case unmarked
+    case know
+    case dontKnow
+}
+
 struct SubjectAcrossBeltsView: View {
 
     let subject: KMI_iOS.SubjectTopic
@@ -12,10 +18,16 @@ struct SubjectAcrossBeltsView: View {
     }
 
     // סדר חגורות כמו אצלך באנדרואיד
-    private let belts: [Belt] = [.white, .yellow, .orange, .green, .blue, .brown, .black]
-
+    private let belts: [Belt] = [.yellow, .orange, .green, .blue, .brown, .black]
     @State private var selectedBelt: Belt = .orange
-
+    @State private var exerciseMarks: [String: ExerciseMarkState] = [:]
+    @State private var activeExerciseMenu: ExerciseMenuContext? = nil
+    @State private var activeInfoExercise: ExerciseMenuContext? = nil
+    @State private var activeNoteExercise: ExerciseMenuContext? = nil
+    @State private var noteText: String = ""
+    @State private var favoriteExerciseIds: Set<String> = []
+    @State private var excludedExerciseIds: Set<String> = []
+    
     // ✅ קטלוג מה-Shared (כמו בשאר המסכים)
     private let catalog = CatalogData.shared.data
 
@@ -50,7 +62,7 @@ struct SubjectAcrossBeltsView: View {
     }
 
     // MARK: - Local UI models (במקום SubjectItemsResolver מה-KMP)
-    private struct UiItem: Identifiable {
+    private struct UiItem: Identifiable, Hashable {
         let id: String
         let displayName: String
         let topicTitle: String
@@ -62,6 +74,18 @@ struct SubjectAcrossBeltsView: View {
         let items: [UiItem]
     }
 
+    private struct ExerciseMenuContext: Identifiable, Hashable {
+        let id: String
+        let belt: Belt
+        let item: UiItem
+
+        init(belt: Belt, item: UiItem) {
+            self.belt = belt
+            self.item = item
+            self.id = "\(belt.id)::\(item.topicTitle)::\(item.displayName)"
+        }
+    }
+    
     // MARK: - Filtering helpers (כמו SubjectTopicContentView)
     private func norm(_ s: String) -> String {
         s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -502,145 +526,23 @@ struct SubjectAcrossBeltsView: View {
             )
             .overlay(
                 Image(systemName: subjectSymbolName())
-                    .font(.system(size: 23, weight: .heavy))
+                    .font(.system(size: 19, weight: .heavy))
                     .foregroundStyle(Color.purple.opacity(0.78))
             )
     }
     
     var body: some View {
         ZStack {
-            BeltTopicsGradientBackground()
+            KmiAppBackground()
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 12) {
+            VStack(spacing: 0) {
+                screenTopTitleBar
 
-                        WhiteCard {
-                            VStack(alignment: isEnglish ? .leading : .trailing, spacing: 12) {
-                                HStack(spacing: 12) {
-                                    if isEnglish {
-                                        heroIcon
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 12) {
 
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(uiSubjectTitle())
-                                                .font(.system(size: 23, weight: .heavy))
-                                                .foregroundStyle(Color.black.opacity(0.86))
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .multilineTextAlignment(.leading)
-                                                .lineLimit(2)
-
-                                            Text(heroSubtitleText())
-                                                .font(.system(size: 13, weight: .bold))
-                                                .foregroundStyle(Color.black.opacity(0.52))
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .multilineTextAlignment(.leading)
-                                        }
-                                    } else {
-                                        VStack(alignment: .trailing, spacing: 4) {
-                                            Text(uiSubjectTitle())
-                                                .font(.system(size: 23, weight: .heavy))
-                                                .foregroundStyle(Color.black.opacity(0.86))
-                                                .frame(maxWidth: .infinity, alignment: .trailing)
-                                                .multilineTextAlignment(.trailing)
-                                                .lineLimit(2)
-
-                                            Text(heroSubtitleText())
-                                                .font(.system(size: 13, weight: .bold))
-                                                .foregroundStyle(Color.black.opacity(0.52))
-                                                .frame(maxWidth: .infinity, alignment: .trailing)
-                                                .multilineTextAlignment(.trailing)
-                                        }
-
-                                        heroIcon
-                                    }
-                                }
-
-                                if !subject.description.isEmpty {
-                                    Text(subject.description)
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundStyle(Color.black.opacity(0.56))
-                                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                                        .multilineTextAlignment(primaryTextAlignment)
-                                }
-
-                                if let forcedSectionTitle,
-                                   !forcedSectionTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    Text(displayTitleForForcedSection(forcedSectionTitle))
-                                        .font(.system(size: 13, weight: .heavy))
-                                        .foregroundStyle(Color.purple.opacity(0.78))
-                                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                                        .multilineTextAlignment(primaryTextAlignment)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(Color.purple.opacity(0.09))
-                                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                                }
-                            }
-                            .padding(.vertical, 12)
-                            .padding(.horizontal, 12)
-                        }
-
-                        // ✅ קרוסלה אמיתית: Snap למרכז + מרכז מודגש
-                        WhiteCard {
-                            VStack(alignment: isEnglish ? .leading : .trailing, spacing: 10) {
-                                HStack(spacing: 10) {
-                                    if isEnglish {
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text(tr("חגורות", "Belts"))
-                                                .font(.system(size: 19, weight: .heavy))
-                                                .foregroundStyle(Color.black.opacity(0.84))
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-
-                                            Text(tr("בחר חגורה להצגת התרגילים", "Choose a belt to view exercises"))
-                                                .font(.system(size: 12, weight: .bold))
-                                                .foregroundStyle(Color.black.opacity(0.50))
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                        }
-
-                                        Image(systemName: "circle.grid.3x3.fill")
-                                            .font(.system(size: 17, weight: .heavy))
-                                            .foregroundStyle(Color.purple.opacity(0.72))
-                                            .frame(width: 36, height: 36)
-                                            .background(Color.purple.opacity(0.10))
-                                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                    } else {
-                                        Image(systemName: "circle.grid.3x3.fill")
-                                            .font(.system(size: 17, weight: .heavy))
-                                            .foregroundStyle(Color.purple.opacity(0.72))
-                                            .frame(width: 36, height: 36)
-                                            .background(Color.purple.opacity(0.10))
-                                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                                        VStack(alignment: .trailing, spacing: 3) {
-                                            Text(tr("חגורות", "Belts"))
-                                                .font(.system(size: 19, weight: .heavy))
-                                                .foregroundStyle(Color.black.opacity(0.84))
-                                                .frame(maxWidth: .infinity, alignment: .trailing)
-
-                                            Text(tr("בחר חגורה להצגת התרגילים", "Choose a belt to view exercises"))
-                                                .font(.system(size: 12, weight: .bold))
-                                                .foregroundStyle(Color.black.opacity(0.50))
-                                                .frame(maxWidth: .infinity, alignment: .trailing)
-                                        }
-                                    }
-                                }
-
-                                BeltCarousel(
-                                    belts: belts,
-                                    selectedBelt: $selectedBelt,
-                                    isEnglish: isEnglish,
-                                    hasContent: { b in !sections(for: b).isEmpty },
-                                    onSelect: { b in
-                                        withAnimation(.easeInOut(duration: 0.25)) {
-                                            proxy.scrollTo(beltAnchorId(b), anchor: .top)
-                                        }
-                                    }
-                                )
-                            }
-                            .padding(.vertical, 10)
-                            .padding(.horizontal, 12)
-                        }
-
+               
                         if !hasAnyExercises {
                             WhiteCard {
                                 VStack(spacing: 12) {
@@ -708,21 +610,45 @@ struct SubjectAcrossBeltsView: View {
                                                     )
                                                 }
 
-                                                ForEach(sec.items) { it in
-                                                    NavigationLink {
-                                                        ExerciseDetailView(
-                                                            belt: belt,
-                                                            topicTitle: it.topicTitle,
-                                                            item: it.displayName
-                                                        )
-                                                    } label: {
+                                                ForEach(Array(sec.items.enumerated()), id: \.element.id) { index, it in
+                                                    HStack(spacing: 8) {
+                                                        Button {
+                                                            toggleMark(
+                                                                belt: belt,
+                                                                item: it
+                                                            )
+                                                        } label: {
+                                                            ExerciseMarkCircle(
+                                                                state: markState(
+                                                                    belt: belt,
+                                                                    item: it
+                                                                ),
+                                                                accent: beltAccent(belt)
+                                                            )
+                                                        }
+                                                        .buttonStyle(.plain)
+
                                                         BeltExerciseRowCard(
+                                                            numberText: tr("מס׳ \(index + 1)", "No. \(index + 1)"),
                                                             title: uiExerciseTitle(it.displayName),
                                                             accent: beltAccent(belt),
-                                                            isEnglish: isEnglish
+                                                            isEnglish: isEnglish,
+                                                            onInfoTap: {
+                                                                activeExerciseMenu = ExerciseMenuContext(
+                                                                    belt: belt,
+                                                                    item: it
+                                                                )
+                                                            },
+                                                            destination: {
+                                                                ExerciseDetailView(
+                                                                    belt: belt,
+                                                                    topicTitle: it.topicTitle,
+                                                                    item: it.displayName
+                                                                )
+                                                            }
                                                         )
                                                     }
-                                                    .buttonStyle(.plain)
+                                                    .environment(\.layoutDirection, .leftToRight)
                                                 }
                                             }
                                         }
@@ -755,15 +681,19 @@ struct SubjectAcrossBeltsView: View {
                         Spacer(minLength: 18)
                     }
                     .padding(.horizontal, 16)
-                    .padding(.top, 12)
+                    .padding(.top, 2)
                     .padding(.bottom, 22)
+                    }
                 }
             }
         }
-        .environment(\.layoutDirection, screenLayoutDirection)
-        .navigationTitle(tr("לפי נושא", "By Topic"))
-        .navigationBarTitleDisplayMode(.inline)
+            .environment(\.layoutDirection, screenLayoutDirection)
         .onAppear {
+            NotificationCenter.default.post(
+                name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
+                object: uiSubjectTitle()
+            )
+
             for b in belts {
                 if !sections(for: b).isEmpty {
                     selectedBelt = b
@@ -771,42 +701,242 @@ struct SubjectAcrossBeltsView: View {
                 }
             }
         }
+        .onDisappear {
+            NotificationCenter.default.post(
+                name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
+                object: ""
+            )
+        }
+        .navigationDestination(item: $activeInfoExercise) { context in
+            ExerciseDetailView(
+                belt: context.belt,
+                topicTitle: context.item.topicTitle,
+                item: context.item.displayName
+            )
+        }
+        .sheet(item: $activeNoteExercise) { context in
+            ExerciseNoteSheet(
+                title: uiExerciseTitle(context.item.displayName),
+                noteText: $noteText
+            )
+        }
+        .overlay {
+            if let activeExerciseMenu {
+                exerciseActionMenu(
+                    context: activeExerciseMenu
+                )
+                .zIndex(999)
+            }
+        }
+            }
+
+    private var screenTopTitleBar: some View {
+        HStack(spacing: 12) {
+            Spacer(minLength: 44)
+
+            Text(uiSubjectTitle())
+                .font(.system(size: 27, weight: .black))
+                .foregroundStyle(Color(red: 0.08, green: 0.11, blue: 0.18))
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            Spacer(minLength: 44)
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+        .background(Color.clear)
+    }
+    
+        private func exerciseActionMenu(
+            context: ExerciseMenuContext
+        ) -> some View {
+            ZStack {
+            Color.black.opacity(0.001)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    activeExerciseMenu = nil
+                }
+
+            VStack(spacing: 0) {
+                exerciseMenuRow(title: tr("מידע", "Info")) {
+                    activeExerciseMenu = nil
+                    activeInfoExercise = context
+                }
+
+                exerciseMenuDivider
+
+                exerciseMenuRow(title: tr("הוסף למועדפים", "Add to favorites")) {
+                    toggleFavorite(
+                        belt: context.belt,
+                        item: context.item
+                    )
+                    activeExerciseMenu = nil
+                }
+
+                exerciseMenuDivider
+
+                exerciseMenuRow(title: tr("החרג מהתרגול", "Exclude from practice")) {
+                    toggleExcluded(
+                        belt: context.belt,
+                        item: context.item
+                    )
+                    activeExerciseMenu = nil
+                }
+
+                exerciseMenuDivider
+
+                exerciseMenuRow(title: tr("הוסף הערה לתרגיל", "Add exercise note")) {
+                    noteText = ""
+                    activeExerciseMenu = nil
+                    activeNoteExercise = context
+                }
+            }
+            .frame(width: 190)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.98),
+                                Color(red: 0.96, green: 0.94, blue: 0.98),
+                                Color.white.opacity(0.98)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.20), radius: 14, x: 0, y: 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        }
     }
 
+    private func exerciseMenuRow(
+        title: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 17, weight: .heavy))
+                .foregroundStyle(Color.black.opacity(0.86))
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .multilineTextAlignment(.center)
+                .background(Color.white.opacity(0.001))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var exerciseMenuDivider: some View {
+        Rectangle()
+            .fill(Color.black.opacity(0.08))
+            .frame(height: 1)
+    }
+    
     private func beltSectionHeader(_ belt: Belt, count: Int) -> some View {
-        HStack(spacing: 10) {
-            if isEnglish {
-                beltHeaderIcon(belt)
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                if isEnglish {
+                    beltHeaderIcon(belt)
 
-                VStack(alignment: .leading, spacing: 3) {
                     Text(beltTitleText(belt))
-                        .font(.system(size: 19, weight: .heavy))
+                        .font(.system(size: 20, weight: .heavy))
                         .foregroundStyle(beltAccent(belt))
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     Text(exercisesCountText(count))
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Color.black.opacity(0.52))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            } else {
-                VStack(alignment: .trailing, spacing: 3) {
+                        .font(.system(size: 18, weight: .heavy))
+                        .foregroundStyle(beltAccent(belt))
+                } else {
+                    Text(exercisesCountText(count))
+                        .font(.system(size: 18, weight: .heavy))
+                        .foregroundStyle(beltAccent(belt))
+
                     Text(beltTitleText(belt))
-                        .font(.system(size: 19, weight: .heavy))
+                        .font(.system(size: 20, weight: .heavy))
                         .foregroundStyle(beltAccent(belt))
                         .frame(maxWidth: .infinity, alignment: .trailing)
 
-                    Text(exercisesCountText(count))
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Color.black.opacity(0.52))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    beltHeaderIcon(belt)
                 }
-
-                beltHeaderIcon(belt)
             }
+            .environment(\.layoutDirection, .leftToRight)
+
+            Text(tr("←→ הזז לצד כדי לראות עוד נתונים ←→", "←→ Swipe sideways to see more data ←→"))
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Color.black.opacity(0.56))
+                .frame(maxWidth: .infinity, alignment: .center)
+                .multilineTextAlignment(.center)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    beltStatBox(
+                        title: tr("יודע", "Know"),
+                        value: "\(markCount(belt: belt, state: .know))",
+                        fill: Color(red: 0.46, green: 0.78, blue: 0.55)
+                    )
+
+                    beltStatBox(
+                        title: tr("לא יודע", "Don't know"),
+                        value: "\(markCount(belt: belt, state: .dontKnow))",
+                        fill: Color(red: 0.94, green: 0.58, blue: 0.38)
+                    )
+
+                    beltStatBox(
+                        title: tr("מועדפים", "Favorites"),
+                        value: "\(favoriteCount(belt: belt))",
+                        fill: Color(red: 0.88, green: 0.45, blue: 0.66)
+                    )
+
+                    beltStatBox(
+                        title: tr("מוחרגים", "Excluded"),
+                        value: "\(excludedCount(belt: belt))",
+                        fill: Color(red: 0.86, green: 0.42, blue: 0.50)
+                    )
+                    
+                    beltStatBox(
+                        title: tr("לא סומן", "Unmarked"),
+                        value: "\(unmarkedCount(belt: belt))",
+                        fill: Color(red: 0.84, green: 0.36, blue: 0.50)
+                    )
+                }
+                .padding(.horizontal, 2)
+            }
+            .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
         }
         .padding(.horizontal, 4)
         .padding(.bottom, 2)
+    }
+
+    private func beltStatBox(
+        title: String,
+        value: String,
+        fill: Color
+    ) -> some View {
+        VStack(spacing: 2) {
+            Text(value)
+                .font(.system(size: 17, weight: .black))
+                .foregroundStyle(.white)
+
+            Text(title)
+                .font(.system(size: 11, weight: .heavy))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+        }
+        .frame(width: 78)
+        .frame(height: 48)
+        .background(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(fill.opacity(0.78))
+        )
     }
 
     private func beltHeaderIcon(_ belt: Belt) -> some View {
@@ -922,6 +1052,105 @@ struct SubjectAcrossBeltsView: View {
         }
     }
 
+    private func markKey(
+        belt: Belt,
+        item: UiItem
+    ) -> String {
+        "\(belt.id)::\(item.topicTitle)::\(item.displayName)"
+    }
+
+    private func markState(
+        belt: Belt,
+        item: UiItem
+    ) -> ExerciseMarkState {
+        exerciseMarks[markKey(belt: belt, item: item)] ?? .unmarked
+    }
+
+    private func toggleMark(
+        belt: Belt,
+        item: UiItem
+    ) {
+        let key = markKey(belt: belt, item: item)
+        let current = exerciseMarks[key] ?? .unmarked
+
+        switch current {
+        case .unmarked:
+            exerciseMarks[key] = .know
+        case .know:
+            exerciseMarks[key] = .dontKnow
+        case .dontKnow:
+            exerciseMarks[key] = .unmarked
+        }
+    }
+
+    private func allItemsForBelt(_ belt: Belt) -> [UiItem] {
+        sections(for: belt).flatMap { $0.items }
+    }
+
+    private func markCount(
+        belt: Belt,
+        state: ExerciseMarkState
+    ) -> Int {
+        allItemsForBelt(belt).filter { item in
+            markState(belt: belt, item: item) == state
+        }.count
+    }
+
+    private func unmarkedCount(
+        belt: Belt
+    ) -> Int {
+        markCount(belt: belt, state: .unmarked)
+    }
+
+    private func exerciseId(
+        belt: Belt,
+        item: UiItem
+    ) -> String {
+        markKey(belt: belt, item: item)
+    }
+
+    private func toggleFavorite(
+        belt: Belt,
+        item: UiItem
+    ) {
+        let id = exerciseId(belt: belt, item: item)
+
+        if favoriteExerciseIds.contains(id) {
+            favoriteExerciseIds.remove(id)
+        } else {
+            favoriteExerciseIds.insert(id)
+        }
+    }
+
+    private func toggleExcluded(
+        belt: Belt,
+        item: UiItem
+    ) {
+        let id = exerciseId(belt: belt, item: item)
+
+        if excludedExerciseIds.contains(id) {
+            excludedExerciseIds.remove(id)
+        } else {
+            excludedExerciseIds.insert(id)
+        }
+    }
+
+    private func favoriteCount(
+        belt: Belt
+    ) -> Int {
+        allItemsForBelt(belt).filter { item in
+            favoriteExerciseIds.contains(exerciseId(belt: belt, item: item))
+        }.count
+    }
+
+    private func excludedCount(
+        belt: Belt
+    ) -> Int {
+        allItemsForBelt(belt).filter { item in
+            excludedExerciseIds.contains(exerciseId(belt: belt, item: item))
+        }.count
+    }
+    
     private func beltTitleText(_ belt: Belt) -> String {
         switch belt {
         case .white:
@@ -944,10 +1173,13 @@ struct SubjectAcrossBeltsView: View {
     }
 }
 
-private struct BeltExerciseRowCard: View {
+private struct BeltExerciseRowCard<Destination: View>: View {
+    let numberText: String
     let title: String
     let accent: Color
     let isEnglish: Bool
+    let onInfoTap: () -> Void
+    let destination: () -> Destination
 
     private var textAlignment: TextAlignment {
         isEnglish ? .leading : .trailing
@@ -957,84 +1189,189 @@ private struct BeltExerciseRowCard: View {
         isEnglish ? .leading : .trailing
     }
 
-    private var stackAlignment: HorizontalAlignment {
-        isEnglish ? .leading : .trailing
-    }
-
     var body: some View {
-        HStack(spacing: 12) {
-            if isEnglish {
-                accentBar
-                visualBlock
-                titleBlock
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color.black.opacity(0.28))
-            } else {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color.black.opacity(0.28))
-
-                titleBlock
-                visualBlock
-                accentBar
+        ZStack(alignment: isEnglish ? .topLeading : .topTrailing) {
+            HStack(spacing: 8) {
+                if isEnglish {
+                    infoButton
+                    titleNavigation
+                } else {
+                    titleNavigation
+                    infoButton
+                }
             }
+            .environment(\.layoutDirection, .leftToRight)
+            .padding(.horizontal, 9)
+            .padding(.top, 15)
+            .padding(.bottom, 5)
+
+            exerciseNumberBadge
+                .padding(isEnglish ? .leading : .trailing, 38)
+                .padding(.top, 3)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
         .frame(maxWidth: .infinity)
+        .frame(minHeight: 48)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.93))
+            RoundedRectangle(cornerRadius: 17, style: .continuous)
+                .fill(Color.white.opacity(0.97))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(accent.opacity(0.18), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 17, style: .continuous)
+                .stroke(Color.black.opacity(0.08), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.035), radius: 4, x: 0, y: 2)
     }
 
-    private var titleBlock: some View {
-        VStack(alignment: stackAlignment, spacing: 4) {
+    private var exerciseNumberBadge: some View {
+        Text(numberText)
+            .font(.system(size: 11, weight: .black))
+            .foregroundStyle(Color.black.opacity(0.78))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .background(Color.white.opacity(0.96))
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(Color.black.opacity(0.10), lineWidth: 1)
+            )
+    }
+
+    private var infoButton: some View {
+        Button {
+            onInfoTap()
+        } label: {
+            ExerciseInfoCircle()
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var titleNavigation: some View {
+        NavigationLink {
+            destination()
+        } label: {
             Text(title)
-                .font(.system(size: 17, weight: .heavy))
+                .font(.system(size: 15.5, weight: .heavy))
                 .foregroundStyle(Color.black.opacity(0.84))
                 .multilineTextAlignment(textAlignment)
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
                 .lineLimit(2)
+                .minimumScaleFactor(0.86)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+    private struct ExerciseNoteSheet: View {
+        let title: String
+        @Binding var noteText: String
+        @Environment(\.dismiss) private var dismiss
+
+        var body: some View {
+            NavigationStack {
+                VStack(spacing: 14) {
+                    Text(title)
+                        .font(.system(size: 18, weight: .heavy))
+                        .foregroundStyle(Color.black.opacity(0.86))
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 14)
+
+                    TextEditor(text: $noteText)
+                        .frame(minHeight: 180)
+                        .padding(10)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                        )
+
+                    Spacer()
+                }
+                .padding(18)
+                .background(KmiAppBackground())
+                .navigationTitle("הערה לתרגיל")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("שמור") {
+                            dismiss()
+                        }
+                    }
+
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("סגור") {
+                            dismiss()
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+private struct ExerciseInfoCircle: View {
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.black.opacity(0.46))
+                .frame(width: 28, height: 28)
+
+            Image(systemName: "info")
+                .font(.system(size: 14, weight: .black))
+                .foregroundStyle(.white)
+        }
+    }
+}
+
+private struct ExerciseMarkCircle: View {
+    let state: ExerciseMarkState
+    let accent: Color
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(backgroundFill)
+                .frame(width: 31, height: 31)
+                .overlay(
+                    Circle()
+                        .stroke(borderColor, lineWidth: 1.4)
+                )
+                .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+
+            if state == .know {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 14, weight: .black))
+                    .foregroundStyle(.white)
+            }
+
+            if state == .dontKnow {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(.white)
+            }
         }
     }
 
-    private var visualBlock: some View {
-        RoundedRectangle(cornerRadius: 13, style: .continuous)
-            .fill(
-                LinearGradient(
-                    colors: [
-                        accent.opacity(0.18),
-                        accent.opacity(0.08),
-                        Color.white.opacity(0.92)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .stroke(accent.opacity(0.20), lineWidth: 1)
-            )
-            .overlay(
-                Image(systemName: "figure.martial.arts")
-                    .font(.system(size: 19, weight: .heavy))
-                    .foregroundStyle(accent)
-            )
-            .frame(width: 50, height: 44)
+    private var backgroundFill: Color {
+        switch state {
+        case .unmarked:
+            return Color.white
+        case .know:
+            return accent
+        case .dontKnow:
+            return Color.red.opacity(0.82)
+        }
     }
 
-    private var accentBar: some View {
-        RoundedRectangle(cornerRadius: 5, style: .continuous)
-            .fill(accent)
-            .frame(width: 6, height: 44)
+    private var borderColor: Color {
+        switch state {
+        case .unmarked:
+            return Color.black.opacity(0.18)
+        case .know:
+            return accent.opacity(0.75)
+        case .dontKnow:
+            return Color.red.opacity(0.70)
+        }
     }
 }
 

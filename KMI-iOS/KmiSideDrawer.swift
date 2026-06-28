@@ -18,6 +18,7 @@ enum KmiDrawerRouteKey: String {
     case coachTrainees
     case coachPaymentsReport
     case adminUsers
+    case controlCenterLogs
 
     case myProfile
     case aboutAvi
@@ -118,11 +119,13 @@ struct KmiSideDrawer: View {
         switch item.routeKey {
         case .aboutAvi, .aboutNetworkCoaches:
             return 14
+        case .controlCenterLogs:
+            return 15
         default:
             return 15
         }
     }
-
+    
     private func titleWeight(for item: KmiDrawerItem, isCoachButton: Bool) -> Font.Weight {
         isCoachButton ? .heavy : .heavy
     }
@@ -296,49 +299,42 @@ struct KmiSideDrawer: View {
     }
 
     private var coachItems: [KmiDrawerItem] {
-        var items: [KmiDrawerItem] = []
-
-        if isCoach {
-            if !isAbroadUser {
-                items.append(
-                    .init(
-                        routeKey: .attendance,
-                        titleHe: "דו״ח נוכחות",
-                        titleEn: "Attendance Report",
-                        systemImage: "chart.bar.xaxis"
-                    )
-                )
-            }
-
-            items.append(contentsOf: [
-                .init(
-                    routeKey: .coachBroadcast,
-                    titleHe: "שליחת הודעה",
-                    titleEn: "Send Message",
-                    systemImage: "megaphone.fill"
-                ),
-                .init(
-                    routeKey: .coachTrainees,
-                    titleHe: "רשימת מתאמנים",
-                    titleEn: "Trainees List",
-                    systemImage: "person.3.fill"
-                ),
-                .init(
-                    routeKey: .coachPaymentsReport,
-                    titleHe: "דו״ח תשלומים",
-                    titleEn: "Payments Report",
-                    systemImage: "chart.bar.xaxis"
-                ),
-                .init(
-                    routeKey: .internalExam,
-                    titleHe: "מבחן פנימי לחגורה",
-                    titleEn: "Internal Belt Exam",
-                    systemImage: "rosette"
-                )
-            ])
+        guard isCoach else {
+            return []
         }
 
-        return items
+        return [
+            .init(
+                routeKey: .attendance,
+                titleHe: "דו״ח נוכחות",
+                titleEn: "Attendance Report",
+                systemImage: "chart.bar.xaxis"
+            ),
+            .init(
+                routeKey: .coachBroadcast,
+                titleHe: "שליחת הודעה",
+                titleEn: "Send Message",
+                systemImage: "megaphone.fill"
+            ),
+            .init(
+                routeKey: .coachTrainees,
+                titleHe: "רשימת מתאמנים",
+                titleEn: "Trainees List",
+                systemImage: "person.3.fill"
+            ),
+            .init(
+                routeKey: .coachPaymentsReport,
+                titleHe: "דו״ח תשלומים",
+                titleEn: "Payments Report",
+                systemImage: "chart.bar.xaxis"
+            ),
+            .init(
+                routeKey: .internalExam,
+                titleHe: "מבחן פנימי לחגורה",
+                titleEn: "Internal Belt Exam",
+                systemImage: "rosette"
+            )
+        ]
     }
     
     private var adminItems: [KmiDrawerItem] {
@@ -353,7 +349,15 @@ struct KmiSideDrawer: View {
                 titleEn: "Manage Users",
                 subtitleHe: "צפייה בכל המשתמשים באפליקציה",
                 subtitleEn: "View all app users",
-                systemImage: "person.3.sequence.fill"
+                systemImage: "person.3.fill"
+            ),
+            .init(
+                routeKey: .controlCenterLogs,
+                titleHe: "מרכז בקרה ולוגים",
+                titleEn: "Control Center & Logs",
+                subtitleHe: "ניהול פעילות, תקלות ושימוש באפליקציה",
+                subtitleEn: "Activity, issues and app usage control",
+                systemImage: "chart.bar.doc.horizontal"
             )
         ]
     }
@@ -488,32 +492,32 @@ struct KmiSideDrawer: View {
                     .padding(.horizontal, 18)
                     .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
 
-                ScrollView {
-                    VStack(spacing: 14) {
+                    ScrollView {
+                        VStack(spacing: 16) {
 
-                        if !coachItems.isEmpty {
-                            coachAreaCard
+                            if !coachItems.isEmpty {
+                                coachAreaCard
+                            }
+
+                            if !adminItems.isEmpty {
+                                adminAreaCard
+                            }
+
+                            traineeAreaCard
+
+                            Text("© KAMI")
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundStyle(Color(red: 0.72, green: 0.77, blue: 0.85)) // #B8C4DA
+                                .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
+                                .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                                .padding(.horizontal, 18)
+                                .padding(.top, 0)
+                                .padding(.bottom, 8)
                         }
-
-                        if !adminItems.isEmpty {
-                            adminAreaCard
-                        }
-
-                        traineeAreaCard
-
-                        Text("© K.M.I")
-                            .font(.system(size: 12, weight: .regular))
-                            .foregroundStyle(Color(red: 0.72, green: 0.77, blue: 0.85)) // #B8C4DA
-                            .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
-                            .padding(.horizontal, 18)
-                            .padding(.top, 0)
-                            .padding(.bottom, 8)
+                        .padding(.horizontal, 0)
+                        .padding(.top, 8)
+                        .padding(.bottom, 92)
                     }
-                    .padding(.horizontal, 0)
-                    .padding(.top, 8)
-                    .padding(.bottom, 18)
-                }
-
                     Spacer(minLength: 0)
                 }
                 .padding(.top, 42)
@@ -576,7 +580,7 @@ struct KmiSideDrawer: View {
     ) -> some View {
         VStack(spacing: 0) {
             Text(isEnglish ? titleEn : titleHe)
-                .font(.system(size: 15, weight: .black, design: .rounded))
+                .font(.system(size: 16, weight: .black, design: .rounded))
                 .foregroundStyle(.white)
                 .frame(
                     maxWidth: .infinity,
@@ -584,11 +588,11 @@ struct KmiSideDrawer: View {
                 )
                 .multilineTextAlignment(isEnglish ? .leading : .trailing)
                 .padding(.horizontal, 16)
-                .padding(.top, 12)
+                .padding(.top, 13)
                 .padding(.bottom, 8)
 
             Rectangle()
-                .fill(Color.white.opacity(0.16))
+                .fill(Color.white.opacity(0.18))
                 .frame(height: 1)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 2)
@@ -611,11 +615,11 @@ struct KmiSideDrawer: View {
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
                         .stroke(borderColor.opacity(0.28), lineWidth: 1)
                 )
-                .shadow(color: Color.black.opacity(0.14), radius: 8, x: 0, y: 4)
+                .shadow(color: Color.black.opacity(0.18), radius: 10, x: 0, y: 5)
         )
         .padding(.horizontal, 10)
     }
-
+    
     private var coachAreaCard: some View {
         drawerSectionCard(
             titleHe: "אזור מאמן",
@@ -660,7 +664,7 @@ struct KmiSideDrawer: View {
             isCoachButton: false
         )
     }
-
+    
     private func drawerButton(_ it: KmiDrawerItem, isCoachButton: Bool) -> some View {
         Button {
 
@@ -748,7 +752,7 @@ struct KmiSideDrawer: View {
             }
             .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
             .padding(rowHorizontalPadding(isCoachButton: isCoachButton))
-            .padding(.vertical, isCoachButton ? 7 : 6)
+            .padding(.vertical, isCoachButton ? 7 : 7)
             .frame(maxWidth: .infinity)
             .background(
                 Rectangle()
@@ -965,28 +969,28 @@ private let kmiDemoVideos: [KmiDemoVideo] = [
     .init(
         id: "yt_byPfByvdjQE",
         titleHe: "הגנה פנימית נגד בעיטה ישרה",
-        titleEn: "Internal Defense Against a Straight Kick",
+        titleEn: "Inside defense against a straight kick",
         url: "https://www.youtube.com/watch?v=byPfByvdjQE",
         source: "YouTube"
     ),
     .init(
         id: "yt_v3wY85y1b7U",
         titleHe: "הגנה כנגד שיסוף",
-        titleEn: "Defense Against a Slash",
+        titleEn: "Defense against a slash attack",
         url: "https://www.youtube.com/shorts/v3wY85y1b7U",
         source: "YouTube"
     ),
     .init(
         id: "yt_psnF4X9g0L0",
         titleHe: "הגנה כנגד מקל – צד מת",
-        titleEn: "Defense Against a Stick – Blind Side",
+        titleEn: "Defense against a stick attack – dead side",
         url: "https://www.youtube.com/shorts/psnF4X9g0L0",
         source: "YouTube"
     ),
     .init(
         id: "yt_YXzJxtIeSRU",
         titleHe: "מספר תוקפים",
-        titleEn: "Multiple Attackers",
+        titleEn: "Multiple attackers",
         url: "https://www.youtube.com/shorts/YXzJxtIeSRU",
         source: "YouTube"
     )

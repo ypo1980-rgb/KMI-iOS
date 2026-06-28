@@ -115,28 +115,36 @@ struct SummaryView: View {
     private var totalCount: Int { blocks.reduce(0) { $0 + $1.totalCount } }
     private var doneCount: Int { blocks.reduce(0) { $0 + $1.doneCount } }
     private var notDoneCount: Int { blocks.reduce(0) { $0 + $1.notDoneCount } }
-    private var remainingCount: Int { max(totalCount - doneCount - notDoneCount, 0) }
+    private var markedCount: Int { doneCount + notDoneCount }
+    private var remainingCount: Int { max(totalCount - markedCount, 0) }
 
     private var percentAll: Int {
         guard totalCount > 0 else { return 0 }
         return Int(round((Double(doneCount) / Double(totalCount)) * 100.0))
     }
 
+    private var markedPercentAll: Int {
+        guard totalCount > 0 else { return 0 }
+        return Int(round((Double(markedCount) / Double(totalCount)) * 100.0))
+    }
+    
     private var comparisonTraineesCount: Int {
-        // זמני עד חיבור לנתוני אמת של מתאמנים אחרים.
-        // באנדרואיד זה מגיע מלוגיקת השוואה מול מתאמנים באותה חגורה.
-        return 2
+        // אין להציג נתונים זמניים.
+        // עד חיבור iOS לנתוני ההשוואה האמיתיים מהשרת, מציגים מצב "אין מספיק נתונים".
+        return 0
     }
 
     private var comparisonAveragePercent: Int {
-        // זמני עד חיבור לנתוני אמת.
-        // כרגע מציג ממוצע לפי אחוז ההתקדמות המקומי כדי שהכרטיס יעבוד יציב.
-        return percentAll
+        return 0
+    }
+
+    private var comparisonHasEnoughData: Bool {
+        comparisonTraineesCount >= 2
     }
 
     private var comparisonBetterThanPercent: Int {
-        guard comparisonAveragePercent > 0 else {
-            return percentAll > 0 ? 100 : 0
+        guard comparisonHasEnoughData, comparisonAveragePercent > 0 else {
+            return 0
         }
 
         if percentAll >= comparisonAveragePercent {
@@ -150,13 +158,17 @@ struct SummaryView: View {
     }
 
     private var comparisonStatusText: String {
+        guard comparisonHasEnoughData else {
+            return "אין עדיין מספיק נתונים להשוואה מול מתאמנים אחרים."
+        }
+
         if percentAll >= comparisonAveragePercent {
             return "אתה מעל \(comparisonBetterThanPercent)% מהמתאמנים בחגורה שלך."
         }
 
         return "אתה מתחת לממוצע המתאמנים בחגורה שלך."
     }
-
+    
     private var summaryTitle: String {
         if let topic,
            !topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -246,6 +258,7 @@ struct SummaryView: View {
                                     averagePercent: comparisonAveragePercent,
                                     userPercent: percentAll,
                                     statusText: comparisonStatusText,
+                                    hasEnoughData: comparisonHasEnoughData,
                                     onClose: {
                                         withAnimation(.easeOut(duration: 0.15)) {
                                             showComparisonCard = false
@@ -280,19 +293,43 @@ struct SummaryView: View {
                                         .buttonStyle(.plain)
                                     }
 
-                                    Text(progressCardTitle)
-                                        .font(.system(size: 17, weight: .heavy))
-                                        .foregroundStyle(Color.black.opacity(0.76))
-                                        .frame(maxWidth: .infinity, alignment: .center)
-                                        .multilineTextAlignment(.center)
+                                    Text("מד התקדמות")
+                                        .font(.system(size: 22, weight: .black))
+                                        .foregroundStyle(Color(red: 0.09, green: 0.13, blue: 0.20))
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                                        .multilineTextAlignment(.trailing)
+                                    
+                                    ProgressRing(
+                                        percent: markedPercentAll,
+                                        doneCount: doneCount,
+                                        notDoneCount: notDoneCount,
+                                        remainingCount: remainingCount,
+                                        totalCount: totalCount
+                                    )
+                                    .frame(width: 194, height: 194)
+                                    .padding(.vertical, 4)
 
-                                    ProgressRing(percent: percentAll)
-                                        .frame(width: 190, height: 190)
-                                        .padding(.vertical, 4)
-
-                                    Text("\(doneCount) מתוך \(totalCount)")
+                                    Text("סומנו \(markedCount) מתוך \(totalCount)")
                                         .font(.system(size: 14, weight: .bold))
                                         .foregroundStyle(Color.black.opacity(0.62))
+
+                                    HStack(spacing: 8) {
+                                        SummaryStatusChip(
+                                            title: "יודע: \(doneCount)",
+                                            tint: Color(red: 0.30, green: 0.69, blue: 0.31)
+                                        )
+
+                                        SummaryStatusChip(
+                                            title: "לא יודע: \(notDoneCount)",
+                                            tint: Color(red: 0.90, green: 0.22, blue: 0.21)
+                                        )
+
+                                        SummaryStatusChip(
+                                            title: "לא סומן: \(remainingCount)",
+                                            tint: Color(red: 0.60, green: 0.64, blue: 0.70)
+                                        )
+                                    }
+                                    .padding(.top, 2)
                                 }
                                 .padding(.vertical, 12)
                                 .padding(.horizontal, 12)
@@ -363,17 +400,6 @@ struct SummaryView: View {
     private var summaryTopControls: some View {
         HStack(spacing: 12) {
             summaryTopActionButton(
-                title: "השוואה",
-                systemImage: "chart.line.uptrend.xyaxis",
-                isOpen: showComparisonCard
-            ) {
-                withAnimation(.easeOut(duration: 0.15)) {
-                    showProgressCard = false
-                    showComparisonCard.toggle()
-                }
-            }
-
-            summaryTopActionButton(
                 title: "התקדמות",
                 systemImage: "chart.line.uptrend.xyaxis",
                 isOpen: showProgressCard
@@ -381,6 +407,17 @@ struct SummaryView: View {
                 withAnimation(.easeOut(duration: 0.15)) {
                     showComparisonCard = false
                     showProgressCard.toggle()
+                }
+            }
+
+            summaryTopActionButton(
+                title: "השוואה",
+                systemImage: "chart.line.uptrend.xyaxis",
+                isOpen: showComparisonCard
+            ) {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    showProgressCard = false
+                    showComparisonCard.toggle()
                 }
             }
         }
@@ -544,6 +581,7 @@ struct SummaryView: View {
         let averagePercent: Int
         let userPercent: Int
         let statusText: String
+        let hasEnoughData: Bool
         let onClose: () -> Void
 
         var body: some View {
@@ -563,40 +601,59 @@ struct SummaryView: View {
                     Spacer(minLength: 0)
 
                     Text("המצב שלך בחגורה")
-                        .font(.system(size: 25, weight: .black))
+                        .font(.system(size: 22, weight: .black))
                         .foregroundStyle(Color(red: 0.12, green: 0.17, blue: 0.24))
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                 }
                 .padding(.horizontal, 4)
 
-                HStack(spacing: 8) {
-                    ComparisonMetricBox(
-                        value: "\(userPercent)%",
-                        title: "אתה יודע",
-                        tint: Color.green.opacity(0.82)
-                    )
+                if hasEnoughData {
+                    HStack(spacing: 8) {
+                        ComparisonMetricBox(
+                            value: "\(userPercent)%",
+                            title: "אתה יודע",
+                            tint: Color.green.opacity(0.82)
+                        )
 
-                    ComparisonMetricBox(
-                        value: "\(averagePercent)%",
-                        title: "ממוצע",
-                        tint: Color.blue.opacity(0.72)
-                    )
+                        ComparisonMetricBox(
+                            value: "\(averagePercent)%",
+                            title: "ממוצע",
+                            tint: Color.blue.opacity(0.72)
+                        )
 
-                    ComparisonMetricBox(
-                        value: "\(traineesCount)",
-                        title: "מתאמנים",
-                        tint: Color.gray.opacity(0.72)
-                    )
+                        ComparisonMetricBox(
+                            value: "\(traineesCount)",
+                            title: "מתאמנים",
+                            tint: Color.gray.opacity(0.72)
+                        )
+                    }
+
+                    Text(statusText)
+                        .font(.system(size: 21, weight: .black))
+                        .foregroundStyle(Color.green.opacity(0.84))
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(2)
+                        .padding(.top, 2)
+                } else {
+                    Text(statusText)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color.black.opacity(0.58))
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(3)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color.white.opacity(0.72))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                        )
                 }
-
-                Text(statusText)
-                    .font(.system(size: 21, weight: .black))
-                    .foregroundStyle(Color.green.opacity(0.84))
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(2)
-                    .padding(.top, 2)
             }
         }
     }
@@ -640,26 +697,97 @@ struct SummaryView: View {
     
     private struct ProgressRing: View {
         let percent: Int
-        
+        let doneCount: Int
+        let notDoneCount: Int
+        let remainingCount: Int
+        let totalCount: Int
+
+        private var donePart: CGFloat {
+            guard totalCount > 0 else { return 0 }
+            return CGFloat(doneCount) / CGFloat(totalCount)
+        }
+
+        private var notDonePart: CGFloat {
+            guard totalCount > 0 else { return 0 }
+            return CGFloat(notDoneCount) / CGFloat(totalCount)
+        }
+
+        private var remainingPart: CGFloat {
+            guard totalCount > 0 else { return 1 }
+            return CGFloat(remainingCount) / CGFloat(totalCount)
+        }
+
         var body: some View {
             ZStack {
                 Circle()
-                    .stroke(Color.gray.opacity(0.20), lineWidth: 14)
-                
+                    .fill(Color.white.opacity(0.98))
+                    .shadow(color: Color.black.opacity(0.06), radius: 5, x: 0, y: 3)
+
                 Circle()
-                    .trim(from: 0, to: CGFloat(max(0, min(100, percent))) / 100.0)
+                    .trim(from: 0, to: max(remainingPart, 0.001))
                     .stroke(
-                        Color.orange.opacity(0.92),
-                        style: StrokeStyle(lineWidth: 14, lineCap: .round)
+                        Color(red: 0.85, green: 0.85, blue: 0.89),
+                        style: StrokeStyle(lineWidth: 16, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
-                
-                VStack(spacing: 4) {
+
+                Circle()
+                    .trim(from: 0, to: donePart)
+                    .stroke(
+                        Color(red: 0.30, green: 0.69, blue: 0.31),
+                        style: StrokeStyle(lineWidth: 16, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+
+                Circle()
+                    .trim(from: donePart, to: min(donePart + notDonePart, 1.0))
+                    .stroke(
+                        Color(red: 0.90, green: 0.22, blue: 0.21),
+                        style: StrokeStyle(lineWidth: 16, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+
+                Circle()
+                    .fill(Color.white.opacity(0.98))
+                    .frame(width: 128, height: 128)
+
+                VStack(spacing: 5) {
                     Text("\(percent)%")
-                        .font(.system(size: 24, weight: .heavy))
-                        .foregroundStyle(Color.black.opacity(0.82))
+                        .font(.system(size: 25, weight: .black))
+                        .foregroundStyle(Color(red: 0.12, green: 0.17, blue: 0.24))
+
+                    Text("סומנו")
+                        .font(.system(size: 14, weight: .black))
+                        .foregroundStyle(Color(red: 0.30, green: 0.69, blue: 0.31))
+
+                    Text("\(doneCount + notDoneCount) מתוך \(totalCount)")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color.black.opacity(0.55))
                 }
             }
+        }
+    }
+    
+    private struct SummaryStatusChip: View {
+        let title: String
+        let tint: Color
+
+        var body: some View {
+            Text(title)
+                .font(.system(size: 10, weight: .black))
+                .foregroundStyle(tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(tint.opacity(0.12))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(tint.opacity(0.26), lineWidth: 1)
+                )
         }
     }
     

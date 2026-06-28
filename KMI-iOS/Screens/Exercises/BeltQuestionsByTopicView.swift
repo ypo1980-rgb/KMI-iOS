@@ -357,12 +357,11 @@ struct BeltQuestionsByTopicView: View {
                 }
             }
             .environment(\.layoutDirection, .leftToRight)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 17, style: .continuous)
-                    .fill(Color.white.opacity(0.94))
+                RoundedRectangle(cornerRadius: 17, style: .continuous)                    .fill(Color.white.opacity(0.94))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 17, style: .continuous)
@@ -383,29 +382,32 @@ struct BeltQuestionsByTopicView: View {
         }
 
         private var textBlock: some View {
-            VStack(alignment: stackAlignment, spacing: 6) {
+            VStack(alignment: stackAlignment, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 16, weight: .heavy))
+                    .font(.system(size: 13.5, weight: .heavy))
                     .foregroundStyle(Color.black.opacity(0.84))
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
                     .multilineTextAlignment(textAlignment)
                     .lineLimit(2)
-
+                    .minimumScaleFactor(0.78)
+                
                 if let top = subtitleTop, !top.isEmpty {
                     Text(top)
-                        .font(.system(size: 13, weight: .heavy))
+                        .font(.system(size: 10.5, weight: .heavy))
                         .foregroundStyle(accent.opacity(0.86))
                         .frame(maxWidth: .infinity, alignment: frameAlignment)
                         .multilineTextAlignment(textAlignment)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.78)
                 }
 
                 Text(subtitleBottom)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 10.5, weight: .bold))
                     .foregroundStyle(Color.black.opacity(0.56))
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
                     .multilineTextAlignment(textAlignment)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.78)
             }
         }
 
@@ -432,10 +434,10 @@ struct BeltQuestionsByTopicView: View {
                     Image(imageName)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: 54, height: 44)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .frame(width: 46, height: 31)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .stroke(Color.white.opacity(0.72), lineWidth: 1)
                         )
                 } else {
@@ -445,7 +447,7 @@ struct BeltQuestionsByTopicView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .frame(width: 58, height: 46)
+            .frame(width: 50, height: 38)
         }
 
         private var accentBar: some View {
@@ -1382,8 +1384,8 @@ struct BeltQuestionsByTopicView: View {
             }
         }
         .environment(\.layoutDirection, .leftToRight)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 15, style: .continuous)
                 .fill(Color.white.opacity(0.86))
@@ -1400,7 +1402,7 @@ struct BeltQuestionsByTopicView: View {
     ) -> some View {
         VStack(alignment: isEnglish ? .leading : .trailing, spacing: 2) {
             Text(uiSubjectTitleForInline(subject))
-                .font(.system(size: 15.5, weight: .heavy))
+                .font(.system(size: 13, weight: .heavy))
                 .foregroundStyle(Color.black.opacity(0.84))
                 .frame(
                     maxWidth: .infinity,
@@ -1408,10 +1410,10 @@ struct BeltQuestionsByTopicView: View {
                 )
                 .multilineTextAlignment(isEnglish ? .leading : .trailing)
                 .lineLimit(1)
-                .minimumScaleFactor(0.82)
+                .minimumScaleFactor(0.80)
 
             Text(exercisesCountText(totalExercisesCountForSubjectId(subject.id)))
-                .font(.system(size: 12, weight: .black))
+                .font(.system(size: 10.5, weight: .black))
                 .foregroundStyle(accentForTopicSubject(subject).opacity(0.90))
                 .frame(
                     maxWidth: .infinity,
@@ -1419,6 +1421,7 @@ struct BeltQuestionsByTopicView: View {
                 )
                 .multilineTextAlignment(isEnglish ? .leading : .trailing)
                 .lineLimit(1)
+                .minimumScaleFactor(0.78)
         }
     }
 
@@ -1435,10 +1438,10 @@ struct BeltQuestionsByTopicView: View {
                 )
 
             Image(systemName: symbolForSubjectInline(subject))
-                .font(.system(size: 15, weight: .heavy))
+                .font(.system(size: 13, weight: .heavy))
                 .foregroundStyle(accent.opacity(0.86))
         }
-        .frame(width: 34, height: 34)
+        .frame(width: 30, height: 30)
     }
 
     private func uiSubjectTitleForInline(_ subject: SubjectTopic) -> String {
@@ -1554,44 +1557,63 @@ struct BeltQuestionsByTopicView: View {
         )
     }
     
-    private var quickViewButton: some View {
+    private var quickViewSideRail: some View {
         Button {
             triggerTapHaptic()
             showQuickActionsDialog = true
         } label: {
-            HStack(spacing: 9) {
+            VStack(spacing: 7) {
                 Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 16, weight: .black))
+                    .font(.system(size: 14, weight: .black))
 
-                Text(tr("מבט מהיר", "Quick View"))
-                    .font(.system(size: 18, weight: .black))
+                Text(tr("מהיר", "Quick"))
+                    .font(.system(size: 10, weight: .black))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .rotationEffect(.degrees(-90))
+                    .frame(width: 44, height: 18)
             }
-            .foregroundStyle(activeBeltFill)
-            .frame(maxWidth: .infinity)
-            .frame(height: 60)
+            .foregroundStyle(Color.white)
+            .frame(width: 34, height: 108)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: 0, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [
-                                activeBeltFill.opacity(0.10),
-                                Color.white.opacity(0.98),
-                                activeBeltFill.opacity(0.05)
+                                activeBeltFill.opacity(0.95),
+                                activeBeltFill.opacity(0.72)
                             ],
                             startPoint: .top,
                             endPoint: .bottom
                         )
                     )
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(activeBeltFill.opacity(0.24), lineWidth: 1)
+            .clipShape(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 16,
+                    topTrailingRadius: 16
+                )
             )
-            .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 5)
+            .overlay(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 16,
+                    topTrailingRadius: 16
+                )
+                .stroke(Color.white.opacity(0.35), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.22), radius: 8, x: 2, y: 4)
         }
         .buttonStyle(.plain)
     }
-
+   
+    private var isQuickActionLocked: Bool {
+        LockedContentPolicy.currentAccessMode() == .locked
+    }
+    
     private var quickActionsDialog: some View {
         ZStack {
             Color.black.opacity(0.28)
@@ -1625,7 +1647,7 @@ struct BeltQuestionsByTopicView: View {
                 quickActionRow(
                     title: tr("נקודות תורפה", "Weak points"),
                     icon: "exclamationmark.triangle",
-                    locked: true
+                    locked: isQuickActionLocked
                 ) {
                     nav.push(.weakPoints(belt: belt))
                 }
@@ -1633,7 +1655,7 @@ struct BeltQuestionsByTopicView: View {
                 quickActionRow(
                     title: tr("תרגול", "Practice"),
                     icon: "figure.martial.arts",
-                    locked: true
+                    locked: isQuickActionLocked
                 ) {
                     nav.push(.practice(belt: belt, topicTitle: "__ALL__"))
                 }
@@ -1641,7 +1663,7 @@ struct BeltQuestionsByTopicView: View {
                 quickActionRow(
                     title: tr("עוזר קולי", "Voice assistant"),
                     icon: "mic",
-                    locked: true
+                    locked: isQuickActionLocked
                 ) {
                     nav.push(.voiceAssistant)
                 }
@@ -1684,9 +1706,10 @@ struct BeltQuestionsByTopicView: View {
 
             if locked {
                 nav.push(.subscriptionPlans)
-            } else {
-                action()
+                return
             }
+
+            action()
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: icon)
@@ -1822,20 +1845,21 @@ struct BeltQuestionsByTopicView: View {
                     .padding(.horizontal, 18)
                     .padding(.top, 10)
                 GeometryReader { geo in
-                    let reservedBottomForQuickView: CGFloat = embeddedMode ? 18 : 112
-                    let cardHeight = max(360, geo.size.height - reservedBottomForQuickView)
+                    let reservedBottomForQuickView: CGFloat = 18
+                    let availableHeight = geo.size.height - reservedBottomForQuickView
+                    let cardHeight = embeddedMode ? max(360, availableHeight) : min(max(360, availableHeight), 448)
 
                     WhiteCard {
                         VStack(alignment: isEnglish ? .leading : .trailing, spacing: 14) {
-
+                            
                             Text(tr("נושאים (קטגוריות)", "Topics (Categories)"))
-                                .font(.system(size: 18, weight: .heavy))
+                                .font(.system(size: 14, weight: .heavy))
                                 .foregroundStyle(Color.black.opacity(0.84))
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .multilineTextAlignment(.center)
-
+                            
                             ScrollView(showsIndicators: false) {
-                                VStack(spacing: 5) {
+                                VStack(spacing: 0) {
                                     ForEach(Array(mainTopics.enumerated()), id: \.offset) { _, topic in
                                         let hasSubTopics = topic.subjects.count > 1
                                         let isExpanded = expandedMainTopicId == topic.id
@@ -1881,22 +1905,30 @@ struct BeltQuestionsByTopicView: View {
                                 .padding(.bottom, 6)
                             }
                         }
-                        .padding(.vertical, 13)
-                        .padding(.horizontal, 13)
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 8)
                     }
                     .frame(height: cardHeight)
                     .padding(.horizontal, 18)
                     .padding(.top, 8)
                 }
 
-                if !embeddedMode {
-                    quickViewButton
-                        .padding(.horizontal, 18)
-                        .padding(.top, 8)
-                        .padding(.bottom, 14)
-                }
+                // Android parity:
+                // אין כפתור תחתון של "מבט מהיר".
+                // התפריט המהיר נפתח ממלבן צדדי קבוע.
             }
 
+            if !embeddedMode {
+                HStack(spacing: 0) {
+                    quickViewSideRail
+
+                    Spacer(minLength: 0)
+                }
+                .environment(\.layoutDirection, .leftToRight)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .zIndex(40)
+            }
+            
             if !embeddedMode && showQuickActionsDialog {
                 quickActionsDialog
             }
@@ -2362,23 +2394,25 @@ private struct SubjectSubTopicsListView: View {
         }
 
         private var textBlock: some View {
-            VStack(alignment: stackAlignment, spacing: 7) {
+            VStack(alignment: stackAlignment, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 16, weight: .heavy))
+                    .font(.system(size: 13.5, weight: .heavy))
                     .foregroundStyle(Color.black.opacity(0.84))
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
                     .multilineTextAlignment(textAlignment)
                     .lineLimit(2)
-
+                    .minimumScaleFactor(0.78)
+                
                 Text(subtitleBottom)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 10.5, weight: .bold))
                     .foregroundStyle(Color.black.opacity(0.56))
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
                     .multilineTextAlignment(textAlignment)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.78)
             }
         }
-
+        
         private var visualBlock: some View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(

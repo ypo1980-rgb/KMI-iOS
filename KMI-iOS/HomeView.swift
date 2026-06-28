@@ -28,6 +28,10 @@ struct HomeView: View {
     @AppStorage("active_branch") private var storedActiveBranch: String = ""
     @AppStorage("group") private var storedGroup: String = ""
     @AppStorage("active_group") private var storedActiveGroup: String = ""
+    @AppStorage("phone") private var storedPhone: String = ""
+    @AppStorage("phoneNumber") private var storedPhoneNumber: String = ""
+    @AppStorage("phone_number") private var storedPhoneNumberSnake: String = ""
+    @AppStorage("mobile") private var storedMobile: String = ""
     @AppStorage("current_belt") private var storedCurrentBelt: String = ""
     @AppStorage("belt_current") private var storedUserCurrentBelt: String = ""
     
@@ -218,7 +222,8 @@ struct HomeView: View {
     }
     
     private var freeSessionsUid: String {
-        Auth.auth().currentUser?.uid ?? "demo_ios"
+        Auth.auth().currentUser?.uid
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
     
     private var freeSessionsName: String {
@@ -241,13 +246,11 @@ struct HomeView: View {
     }
     
     private var freeSessionsBranch: String {
-        let clean = resolvedBranch.trimmingCharacters(in: .whitespacesAndNewlines)
-        return clean.isEmpty ? "default_branch" : clean
+        resolvedBranch.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     private var freeSessionsGroupKey: String {
-        let clean = resolvedGroup.trimmingCharacters(in: .whitespacesAndNewlines)
-        return clean.isEmpty ? "default_group" : clean
+        resolvedGroup.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     private var resolvedBeltId: String {
@@ -284,43 +287,19 @@ struct HomeView: View {
         }
     }
     
-    // ✅ fallback ישיר לפי הנתונים שכבר מוצגים בכרטיס העליון
-    private var fallbackUpcomingTrainings: [TrainingData] {
-        if isAbroadUser {
-            return []
-        }
-
-        return TrainingCatalogIOS.upcomingFor(
-            region: resolvedRegion,
-            branch: resolvedBranch,
-            group: resolvedGroup,
-            count: 3
-        )
-    }
-    
     private var effectiveUpcomingTrainings: [TrainingData] {
         if isAbroadUser {
             return []
         }
 
-        return trainingsVm.upcomingTrainings.isEmpty
-            ? fallbackUpcomingTrainings
-            : trainingsVm.upcomingTrainings
+        return trainingsVm.upcomingTrainings
     }
-    
+
     private var effectiveStatusMessage: String? {
         if isAbroadUser {
             return nil
         }
 
-        if !trainingsVm.upcomingTrainings.isEmpty {
-            return trainingsVm.statusMessage
-        }
-        
-        if !fallbackUpcomingTrainings.isEmpty {
-            return nil
-        }
-        
         return trainingsVm.statusMessage
     }
     
@@ -422,16 +401,25 @@ struct HomeView: View {
 
             items.append(
                 HomeQuickMenuItem(
-                    title: tr("אימונים חופשיים", "Free Sessions") + lockSuffix,
+                    title: tr("אימונים חופשיים", "Free Trainings") + lockSuffix,
                     systemImage: "plus"
                 ) {
                     runPremiumHomeAction {
+                        let branch = freeSessionsBranch
+                        let groupKey = freeSessionsGroupKey
+                        let uid = freeSessionsUid
+                        let name = freeSessionsName
+
+                        guard !branch.isEmpty, !groupKey.isEmpty, !uid.isEmpty else {
+                            return
+                        }
+
                         nav.push(
                             .freeSessions(
-                                branch: freeSessionsBranch,
-                                groupKey: freeSessionsGroupKey,
-                                uid: freeSessionsUid,
-                                name: freeSessionsName
+                                branch: branch,
+                                groupKey: groupKey,
+                                uid: uid,
+                                name: name
                             )
                         )
                     }
@@ -461,8 +449,8 @@ struct HomeView: View {
                         ? tr("זמני האימונים מתעדכנים מול המאמן המקומי", "Training times are managed by the local coach")
                         : currentWeekSubtitle
                     )
-                    .padding(.top, 8)
-
+                    .padding(.top, 0)
+                    
                     if isAbroadUser {
                         HomeAbroadBranchNotice(
                             region: resolvedRegion,
@@ -506,11 +494,7 @@ struct HomeView: View {
                     CoachMessagesCard(
                         title: isAbroadUser
                         ? tr("עדכונים מהסניף המקומי", "Local Branch Updates")
-                        : (
-                            isCoachUser
-                            ? tr("הודעות למאמן", "Coach Messages")
-                            : tr("הודעות מהמאמן", "Messages from the Coach")
-                        ),
+                        : tr("הודעות מאמן", "Coach Messages"),
                         coachName: resolvedCoachBroadcastName,
                         message: resolvedCoachBroadcastMessage,
                         branch: resolvedCoachBroadcastBranch,
@@ -540,13 +524,14 @@ struct HomeView: View {
                             subtitle: buttonSubtitleForBelt(),
                             isEnglish: isEnglish
                         )
-                        .frame(height: 42)
+                        .frame(height: 60)
                     }
                     .buttonStyle(.plain)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 0)
-
-                    Spacer(minLength: 96)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 2)
+                    .padding(.bottom, 2)
+                    
+                    Spacer(minLength: 28)
                 }
             }
         }
@@ -654,28 +639,21 @@ struct HomeView: View {
     
     private var quickMenuOverlay: some View {
         GeometryReader { geo in
-            let fabWidth: CGFloat = 44
-            let panelWidth: CGFloat = 196
+            let fabWidth: CGFloat = 38
+            let panelWidth: CGFloat = 190
 
-            // עברית: צד ימין כמו Android.
-            // אנגלית: צד שמאל.
-            let fabX = isEnglish
-                ? (fabWidth / 2)
-                : (geo.size.width - fabWidth / 2)
+            // Android parity:
+            // הטאב נמצא בצד שמאל פיזי של המסך גם בעברית וגם באנגלית.
+            let fabX = fabWidth / 2
+            let fabY: CGFloat = geo.size.height / 2 + 88
 
-            // Android parity: side quick menu tab near the upper content area.
-            let fabY: CGFloat = 132
-
-            let panelX = isEnglish
-                ? (fabWidth + 8 + panelWidth / 2)
-                : (geo.size.width - fabWidth - 8 - panelWidth / 2)
-
-            let panelY: CGFloat = 188
+            let panelX = fabWidth + 8 + panelWidth / 2
+            let panelY: CGFloat = geo.size.height / 2 + 88
 
             ZStack {
                 if showHomeQuickMenu {
                     HomePremiumQuickMenuPanel(
-                        title: tr("קיצורי דרך", "Quick Actions"),
+                        title: tr("תפריט מהיר", "Quick Menu"),
                         isEnglish: isEnglish,
                         items: homeQuickMenuItems,
                         onClose: {
@@ -706,8 +684,8 @@ struct HomeView: View {
                 .position(x: fabX, y: fabY)
                 .accessibilityLabel(
                     showHomeQuickMenu
-                    ? tr("סגור קיצורי דרך", "Close quick actions")
-                    : tr("פתח קיצורי דרך", "Open quick actions")
+                    ? tr("סגור תפריט מהיר", "Close quick menu")
+                    : tr("פתח תפריט מהיר", "Open quick menu")
                 )
                 .zIndex(52)
             }
@@ -1012,8 +990,17 @@ struct HomeView: View {
         let currentName = freeSessionsName
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let currentBranch = normalizeCoachBroadcastText(resolvedBranch)
+        let currentPhones = [
+            storedPhone,
+            storedPhoneNumber,
+            storedPhoneNumberSnake,
+            storedMobile
+        ]
+        .map { normalizePhone($0) }
+        .filter { !$0.isEmpty }
 
+        let currentBranch = normalizeCoachBroadcastText(resolvedBranch)
+        
         let currentGroup = normalizeCoachBroadcastText(
             TrainingCatalogIOS.displayGroup(
                 resolvedGroup,
@@ -1023,84 +1010,44 @@ struct HomeView: View {
 
         guard !currentUid.isEmpty ||
                 !currentEmail.isEmpty ||
+                !currentPhones.isEmpty ||
                 !currentName.isEmpty ||
                 !currentBranch.isEmpty ||
                 !currentGroup.isEmpty else {
             recentCoachMessages = []
             return
         }
-
-        // Android parity:
-        // first try direct targeting by UID, which is the source-of-truth path on Android.
-        // iOS then still filters defensively, because old documents may contain branch/group/name targets.
-        let baseQuery: Query
-
-        if !currentUid.isEmpty {
-            baseQuery = Firestore.firestore()
-                .collection("coachBroadcasts")
-                .whereField("targetUids", arrayContains: currentUid)
-                .order(by: "createdAt", descending: true)
-                .limit(to: 20)
-        } else {
-            baseQuery = Firestore.firestore()
-                .collection("coachBroadcasts")
-                .order(by: "createdAt", descending: true)
-                .limit(to: 40)
-        }
-
-        coachBroadcastListener = baseQuery.addSnapshotListener { snapshot, error in
-            if let error {
-                // Do not clear existing messages on listener error.
-                // This matches the Android behavior where a transient listener error should not erase the card.
-                return
-            }
-
-            let docs = snapshot?.documents ?? []
-
-            let directMessages = mapCoachBroadcastDocs(
-                docs: docs,
-                currentUid: currentUid,
-                currentEmail: currentEmail,
-                currentName: currentName,
-                currentBranch: currentBranch,
-                currentGroup: currentGroup
-            )
-
-            if !directMessages.isEmpty {
-                recentCoachMessages = Array(directMessages.prefix(5))
-                return
-            }
-
-            // Fallback for older broadcast documents that were not saved with targetUids.
-            Firestore.firestore()
-                .collection("coachBroadcasts")
-                .order(by: "createdAt", descending: true)
-                .limit(to: 40)
-                .getDocuments { fallbackSnapshot, fallbackError in
-                    if fallbackError != nil {
-                        return
-                    }
-
-                    let fallbackDocs = fallbackSnapshot?.documents ?? []
-
-                    let fallbackMessages = mapCoachBroadcastDocs(
-                        docs: fallbackDocs,
-                        currentUid: currentUid,
-                        currentEmail: currentEmail,
-                        currentName: currentName,
-                        currentBranch: currentBranch,
-                        currentGroup: currentGroup
-                    )
-
-                    recentCoachMessages = Array(fallbackMessages.prefix(5))
+        
+        coachBroadcastListener = Firestore.firestore()
+            .collection("coachBroadcasts")
+            .order(by: "createdAt", descending: true)
+            .limit(to: 40)
+            .addSnapshotListener { snapshot, error in
+                if error != nil {
+                    return
                 }
-        }
+
+                let docs = snapshot?.documents ?? []
+
+                let messages = mapCoachBroadcastDocs(
+                    docs: docs,
+                    currentUid: currentUid,
+                    currentEmail: currentEmail,
+                    currentPhones: currentPhones,
+                    currentName: currentName,
+                    currentBranch: currentBranch,
+                    currentGroup: currentGroup
+                )
+                
+                recentCoachMessages = Array(messages.prefix(5))
+            }
     }
     
     private func mapCoachBroadcastDocs(
         docs: [QueryDocumentSnapshot],
         currentUid: String,
         currentEmail: String,
+        currentPhones: [String],
         currentName: String,
         currentBranch: String,
         currentGroup: String
@@ -1111,6 +1058,7 @@ struct HomeView: View {
                     doc: doc,
                     currentUid: currentUid,
                     currentEmail: currentEmail,
+                    currentPhones: currentPhones,
                     currentName: currentName,
                     currentBranch: currentBranch,
                     currentGroup: currentGroup
@@ -1169,6 +1117,10 @@ struct HomeView: View {
             .lowercased()
     }
     
+    private func normalizePhone(_ raw: String) -> String {
+        raw.filter { $0.isNumber }
+    }
+    
     private func valuesFromDoc(
         _ doc: QueryDocumentSnapshot,
         keys: [String]
@@ -1212,10 +1164,21 @@ struct HomeView: View {
         doc: QueryDocumentSnapshot,
         currentUid: String,
         currentEmail: String,
+        currentPhones: [String],
         currentName: String,
         currentBranch: String,
         currentGroup: String
     ) -> Bool {
+        let authorUid = firstString(
+            doc,
+            keys: ["authorUid", "coachUid", "senderUid"]
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !currentUid.isEmpty && authorUid == currentUid {
+            return true
+        }
+
         let uidTargets = valuesFromDoc(
             doc,
             keys: [
@@ -1225,8 +1188,21 @@ struct HomeView: View {
                 "recipientUid",
                 "uids",
                 "userIds",
+                "userId",
+                "targetIds",
+                "targetId",
                 "participantIds",
-                "selectedUids"
+                "participantId",
+                "selectedUids",
+                "selectedUid",
+                "traineeUids",
+                "traineeUid",
+                "traineeIds",
+                "traineeId",
+                "studentUids",
+                "studentUid",
+                "studentIds",
+                "studentId"
             ]
         )
         
@@ -1251,6 +1227,27 @@ struct HomeView: View {
             return true
         }
         
+        let phoneTargets = valuesFromDoc(
+            doc,
+            keys: [
+                "targetPhones",
+                "targetPhone",
+                "recipientPhones",
+                "recipientPhone",
+                "phones",
+                "selectedPhones"
+            ]
+        )
+        .map { normalizePhone($0) }
+        .filter { !$0.isEmpty }
+
+        if !currentPhones.isEmpty &&
+            phoneTargets.contains(where: { target in
+                currentPhones.contains(target)
+            }) {
+            return true
+        }
+
         let nameTargets = valuesFromDoc(
             doc,
             keys: [
@@ -1262,7 +1259,7 @@ struct HomeView: View {
                 "selectedNames"
             ]
         )
-        
+
         if !currentName.isEmpty &&
             nameTargets.contains(where: { $0.caseInsensitiveCompare(currentName) == .orderedSame }) {
             return true
@@ -1399,72 +1396,83 @@ private struct HomePremiumExerciseButton: View {
     var body: some View {
         TimelineView(.animation) { timeline in
             let seconds = timeline.date.timeIntervalSinceReferenceDate
-            let progress = (seconds.truncatingRemainder(dividingBy: 2.7)) / 2.7
-            
+            let progress = (seconds.truncatingRemainder(dividingBy: 2.6)) / 2.6
+
             GeometryReader { geo in
                 let shineX = -120 + (geo.size.width + 220) * progress
-                
+
                 ZStack {
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .fill(
                             LinearGradient(
                                 colors: [
-                                    Color(red: 0.58, green: 0.00, blue: 1.00),
-                                    Color(red: 0.33, green: 0.27, blue: 0.90),
-                                    Color(red: 0.02, green: 0.66, blue: 0.98)
+                                    Color(red: 0.50, green: 0.00, blue: 1.00),
+                                    Color(red: 0.25, green: 0.32, blue: 0.72),
+                                    Color(red: 0.02, green: 0.66, blue: 0.96)
                                 ],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
                         )
-                    
+
                     Circle()
                         .fill(
                             RadialGradient(
                                 colors: [
-                                    Color.white.opacity(0.22),
+                                    Color.white.opacity(0.42),
                                     Color.white.opacity(0.00)
                                 ],
                                 center: .center,
                                 startRadius: 0,
-                                endRadius: 42
+                                endRadius: 70
                             )
                         )
-                        .frame(width: 76, height: 76)
+                        .frame(width: 140, height: 140)
                         .offset(x: shineX - geo.size.width / 2)
-                    
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .stroke(Color.white.opacity(0.55), lineWidth: 1)
-                    
-                    HStack(spacing: 6) {
+
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.85),
+                                    Color.white.opacity(0.25),
+                                    Color.white.opacity(0.85)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            ),
+                            lineWidth: 1
+                        )
+
+                    HStack(spacing: 8) {
                         if isEnglish {
                             Image(systemName: "star.fill")
-                                .font(.system(size: 11, weight: .black))
+                                .font(.system(size: 18, weight: .black))
                                 .foregroundStyle(.white)
                         }
-                        
+
                         Text(title)
-                            .font(.system(size: 13.5, weight: .black))
+                            .font(.system(size: 16, weight: .black))
                             .foregroundStyle(.white)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.80)
+                            .minimumScaleFactor(0.78)
                             .multilineTextAlignment(.center)
-                        
+
                         if !isEnglish {
                             Image(systemName: "star.fill")
-                                .font(.system(size: 11, weight: .black))
+                                .font(.system(size: 18, weight: .black))
                                 .foregroundStyle(.white)
                         }
                     }
                     .environment(\.layoutDirection, rowDirection)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.horizontal, 10)
+                    .padding(.horizontal, 14)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                .shadow(color: Color.black.opacity(0.13), radius: 6, x: 0, y: 4)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .shadow(color: Color.black.opacity(0.20), radius: 12, x: 0, y: 6)
             }
         }
-        .frame(height: 36)
+        .frame(height: 60)
         .frame(maxWidth: .infinity)
     }
 }
@@ -1475,33 +1483,51 @@ private struct WeekHeaderPill: View {
     let subtitle: String
 
     var body: some View {
-        VStack(spacing: 3) {
-            Text(title)
-                .font(.system(size: 16, weight: .heavy))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.86)
-                .multilineTextAlignment(.center)
+        VStack(spacing: 0) {
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.02, green: 0.17, blue: 0.29).opacity(0.92),
+                        Color(red: 0.06, green: 0.37, blue: 0.61).opacity(0.86),
+                        Color(red: 0.02, green: 0.17, blue: 0.29).opacity(0.92)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
 
-            Text(subtitle)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.92))
-                .lineLimit(2)
-                .minimumScaleFactor(0.84)
-                .multilineTextAlignment(.center)
+                VStack(spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 16, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.86)
+                        .multilineTextAlignment(.center)
+
+                    Text(subtitle)
+                        .font(.system(size: 12.6, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.84)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 60)
+
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(0.80),
+                    Color.white.opacity(0.40),
+                    Color.white.opacity(0.00)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 4)
         }
-        .padding(.vertical, 9)
-        .padding(.horizontal, 12)
         .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
-                .fill(Color.white.opacity(0.16))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
-                .stroke(Color.white.opacity(0.18), lineWidth: 1)
-        )
-        .padding(.horizontal, 16)
     }
 }
 
@@ -2108,61 +2134,41 @@ private struct ModernHomeQuickFab: View {
 
     var body: some View {
         ZStack {
-            if isEnglish {
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: 0,
-                    bottomTrailingRadius: 18,
-                    topTrailingRadius: 18,
-                    style: .continuous
-                )
-                .fill(fabGradient)
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 18,
+                topTrailingRadius: 18,
+                style: .continuous
+            )
+            .fill(fabGradient)
 
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: 0,
-                    bottomTrailingRadius: 18,
-                    topTrailingRadius: 18,
-                    style: .continuous
-                )
-                .stroke(Color.white.opacity(0.58), lineWidth: 1)
-            } else {
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 18,
-                    bottomLeadingRadius: 18,
-                    bottomTrailingRadius: 0,
-                    topTrailingRadius: 0,
-                    style: .continuous
-                )
-                .fill(fabGradient)
-
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 18,
-                    bottomLeadingRadius: 18,
-                    bottomTrailingRadius: 0,
-                    topTrailingRadius: 0,
-                    style: .continuous
-                )
-                .stroke(Color.white.opacity(0.58), lineWidth: 1)
-            }
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 18,
+                topTrailingRadius: 18,
+                style: .continuous
+            )
+            .stroke(Color.white.opacity(0.72), lineWidth: 1)
 
             Image(systemName: isOpen ? "xmark" : "line.3.horizontal")
-                .font(.system(size: 22, weight: .heavy))
+                .font(.system(size: 23, weight: .heavy))
                 .foregroundStyle(Color.white)
         }
-        .frame(width: 44, height: 68)
+        .frame(width: 38, height: 72)
         .shadow(color: Color.black.opacity(0.24), radius: 9, x: 0, y: 5)
     }
 
     private var fabGradient: LinearGradient {
         LinearGradient(
             colors: [
-                Color(red: 0.50, green: 0.00, blue: 1.00),
-                Color(red: 0.25, green: 0.32, blue: 0.72),
-                Color(red: 0.02, green: 0.66, blue: 0.96)
+                Color(red: 1.00, green: 0.91, blue: 0.64),
+                Color(red: 1.00, green: 0.76, blue: 0.28),
+                Color(red: 1.00, green: 0.66, blue: 0.16)
             ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
+            startPoint: .leading,
+            endPoint: .trailing
         )
     }
 }

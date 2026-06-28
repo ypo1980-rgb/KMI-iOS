@@ -197,8 +197,10 @@ enum AppRoute: Hashable {
 
     case settings
     case exercisesMarks(belt: Belt, topic: String, subTopic: String?)
+
     // ⭐️ Admin
     case adminUsers
+    case controlCenterLogs
 }
 
 final class AppNavModel: ObservableObject {
@@ -962,27 +964,37 @@ struct ContentView: View {
                             }
                         } else {
                             KmiRootLayout(title: "אין הרשאה", nav: nav, selectedIcon: .home) {
-                                VStack(spacing: 12) {
-                                    Spacer()
-
-                                    Text("אין הרשאה")
-                                        .font(.system(size: 28, weight: .heavy))
-                                        .foregroundStyle(.white)
-
-                                    Text("המסך הזה פתוח רק למנהל האפליקציה")
-                                        .font(.system(size: 15, weight: .semibold))
-                                        .foregroundStyle(.white.opacity(0.75))
-
-                                    Spacer()
-                                }
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(
-                                    LinearGradient(
-                                        colors: [KmiTheme.bgTop, KmiTheme.bgMid, KmiTheme.bgBot],
-                                        startPoint: .top,
-                                        endPoint: .bottom
+                                NoAdminPermissionView(
+                                    isEnglish: isEnglish,
+                                    title: tr("אין הרשאה", "No Permission"),
+                                    subtitle: tr(
+                                        "המסך הזה פתוח רק למנהל האפליקציה",
+                                        "This screen is available only to the app admin"
                                     )
-                                    .ignoresSafeArea()
+                                )
+                                .navigationBarBackButtonHidden(true)
+                            }
+                        }
+
+                    case .controlCenterLogs:
+                        if isAdminUser {
+                            KmiRootLayout(
+                                title: tr("מרכז בקרה ולוגים", "Control Center & Logs"),
+                                nav: nav,
+                                selectedIcon: .home
+                            ) {
+                                ControlCenterLogsView(isEnglish: isEnglish)
+                                    .navigationBarBackButtonHidden(true)
+                            }
+                        } else {
+                            KmiRootLayout(title: "אין הרשאה", nav: nav, selectedIcon: .home) {
+                                NoAdminPermissionView(
+                                    isEnglish: isEnglish,
+                                    title: tr("אין הרשאה", "No Permission"),
+                                    subtitle: tr(
+                                        "המסך הזה פתוח רק למנהל האפליקציה",
+                                        "This screen is available only to the app admin"
+                                    )
                                 )
                                 .navigationBarBackButtonHidden(true)
                             }
@@ -1004,6 +1016,42 @@ struct ContentView: View {
                 auth.reloadProfileIfSignedIn()
             }
         }
+    }
+}
+
+private struct NoAdminPermissionView: View {
+    let isEnglish: Bool
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [KmiTheme.bgTop, KmiTheme.bgMid, KmiTheme.bgBot],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 14) {
+                Image(systemName: "lock.shield.fill")
+                    .font(.system(size: 42, weight: .black))
+                    .foregroundStyle(.white)
+
+                Text(title)
+                    .font(.system(size: 28, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                Text(subtitle)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
     }
 }
 

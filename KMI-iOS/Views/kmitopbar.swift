@@ -90,9 +90,10 @@ private enum KmiGlobalText {
             "אודות איציק ביטון": "About Itzik Biton",
             "אודות אבי אביסידון": "About Avi Abisidon",
             "פורום הסניף": "Branch Forum",
+            "מרכז בקרה ולוגים": "Control Center & Logs",
             "אין הרשאה": "No Permission"
         ]
-
+        
         let enToHe: [String: String] = [
             "Home": "בית",
             "Subscription Plans": "תוכניות מנוי",
@@ -122,9 +123,10 @@ private enum KmiGlobalText {
             "About Itzik Biton": "אודות איציק ביטון",
             "About Avi Abisidon": "אודות אבי אביסידון",
             "Branch Forum": "פורום הסניף",
+            "Control Center & Logs": "מרכז בקרה ולוגים",
             "No Permission": "אין הרשאה"
         ]
-
+        
         if isEnglish {
             if let translated = heToEn[clean] {
                 return translated
@@ -155,6 +157,7 @@ private enum KmiGlobalText {
             "רשימת מתאמנים": "Trainee List",
             "אודות מתאמנים": "Trainees",
             "ניהול משתמשים": "User Management",
+            "מרכז בקרה ולוגים": "Control Center & Logs",
             "ניהול מנוי": "Subscription",
             "תוכניות מנוי": "Subscription Plans",
             "אודות הרשת": "About the Network",
@@ -164,7 +167,7 @@ private enum KmiGlobalText {
             "פורום הסניף": "Branch Forum",
             "התנתקות": "Logout"
         ]
-
+        
         if let translated = map[clean] {
             return translated
         }
@@ -285,25 +288,15 @@ struct KmiTopBar: View {
             
             Button(action: onMenu) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.55, green: 0.32, blue: 0.96),
-                                    Color(red: 0.35, green: 0.24, blue: 0.78)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color(red: 0.90, green: 0.90, blue: 0.94))
 
                     Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 22, weight: .black))
-                        .foregroundStyle(.white)
+                        .font(.system(size: 19, weight: .black))
+                        .foregroundStyle(Color(red: 0.29, green: 0.27, blue: 0.56))
                 }
-                .frame(width: 42, height: 42)
-                .shadow(color: Color(red: 0.35, green: 0.24, blue: 0.78).opacity(0.28), radius: 7, x: 0, y: 4)
-                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .frame(width: 34, height: 34)
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             .buttonStyle(.plain)
             .frame(width: 62, alignment: .trailing)
@@ -559,9 +552,12 @@ struct KmiRootLayout<Content: View>: View {
                 case .adminUsers:
                     nav.push(.adminUsers)
 
+                case .controlCenterLogs:
+                    break
+
                 case .aboutAvi:
                     nav.push(.aboutAvi)
-
+                    
                 case .aboutNetworkCoaches:
                     nav.push(.aboutNetworkCoaches)
 

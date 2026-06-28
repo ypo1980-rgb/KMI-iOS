@@ -317,6 +317,12 @@ struct MaterialsView: View {
         rows.filter { excluded.contains($0.canonicalId) }.count
     }
 
+    private var notesCount: Int {
+        rows.filter {
+            !(notes[$0.canonicalId]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        }.count
+    }
+    
     var body: some View {
         ZStack {
             MaterialsScreenSoftBackground(belt: belt)
@@ -330,12 +336,13 @@ struct MaterialsView: View {
                     unknownCount: unknownCount,
                     favoritesCount: favoritesCount,
                     excludedCount: excludedCount,
+                    notesCount: notesCount,
                     isEnglish: isEnglish,
                     onBack: {
                         dismiss()
                     }
                 )
-
+                
                 Divider()
                     .background(BeltPaletteByMaterials.color(for: belt).opacity(0.14))
 
@@ -629,7 +636,7 @@ struct MaterialsView: View {
             item: row.rawItem
         )
 
-        let clean = txt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clean = txt.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
 
         if clean.isEmpty {
             return tr(
@@ -640,7 +647,7 @@ struct MaterialsView: View {
 
         return clean
     }
-
+    
     private func favoriteKey(for id: String) -> String { "favorite.\(id)" }
     private func excludedKey(for id: String) -> String { "excluded.\(id)" }
     private func markKey(for id: String) -> String { "mark.\(id)" }
@@ -1001,9 +1008,10 @@ private struct MaterialsHeaderCard: View {
     let unknownCount: Int
     let favoritesCount: Int
     let excludedCount: Int
+    let notesCount: Int
     let isEnglish: Bool
     let onBack: () -> Void
-
+    
     private var materialTitle: String {
         isEnglish ? "Material: \(title)" : "חומר: \(title)"
     }
@@ -1034,22 +1042,41 @@ private struct MaterialsHeaderCard: View {
                 beltPill
             }
 
-            HStack(spacing: 7) {
-                if isEnglish {
-                    headerStat(title: "Total", value: count, color: Color(red: 0.20, green: 0.24, blue: 0.32))
-                    headerStat(title: "Known", value: masteredCount, color: Color.green.opacity(0.80))
-                    headerStat(title: "Review", value: unknownCount, color: Color.red.opacity(0.78))
-                    headerStat(title: "Fav", value: favoritesCount, color: Color.orange.opacity(0.86))
-                    headerStat(title: "Off", value: excludedCount, color: Color.gray.opacity(0.78))
-                } else {
-                    headerStat(title: "סה״כ", value: count, color: Color(red: 0.20, green: 0.24, blue: 0.32))
-                    headerStat(title: "יודע", value: masteredCount, color: Color.green.opacity(0.80))
-                    headerStat(title: "לחזור", value: unknownCount, color: Color.red.opacity(0.78))
-                    headerStat(title: "מועדף", value: favoritesCount, color: Color.orange.opacity(0.86))
-                    headerStat(title: "מוחרג", value: excludedCount, color: Color.gray.opacity(0.78))
+            VStack(spacing: 4) {
+                Text(isEnglish ? "← Swipe sideways to see more stats →" : "→→ הזז לצד כדי לראות עוד נתונים →→")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.36, green: 0.39, blue: 0.45))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 7) {
+                        if isEnglish {
+                            headerStat(title: "Exercises", value: count, color: Color(red: 0.60, green: 0.64, blue: 0.70))
+                            headerStat(title: "Known", value: masteredCount, color: Color.green.opacity(0.80))
+                            headerStat(title: "Unknown", value: unknownCount, color: Color.orange.opacity(0.78))
+                            headerStat(title: "Favorites", value: favoritesCount, color: Color(red: 0.90, green: 0.64, blue: 0.70))
+                            headerStat(title: "Excluded", value: excludedCount, color: Color(red: 0.58, green: 0.84, blue: 0.60))
+                            headerStat(title: "Notes", value: notesCount, color: Color(red: 0.52, green: 0.59, blue: 0.79))
+                        } else {
+                            headerStat(title: "תרגילים", value: count, color: Color(red: 0.60, green: 0.64, blue: 0.70))
+                            headerStat(title: "יודע", value: masteredCount, color: Color.green.opacity(0.80))
+                            headerStat(title: "לא יודע", value: unknownCount, color: Color.orange.opacity(0.78))
+                            headerStat(title: "מועדפים", value: favoritesCount, color: Color(red: 0.90, green: 0.64, blue: 0.70))
+                            headerStat(title: "מוחרגים", value: excludedCount, color: Color(red: 0.58, green: 0.84, blue: 0.60))
+                            headerStat(title: "הערות", value: notesCount, color: Color(red: 0.52, green: 0.59, blue: 0.79))
+                        }
+                    }
+                    .padding(.horizontal, 2)
                 }
+                .environment(\.layoutDirection, .leftToRight)
+
+                Text(isEnglish ? "More cards are available off-screen" : "יש עוד כרטיסים בהמשך הגלילה")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(Color(red: 0.48, green: 0.51, blue: 0.57))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
             }
-            .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
         }
         .environment(\.layoutDirection, rowDirection)
         .padding(.horizontal, 14)
@@ -1077,29 +1104,30 @@ private struct MaterialsHeaderCard: View {
     private func headerStat(title: String, value: Int, color: Color) -> some View {
         VStack(spacing: 2) {
             Text("\(value)")
-                .font(.system(size: 13.5, weight: .black))
+                .font(.system(size: 14, weight: .black))
                 .foregroundStyle(Color.white)
                 .lineLimit(1)
 
             Text(title)
-                .font(.system(size: 9.5, weight: .heavy))
+                .font(.system(size: 10, weight: .heavy))
                 .foregroundStyle(Color.white.opacity(0.94))
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 39)
+        .frame(minWidth: 64)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
         .background(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(color)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .stroke(Color.white.opacity(0.25), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(0.14), lineWidth: 1)
         )
-        .shadow(color: color.opacity(0.18), radius: 5, x: 0, y: 3)
+        .shadow(color: color.opacity(0.12), radius: 3, x: 0, y: 2)
     }
-
+    
     private var beltPill: some View {
         ZStack {
             Circle()
@@ -1650,7 +1678,7 @@ private struct MaterialsBottomBar: View {
             HStack(spacing: 12) {
                 if isEnglish {
                     MaterialsActionButton(
-                        title: isPracticeLocked ? "🔒 Practice" : "Practice",
+                        title: isPracticeLocked ? "Train 🔒" : "Practice",
                         fill: isPracticeLocked
                         ? Color(red: 0.60, green: 0.48, blue: 0.13)
                         : BeltPaletteByMaterials.color(for: belt).opacity(0.92),
@@ -1673,7 +1701,7 @@ private struct MaterialsBottomBar: View {
                     )
 
                     MaterialsActionButton(
-                        title: isPracticeLocked ? "🔒 תרגול" : "תרגול",
+                        title: isPracticeLocked ? "תרגול 🔒" : "תרגול",
                         fill: isPracticeLocked
                         ? Color(red: 0.60, green: 0.48, blue: 0.13)
                         : BeltPaletteByMaterials.color(for: belt).opacity(0.92),
@@ -1691,9 +1719,9 @@ private struct MaterialsBottomBar: View {
                 onTap: onSummary
             )
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 14)
-        .padding(.bottom, 14)
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
         .background(
             ZStack {
                 Color.white.opacity(0.94)
@@ -1760,14 +1788,14 @@ private struct MaterialsActionButton: View {
             }
             .foregroundStyle(contentColor)
             .frame(maxWidth: .infinity)
-            .frame(height: 56)
+            .frame(height: 42)
             .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(fill)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(Color.white.opacity(0.24), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
             )
             .shadow(color: fill.opacity(0.22), radius: 6, x: 0, y: 4)
             .scaleEffect(pressed ? 0.96 : 1.0)

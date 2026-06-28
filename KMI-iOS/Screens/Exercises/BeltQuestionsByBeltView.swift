@@ -105,7 +105,8 @@ struct BeltQuestionsByBeltView: View {
     @StateObject private var coach = CoachService.shared
     // ✅ החגורות שמציגים בגלגל (ללא לבנה)
     private let belts: [Belt] = [.yellow, .orange, .green, .blue, .brown, .black]
-    private let catalog = CatalogData.shared.data
+    // נתוני התרגילים נשלפים דרך TopicsEngine + ContentRepo.shared,
+    // ולא דרך קטלוג מקומי קשיח.
     
     // ✅ החגורה שנבחרה בפועל במסך
     @State private var selectedBelt: Belt = .orange
@@ -215,6 +216,33 @@ struct BeltQuestionsByBeltView: View {
         )
     }
     
+    private func topicExercisesCountForUi(
+        belt: Belt,
+        topicTitle: String,
+        subTitles: [String]
+    ) -> Int {
+        let cleanTopic = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        let directCount = ContentRepo.shared.getAllItemsFor(
+            belt: belt,
+            topicTitle: cleanTopic,
+            subTopicTitle: nil
+        ).count
+        
+        let subTopicsCount = subTitles
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .reduce(0) { total, subTitle in
+                total + ContentRepo.shared.getAllItemsFor(
+                    belt: belt,
+                    topicTitle: cleanTopic,
+                    subTopicTitle: subTitle
+                ).count
+            }
+        
+        return directCount + subTopicsCount
+    }
+    
     private func hasRealSubTopicsForUi(title: String, details: TopicDetailsUi) -> Bool {
         let topicTrim = title.trimmingCharacters(in: .whitespacesAndNewlines)
         
@@ -238,26 +266,21 @@ struct BeltQuestionsByBeltView: View {
         let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasRealSubs = hasRealSubTopicsForUi(title: title, details: details)
         
-        // Android source of truth:
-        // Yellow: defenses first, releases second, hand work after them.
-        if belt == .yellow {
-            if clean.contains("הגנות") { return 0 }
-            if clean.contains("שחרורים") { return 1 }
-            if clean.contains("עבודת ידיים") { return 2 }
-            if hasRealSubs { return 3 }
-            return 10
+        if clean.contains("הגנות") {
+            return 0
         }
         
-        // Android exception:
-        // Brown belt "שחרורים" is a regular single-topic item,
-        // not a locked / grouped subtopic section.
-        if belt == .brown && clean.contains("שחרורים") {
-            return 10
+        if clean.contains("שחרורים") {
+            return 1
         }
         
-        if hasRealSubs { return 0 }
-        if clean.contains("הגנות") { return 1 }
-        if clean.contains("שחרורים") { return 2 }
+        if belt == .yellow && clean.contains("עבודת ידיים") {
+            return 2
+        }
+        
+        if hasRealSubs {
+            return 3
+        }
         
         return 10
     }
@@ -307,7 +330,12 @@ struct BeltQuestionsByBeltView: View {
         return topicTitles.map { title in
             let details = detailsByTitle[title] ?? TopicDetailsUi(itemCount: 0, subTitles: [])
             let subCount = details.subTitles.count
-            let itemCount = details.itemCount
+            
+            let itemCount = topicExercisesCountForUi(
+                belt: selectedBelt,
+                topicTitle: title,
+                subTitles: details.subTitles
+            )
             
             let subtitle: String? = {
                 if subCount > 0 {
@@ -495,11 +523,19 @@ struct BeltQuestionsByBeltView: View {
     private func initialBeltLikeAndroid(defaults: UserDefaults = .standard) -> Belt {
         let storedRaw =
             defaults.string(forKey: "current_belt") ??
-            defaults.string(forKey: "belt_current")
+            defaults.string(forKey: "belt_current") ??
+            defaults.string(forKey: "currentBelt") ??
+            defaults.string(forKey: "belt")
         
-        guard let registeredBelt = beltFromStoredId(storedRaw),
-              registeredBelt != Belt.white else {
+        let clean = (storedRaw ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard !clean.isEmpty, let registeredBelt = beltFromStoredId(clean) else {
             return Belt.orange
+        }
+        
+        if registeredBelt == Belt.white {
+            return Belt.yellow
         }
         
         return nextBelt(after: registeredBelt)
@@ -518,16 +554,46 @@ struct BeltQuestionsByBeltView: View {
     }
     
     private func allItemsForSelectedBelt() -> [(topicTitle: String, item: String)] {
-        guard let topics = catalog[selectedBelt]?.topics else { return [] }
+        let topicTitles = TopicsEngine.shared.topicTitlesFor(belt: selectedBelt)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .reduce(into: [String]()) { partial, item in
+                if !partial.contains(item) {
+                    partial.append(item)
+                }
+            }
         
-        var result: [(String, String)] = []
+        var result: [(topicTitle: String, item: String)] = []
         
-        for t in topics {
-            for it in t.items { result.append((t.title, it)) }
-            for st in t.subTopics {
-                for it in st.items { result.append((t.title, it)) }
+        for topicTitle in topicTitles {
+            let details = topicDetailsFor(
+                belt: selectedBelt,
+                topicTitle: topicTitle
+            )
+            
+            let directItems = ContentRepo.shared.getAllItemsFor(
+                belt: selectedBelt,
+                topicTitle: topicTitle,
+                subTopicTitle: nil
+            )
+            
+            for item in directItems {
+                result.append((topicTitle, item))
+            }
+            
+            for subTitle in details.subTitles {
+                let subItems = ContentRepo.shared.getAllItemsFor(
+                    belt: selectedBelt,
+                    topicTitle: topicTitle,
+                    subTopicTitle: subTitle
+                )
+                
+                for item in subItems {
+                    result.append((topicTitle, item))
+                }
             }
         }
+        
         return result
     }
     
@@ -708,18 +774,6 @@ struct BeltQuestionsByBeltView: View {
         let _ = accessRefreshTick
         
         let clean = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let details = topicDetailsFor(belt: selectedBelt, topicTitle: clean)
-        
-        // Android exception:
-        // Brown belt "שחרורים" with no real subtopics and up to one item
-        // stays a regular open topic.
-        if selectedBelt == .brown &&
-            clean.contains("שחרורים") &&
-            details.subTitles.isEmpty &&
-            details.itemCount <= 1 {
-            return false
-        }
-        
         let accessMode = LockedContentPolicy.currentAccessMode()
         
         return LockedContentPolicy.shouldShowLock(
@@ -844,47 +898,6 @@ struct BeltQuestionsByBeltView: View {
             .frame(width: 3, height: 34)
     }
     
-    private var quickViewButton: some View {
-        Button {
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.90)) {
-                quickMenuOpen = true
-            }
-        } label: {
-            let beltColor = BeltPaletteByBeltScreen.color(for: selectedBelt)
-            
-            HStack(spacing: 8) {
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 18, weight: .black))
-                
-                Text(isEnglish ? "Quick View" : "מבט מהיר")
-                    .font(.system(size: 17, weight: .black))
-            }
-            .foregroundStyle(beltColor)
-            .frame(maxWidth: .infinity)
-            .frame(height: 60)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                beltColor.opacity(0.10),
-                                Color.white.opacity(0.98),
-                                beltColor.opacity(0.05)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(beltColor.opacity(0.22), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 5)
-        }
-        .buttonStyle(.plain)
-    }
-    
     @ViewBuilder
     private var tabContent: some View {
         ZStack {
@@ -955,6 +968,7 @@ struct BeltQuestionsByBeltView: View {
             BeltScreenSideQuickMenuOverlay(
                 isPresented: $quickMenuOpen,
                 isEnglish: isEnglish,
+                accent: BeltPaletteByBeltScreen.color(for: quickMenuBelt),
                 items: beltScreenQuickMenuItems,
                 onClose: {
                     withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
@@ -2219,38 +2233,34 @@ private struct BeltScreenQuickMenuItem: Identifiable {
 
 private struct BeltScreenSideQuickMenuOverlay: View {
     @Binding var isPresented: Bool
-
+    
     let isEnglish: Bool
+    let accent: Color
     let items: [BeltScreenQuickMenuItem]
     let onClose: () -> Void
-
+    
     var body: some View {
         GeometryReader { geo in
-            let fabWidth: CGFloat = 44
-            let panelWidth: CGFloat = 196
-            let fabHeight: CGFloat = 68
-
-            // ✅ מיקום פיזי, לא מושפע מ-RTL:
-            // עברית = ימין, אנגלית = שמאל
-            let isRightSide = !isEnglish
-
-            let sidePadding: CGFloat = 2
-            let topOffset: CGFloat = 118
-
+            let fabWidth: CGFloat = 38
+            let panelWidth: CGFloat = 190
+            let fabHeight: CGFloat = 72
+            
+            let sidePadding: CGFloat = 0
+            let centerY: CGFloat = geo.size.height / 2
+            
             ZStack(alignment: .topLeading) {
                 if isPresented {
                     BeltScreenQuickMenuPanel(
-                        title: isEnglish ? "Quick Actions" : "קיצורי דרך",
+                        title: isEnglish ? "Quick Menu" : "תפריט מהיר",
                         isEnglish: isEnglish,
+                        accent: accent,
                         items: items,
                         onClose: onClose
                     )
                     .frame(width: panelWidth)
                     .offset(
-                        x: isRightSide
-                            ? geo.size.width - panelWidth - fabWidth - 8
-                            : fabWidth + 8,
-                        y: topOffset + 38
+                        x: fabWidth + 8,
+                        y: centerY - 86
                     )
                     .transition(
                         .scale(scale: 0.94)
@@ -2258,7 +2268,7 @@ private struct BeltScreenSideQuickMenuOverlay: View {
                     )
                     .zIndex(51)
                 }
-
+                
                 Button {
                     withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
                         isPresented.toggle()
@@ -2266,16 +2276,14 @@ private struct BeltScreenSideQuickMenuOverlay: View {
                 } label: {
                     BeltScreenSideQuickFab(
                         isOpen: isPresented,
-                        isEnglish: isEnglish
+                        accent: accent
                     )
                 }
                 .buttonStyle(.plain)
                 .frame(width: fabWidth, height: fabHeight)
                 .offset(
-                    x: isRightSide
-                        ? geo.size.width - fabWidth - sidePadding
-                        : sidePadding,
-                    y: topOffset
+                    x: sidePadding,
+                    y: centerY
                 )
                 .zIndex(52)
             }
@@ -2288,62 +2296,41 @@ private struct BeltScreenSideQuickMenuOverlay: View {
 
 private struct BeltScreenSideQuickFab: View {
     let isOpen: Bool
-    let isEnglish: Bool
+    let accent: Color
 
     var body: some View {
         ZStack {
-            if isEnglish {
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: 0,
-                    bottomTrailingRadius: 18,
-                    topTrailingRadius: 18,
-                    style: .continuous
-                )
-                .fill(fabGradient)
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 18,
+                topTrailingRadius: 18,
+                style: .continuous
+            )
+            .fill(fabGradient)
 
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: 0,
-                    bottomTrailingRadius: 18,
-                    topTrailingRadius: 18,
-                    style: .continuous
-                )
-                .stroke(Color.white.opacity(0.58), lineWidth: 1)
-            } else {
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 18,
-                    bottomLeadingRadius: 18,
-                    bottomTrailingRadius: 0,
-                    topTrailingRadius: 0,
-                    style: .continuous
-                )
-                .fill(fabGradient)
-
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 18,
-                    bottomLeadingRadius: 18,
-                    bottomTrailingRadius: 0,
-                    topTrailingRadius: 0,
-                    style: .continuous
-                )
-                .stroke(Color.white.opacity(0.58), lineWidth: 1)
-            }
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 18,
+                topTrailingRadius: 18,
+                style: .continuous
+            )
+            .stroke(Color.white.opacity(0.72), lineWidth: 1)
 
             Image(systemName: isOpen ? "xmark" : "line.3.horizontal")
-                .font(.system(size: 22, weight: .heavy))
+                .font(.system(size: 23, weight: .heavy))
                 .foregroundStyle(Color.white)
         }
-        .frame(width: 44, height: 68)
+        .frame(width: 38, height: 72)
         .shadow(color: Color.black.opacity(0.24), radius: 9, x: 0, y: 5)
     }
 
     private var fabGradient: LinearGradient {
         LinearGradient(
             colors: [
-                Color(red: 0.50, green: 0.00, blue: 1.00),
-                Color(red: 0.25, green: 0.32, blue: 0.72),
-                Color(red: 0.02, green: 0.66, blue: 0.96)
+                accent.opacity(0.98),
+                accent.opacity(0.78)
             ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
@@ -2354,6 +2341,7 @@ private struct BeltScreenSideQuickFab: View {
 private struct BeltScreenQuickMenuPanel: View {
     let title: String
     let isEnglish: Bool
+    let accent: Color
     let items: [BeltScreenQuickMenuItem]
     let onClose: () -> Void
 
@@ -2374,7 +2362,7 @@ private struct BeltScreenQuickMenuPanel: View {
             HStack(spacing: 8) {
                 Text(title)
                     .font(.system(size: 15, weight: .heavy))
-                    .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.29))
+                    .foregroundStyle(accent.opacity(0.92))
                     .lineLimit(1)
 
                 Spacer(minLength: 0)
@@ -2382,7 +2370,7 @@ private struct BeltScreenQuickMenuPanel: View {
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                         .font(.system(size: 11, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.29))
+                        .foregroundStyle(accent)
                 }
                 .buttonStyle(.plain)
             }
@@ -2396,6 +2384,7 @@ private struct BeltScreenQuickMenuPanel: View {
                     title: item.title,
                     systemImage: item.systemImage,
                     isEnglish: isEnglish,
+                    accent: accent,
                     action: {
                         onClose()
                         
@@ -2407,7 +2396,7 @@ private struct BeltScreenQuickMenuPanel: View {
                 
                 if index != items.count - 1 {
                     Rectangle()
-                        .fill(Color(red: 0.09, green: 0.64, blue: 0.29).opacity(0.18))
+                        .fill(accent.opacity(0.18))
                         .frame(height: 0.8)
                         .padding(.horizontal, 10)
                 }
@@ -2424,9 +2413,9 @@ private struct BeltScreenQuickMenuPanel: View {
                     .fill(
                         LinearGradient(
                             colors: [
-                                Color(red: 0.09, green: 0.64, blue: 0.29).opacity(0.08),
+                                accent.opacity(0.08),
                                 Color.white.opacity(0.04),
-                                Color(red: 0.09, green: 0.64, blue: 0.29).opacity(0.06)
+                                accent.opacity(0.06)
                             ],
                             startPoint: .top,
                             endPoint: .bottom
@@ -2436,7 +2425,7 @@ private struct BeltScreenQuickMenuPanel: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color(red: 0.09, green: 0.64, blue: 0.29).opacity(0.24), lineWidth: 1)
+                .stroke(accent.opacity(0.24), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.16), radius: 14, x: 0, y: 8)
     }
@@ -2446,41 +2435,75 @@ private struct BeltScreenQuickMenuRow: View {
     let title: String
     let systemImage: String
     let isEnglish: Bool
+    let accent: Color
     let action: () -> Void
-
+    
+    private var isLocked: Bool {
+        LockedContentPolicy.shouldShowLock(
+            accessMode: LockedContentPolicy.currentAccessMode(),
+            title: title
+        )
+    }
+    
     private var rowDirection: LayoutDirection {
         isEnglish ? .leftToRight : .rightToLeft
     }
-
+    
     private var frameAlignment: Alignment {
         isEnglish ? .leading : .trailing
     }
-
+    
     private var textAlignment: TextAlignment {
         isEnglish ? .leading : .trailing
     }
-
+    
     var body: some View {
         Button(action: action) {
             HStack(spacing: 7) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.29))
-                    .frame(width: 19, height: 19)
-
-                Text(title)
-                    .font(.system(size: 11.5, weight: .heavy))
-                    .foregroundStyle(Color(red: 0.04, green: 0.19, blue: 0.12))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .multilineTextAlignment(textAlignment)
+                if isEnglish {
+                    menuIcon
+                    
+                    Text(title)
+                        .font(.system(size: 11.5, weight: .heavy))
+                        .foregroundStyle(Color(red: 0.04, green: 0.19, blue: 0.12))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .multilineTextAlignment(.leading)
+                    
+                    trailingIcon
+                } else {
+                    trailingIcon
+                    
+                    Text(title)
+                        .font(.system(size: 11.5, weight: .heavy))
+                        .foregroundStyle(Color(red: 0.04, green: 0.19, blue: 0.12))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .multilineTextAlignment(.trailing)
+                    
+                    menuIcon
+                }
             }
-            .environment(\.layoutDirection, rowDirection)
+            .environment(\.layoutDirection, .leftToRight)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+    
+    private var menuIcon: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(accent.opacity(0.92))
+            .frame(width: 19, height: 19)
+    }
+    
+    private var trailingIcon: some View {
+        Image(systemName: isLocked ? "lock.fill" : (isEnglish ? "chevron.right" : "chevron.left"))
+            .font(.system(size: isLocked ? 11.5 : 10.5, weight: .heavy))
+            .foregroundStyle(isLocked ? Color.orange.opacity(0.92) : accent.opacity(0.70))
+            .frame(width: 18, height: 18)
     }
 }
 

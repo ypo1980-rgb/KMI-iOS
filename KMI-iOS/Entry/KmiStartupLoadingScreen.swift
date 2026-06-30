@@ -1,4 +1,5 @@
 import SwiftUI
+import AVKit
 
 private struct KmiLoadingStage: Identifiable {
     let id = UUID()
@@ -60,26 +61,29 @@ struct KmiStartupLoadingScreen: View {
         ZStack {
             backgroundView
 
-            VStack(spacing: 0) {
-                Spacer()
-                    .frame(height: 42)
+            GeometryReader { geo in
+                let height = geo.size.height
+                let isCompactHeight = height < 760
+                let isVeryCompactHeight = height < 690
+                let horizontalPadding: CGFloat = isCompactHeight ? 18 : 22
+                let heroTopSpace = height * (isVeryCompactHeight ? 0.145 : (isCompactHeight ? 0.155 : 0.165))
+                let cardTopSpace = height * 0.580
 
-                heroCardView
+                ZStack(alignment: .top) {
+                    heroCardView
+                        .padding(.top, heroTopSpace)
 
-                Spacer()
-                    .frame(height: 18)
-
-                titleView
-
-                loadingCardView
-                    .padding(.horizontal, 24)
-                    .padding(.top, 24)
-                    .padding(.bottom, 92)
-                    .frame(maxWidth: .infinity)
-                    .frame(maxHeight: .infinity, alignment: .top)
+                    loadingCardView
+                        .frame(width: min(geo.size.width - 64, 330))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .position(
+                            x: geo.size.width / 2,
+                            y: cardTopSpace + 118
+                        )
+                        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
             }
-
-            skipButton
         }
         .ignoresSafeArea()
         .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
@@ -92,274 +96,268 @@ struct KmiStartupLoadingScreen: View {
     }
 
     private var backgroundView: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.03, green: 0.06, blue: 0.10),
-                    Color(red: 0.05, green: 0.10, blue: 0.15),
-                    Color(red: 0.06, green: 0.12, blue: 0.18)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+        Group {
+            if let image = UIImage(named: "kmi_startup_loading_bg") {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                ZStack {
+                    Color.white
 
-            Circle()
-                .fill(Color(red: 0.08, green: 0.77, blue: 0.50).opacity(0.18))
-                .frame(width: 430, height: 430)
-                .blur(radius: 110)
-                .offset(y: -210)
-
-            Circle()
-                .fill(Color(red: 0.08, green: 0.77, blue: 0.50).opacity(0.10))
-                .frame(width: 320, height: 320)
-                .blur(radius: 92)
-                .offset(x: 180, y: 260)
-
-            Circle()
-                .fill(Color(red: 0.18, green: 0.45, blue: 0.95).opacity(0.10))
-                .frame(width: 300, height: 300)
-                .blur(radius: 90)
-                .offset(x: -170, y: 310)
+                    Text("Missing asset:\nkmi_startup_loading_bg")
+                        .font(.system(size: 18, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Color(red: 0.09, green: 0.13, blue: 0.20))
+                        .multilineTextAlignment(.center)
+                        .padding()
+                }
+            }
         }
+        .ignoresSafeArea()
     }
 
     private var heroCardView: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 36, style: .continuous)
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [
-                            accentColor.opacity(0.34),
-                            accentColor.opacity(0.12),
+                            accentBlue.opacity(0.28),
+                            accentBlue.opacity(0.10),
                             Color.clear
                         ],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 )
-                .frame(width: 392, height: 248)
+                .frame(width: 238, height: 96)
                 .scaleEffect(pulseScale)
                 .opacity(glowOpacity)
 
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(Color(red: 0.06, green: 0.10, blue: 0.15).opacity(0.94))
-                .frame(width: 320, height: 185)
+                .frame(width: 214, height: 88)
                 .overlay(
                     RoundedRectangle(cornerRadius: 30, style: .continuous)
                         .stroke(Color.white.opacity(0.12), lineWidth: 1)
                 )
                 .shadow(color: Color.black.opacity(0.38), radius: 18, x: 0, y: 12)
 
-            VStack(spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(accentColor.opacity(0.18))
-                        .frame(width: 86, height: 86)
-                        .blur(radius: 3)
-
-                    Circle()
-                        .fill(Color.white.opacity(0.08))
-                        .frame(width: 76, height: 76)
-                        .overlay(
-                            Circle()
-                                .stroke(accentColor.opacity(0.40), lineWidth: 1)
-                        )
-
-                    Image(systemName: "shield.lefthalf.filled")
-                        .font(.system(size: 34, weight: .bold))
-                        .foregroundColor(accentColor)
-                }
-
-                VStack(spacing: 4) {
-                    Text("K.M.I")
-                        .font(.system(size: 34, weight: .black, design: .rounded))
-                        .foregroundColor(.white)
-
-                    Text(isEnglish ? "Krav Magen Israeli" : "קרב מגן ישראלי")
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundColor(Color.white.opacity(0.70))
-                }
-            }
-
+            KmiLoopingStartupVideoView()
+                .frame(width: 214, height: 88)
+                .scaleEffect(1.26)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            
             GeometryReader { geo in
                 Rectangle()
                     .fill(
                         LinearGradient(
                             colors: [
                                 Color.clear,
-                                accentColor.opacity(0.10),
-                                Color(red: 0.19, green: 0.84, blue: 0.63).opacity(0.14),
-                                accentColor.opacity(0.10),
+                                accentBlue.opacity(0.10),
+                                accentPurple.opacity(0.14),
+                                accentBlue.opacity(0.10),
                                 Color.clear
                             ],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
                     )
-                    .frame(width: 56)
+                    .frame(width: 46)
                     .offset(x: geo.size.width * scanOffset)
             }
-            .frame(width: 320, height: 185)
-            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+            .frame(width: 214, height: 88)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 200)
+        .frame(height: 98)
     }
 
-    private var titleView: some View {
-        VStack(spacing: 10) {
-            Text(isEnglish ? "Krav Magen Israeli" : "קרב מגן ישראלי")
-                .font(.system(size: 23, weight: .bold, design: .rounded))
-                .foregroundColor(.white)
-                .multilineTextAlignment(.center)
+    private var accentBlue: Color {
+        Color(red: 0.09, green: 0.55, blue: 1.0)
+    }
 
-            Text(isEnglish ? "Initializing premium training environment" : "מאתחל סביבת אימון מתקדמת")
-                .font(.system(size: 17, weight: .medium, design: .rounded))
-                .foregroundColor(Color.white.opacity(0.70))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 28)
-        }
+    private var accentPurple: Color {
+        Color(red: 0.36, green: 0.21, blue: 0.96)
+    }
+
+    private var textPrimary: Color {
+        Color(red: 0.09, green: 0.13, blue: 0.20)
+    }
+
+    private var textSecondary: Color {
+        Color(red: 0.40, green: 0.44, blue: 0.52)
     }
 
     private var loadingCardView: some View {
         let currentStage = stages[currentStageIndex]
 
-        return VStack(spacing: 18) {
-            HStack(spacing: 12) {
-                Image(systemName: currentStage.systemImage)
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundColor(accentColor)
-                    .frame(width: 28, height: 28)
+        return VStack(spacing: 0) {
+            Group {
+                if isEnglish {
+                    HStack(spacing: 12) {
+                        Image(systemName: currentStage.systemImage)
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(accentColor)
+                            .frame(width: 28, height: 28)
 
-                VStack(
-                    alignment: isEnglish ? .leading : .trailing,
-                    spacing: 3
-                ) {
-                    Text(isEnglish ? "Current stage" : "שלב נוכחי")
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundColor(Color.white.opacity(0.62))
+                        VStack(
+                            alignment: .leading,
+                            spacing: 3
+                        ) {
+                            Text("Current stage")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .foregroundColor(textSecondary)
 
-                    Text(isEnglish ? currentStage.titleEn : currentStage.titleHe)
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.85)
+                            Text(currentStage.titleEn)
+                                .font(.system(size: 15, weight: .black, design: .rounded))
+                                .foregroundColor(textPrimary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.85)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Text("\(Int(progress * 100))%")
+                            .font(.system(size: 14, weight: .black, design: .rounded))
+                            .foregroundColor(Color(red: 0.07, green: 0.24, blue: 0.49))
+                            .frame(width: 42, alignment: .center)
+                            .offset(y: -8)
+                    }
+                } else {
+                    HStack(spacing: 12) {
+                        Text("\(Int(progress * 100))%")
+                            .font(.system(size: 14, weight: .black, design: .rounded))
+                            .foregroundColor(Color(red: 0.07, green: 0.24, blue: 0.49))
+                            .frame(width: 42, alignment: .center)
+                            .offset(y: -8)
+
+                        VStack(
+                            alignment: .trailing,
+                            spacing: 3
+                        ) {
+                            Text("שלב נוכחי")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .foregroundColor(textSecondary)
+
+                            Text(currentStage.titleHe)
+                                .font(.system(size: 15, weight: .black, design: .rounded))
+                                .foregroundColor(textPrimary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.85)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+
+                        Image(systemName: currentStage.systemImage)
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(accentColor)
+                            .frame(width: 28, height: 28)
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
-
-                Text("\(Int(progress * 100))%")
-                    .font(.system(size: 17, weight: .black, design: .rounded))
-                    .foregroundColor(Color(red: 0.19, green: 0.84, blue: 0.63))
             }
+            .environment(\.layoutDirection, .leftToRight)
+
+            Spacer()
+                .frame(height: 6)
 
             progressBar
+                .offset(y: -4)
+
+            Spacer()
+                .frame(height: 4)
 
             checklistView
-
-            Spacer(minLength: 16)
-
-            Text(isEnglish ? "Please wait a few seconds..." : "אנא המתן מספר שניות...")
-                .font(.system(size: 15, weight: .medium, design: .rounded))
-                .foregroundColor(Color.white.opacity(0.66))
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.bottom, 4)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 18)
-        .frame(maxWidth: .infinity)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(red: 0.07, green: 0.13, blue: 0.19).opacity(0.78))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(Color.white.opacity(0.10), lineWidth: 1)
-                )
-                .shadow(color: Color.black.opacity(0.30), radius: 16, x: 0, y: 10)
-        )
-    }
-
-    private var progressBar: some View {
-        GeometryReader { geo in
-            ZStack(alignment: isEnglish ? .leading : .trailing) {
-                Capsule()
-                    .fill(Color.white.opacity(0.10))
-
-                Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                accentColor,
-                                Color(red: 0.19, green: 0.84, blue: 0.63)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .frame(width: geo.size.width * progress)
-            }
-        }
-        .frame(height: 10)
-    }
-
-    private var checklistView: some View {
-        VStack(spacing: 10) {
-            ForEach(Array(stages.enumerated()), id: \.element.id) { index, stage in
-                let done = index < completedStagesInCycle
-                let active = index == currentStageIndex
-
-                HStack(spacing: 10) {
-                    Image(systemName: done ? "checkmark.circle.fill" : stage.systemImage)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(iconColor(done: done, active: active))
-                        .scaleEffect(done ? 1.12 : 1.0)
-                        .animation(.easeInOut(duration: 0.22), value: done)
-
-                    Text(isEnglish ? stage.titleEn : stage.titleHe)
-                        .font(.system(size: 15, weight: active ? .bold : .medium, design: .rounded))
-                        .foregroundColor(active || done ? .white : Color.white.opacity(0.58))
-                        .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
-                }
-                .opacity(active || done ? 1.0 : 0.55)
-                .animation(.easeInOut(duration: 0.28), value: currentStageIndex)
-            }
-        }
-    }
-
-    private var skipButton: some View {
-        VStack {
+            
             Spacer()
+                .frame(height: 2)
 
             HStack {
-                if isEnglish {
-                    Spacer()
-                }
-
                 Button {
                     onFinished()
                 } label: {
                     Text(isEnglish ? "Skip" : "דלג")
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                        .foregroundColor(accentColor)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 12)
-                        .background(
-                            Capsule()
-                                .fill(Color.black.opacity(0.20))
-                                .overlay(
-                                    Capsule()
-                                        .stroke(Color.white.opacity(0.10), lineWidth: 1)
-                                )
-                        )
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundColor(Color(red: 0.07, green: 0.24, blue: 0.49))
                 }
+                .buttonStyle(.plain)
 
-                if !isEnglish {
-                    Spacer()
-                }
+                Spacer()
+
+                Text(isEnglish ? "Please wait..." : "אנא המתן...")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundColor(Color(red: 0.07, green: 0.24, blue: 0.49))
+
+                Spacer()
+                    .frame(width: 44)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 48)
+            .frame(height: 32)
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 6)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color.white.opacity(0.94))
+                .shadow(color: Color.black.opacity(0.14), radius: 8, x: 0, y: 5)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private var progressBar: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color(red: 0.90, green: 0.91, blue: 0.93))
+
+                Capsule()
+                    .fill(Color(red: 0.06, green: 0.64, blue: 0.42))
+                    .frame(width: geo.size.width * progress)
+            }
+        }
+        .frame(height: 8)
+    }
+
+    private var checklistView: some View {
+        VStack(spacing: 5) {
+            ForEach(Array(stages.enumerated()), id: \.element.id) { index, stage in
+                let done = index < completedStagesInCycle
+                let active = index == currentStageIndex
+
+                Group {
+                    if isEnglish {
+                        HStack(spacing: 8) {
+                            Image(systemName: done ? "checkmark.circle.fill" : stage.systemImage)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(iconColor(done: done, active: active))
+                                .scaleEffect(done ? 1.12 : 1.0)
+                                .animation(.easeInOut(duration: 0.22), value: done)
+
+                            Text(stage.titleEn)
+                                .font(.system(size: 11.5, weight: active ? .semibold : .regular, design: .rounded))
+                                .lineLimit(1)
+                                .foregroundColor(active || done ? textPrimary : textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    } else {
+                        HStack(spacing: 8) {
+                            Text(stage.titleHe)
+                                .font(.system(size: 11.5, weight: active ? .semibold : .regular, design: .rounded))
+                                .lineLimit(1)
+                                .foregroundColor(active || done ? textPrimary : textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+
+                            Image(systemName: done ? "checkmark.circle.fill" : stage.systemImage)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(iconColor(done: done, active: active))
+                                .scaleEffect(done ? 1.12 : 1.0)
+                                .animation(.easeInOut(duration: 0.22), value: done)
+                        }
+                    }
+                }
+                .environment(\.layoutDirection, .leftToRight)
+                .opacity(active || done ? 1.0 : 0.55)
+                .animation(.easeInOut(duration: 0.28), value: currentStageIndex)
+            }
         }
     }
 
@@ -376,7 +374,7 @@ struct KmiStartupLoadingScreen: View {
             return Color(red: 1.0, green: 0.82, blue: 0.40)
         }
 
-        return Color.white.opacity(0.58)
+        return textSecondary
     }
 
     private func startVisualAnimations() {
@@ -435,6 +433,60 @@ struct KmiStartupLoadingScreen: View {
             }
 
             onFinished()
+        }
+    }
+}
+
+private struct KmiLoopingStartupVideoView: UIViewRepresentable {
+
+    final class Coordinator {
+        var player: AVQueuePlayer?
+        var looper: AVPlayerLooper?
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> PlayerContainerView {
+        let view = PlayerContainerView()
+        view.playerLayer.videoGravity = .resizeAspectFill
+
+        guard let url = Bundle.main.url(forResource: "kmi_startup_animation", withExtension: "mp4") else {
+            return view
+        }
+
+        let item = AVPlayerItem(url: url)
+        let player = AVQueuePlayer()
+        player.isMuted = true
+
+        context.coordinator.player = player
+        context.coordinator.looper = AVPlayerLooper(player: player, templateItem: item)
+
+        view.playerLayer.player = player
+        player.play()
+
+        return view
+    }
+
+    func updateUIView(_ uiView: PlayerContainerView, context: Context) {
+        context.coordinator.player?.play()
+    }
+
+    static func dismantleUIView(_ uiView: PlayerContainerView, coordinator: Coordinator) {
+        coordinator.player?.pause()
+        coordinator.player = nil
+        coordinator.looper = nil
+        uiView.playerLayer.player = nil
+    }
+
+    final class PlayerContainerView: UIView {
+        override static var layerClass: AnyClass {
+            AVPlayerLayer.self
+        }
+
+        var playerLayer: AVPlayerLayer {
+            layer as! AVPlayerLayer
         }
     }
 }

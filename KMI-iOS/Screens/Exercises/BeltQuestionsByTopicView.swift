@@ -357,8 +357,8 @@ struct BeltQuestionsByTopicView: View {
                 }
             }
             .environment(\.layoutDirection, .leftToRight)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 17, style: .continuous)                    .fill(Color.white.opacity(0.94))
@@ -434,26 +434,26 @@ struct BeltQuestionsByTopicView: View {
                     Image(imageName)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: 46, height: 31)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .frame(width: 54, height: 39)
+                        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            RoundedRectangle(cornerRadius: 11, style: .continuous)
                                 .stroke(Color.white.opacity(0.72), lineWidth: 1)
                         )
                 } else {
                     Image(systemName: symbolName)
-                        .font(.system(size: 22, weight: .heavy))
+                        .font(.system(size: 24, weight: .heavy))
                         .foregroundStyle(accent)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .frame(width: 50, height: 38)
+            .frame(width: 58, height: 50)
         }
 
         private var accentBar: some View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(accent)
-                .frame(width: 4, height: 38)
+                .frame(width: 5, height: 50)
         }
     }
     
@@ -1859,7 +1859,7 @@ struct BeltQuestionsByTopicView: View {
                                 .multilineTextAlignment(.center)
                             
                             ScrollView(showsIndicators: false) {
-                                VStack(spacing: 0) {
+                                VStack(spacing: 6) {
                                     ForEach(Array(mainTopics.enumerated()), id: \.offset) { _, topic in
                                         let hasSubTopics = topic.subjects.count > 1
                                         let isExpanded = expandedMainTopicId == topic.id
@@ -2394,9 +2394,9 @@ private struct SubjectSubTopicsListView: View {
         }
 
         private var textBlock: some View {
-            VStack(alignment: stackAlignment, spacing: 3) {
+            VStack(alignment: stackAlignment, spacing: 5) {
                 Text(title)
-                    .font(.system(size: 13.5, weight: .heavy))
+                    .font(.system(size: 14.5, weight: .heavy))
                     .foregroundStyle(Color.black.opacity(0.84))
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
                     .multilineTextAlignment(textAlignment)

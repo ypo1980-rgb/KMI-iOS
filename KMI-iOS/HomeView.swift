@@ -524,11 +524,11 @@ struct HomeView: View {
                             subtitle: buttonSubtitleForBelt(),
                             isEnglish: isEnglish
                         )
-                        .frame(height: 60)
+                        .frame(height: 46)
                     }
                     .buttonStyle(.plain)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 2)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 0)
                     .padding(.bottom, 2)
                     
                     Spacer(minLength: 28)
@@ -1397,82 +1397,80 @@ private struct HomePremiumExerciseButton: View {
         TimelineView(.animation) { timeline in
             let seconds = timeline.date.timeIntervalSinceReferenceDate
             let progress = (seconds.truncatingRemainder(dividingBy: 2.6)) / 2.6
+            let shineX = -180 + 520 * progress
 
-            GeometryReader { geo in
-                let shineX = -120 + (geo.size.width + 220) * progress
-
-                ZStack {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.50, green: 0.00, blue: 1.00),
-                                    Color(red: 0.25, green: 0.32, blue: 0.72),
-                                    Color(red: 0.02, green: 0.66, blue: 0.96)
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.50, green: 0.00, blue: 1.00),
+                                Color(red: 0.25, green: 0.32, blue: 0.72),
+                                Color(red: 0.02, green: 0.66, blue: 0.96)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
                         )
+                    )
 
-                    Circle()
-                        .fill(
-                            RadialGradient(
-                                colors: [
-                                    Color.white.opacity(0.42),
-                                    Color.white.opacity(0.00)
-                                ],
-                                center: .center,
-                                startRadius: 0,
-                                endRadius: 70
-                            )
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                Color.white.opacity(0.28),
+                                Color.white.opacity(0.00)
+                            ],
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: 46
                         )
-                        .frame(width: 140, height: 140)
-                        .offset(x: shineX - geo.size.width / 2)
+                    )
+                    .frame(width: 92, height: 92)
+                    .offset(x: shineX)
 
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.85),
-                                    Color.white.opacity(0.25),
-                                    Color.white.opacity(0.85)
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            ),
-                            lineWidth: 1
-                        )
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.70),
+                                Color.white.opacity(0.20),
+                                Color.white.opacity(0.70)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        ),
+                        lineWidth: 1
+                    )
 
-                    HStack(spacing: 8) {
-                        if isEnglish {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 18, weight: .black))
-                                .foregroundStyle(.white)
-                        }
-
-                        Text(title)
-                            .font(.system(size: 16, weight: .black))
+                HStack(spacing: 8) {
+                    if isEnglish {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 14, weight: .black))
                             .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.78)
-                            .multilineTextAlignment(.center)
-
-                        if !isEnglish {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 18, weight: .black))
-                                .foregroundStyle(.white)
-                        }
                     }
-                    .environment(\.layoutDirection, rowDirection)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.horizontal, 14)
+
+                    Text(title)
+                        .font(.system(size: 15, weight: .black))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                        .multilineTextAlignment(.center)
+
+                    if !isEnglish {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 14, weight: .black))
+                            .foregroundStyle(.white)
+                    }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .shadow(color: Color.black.opacity(0.20), radius: 12, x: 0, y: 6)
+                .environment(\.layoutDirection, rowDirection)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, 12)
             }
+            .frame(height: 46)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .shadow(color: Color.black.opacity(0.16), radius: 8, x: 0, y: 4)
         }
-        .frame(height: 60)
+        .frame(height: 46)
         .frame(maxWidth: .infinity)
     }
 }

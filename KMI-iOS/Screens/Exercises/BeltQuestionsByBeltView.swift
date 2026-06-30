@@ -1258,7 +1258,7 @@ struct BeltQuestionsByBeltView: View {
         }
         .environment(\.layoutDirection, .leftToRight)
         .padding(.horizontal, 12)
-        .padding(.vertical, 7)
+        .padding(.vertical, 10)
         .frame(minHeight: rowMinHeight)
     }
 
@@ -1575,9 +1575,10 @@ struct BeltQuestionsByBeltView: View {
                 .padding(.bottom, 4)
             
             GeometryReader { geo in
-                let rowMinHeight: CGFloat = 56
+                let rowMinHeight: CGFloat = 73
                 let visibleRows: CGFloat = 5.55
-                let listHeight = rowMinHeight * visibleRows + 6
+                let rowSpacing: CGFloat = 6
+                let listHeight = rowMinHeight * visibleRows + rowSpacing * (visibleRows - 1) + 6
                 let cardHeight = min(geo.size.height * 0.84, listHeight + 74)
                 
                 WhiteCard {
@@ -1598,7 +1599,7 @@ struct BeltQuestionsByBeltView: View {
                         } else {
                             ScrollViewReader { proxy in
                                 ScrollView(showsIndicators: false) {
-                                    VStack(spacing: 3) {
+                                    VStack(spacing: 6) {
                                         Color.clear
                                             .frame(height: 0)
                                             .id("topics_top_anchor")

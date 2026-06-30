@@ -62,7 +62,7 @@ struct BeltArcPicker: View {
                         isEnglish: isEnglish
                     )
                     .frame(width: targetSize, height: targetSize)
-                    .scaleEffect(isCenter ? 1.0 : 0.82)
+                    .scaleEffect(isCenter ? 1.0 : 0.95)
                         .opacity(targetAlpha)
                         .position(x: x, y: y + targetSize / 2)
                         .zIndex(isCenter ? 3 : 1)
@@ -113,7 +113,7 @@ struct BeltArcPicker: View {
                 }
                 let start = dragStartCenter ?? centerValue
                 let delta = v.translation.width / step
-                let next = (start - delta).clamped(to: 0...CGFloat(Swift.max(0, belts.count - 1)))
+                let next = (start + delta).clamped(to: 0...CGFloat(Swift.max(0, belts.count - 1)))
                 centerValue = next
             }
             .onEnded { _ in
@@ -144,10 +144,7 @@ struct BeltArcPicker: View {
 
                 let delta = v.translation.width / step
 
-                // ✅ היפוך כיוון:
-                // גרירה ימינה => העיגול שמשמאל מתקדם למרכז
-                // גרירה שמאלה => העיגול שמימין מתקדם למרכז
-                let nextCenter = (CGFloat(index) - delta)
+                let nextCenter = (CGFloat(index) + delta)
                     .clamped(to: 0...CGFloat(Swift.max(0, belts.count - 1)))
 
                 centerValue = nextCenter

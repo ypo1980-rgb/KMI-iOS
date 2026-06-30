@@ -1,4 +1,5 @@
 import SwiftUI
+import FirebaseAuth
 
 struct AuthGateView: View {
 
@@ -19,6 +20,110 @@ struct AuthGateView: View {
         case loginExistingCoach
         case registerNewTrainee
         case registerNewCoach
+    }
+
+    private func firstNonBlankProfileValue(_ values: String?...) -> String {
+        values
+            .map { ($0 ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
+    }
+
+    private func hasAnyNonBlankDefaultValue(_ keys: [String]) -> Bool {
+        let defaults = UserDefaults.standard
+
+        return keys.contains { key in
+            let value = defaults.string(forKey: key)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+            return !value.isEmpty
+        }
+    }
+
+    private var shouldSkipIntroForKnownUser: Bool {
+        let defaults = UserDefaults.standard
+
+        guard let firebaseUser = Auth.auth().currentUser else {
+            return false
+        }
+
+        if firebaseUser.isAnonymous {
+            return false
+        }
+
+        let uid = firebaseUser.uid.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if uid.isEmpty {
+            return false
+        }
+
+        let completedUid = firstNonBlankProfileValue(
+            defaults.string(forKey: "profile_completed_uid"),
+            defaults.string(forKey: "uid"),
+            defaults.string(forKey: "user_uid"),
+            defaults.string(forKey: "firebase_uid"),
+            defaults.string(forKey: "auth_uid")
+        )
+
+        let uidMatches = completedUid.isEmpty || completedUid == uid
+
+        let email = firstNonBlankProfileValue(
+            defaults.string(forKey: "email"),
+            defaults.string(forKey: "user_email"),
+            firebaseUser.email
+        )
+
+        let phone = firstNonBlankProfileValue(
+            defaults.string(forKey: "phone"),
+            defaults.string(forKey: "phone_number"),
+            defaults.string(forKey: "phoneNumber"),
+            defaults.string(forKey: "phoneRaw"),
+            defaults.string(forKey: "user_phone"),
+            defaults.string(forKey: "mobilePhone")
+        )
+        .filter { $0.isNumber }
+
+        let localProfileCompleted =
+            defaults.bool(forKey: "profile_completed") ||
+            defaults.bool(forKey: "registration_complete")
+
+        let hasStoredCompletedProfile =
+            hasAnyNonBlankDefaultValue([
+                "fullName",
+                "full_name",
+                "displayName",
+                "display_name",
+                "user_name",
+                "name"
+            ]) &&
+            hasAnyNonBlankDefaultValue([
+                "region",
+                "active_region",
+                "user_region"
+            ]) &&
+            hasAnyNonBlankDefaultValue([
+                "branch",
+                "active_branch",
+                "activeBranch",
+                "user_branch",
+                "traineeBranch"
+            ]) &&
+            hasAnyNonBlankDefaultValue([
+                "username",
+                "userName",
+                "user_name"
+            ])
+
+        return uidMatches &&
+               (localProfileCompleted || hasStoredCompletedProfile) &&
+               !email.isEmpty &&
+               phone.count >= 9
+    }
+
+    private func enterAppThroughStartupLoading() {
+        auth.reloadProfileIfSignedIn()
+        didCompleteAuthScreen = true
+        didFinishPostLoginLoading = false
+        didRequestEnterApp = true
     }
 
     @State private var step: AuthEntryStep = .intro
@@ -66,23 +171,41 @@ struct AuthGateView: View {
             // ורק אחרי זה מתחיל בדיקות Auth/Firebase.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                 auth.start()
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    if shouldSkipIntroForKnownUser {
+                        enterAppThroughStartupLoading()
+                    }
+                }
             }
-        }
-        .onChange(of: auth.isLoading) { _, isLoading in
-            guard !isLoading else { return }
-
-            didFinishInitialAuthCheck = true
-
-            // חשוב:
-            // גם אם Firebase מזהה משתמש מחובר,
-            // מסך הפתיחה עם "שלום..." והחגורה נשאר על המסך.
-            // מעבר לאפליקציה מתבצע רק אחרי לחיצה יזומה של המשתמש.
         }
         .onChange(of: auth.isSignedIn) { _, isSignedIn in
             if isSignedIn {
-                // לא נכנסים אוטומטית לאפליקציה.
-                // המשתמש חייב ללחוץ על Google או על כניסה רגילה מתוך מסך הפתיחה.
-                didCompleteAuthScreen = true
+                if shouldSkipIntroForKnownUser {
+                    auth.reloadProfileIfSignedIn()
+                    didCompleteAuthScreen = true
+                    didFinishPostLoginLoading = false
+                    didRequestEnterApp = true
+                } else {
+                    didCompleteAuthScreen = true
+                }
+            } else {
+                didRequestEnterApp = false
+                didFinishPostLoginLoading = false
+                didCompleteAuthScreen = false
+                step = .intro
+            }
+        }
+        .onChange(of: auth.isSignedIn) { _, isSignedIn in
+            if isSignedIn {
+                if shouldSkipIntroForKnownUser {
+                    auth.reloadProfileIfSignedIn()
+                    didCompleteAuthScreen = true
+                    didFinishPostLoginLoading = false
+                    didRequestEnterApp = true
+                } else {
+                    didCompleteAuthScreen = true
+                }
             } else {
                 didRequestEnterApp = false
                 didFinishPostLoginLoading = false
@@ -443,6 +566,102 @@ private struct KmiIntroGateScreen: View {
         }
     }
 
+    private var introBackgroundImage: some View {
+        Group {
+            if let image = UIImage(named: "intro_welcome_screen_v2") {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                ZStack {
+                    Color(red: 0.03, green: 0.07, blue: 0.10)
+
+                    Text("Missing asset:\nintro_welcome_screen_v2")
+                        .font(.system(size: 18, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .padding()
+                }
+            }
+        }
+    }
+
+    private func greetingCard(isCompactHeight: Bool) -> some View {
+        Text(greeting)
+            .font(
+                .system(
+                    size: isCompactHeight ? 22 : 26,
+                    weight: .heavy,
+                    design: .rounded
+                )
+            )
+            .foregroundStyle(Color(red: 0.09, green: 0.13, blue: 0.20))
+            .multilineTextAlignment(.center)
+            .lineLimit(1)
+            .minimumScaleFactor(0.78)
+            .frame(maxWidth: .infinity)
+            .frame(height: isCompactHeight ? 38 : 42)
+            .padding(.horizontal, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.88))
+                    .shadow(color: Color.black.opacity(0.18), radius: 4, x: 0, y: 2)
+            )
+            .padding(.horizontal, 22)
+    }
+
+    @ViewBuilder
+    private func beltRow(isCompactHeight: Bool) -> some View {
+        if let rank = currentRank {
+            HStack(spacing: isCompactHeight ? 8 : 12) {
+                Text(isEnglish ? rank.en : rank.he)
+                    .font(
+                        .system(
+                            size: isCompactHeight ? 19 : 22,
+                            weight: .heavy,
+                            design: .rounded
+                        )
+                    )
+                    .foregroundStyle(rank.color)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+
+                beltImageWithoutWhiteBackground(rank.imageName)
+                    .frame(
+                        width: isCompactHeight ? 112 : 128,
+                        height: isCompactHeight ? 34 : 42
+                    )
+                    .accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: isCompactHeight ? 40 : 46)
+            .padding(.horizontal, 10)
+        } else {
+            Text(isEnglish ? "Belt has not been updated yet" : "עדיין לא עודכנה חגורה")
+                .font(
+                    .system(
+                        size: isCompactHeight ? 13 : 15,
+                        weight: .heavy,
+                        design: .rounded
+                    )
+                )
+                .foregroundStyle(Color(red: 0.09, green: 0.13, blue: 0.20))
+                .multilineTextAlignment(.center)
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+                .frame(maxWidth: .infinity)
+                .frame(height: isCompactHeight ? 40 : 46)
+                .padding(.horizontal, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.white.opacity(0.86))
+                        .shadow(color: Color.black.opacity(0.18), radius: 4, x: 0, y: 2)
+                )
+                .padding(.horizontal, 22)
+        }
+    }
+        
     @ViewBuilder
     private var beltBadge: some View {
         if let rank = currentRank {
@@ -473,79 +692,44 @@ private struct KmiIntroGateScreen: View {
     }
     
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.03, green: 0.07, blue: 0.10),
-                    Color(red: 0.03, green: 0.22, blue: 0.18),
-                    Color(red: 0.05, green: 0.11, blue: 0.18)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+        GeometryReader { geo in
+            let height = geo.size.height
+            let isCompactHeight = height < 760
+            let horizontalPadding: CGFloat = isCompactHeight ? 24 : 30
 
-            RadialGradient(
-                colors: [
-                    Color(red: 0.09, green: 0.77, blue: 0.50).opacity(0.16),
-                    Color.clear
-                ],
-                center: .center,
-                startRadius: 0,
-                endRadius: 520
-            )
-            .ignoresSafeArea()
+            ZStack {
+                introBackgroundImage
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
+                    .ignoresSafeArea()
+                
+                VStack(spacing: 0) {
+                    Spacer()
+                        .frame(height: height * 0.185)
 
-            VStack(spacing: 0) {
-                Spacer(minLength: 12)
+                    greetingCard(isCompactHeight: isCompactHeight)
+                        .padding(.horizontal, horizontalPadding)
 
-                Text(isEnglish ? "K.M.I" : "ק.מ.י")
-                    .font(.system(size: 58, weight: .black, design: .rounded))
-                    .foregroundStyle(.white)
-                    .scaleEffect(startAnim ? 1.0 : 0.72)
-                    .opacity(startAnim ? 1.0 : 0.0)
+                    Spacer()
+                        .frame(height: height * 0.455)
 
-                Text(isEnglish ? "Israeli Krav Magen" : "קרב מגן ישראלי")
-                    .font(.system(size: isEnglish ? 22 : 30, weight: .medium, design: .rounded))
-                    .foregroundStyle(Color.white.opacity(0.90))
-                    .lineLimit(1)
-                    .scaleEffect(startAnim ? 1.0 : 0.72)
-                    .opacity(startAnim ? 1.0 : 0.0)
+                    beltRow(isCompactHeight: isCompactHeight)
+                        .padding(.horizontal, horizontalPadding)
 
-                Text(greeting)
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color.white.opacity(0.92))
-                    .padding(.top, 4)
-                    .scaleEffect(startAnim ? 1.0 : 0.72)
-                    .opacity(startAnim ? 1.0 : 0.0)
+                    Spacer(minLength: 0)
 
-                beltBadge
-                    .padding(.top, 2)
-                    .offset(y: 14)
-                    .scaleEffect(startAnim ? 1.0 : 0.72)
-                    .opacity(startAnim ? 1.0 : 0.0)
+                    VStack(spacing: 8) {
+                        googleButton
 
-                Spacer(minLength: 10)
+                        regularLoginButton
+                    }
+                    .padding(.horizontal, horizontalPadding + 8)
 
-                introImage
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 250)
-                    .padding(.horizontal, 8)
-                    .scaleEffect(startAnim ? 1.0 : 0.86)
-                    .opacity(startAnim ? 1.0 : 0.0)
-
-                Spacer(minLength: 8)
-
-                VStack(spacing: 4) {
-                    googleButton
-
-                    regularLoginButton
+                    Spacer()
+                        .frame(height: isCompactHeight ? 8 : 14)
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 18)
+                .frame(width: geo.size.width, height: geo.size.height)
             }
-            .padding(.top, 6)
-            .padding(.bottom, 8)
         }
         .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
         .onAppear {
@@ -562,43 +746,22 @@ private struct KmiIntroGateScreen: View {
         }
     }
 
-    private var introImage: some View {
-        Group {
-            if let image = UIImage(named: "fighters_transparent") {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-            } else if let image = UIImage(named: "fighters") {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-            } else if let image = UIImage(named: "fighters_blackbelt") {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-            } else {
-                Image(systemName: "figure.martial.arts")
-                    .font(.system(size: 96, weight: .bold))
-                    .foregroundStyle(Color.white.opacity(0.82))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()
-    }
-
     private var regularLoginButton: some View {
         Button {
             onRegularLogin()
         } label: {
-            Text(isEnglish ? "Use existing login / sign up screen" : "כניסה / רישום בדרך הרגילה")
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .foregroundStyle(Color.white.opacity(0.90))
+            Text(isEnglish ? "Existing login / regular registration" : "כניסה / רישום בדרך הרגילה")
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(red: 0.09, green: 0.13, blue: 0.20))
                 .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.86)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
                 .frame(maxWidth: .infinity)
                 .frame(height: 36)
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color.white.opacity(0.88))
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -664,9 +827,9 @@ private struct KmiIntroGateScreen: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 54)
-            .clipShape(RoundedRectangle(cornerRadius: 27, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 27, style: .continuous))
+            .frame(height: 40)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(isGoogleLoading)

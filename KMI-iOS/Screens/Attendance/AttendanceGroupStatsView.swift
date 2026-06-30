@@ -40,7 +40,7 @@ struct AttendanceGroupStatsView: View {
             return true
         }
 
-        if values.contains("he") || values.contains("hebrew") {
+        if values.contains("he") || values.contains("hebrew") || values.contains("עברית") {
             return false
         }
 
@@ -224,27 +224,6 @@ struct AttendanceGroupStatsView: View {
                     tint: Color(red: 0.59, green: 0.70, blue: 1.0)
                 )
             }
-
-            VStack(spacing: 10) {
-                attendanceTextField(tr("סניף", "Branch"), text: $branchName)
-                attendanceTextField(tr("קבוצה", "Group"), text: $groupKey)
-
-                Button {
-                    reload()
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.clockwise")
-                        Text(tr("רענן סטטיסטיקה", "Refresh statistics"))
-                    }
-                    .font(.system(size: 15, weight: .heavy))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(Color(red: 0.06, green: 0.65, blue: 0.91))
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
         }
         .padding(16)
         .background(
@@ -297,11 +276,11 @@ struct AttendanceGroupStatsView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(tr("סיכום קבוצה", "Group summary"))
                             .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
 
                         Text(tr("נתוני שנה אחרונה", "Last year data"))
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.68))
+                            .foregroundStyle(Color(red: 0.29, green: 0.33, blue: 0.39))
                     }
 
                     Spacer()
@@ -319,11 +298,11 @@ struct AttendanceGroupStatsView: View {
                     VStack(alignment: .trailing, spacing: 3) {
                         Text(tr("סיכום קבוצה", "Group summary"))
                             .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
 
                         Text(tr("נתוני שנה אחרונה", "Last year data"))
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.68))
+                            .foregroundStyle(Color(red: 0.29, green: 0.33, blue: 0.39))
                     }
                 }
             }
@@ -333,38 +312,38 @@ struct AttendanceGroupStatsView: View {
                     if isEnglish {
                         Text(tr("ממוצע נוכחות", "Average attendance"))
                             .font(.system(size: 13, weight: .heavy))
-                            .foregroundStyle(Color(red: 0.86, green: 0.94, blue: 1.0))
+                            .foregroundStyle(Color(red: 0.29, green: 0.33, blue: 0.39))
 
                         Spacer()
 
                         Text("\(summary.averagePercent)%")
                             .font(.system(size: 28, weight: .black, design: .rounded))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
                     } else {
                         Text("\(summary.averagePercent)%")
                             .font(.system(size: 28, weight: .black, design: .rounded))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
 
                         Spacer()
 
                         Text(tr("ממוצע נוכחות", "Average attendance"))
                             .font(.system(size: 13, weight: .heavy))
-                            .foregroundStyle(Color(red: 0.86, green: 0.94, blue: 1.0))
+                            .foregroundStyle(Color(red: 0.29, green: 0.33, blue: 0.39))
                     }
                 }
 
                 ProgressView(value: pct, total: 100)
                     .progressViewStyle(.linear)
                     .tint(Color(red: 0.13, green: 0.83, blue: 0.93))
-                    .background(Color.white.opacity(0.14))
+                    .background(Color(red: 0.90, green: 0.91, blue: 0.93))
                     .clipShape(Capsule())
             }
             .padding(14)
-            .background(Color.white.opacity(0.10))
+            .background(Color(red: 0.95, green: 0.96, blue: 0.98))
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    .stroke(Color(red: 0.88, green: 0.90, blue: 0.94), lineWidth: 1)
             )
 
             HStack(spacing: 10) {
@@ -373,13 +352,13 @@ struct AttendanceGroupStatsView: View {
                 statPill(title: tr("ממוצע סה״כ", "Avg. total"), value: "\(summary.averageTotal)", tint: Color(red: 0.96, green: 0.62, blue: 0.04))
             }
         }
-        .padding(16)
-        .background(Color.white.opacity(0.09))
+        .padding(18)
+        .background(Color.white.opacity(0.96))
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
     
     private var reportsToolbarCard: some View {
@@ -389,7 +368,7 @@ struct AttendanceGroupStatsView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(deleteMode ? tr("בחר דו״חות למחיקה", "Select reports to delete") : tr("דו״חות אחרונים", "Recent reports"))
                             .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
 
                         Text(
                             deleteMode
@@ -397,7 +376,7 @@ struct AttendanceGroupStatsView: View {
                             : tr("מציג שנה אחורה", "Showing the last year")
                         )
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.68))
+                        .foregroundStyle(Color(red: 0.29, green: 0.33, blue: 0.39))
                     }
 
                     Spacer()
@@ -411,7 +390,7 @@ struct AttendanceGroupStatsView: View {
                     VStack(alignment: .trailing, spacing: 3) {
                         Text(deleteMode ? tr("בחר דו״חות למחיקה", "Select reports to delete") : tr("דו״חות אחרונים", "Recent reports"))
                             .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
 
                         Text(
                             deleteMode
@@ -419,7 +398,7 @@ struct AttendanceGroupStatsView: View {
                             : tr("מציג שנה אחורה", "Showing the last year")
                         )
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.68))
+                        .foregroundStyle(Color(red: 0.29, green: 0.33, blue: 0.39))
                     }
                 }
             }
@@ -431,16 +410,16 @@ struct AttendanceGroupStatsView: View {
                     : tr("לחיצה על מחיקה תמחק את הדו״חות שנבחרו.", "Tap delete to remove the selected reports.")
                 )
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.70))
+                .foregroundStyle(Color(red: 0.39, green: 0.10, blue: 0.10))
                 .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
                 .multilineTextAlignment(screenTextAlignment)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
-                .background(Color.white.opacity(0.08))
+                .background(Color.white.opacity(0.70))
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.white.opacity(0.10), lineWidth: 1)
+                        .stroke(Color(red: 0.94, green: 0.27, blue: 0.27).opacity(0.20), lineWidth: 1)
                 )
             }
 
@@ -454,18 +433,18 @@ struct AttendanceGroupStatsView: View {
                 }
             }
         }
-        .padding(16)
-        .background(Color.white.opacity(deleteMode ? 0.115 : 0.09))
+        .padding(18)
+        .background(deleteMode ? Color(red: 1.0, green: 0.94, blue: 0.94) : Color.white.opacity(0.96))
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(
                     deleteMode
                     ? Color(red: 0.94, green: 0.27, blue: 0.27).opacity(0.36)
-                    : Color.white.opacity(0.12),
+                    : Color.white.opacity(0.18),
                     lineWidth: 1
                 )
         )
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private var toolbarModeIcon: some View {
@@ -538,7 +517,7 @@ struct AttendanceGroupStatsView: View {
                 if isEnglish {
                     Text(tr("דו״חות שמורים", "Saved reports"))
                         .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
 
                     Spacer()
 
@@ -550,7 +529,7 @@ struct AttendanceGroupStatsView: View {
 
                     Text(tr("דו״חות שמורים", "Saved reports"))
                         .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
                 }
             }
 
@@ -564,13 +543,13 @@ struct AttendanceGroupStatsView: View {
                 }
             }
         }
-        .padding(16)
-        .background(Color.white.opacity(0.09))
+        .padding(18)
+        .background(Color.white.opacity(0.96))
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private var reportsCountLabel: some View {
@@ -584,7 +563,7 @@ struct AttendanceGroupStatsView: View {
             )
         )
         .font(.system(size: 12, weight: .semibold))
-        .foregroundStyle(.white.opacity(0.68))
+        .foregroundStyle(Color(red: 0.29, green: 0.33, blue: 0.39))
     }
 
     private var emptyReportsState: some View {
@@ -596,14 +575,10 @@ struct AttendanceGroupStatsView: View {
             } else {
                 Image(systemName: "doc.text.magnifyingglass")
                     .font(.system(size: 28, weight: .heavy))
-                    .foregroundStyle(Color(red: 0.58, green: 0.78, blue: 1.0))
+                    .foregroundStyle(Color(red: 0.06, green: 0.45, blue: 0.75))
                     .frame(width: 54, height: 54)
-                    .background(Color.white.opacity(0.10))
+                    .background(Color(red: 0.90, green: 0.95, blue: 1.0))
                     .clipShape(Circle())
-                    .overlay(
-                        Circle()
-                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                    )
             }
 
             Text(
@@ -612,14 +587,14 @@ struct AttendanceGroupStatsView: View {
                 : tr("לא נמצאו דו״חות עבור הסניף והקבוצה שנבחרו.", "No reports were found for the selected branch and group.")
             )
             .font(.system(size: 14, weight: .bold))
-            .foregroundStyle(.white.opacity(0.84))
+            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
             .frame(maxWidth: .infinity, alignment: .center)
             .multilineTextAlignment(.center)
 
             if !isLoadingReports {
                 Text(tr("לאחר שמירת דו״ח נוכחות במסך הנוכחות, הוא יופיע כאן.", "After saving an attendance report, it will appear here."))
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.62))
+                    .foregroundStyle(Color(red: 0.42, green: 0.45, blue: 0.50))
                     .frame(maxWidth: .infinity, alignment: .center)
                     .multilineTextAlignment(.center)
             }
@@ -627,11 +602,11 @@ struct AttendanceGroupStatsView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 18)
         .padding(.horizontal, 14)
-        .background(Color.white.opacity(0.075))
+        .background(Color(red: 0.95, green: 0.96, blue: 0.98))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+                .stroke(Color(red: 0.88, green: 0.90, blue: 0.94), lineWidth: 1)
         )
     }
     
@@ -645,12 +620,12 @@ struct AttendanceGroupStatsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(formattedDate(report.dateIso))
                             .font(.system(size: 17, weight: .heavy))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
                             .frame(maxWidth: .infinity, alignment: .leading)
 
                         Text(reportSummaryLine(report))
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(Color(red: 0.86, green: 0.94, blue: 1.0))
+                            .foregroundStyle(Color(red: 0.18, green: 0.42, blue: 0.82))
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
@@ -669,12 +644,12 @@ struct AttendanceGroupStatsView: View {
                     VStack(alignment: .trailing, spacing: 4) {
                         Text(formattedDate(report.dateIso))
                             .font(.system(size: 17, weight: .heavy))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
                             .frame(maxWidth: .infinity, alignment: .trailing)
 
                         Text(reportSummaryLine(report))
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(Color(red: 0.86, green: 0.94, blue: 1.0))
+                            .foregroundStyle(Color(red: 0.18, green: 0.42, blue: 0.82))
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                 }
@@ -683,7 +658,7 @@ struct AttendanceGroupStatsView: View {
             ProgressView(value: pct, total: 100)
                 .progressViewStyle(.linear)
                 .tint(Color(red: 0.13, green: 0.83, blue: 0.93))
-                .background(Color.white.opacity(0.14))
+                .background(Color(red: 0.86, green: 0.89, blue: 0.94))
                 .clipShape(Capsule())
 
             HStack(spacing: 8) {
@@ -695,11 +670,20 @@ struct AttendanceGroupStatsView: View {
             }
         }
         .padding(12)
-        .background(isSelected ? Color.white.opacity(0.14) : Color.white.opacity(0.08))
+        .background(
+            isSelected
+            ? Color(red: 0.88, green: 0.97, blue: 1.0)
+            : Color(red: 0.95, green: 0.97, blue: 1.0)
+        )
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(isSelected ? Color(red: 0.13, green: 0.83, blue: 0.93).opacity(0.65) : Color.white.opacity(0.12), lineWidth: 1)
+                .stroke(
+                    isSelected
+                    ? Color(red: 0.13, green: 0.83, blue: 0.93).opacity(0.65)
+                    : Color(red: 0.82, green: 0.88, blue: 0.95),
+                    lineWidth: 1
+                )
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -716,7 +700,11 @@ struct AttendanceGroupStatsView: View {
     private func selectionIcon(isSelected: Bool) -> some View {
         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
             .font(.system(size: 23, weight: .heavy))
-            .foregroundStyle(isSelected ? Color(red: 0.13, green: 0.83, blue: 0.93) : Color.white.opacity(0.70))
+            .foregroundStyle(
+                isSelected
+                ? Color(red: 0.13, green: 0.83, blue: 0.93)
+                : Color(red: 0.42, green: 0.45, blue: 0.50)
+            )
     }
 
     private func reportSummaryLine(_ report: AttendanceSavedReport) -> String {
@@ -988,41 +976,22 @@ struct AttendanceGroupStatsView: View {
         VStack(spacing: 4) {
             Text(value)
                 .font(.system(size: 13, weight: .black, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
 
             Text(title)
                 .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(.white.opacity(0.76))
+                .foregroundStyle(Color(red: 0.42, green: 0.45, blue: 0.50))
                 .lineLimit(1)
                 .minimumScaleFactor(0.70)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
-        .background(tint.opacity(0.22))
+        .background(tint.opacity(0.18))
         .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .stroke(tint.opacity(0.28), lineWidth: 1)
+                .stroke(tint.opacity(0.26), lineWidth: 1)
         )
-    }
-
-    private func attendanceTextField(_ placeholder: String, text: Binding<String>) -> some View {
-        TextField(placeholder, text: text, axis: .vertical)
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 11)
-            .background(Color.white.opacity(0.11))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
-            )
-            .multilineTextAlignment(screenTextAlignment)
-            .submitLabel(.done)
-            .onSubmit {
-                reload()
-            }
     }
 
     private func secondaryActionButton(icon: String, title: String, tint: Color) -> some View {
@@ -1031,14 +1000,27 @@ struct AttendanceGroupStatsView: View {
             Text(title)
         }
         .font(.system(size: 14, weight: .heavy))
-        .foregroundStyle(.white)
+        .foregroundStyle(
+            tint == Color.white.opacity(0.14)
+            ? Color(red: 0.07, green: 0.10, blue: 0.16)
+            : Color.white
+        )
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
-        .background(tint.opacity(0.34))
+        .background(
+            tint == Color.white.opacity(0.14)
+            ? Color(red: 0.91, green: 0.94, blue: 0.98)
+            : tint.opacity(0.42)
+        )
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                .stroke(
+                    tint == Color.white.opacity(0.14)
+                    ? Color(red: 0.82, green: 0.86, blue: 0.92)
+                    : tint.opacity(0.28),
+                    lineWidth: 1
+                )
         )
     }
 

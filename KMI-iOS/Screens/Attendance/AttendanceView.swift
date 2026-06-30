@@ -419,7 +419,7 @@ struct AttendanceView: View {
 
                     Text(value.isEmpty ? "—" : value)
                         .font(.system(size: 14, weight: .black))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color(red: 0.08, green: 0.10, blue: 0.18))
                         .lineLimit(2)
                         .minimumScaleFactor(0.78)
                         .multilineTextAlignment(.leading)
@@ -429,13 +429,13 @@ struct AttendanceView: View {
                 if let trailingIcon {
                     Image(systemName: trailingIcon)
                         .font(.system(size: 13, weight: .black))
-                        .foregroundStyle(.white.opacity(0.82))
+                        .foregroundStyle(Color(red: 0.22, green: 0.28, blue: 0.40))
                 }
             } else {
                 if let trailingIcon {
                     Image(systemName: trailingIcon)
                         .font(.system(size: 13, weight: .black))
-                        .foregroundStyle(.white.opacity(0.82))
+                        .foregroundStyle(Color(red: 0.22, green: 0.28, blue: 0.40))
                 }
 
                 VStack(alignment: .trailing, spacing: 3) {
@@ -445,7 +445,7 @@ struct AttendanceView: View {
 
                     Text(value.isEmpty ? "—" : value)
                         .font(.system(size: 14, weight: .black))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color(red: 0.08, green: 0.10, blue: 0.18))
                         .lineLimit(2)
                         .minimumScaleFactor(0.78)
                         .multilineTextAlignment(.trailing)
@@ -468,35 +468,14 @@ struct AttendanceView: View {
     private func fieldIcon(_ name: String) -> some View {
         Image(systemName: name)
             .font(.system(size: 14, weight: .heavy))
-            .foregroundStyle(Color(red: 0.56, green: 0.86, blue: 1.0))
+            .foregroundStyle(Color(red: 0.07, green: 0.45, blue: 0.72))
             .frame(width: 30, height: 30)
-            .background(Color.white.opacity(0.10))
+            .background(Color(red: 0.88, green: 0.96, blue: 1.0))
             .clipShape(Circle())
             .overlay(
                 Circle()
-                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                    .stroke(Color(red: 0.68, green: 0.84, blue: 0.94), lineWidth: 1)
             )
-    }
-    
-    private var heroIcon: some View {
-        Circle()
-            .fill(
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.06, green: 0.65, blue: 0.91),
-                        Color(red: 0.13, green: 0.83, blue: 0.93)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .frame(width: 52, height: 52)
-            .overlay(
-                Image(systemName: "person.3.fill")
-                    .font(.system(size: 22, weight: .heavy))
-                    .foregroundStyle(.white)
-            )
-            .shadow(color: Color.cyan.opacity(0.35), radius: 10, x: 0, y: 4)
     }
     
     private var attendanceSummaryCard: some View {
@@ -859,6 +838,14 @@ struct AttendanceView: View {
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
     
+    private func toggleAttendanceStatus(
+        row: AttendanceRowUi,
+        targetStatus: AttendanceStatus
+    ) {
+        let nextStatus: AttendanceStatus = row.status == targetStatus ? .unknown : targetStatus
+        vm.setAttendanceStatus(memberId: row.memberId, status: nextStatus)
+    }
+
     private func memberRow(_ row: AttendanceRowUi) -> some View {
         let cleanName = row.memberName.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanPhone = row.phone.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -947,7 +934,7 @@ struct AttendanceView: View {
                     selected: row.status == .present,
                     selectedColor: Color(red: 0.13, green: 0.77, blue: 0.37)
                 ) {
-                    vm.setAttendanceStatus(memberId: row.memberId, status: .present)
+                    toggleAttendanceStatus(row: row, targetStatus: .present)
                 }
 
                 statusButton(
@@ -956,7 +943,7 @@ struct AttendanceView: View {
                     selected: row.status == .excused,
                     selectedColor: Color(red: 0.96, green: 0.62, blue: 0.04)
                 ) {
-                    vm.setAttendanceStatus(memberId: row.memberId, status: .excused)
+                    toggleAttendanceStatus(row: row, targetStatus: .excused)
                 }
 
                 statusButton(
@@ -965,7 +952,7 @@ struct AttendanceView: View {
                     selected: row.status == .absent,
                     selectedColor: Color(red: 0.94, green: 0.27, blue: 0.27)
                 ) {
-                    vm.setAttendanceStatus(memberId: row.memberId, status: .absent)
+                    toggleAttendanceStatus(row: row, targetStatus: .absent)
                 }
 
                 statusButton(
@@ -1198,15 +1185,22 @@ struct AttendanceView: View {
     }
 
     private func uniqueMembers(_ rows: [AttendanceRowUi]) -> [AttendanceRowUi] {
-
         var unique: [String: AttendanceRowUi] = [:]
 
         for row in rows {
+            let cleanPhone = row.phone
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .filter { $0.isNumber }
 
-            let key =
-                row.memberName
+            let cleanName = row.memberName
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
+
+            let key = cleanPhone.isEmpty ? cleanName : cleanPhone
+
+            guard !key.isEmpty else {
+                continue
+            }
 
             if unique[key] == nil {
                 unique[key] = row

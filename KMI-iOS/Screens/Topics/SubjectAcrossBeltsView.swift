@@ -536,8 +536,6 @@ struct SubjectAcrossBeltsView: View {
             KmiAppBackground()
 
             VStack(spacing: 0) {
-                screenTopTitleBar
-
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(spacing: 12) {
@@ -633,6 +631,9 @@ struct SubjectAcrossBeltsView: View {
                                                             title: uiExerciseTitle(it.displayName),
                                                             accent: beltAccent(belt),
                                                             isEnglish: isEnglish,
+                                                            isFavorite: isFavorite(belt: belt, item: it),
+                                                            isExcluded: isExcluded(belt: belt, item: it),
+                                                            hasNote: !loadNote(belt: belt, item: it).isEmpty,
                                                             onInfoTap: {
                                                                 activeExerciseMenu = ExerciseMenuContext(
                                                                     belt: belt,
@@ -654,10 +655,10 @@ struct SubjectAcrossBeltsView: View {
                                         }
                                     }
                                 }
-                                .padding(.vertical, 14)
-                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .padding(.horizontal, 10)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 23, style: .continuous)
+                                    RoundedRectangle(cornerRadius: 20, style: .continuous)
                                         .fill(
                                             LinearGradient(
                                                 colors: [
@@ -670,10 +671,10 @@ struct SubjectAcrossBeltsView: View {
                                         )
                                 )
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 23, style: .continuous)
-                                        .stroke(beltAccent(belt).opacity(0.20), lineWidth: 1)
+                                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                        .stroke(beltAccent(belt).opacity(0.18), lineWidth: 1)
                                 )
-                                .shadow(color: beltAccent(belt).opacity(0.10), radius: 8, x: 0, y: 4)
+                                .shadow(color: beltAccent(belt).opacity(0.08), radius: 6, x: 0, y: 3)
                                 .id(beltAnchorId(belt))
                             }
                         }
@@ -688,20 +689,29 @@ struct SubjectAcrossBeltsView: View {
             }
         }
             .environment(\.layoutDirection, screenLayoutDirection)
-        .onAppear {
-            NotificationCenter.default.post(
-                name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
-                object: uiSubjectTitle()
-            )
+            .onAppear {
+                NotificationCenter.default.post(
+                    name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
+                    object: uiSubjectTitle()
+                )
 
-            for b in belts {
-                if !sections(for: b).isEmpty {
-                    selectedBelt = b
-                    break
+                var loadedFavorites = Set<String>()
+                var loadedExcluded = Set<String>()
+
+                for b in belts {
+                    loadedFavorites.formUnion(loadStringSet(favoritesStorageKey(for: b)))
+                    loadedExcluded.formUnion(loadStringSet(excludedStorageKey(for: b)))
+
+                    if !sections(for: b).isEmpty {
+                        selectedBelt = b
+                        break
+                    }
                 }
+
+                favoriteExerciseIds = loadedFavorites
+                excludedExerciseIds = loadedExcluded
             }
-        }
-        .onDisappear {
+            .onDisappear {
             NotificationCenter.default.post(
                 name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
                 object: ""
@@ -717,7 +727,15 @@ struct SubjectAcrossBeltsView: View {
         .sheet(item: $activeNoteExercise) { context in
             ExerciseNoteSheet(
                 title: uiExerciseTitle(context.item.displayName),
-                noteText: $noteText
+                noteText: $noteText,
+                isEnglish: isEnglish,
+                onSave: {
+                    saveNote(
+                        belt: context.belt,
+                        item: context.item,
+                        value: noteText
+                    )
+                }
             )
         }
         .overlay {
@@ -768,35 +786,59 @@ struct SubjectAcrossBeltsView: View {
 
                 exerciseMenuDivider
 
-                exerciseMenuRow(title: tr("הוסף למועדפים", "Add to favorites")) {
+                exerciseMenuRow(
+                    title: isFavorite(
+                        belt: context.belt,
+                        item: context.item
+                    )
+                    ? tr("הסר ממועדפים", "Remove from favorites")
+                    : tr("הוסף למועדפים", "Add to favorites")
+                ) {
                     toggleFavorite(
                         belt: context.belt,
                         item: context.item
                     )
                     activeExerciseMenu = nil
                 }
-
+                
                 exerciseMenuDivider
 
-                exerciseMenuRow(title: tr("החרג מהתרגול", "Exclude from practice")) {
+                exerciseMenuRow(
+                    title: isExcluded(
+                        belt: context.belt,
+                        item: context.item
+                    )
+                    ? tr("בטל החרגה מהתרגול", "Remove from excluded")
+                    : tr("החרג מהתרגול", "Exclude from practice")
+                ) {
                     toggleExcluded(
                         belt: context.belt,
                         item: context.item
                     )
                     activeExerciseMenu = nil
                 }
-
+                
                 exerciseMenuDivider
 
-                exerciseMenuRow(title: tr("הוסף הערה לתרגיל", "Add exercise note")) {
-                    noteText = ""
+                exerciseMenuRow(
+                    title: loadNote(
+                        belt: context.belt,
+                        item: context.item
+                    ).isEmpty
+                    ? tr("הוסף הערה לתרגיל", "Add exercise note")
+                    : tr("ערוך הערה לתרגיל", "Edit exercise note")
+                ) {
+                    noteText = loadNote(
+                        belt: context.belt,
+                        item: context.item
+                    )
                     activeExerciseMenu = nil
                     activeNoteExercise = context
                 }
             }
-            .frame(width: 190)
+            .frame(width: 176)
             .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [
@@ -810,10 +852,10 @@ struct SubjectAcrossBeltsView: View {
                     )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .stroke(Color.black.opacity(0.08), lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.20), radius: 14, x: 0, y: 8)
+            .shadow(color: Color.black.opacity(0.18), radius: 10, x: 0, y: 6)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
     }
@@ -824,11 +866,12 @@ struct SubjectAcrossBeltsView: View {
     ) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 17, weight: .heavy))
+                .font(.system(size: 14.5, weight: .heavy))
                 .foregroundStyle(Color.black.opacity(0.86))
                 .frame(maxWidth: .infinity)
-                .frame(height: 50)
+                .frame(height: 42)
                 .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.78)
                 .background(Color.white.opacity(0.001))
         }
         .buttonStyle(.plain)
@@ -847,23 +890,22 @@ struct SubjectAcrossBeltsView: View {
                     beltHeaderIcon(belt)
 
                     Text(beltTitleText(belt))
-                        .font(.system(size: 20, weight: .heavy))
+                        .font(.system(size: 17, weight: .heavy))
                         .foregroundStyle(beltAccent(belt))
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     Text(exercisesCountText(count))
-                        .font(.system(size: 18, weight: .heavy))
+                        .font(.system(size: 14, weight: .heavy))
                         .foregroundStyle(beltAccent(belt))
                 } else {
                     Text(exercisesCountText(count))
-                        .font(.system(size: 18, weight: .heavy))
+                        .font(.system(size: 14, weight: .heavy))
                         .foregroundStyle(beltAccent(belt))
 
                     Text(beltTitleText(belt))
-                        .font(.system(size: 20, weight: .heavy))
+                        .font(.system(size: 17, weight: .heavy))
                         .foregroundStyle(beltAccent(belt))
                         .frame(maxWidth: .infinity, alignment: .trailing)
-
                     beltHeaderIcon(belt)
                 }
             }
@@ -922,17 +964,17 @@ struct SubjectAcrossBeltsView: View {
     ) -> some View {
         VStack(spacing: 2) {
             Text(value)
-                .font(.system(size: 17, weight: .black))
+                .font(.system(size: 15, weight: .black))
                 .foregroundStyle(.white)
 
             Text(title)
-                .font(.system(size: 11, weight: .heavy))
+                .font(.system(size: 9.5, weight: .heavy))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }
-        .frame(width: 78)
-        .frame(height: 48)
+        .frame(width: 70)
+        .frame(height: 42)
         .background(
             RoundedRectangle(cornerRadius: 13, style: .continuous)
                 .fill(fill.opacity(0.78))
@@ -942,7 +984,7 @@ struct SubjectAcrossBeltsView: View {
     private func beltHeaderIcon(_ belt: Belt) -> some View {
         Circle()
             .fill(beltAccent(belt).opacity(0.16))
-            .frame(width: 38, height: 38)
+            .frame(width: 32, height: 32)
             .overlay(
                 Circle()
                     .stroke(beltAccent(belt).opacity(0.22), lineWidth: 1)
@@ -1056,33 +1098,56 @@ struct SubjectAcrossBeltsView: View {
         belt: Belt,
         item: UiItem
     ) -> String {
-        "\(belt.id)::\(item.topicTitle)::\(item.displayName)"
+        let topic = item.topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = item.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return "kmi.subject.mark.\(belt.id).\(topic).\(title)"
     }
-
+    
     private func markState(
         belt: Belt,
         item: UiItem
     ) -> ExerciseMarkState {
-        exerciseMarks[markKey(belt: belt, item: item)] ?? .unmarked
-    }
+        let key = markKey(belt: belt, item: item)
 
+        if let state = exerciseMarks[key] {
+            return state
+        }
+
+        if let raw = UserDefaults.standard.string(forKey: key),
+           let savedState = ExerciseMarkState(rawValue: raw) {
+            return savedState
+        }
+
+        return .unmarked
+    }
+    
     private func toggleMark(
         belt: Belt,
         item: UiItem
     ) {
         let key = markKey(belt: belt, item: item)
-        let current = exerciseMarks[key] ?? .unmarked
+        let current = markState(belt: belt, item: item)
+
+        let nextState: ExerciseMarkState
 
         switch current {
         case .unmarked:
-            exerciseMarks[key] = .know
+            nextState = .know
         case .know:
-            exerciseMarks[key] = .dontKnow
+            nextState = .dontKnow
         case .dontKnow:
-            exerciseMarks[key] = .unmarked
+            nextState = .unmarked
+        }
+
+        exerciseMarks[key] = nextState
+
+        if nextState == .unmarked {
+            UserDefaults.standard.removeObject(forKey: key)
+        } else {
+            UserDefaults.standard.set(nextState.rawValue, forKey: key)
         }
     }
-
+    
     private func allItemsForBelt(_ belt: Belt) -> [UiItem] {
         sections(for: belt).flatMap { $0.items }
     }
@@ -1109,45 +1174,119 @@ struct SubjectAcrossBeltsView: View {
         markKey(belt: belt, item: item)
     }
 
+    private func isFavorite(
+        belt: Belt,
+        item: UiItem
+    ) -> Bool {
+        let id = exerciseId(belt: belt, item: item)
+        return favoriteExerciseIds.contains(id) ||
+        loadStringSet(favoritesStorageKey(for: belt)).contains(id)
+    }
+
+    private func isExcluded(
+        belt: Belt,
+        item: UiItem
+    ) -> Bool {
+        let id = exerciseId(belt: belt, item: item)
+        return excludedExerciseIds.contains(id) ||
+        loadStringSet(excludedStorageKey(for: belt)).contains(id)
+    }
+    
+    private func favoritesStorageKey(for belt: Belt) -> String {
+        "kmi.subject.favorites.\(belt.id)"
+    }
+
+    private func excludedStorageKey(for belt: Belt) -> String {
+        "kmi.subject.excluded.\(belt.id)"
+    }
+
+    private func noteStorageKey(
+        belt: Belt,
+        item: UiItem
+    ) -> String {
+        "kmi.subject.note.\(exerciseId(belt: belt, item: item))"
+    }
+
+    private func loadNote(
+        belt: Belt,
+        item: UiItem
+    ) -> String {
+        UserDefaults.standard.string(
+            forKey: noteStorageKey(belt: belt, item: item)
+        ) ?? ""
+    }
+
+    private func saveNote(
+        belt: Belt,
+        item: UiItem,
+        value: String
+    ) {
+        let key = noteStorageKey(belt: belt, item: item)
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if clean.isEmpty {
+            UserDefaults.standard.removeObject(forKey: key)
+        } else {
+            UserDefaults.standard.set(clean, forKey: key)
+        }
+    }
+    
+    private func loadStringSet(_ key: String) -> Set<String> {
+        let values = UserDefaults.standard.stringArray(forKey: key) ?? []
+        return Set(values)
+    }
+
+    private func saveStringSet(_ values: Set<String>, key: String) {
+        UserDefaults.standard.set(Array(values), forKey: key)
+    }
+    
     private func toggleFavorite(
         belt: Belt,
         item: UiItem
     ) {
         let id = exerciseId(belt: belt, item: item)
+        let key = favoritesStorageKey(for: belt)
 
-        if favoriteExerciseIds.contains(id) {
-            favoriteExerciseIds.remove(id)
-        } else {
-            favoriteExerciseIds.insert(id)
-        }
+        var values = loadStringSet(key)
+        values.formSymmetricDifference([id])
+
+        favoriteExerciseIds = values
+        saveStringSet(values, key: key)
     }
-
+    
     private func toggleExcluded(
         belt: Belt,
         item: UiItem
     ) {
         let id = exerciseId(belt: belt, item: item)
+        let key = excludedStorageKey(for: belt)
 
-        if excludedExerciseIds.contains(id) {
-            excludedExerciseIds.remove(id)
-        } else {
-            excludedExerciseIds.insert(id)
-        }
+        var values = loadStringSet(key)
+        values.formSymmetricDifference([id])
+
+        excludedExerciseIds = values
+        saveStringSet(values, key: key)
     }
-
+    
     private func favoriteCount(
         belt: Belt
     ) -> Int {
-        allItemsForBelt(belt).filter { item in
-            favoriteExerciseIds.contains(exerciseId(belt: belt, item: item))
+        let saved = loadStringSet(favoritesStorageKey(for: belt))
+
+        return allItemsForBelt(belt).filter { item in
+            let id = exerciseId(belt: belt, item: item)
+            return favoriteExerciseIds.contains(id) || saved.contains(id)
         }.count
     }
 
     private func excludedCount(
         belt: Belt
     ) -> Int {
-        allItemsForBelt(belt).filter { item in
-            excludedExerciseIds.contains(exerciseId(belt: belt, item: item))
+        let saved = loadStringSet(excludedStorageKey(for: belt))
+
+        return allItemsForBelt(belt).filter { item in
+            let id = exerciseId(belt: belt, item: item)
+            return excludedExerciseIds.contains(id) || saved.contains(id)
         }.count
     }
     
@@ -1178,17 +1317,20 @@ private struct BeltExerciseRowCard<Destination: View>: View {
     let title: String
     let accent: Color
     let isEnglish: Bool
+    let isFavorite: Bool
+    let isExcluded: Bool
+    let hasNote: Bool
     let onInfoTap: () -> Void
     let destination: () -> Destination
-
+    
     private var textAlignment: TextAlignment {
         isEnglish ? .leading : .trailing
     }
-
+    
     private var frameAlignment: Alignment {
         isEnglish ? .leading : .trailing
     }
-
+    
     var body: some View {
         ZStack(alignment: isEnglish ? .topLeading : .topTrailing) {
             HStack(spacing: 8) {
@@ -1201,19 +1343,19 @@ private struct BeltExerciseRowCard<Destination: View>: View {
                 }
             }
             .environment(\.layoutDirection, .leftToRight)
-            .padding(.horizontal, 9)
-            .padding(.top, 15)
+            .padding(.horizontal, 8)
+            .padding(.top, 12)
             .padding(.bottom, 5)
-
+            
             exerciseNumberBadge
                 .padding(isEnglish ? .leading : .trailing, 38)
                 .padding(.top, 3)
         }
         .frame(maxWidth: .infinity)
-        .frame(minHeight: 48)
+        .frame(minHeight: 42)
         .background(
             RoundedRectangle(cornerRadius: 17, style: .continuous)
-                .fill(Color.white.opacity(0.97))
+                .fill(isExcluded ? Color.white.opacity(0.72) : Color.white.opacity(0.97))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 17, style: .continuous)
@@ -1221,7 +1363,7 @@ private struct BeltExerciseRowCard<Destination: View>: View {
         )
         .shadow(color: Color.black.opacity(0.035), radius: 4, x: 0, y: 2)
     }
-
+    
     private var exerciseNumberBadge: some View {
         Text(numberText)
             .font(.system(size: 11, weight: .black))
@@ -1235,7 +1377,7 @@ private struct BeltExerciseRowCard<Destination: View>: View {
                     .stroke(Color.black.opacity(0.10), lineWidth: 1)
             )
     }
-
+    
     private var infoButton: some View {
         Button {
             onInfoTap()
@@ -1244,29 +1386,70 @@ private struct BeltExerciseRowCard<Destination: View>: View {
         }
         .buttonStyle(.plain)
     }
-
+    
     private var titleNavigation: some View {
         NavigationLink {
             destination()
         } label: {
-            Text(title)
-                .font(.system(size: 15.5, weight: .heavy))
-                .foregroundStyle(Color.black.opacity(0.84))
-                .multilineTextAlignment(textAlignment)
-                .frame(maxWidth: .infinity, alignment: frameAlignment)
-                .lineLimit(2)
-                .minimumScaleFactor(0.86)
-                .contentShape(Rectangle())
+            HStack(spacing: 5) {
+                if isEnglish {
+                    statusBadges
+                    
+                    Text(title)
+                        .font(.system(size: 13.8, weight: .heavy))
+                        .foregroundStyle(isExcluded ? Color.black.opacity(0.42) : Color.black.opacity(0.84))
+                        .multilineTextAlignment(textAlignment)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.82)
+                } else {
+                    Text(title)
+                        .font(.system(size: 13.8, weight: .heavy))
+                        .foregroundStyle(isExcluded ? Color.black.opacity(0.42) : Color.black.opacity(0.84))
+                        .multilineTextAlignment(textAlignment)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.82)
+                    
+                    statusBadges
+                }
+            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
+
+    private var statusBadges: some View {
+        HStack(spacing: 3) {
+            if isFavorite {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 10, weight: .black))
+                    .foregroundStyle(Color.orange.opacity(0.88))
+            }
+
+            if isExcluded {
+                Image(systemName: "slash.circle.fill")
+                    .font(.system(size: 10, weight: .black))
+                    .foregroundStyle(Color.red.opacity(0.78))
+            }
+
+            if hasNote {
+                Image(systemName: "note.text")
+                    .font(.system(size: 10, weight: .black))
+                    .foregroundStyle(Color.blue.opacity(0.78))
+            }
+        }
+    }
 }
 
-    private struct ExerciseNoteSheet: View {
-        let title: String
-        @Binding var noteText: String
-        @Environment(\.dismiss) private var dismiss
+private struct ExerciseNoteSheet: View {
+    let title: String
+    @Binding var noteText: String
+    let isEnglish: Bool
+    let onSave: () -> Void
 
+    @Environment(\.dismiss) private var dismiss
+    
         var body: some View {
             NavigationStack {
                 VStack(spacing: 14) {
@@ -1290,17 +1473,18 @@ private struct BeltExerciseRowCard<Destination: View>: View {
                 }
                 .padding(18)
                 .background(KmiAppBackground())
-                .navigationTitle("הערה לתרגיל")
+                .navigationTitle(isEnglish ? "Exercise note" : "הערה לתרגיל")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("שמור") {
+                        Button(isEnglish ? "Save" : "שמור") {
+                            onSave()
                             dismiss()
                         }
                     }
 
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("סגור") {
+                        Button(isEnglish ? "Close" : "סגור") {
                             dismiss()
                         }
                     }
@@ -1314,10 +1498,10 @@ private struct ExerciseInfoCircle: View {
         ZStack {
             Circle()
                 .fill(Color.black.opacity(0.46))
-                .frame(width: 28, height: 28)
+                .frame(width: 24, height: 24)
 
             Image(systemName: "info")
-                .font(.system(size: 14, weight: .black))
+                .font(.system(size: 12, weight: .black))
                 .foregroundStyle(.white)
         }
     }
@@ -1331,7 +1515,7 @@ private struct ExerciseMarkCircle: View {
         ZStack {
             Circle()
                 .fill(backgroundFill)
-                .frame(width: 31, height: 31)
+                .frame(width: 27, height: 27)
                 .overlay(
                     Circle()
                         .stroke(borderColor, lineWidth: 1.4)
@@ -1340,13 +1524,13 @@ private struct ExerciseMarkCircle: View {
 
             if state == .know {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 14, weight: .black))
+                    .font(.system(size: 12, weight: .black))
                     .foregroundStyle(.white)
             }
 
             if state == .dontKnow {
                 Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .black))
+                    .font(.system(size: 11, weight: .black))
                     .foregroundStyle(.white)
             }
         }

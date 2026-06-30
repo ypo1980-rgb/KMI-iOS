@@ -5,6 +5,8 @@ struct AttendanceStatsView: View {
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
     @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+    @AppStorage("initial_language_selected_code") private var initialLanguageSelectedCode: String = "he"
+    @AppStorage("kmi.language.code") private var kmiLanguageCode: String = "he"
 
     let ownerUid: String
     let branchName: String
@@ -21,17 +23,34 @@ struct AttendanceStatsView: View {
     )
 
     @State private var isLoadingStats: Bool = false
+    @State private var hasRealAttendanceData: Bool = false
 
     private let repository: AttendanceRepository
 
     private var isEnglish: Bool {
         let values = [
-            kmiAppLanguageCode.lowercased(),
-            appLanguageRaw.lowercased(),
-            initialLanguageCode.lowercased()
+            kmiAppLanguageCode,
+            appLanguageRaw,
+            initialLanguageCode,
+            initialLanguageSelectedCode,
+            kmiLanguageCode
         ]
+        .map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+        }
 
-        return values.contains("en") || values.contains("english")
+        if values.contains("en") || values.contains("english") {
+            return true
+        }
+
+        if values.contains("he") || values.contains("hebrew") || values.contains("עברית") {
+            return false
+        }
+
+        return Locale.preferredLanguages.first?
+            .lowercased()
+            .hasPrefix("en") == true
     }
 
     private func tr(_ he: String, _ en: String) -> String {
@@ -84,6 +103,11 @@ struct AttendanceStatsView: View {
                 VStack(spacing: 12) {
                     heroStatsCard
                     percentCardsRow
+
+                    if !hasRealAttendanceData {
+                        emptyMemberAttendanceStatsCard
+                    }
+
                     streakCard
                     bestDaysCard
                     lastSessionsCard
@@ -97,6 +121,10 @@ struct AttendanceStatsView: View {
         .navigationTitle(tr("סטטיסטיקת נוכחות", "Attendance Statistics"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            guard !isLoadingStats else {
+                return
+            }
+
             loadStats()
         }
     }
@@ -253,6 +281,54 @@ struct AttendanceStatsView: View {
         }
     }
 
+    private var emptyMemberAttendanceStatsCard: some View {
+        VStack(alignment: screenHorizontalAlignment, spacing: 8) {
+            Text(tr("אין עדיין נתוני נוכחות למתאמן", "No attendance data for this trainee yet"))
+                .font(.system(size: 15, weight: .heavy))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, alignment: screenAlignment)
+                .multilineTextAlignment(screenTextAlignment)
+
+            Text(
+                tr(
+                    "המסך מחובר לשרת. לאחר סימון ושמירת נוכחות במסך הנוכחות, הנתונים של \(memberName.isEmpty ? tr("המתאמן", "the trainee") : memberName) יופיעו כאן.",
+                    "This screen is connected to the server. After attendance is marked and saved, \(memberName.isEmpty ? "the trainee" : memberName)'s data will appear here."
+                )
+            )
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(Color(red: 0.75, green: 0.86, blue: 1.0))
+            .frame(maxWidth: .infinity, alignment: screenAlignment)
+            .multilineTextAlignment(screenTextAlignment)
+
+            Text(groupContextLine)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Color(red: 0.88, green: 0.96, blue: 1.0))
+                .lineLimit(2)
+                .minimumScaleFactor(0.82)
+                .frame(maxWidth: .infinity, alignment: screenAlignment)
+                .multilineTextAlignment(screenTextAlignment)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.10),
+                            Color(red: 0.11, green: 0.31, blue: 0.85).opacity(0.18)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+        )
+    }
+
     private var streakCard: some View {
         let progress = max(0.0, min(1.0, Double(stats.streakDays) / 10.0))
 
@@ -262,11 +338,11 @@ struct AttendanceStatsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(tr("רצף נוכחות", "Attendance Streak"))
                             .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
 
                         Text(isEnglish ? "\(stats.streakDays) sessions in a row 👏" : "\(stats.streakDays) אימונים ברצף 👏")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.75))
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.29, green: 0.33, blue: 0.39))
                     }
 
                     Spacer()
@@ -290,11 +366,11 @@ struct AttendanceStatsView: View {
                     VStack(alignment: .trailing, spacing: 4) {
                         Text(tr("רצף נוכחות", "Attendance Streak"))
                             .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
 
                         Text(isEnglish ? "\(stats.streakDays) sessions in a row 👏" : "\(stats.streakDays) אימונים ברצף 👏")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.75))
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.29, green: 0.33, blue: 0.39))
                     }
                 }
             }
@@ -302,22 +378,22 @@ struct AttendanceStatsView: View {
             ProgressView(value: progress, total: 1)
                 .progressViewStyle(.linear)
                 .tint(Color(red: 0.39, green: 0.40, blue: 0.95))
-                .background(Color.white.opacity(0.14))
+                .background(Color(red: 0.90, green: 0.91, blue: 0.93))
                 .clipShape(Capsule())
 
             Text(tr("יעד חודשי: 10 אימונים", "Monthly goal: 10 sessions"))
                 .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(Color(red: 0.70, green: 0.78, blue: 1.0))
+                .foregroundStyle(Color(red: 0.39, green: 0.40, blue: 0.95))
                 .frame(maxWidth: .infinity, alignment: screenAlignment)
                 .multilineTextAlignment(screenTextAlignment)
         }
-        .padding(16)
-        .background(Color.white.opacity(0.09))
+        .padding(18)
+        .background(Color.white.opacity(0.96))
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
     
     private var bestDaysCard: some View {
@@ -327,11 +403,11 @@ struct AttendanceStatsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(tr("ימים חזקים", "Strong Days"))
                             .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
 
                         Text(bestDaysSubtitle)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.72))
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.29, green: 0.33, blue: 0.39))
                             .lineLimit(2)
                             .minimumScaleFactor(0.82)
                     }
@@ -357,11 +433,11 @@ struct AttendanceStatsView: View {
                     VStack(alignment: .trailing, spacing: 4) {
                         Text(tr("ימים חזקים", "Strong Days"))
                             .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
 
                         Text(bestDaysSubtitle)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.72))
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.29, green: 0.33, blue: 0.39))
                             .lineLimit(2)
                             .minimumScaleFactor(0.82)
                     }
@@ -379,26 +455,22 @@ struct AttendanceStatsView: View {
                     ForEach(stats.bestDays.prefix(6), id: \.self) { day in
                         Text(localizedDayName(day))
                             .font(.system(size: 14, weight: .black))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(red: 0.31, green: 0.27, blue: 0.90))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 10)
-                            .background(Color(red: 0.06, green: 0.65, blue: 0.91).opacity(0.28))
-                            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
-                            )
+                            .background(Color(red: 0.31, green: 0.27, blue: 0.90).opacity(0.14))
+                            .clipShape(RoundedRectangle(cornerRadius: 999, style: .continuous))
                     }
                 }
             }
         }
-        .padding(16)
-        .background(Color.white.opacity(0.09))
+        .padding(18)
+        .background(Color.white.opacity(0.96))
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private var bestDaysSubtitle: String {
@@ -414,13 +486,13 @@ struct AttendanceStatsView: View {
             HStack {
                 if isEnglish {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(tr("אימונים אחרונים", "Recent Sessions"))
+                        Text(tr("5 אימונים אחרונים", "Last 5 Sessions"))
                             .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
 
-                        Text(tr("8 האחרונים", "Last 8"))
+                        Text(tr("דינמי לפי רשומות נוכחות", "Based on saved attendance records"))
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.72))
+                            .foregroundStyle(Color(red: 0.29, green: 0.33, blue: 0.39))
                     }
 
                     Spacer()
@@ -442,13 +514,13 @@ struct AttendanceStatsView: View {
                     Spacer()
 
                     VStack(alignment: .trailing, spacing: 4) {
-                        Text(tr("אימונים אחרונים", "Recent Sessions"))
+                        Text(tr("5 אימונים אחרונים", "Last 5 Sessions"))
                             .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
 
-                        Text(tr("8 האחרונים", "Last 8"))
+                        Text(tr("דינמי לפי רשומות נוכחות", "Based on saved attendance records"))
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.72))
+                            .foregroundStyle(Color(red: 0.29, green: 0.33, blue: 0.39))
                     }
                 }
             }
@@ -461,19 +533,19 @@ struct AttendanceStatsView: View {
                 )
             } else {
                 VStack(spacing: 9) {
-                    ForEach(stats.lastSessions.prefix(8), id: \.self) { line in
+                    ForEach(stats.lastSessions.prefix(5), id: \.self) { line in
                         sessionRow(line)
                     }
                 }
             }
         }
-        .padding(16)
-        .background(Color.white.opacity(0.09))
+        .padding(18)
+        .background(Color.white.opacity(0.96))
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
     
     private func loadStats() {
@@ -483,6 +555,13 @@ struct AttendanceStatsView: View {
             groupKey: groupKey,
             memberId: memberId
         )
+
+        hasRealAttendanceData =
+            stats.monthlyPercent > 0 ||
+            stats.yearlyPercent > 0 ||
+            stats.streakDays > 0 ||
+            !stats.bestDays.isEmpty ||
+            !stats.lastSessions.isEmpty
 
         loadRemoteStats()
     }
@@ -526,6 +605,8 @@ struct AttendanceStatsView: View {
                         recordsByDate.append((dateIso: dateIso, record: record))
                     }
                 }
+
+                hasRealAttendanceData = !recordsByDate.isEmpty
 
                 if !recordsByDate.isEmpty {
                     stats = makeStats(from: recordsByDate)
@@ -688,61 +769,66 @@ struct AttendanceStatsView: View {
         }
     }
 
+    private func metricFeedback(_ percent: Int) -> String {
+        if percent >= 85 {
+            return tr("מצוין 💜", "Excellent 💜")
+        }
+
+        if percent >= 70 {
+            return tr("טוב מאוד", "Very good")
+        }
+
+        return tr("אפשר לשפר", "Can improve")
+    }
+
     private func metricCard(
         title: String,
         percent: Int,
         icon: String,
         gradient: [Color]
     ) -> some View {
-        VStack(alignment: screenHorizontalAlignment, spacing: 12) {
-            HStack {
-                if isEnglish {
-                    Image(systemName: icon)
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(.white.opacity(0.92))
+        VStack(spacing: 10) {
+            Text(title)
+                .font(.system(size: 14, weight: .heavy))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.82)
 
-                    Spacer()
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: gradient,
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 96, height: 96)
 
-                    Text(title)
-                        .font(.system(size: 15, weight: .heavy))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.trailing)
-                } else {
-                    Text(title)
-                        .font(.system(size: 15, weight: .heavy))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.trailing)
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 70, height: 70)
 
-                    Spacer()
-
-                    Image(systemName: icon)
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(.white.opacity(0.92))
-                }
+                Text("\(percent)%")
+                    .font(.system(size: 20, weight: .black, design: .rounded))
+                    .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
             }
 
-            Text("\(percent)%")
-                .font(.system(size: 32, weight: .black, design: .rounded))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, alignment: screenAlignment)
-
-            ProgressView(value: Double(max(0, min(100, percent))), total: 100)
-                .progressViewStyle(.linear)
-                .tint(.white)
-                .background(Color.white.opacity(0.18))
-                .clipShape(Capsule())
+            Text(metricFeedback(percent))
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Color(red: 0.90, green: 0.93, blue: 0.98))
+                .frame(maxWidth: .infinity)
+                .multilineTextAlignment(.center)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
         }
-        .padding(16)
-        .background(
-            LinearGradient(
-                colors: gradient,
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .opacity(0.92)
-        )
+        .padding(14)
+        .frame(maxWidth: .infinity)
+        .background(Color.white.opacity(0.10))
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 5)
     }
 
     private func statPill(title: String, value: String, tint: Color) -> some View {
@@ -771,36 +857,28 @@ struct AttendanceStatsView: View {
         VStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 24, weight: .heavy))
-                .foregroundStyle(Color(red: 0.58, green: 0.78, blue: 1.0))
+                .foregroundStyle(Color(red: 0.06, green: 0.45, blue: 0.75))
                 .frame(width: 50, height: 50)
-                .background(Color.white.opacity(0.10))
+                .background(Color(red: 0.90, green: 0.95, blue: 1.0))
                 .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                )
 
             Text(title)
                 .font(.system(size: 15, weight: .heavy))
-                .foregroundStyle(.white.opacity(0.88))
+                .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
                 .frame(maxWidth: .infinity, alignment: .center)
                 .multilineTextAlignment(.center)
 
             Text(subtitle)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.64))
+                .foregroundStyle(Color(red: 0.42, green: 0.45, blue: 0.50))
                 .frame(maxWidth: .infinity, alignment: .center)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
         .padding(.horizontal, 14)
-        .background(Color.white.opacity(0.075))
+        .background(Color(red: 0.95, green: 0.96, blue: 0.98))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.10), lineWidth: 1)
-        )
     }
 
     private func sessionRow(_ line: String) -> some View {
@@ -808,22 +886,22 @@ struct AttendanceStatsView: View {
             if isEnglish {
                 Text(localizedSessionLine(line))
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color(red: 0.22, green: 0.25, blue: 0.32))
                     .lineLimit(2)
                     .minimumScaleFactor(0.86)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Circle()
                     .fill(sessionTint(for: line))
-                    .frame(width: 10, height: 10)
+                    .frame(width: 12, height: 12)
             } else {
                 Circle()
                     .fill(sessionTint(for: line))
-                    .frame(width: 10, height: 10)
+                    .frame(width: 12, height: 12)
 
                 Text(localizedSessionLine(line))
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color(red: 0.22, green: 0.25, blue: 0.32))
                     .lineLimit(2)
                     .minimumScaleFactor(0.86)
                     .frame(maxWidth: .infinity, alignment: .trailing)
@@ -831,12 +909,6 @@ struct AttendanceStatsView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color.white.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
-                .stroke(Color.white.opacity(0.10), lineWidth: 1)
-        )
     }
 
     private func localizedSessionLine(_ line: String) -> String {

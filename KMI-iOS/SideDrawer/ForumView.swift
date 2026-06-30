@@ -113,13 +113,17 @@ struct ForumView: View {
     // רשימת משתתפים אמיתיים לפי users בסניף — כמו באנדרואיד.
     // אם לא נמצאו משתמשים, forumParticipants ייפול לשמות מתוך ההודעות.
     @State private var participantsByUsers: [ForumParticipantUi] = []
+    @State private var isParticipantsLoading: Bool = false
 
+    @State private var isForumControlsCollapsed: Bool = true
+    @State private var showRoomDetails: Bool = false
+    
     @State private var input: String = ""
     @State private var editingMessageId: String? = nil
     @State private var editText: String = ""
-
+    @FocusState private var isComposerFocused: Bool
     @State private var pickedSearchHit: ForumExerciseHit? = nil
-
+    
     #if canImport(FirebaseStorage)
     @State private var attachedImageData: Data? = nil
     @State private var attachedVideoUrl: URL? = nil
@@ -274,13 +278,30 @@ struct ForumView: View {
             $0
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
+                .replacingOccurrences(of: "-", with: "_")
+                .replacingOccurrences(of: " ", with: "_")
         }
 
-        return values.contains("en") ||
-            values.contains("english") ||
-            values.contains("eng")
-    }
+        for value in values {
+            if value == "he" ||
+                value == "heb" ||
+                value == "hebrew" ||
+                value == "עברית" ||
+                value.contains("hebrew") {
+                return false
+            }
 
+            if value == "en" ||
+                value == "eng" ||
+                value == "english" ||
+                value.contains("english") {
+                return true
+            }
+        }
+
+        return false
+    }
+    
     private var layoutDirection: LayoutDirection {
         isEnglish ? .leftToRight : .rightToLeft
     }
@@ -599,14 +620,16 @@ struct ForumView: View {
     }
 
     private var chatView: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
 
-            roomLabelCard
-                .padding(.horizontal, 12)
-
-            if !forumParticipants.isEmpty {
-                participantsCard
+            if isForumControlsCollapsed {
+                forumControlsMiniHandle
                     .padding(.horizontal, 12)
+                    .padding(.top, 4)
+            } else {
+                forumControlsExpandedCard
+                    .padding(.horizontal, 12)
+                    .padding(.top, 4)
             }
 
             ScrollViewReader { proxy in
@@ -687,6 +710,223 @@ if attachedMediaType != nil {
         }
     }
 
+    private var forumControlsMiniHandle: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.18)) {
+                isForumControlsCollapsed = false
+            }
+        } label: {
+            HStack(spacing: 8) {
+                if isEnglish {
+                    forumHandleLines
+                }
+
+                Text(tr("לחץ לבחירת חדר הפורום ומשתתפים", "Tap to choose forum room and participants"))
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(forumSecondaryTextColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
+
+                if !isEnglish {
+                    forumHandleLines
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
+            .frame(height: 32)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(forumCardColor)
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(forumCardBorderColor, lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(isDarkMode ? 0.00 : 0.10), radius: 5, x: 0, y: 2)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var forumControlsExpandedCard: some View {
+        VStack(spacing: 7) {
+            Button {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    showRoomDetails.toggle()
+                }
+            } label: {
+                forumControlRow(
+                    icon: "house.fill",
+                    title: tr("בחירת חדר פורום", "Forum room"),
+                    subtitle: "\(branch.ifEmpty("—")) • \(groupKey.ifEmpty("—"))",
+                    isExpanded: showRoomDetails,
+                    accent: Color.blue.opacity(0.86)
+                )
+            }
+            .buttonStyle(.plain)
+
+            if showRoomDetails {
+                roomLabelCard
+            }
+
+            Divider()
+                .opacity(0.18)
+
+            Button {
+                showParticipantsSheet = true
+            } label: {
+                forumControlRow(
+                    icon: "person.2.fill",
+                    title: isParticipantsLoading
+                    ? tr("טוען משתתפים...", "Loading participants...")
+                    : (
+                        forumParticipants.isEmpty
+                        ? tr("משתתפים בפורום", "Forum participants")
+                        : tr("משתתפים בפורום (\(forumParticipants.count))", "Forum participants (\(forumParticipants.count))")
+                    ),
+                    subtitle: isParticipantsLoading
+                    ? tr("בודק מי רשום לחדר הזה", "Checking who belongs to this room")
+                    : (
+                        forumParticipants.isEmpty
+                        ? tr("אין משתתפים רשומים בקבוצה הזו עדיין", "No registered participants in this group yet")
+                        : tr("לחץ להצגת הרשימה", "Tap to show the list")
+                    ),
+                    isExpanded: false,
+                    accent: Color.purple.opacity(0.82)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isParticipantsLoading || forumParticipants.isEmpty)
+            .opacity((isParticipantsLoading || forumParticipants.isEmpty) ? 0.62 : 1.0)
+            
+            Button {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    showRoomDetails = false
+                    isForumControlsCollapsed = true
+                }
+            } label: {
+                forumCollapseHandle
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 2)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(forumCardColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(forumCardBorderColor, lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(isDarkMode ? 0.00 : 0.12), radius: 8, x: 0, y: 4)
+    }
+    
+    private func forumControlRow(
+        icon: String,
+        title: String,
+        subtitle: String,
+        isExpanded: Bool,
+        accent: Color
+    ) -> some View {
+        HStack(spacing: 9) {
+            if isEnglish {
+                forumControlIcon(icon: icon, accent: accent)
+            }
+
+            VStack(alignment: stackAlignment, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 12, weight: .black))
+                    .foregroundStyle(forumPrimaryTextColor)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
+
+                Text(subtitle)
+                    .font(.system(size: 9.5, weight: .bold))
+                    .foregroundStyle(forumSecondaryTextColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.76)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(accent.opacity(0.10))
+                    )
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .stroke(accent.opacity(0.18), lineWidth: 1)
+                    )
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+            }
+
+            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                .font(.system(size: 12, weight: .black))
+                .foregroundStyle(accent)
+                .frame(width: 30, height: 30)
+                .background(
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .fill(accent.opacity(0.10))
+                )
+
+            if !isEnglish {
+                forumControlIcon(icon: icon, accent: accent)
+            }
+        }
+        .environment(\.layoutDirection, .leftToRight)
+        .padding(.horizontal, 2)
+        .padding(.vertical, 2)
+    }
+
+    private func forumControlIcon(
+        icon: String,
+        accent: Color
+    ) -> some View {
+        Image(systemName: icon)
+            .font(.system(size: 14, weight: .black))
+            .foregroundStyle(accent)
+            .frame(width: 34, height: 34)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(accent.opacity(0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(accent.opacity(0.24), lineWidth: 1)
+            )
+    }
+    
+    private var forumCollapseHandle: some View {
+        VStack(spacing: 2) {
+            ForEach(0..<3, id: \.self) { _ in
+                Capsule()
+                    .fill(forumSuccessGreen.opacity(0.72))
+                    .frame(width: 36, height: 2)
+            }
+        }
+        .frame(width: 86, height: 22)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(isDarkMode ? 0.06 : 0.62))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(forumCardBorderColor.opacity(0.85), lineWidth: 1)
+        )
+    }
+    
+    private var forumHandleLines: some View {
+        VStack(spacing: 2) {
+            ForEach(0..<3, id: \.self) { _ in
+                Capsule()
+                    .fill(forumSuccessGreen.opacity(0.72))
+                    .frame(width: 32, height: 2)
+            }
+        }
+    }
+    
     private var emptyForumMessagesView: some View {
         VStack(spacing: 10) {
             Image(systemName: "bubble.left.and.bubble.right")
@@ -724,13 +964,14 @@ if attachedMediaType != nil {
             ? "Branch: \(branch)  •  Group: \(groupKey)"
             : "סניף: \(branch)  •  קבוצה: \(groupKey)"
         )
-        .font(.system(size: 13, weight: .medium))
+        .font(.system(size: 11, weight: .bold))
         .foregroundStyle(forumSecondaryTextColor)
         .multilineTextAlignment(.center)
         .lineLimit(2)
+        .minimumScaleFactor(0.78)
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(forumCardColor)
@@ -963,13 +1204,13 @@ if attachedMediaType != nil {
 
                 if !msg.text.isEmpty {
                     Text(msg.text)
-                        .font(.system(size: 15, weight: .regular))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(mainTextColor)
                         .multilineTextAlignment(innerTextAlignment)
                         .frame(maxWidth: 260, alignment: bubbleAlignment)
                         .fixedSize(horizontal: false, vertical: true)
-                }
-
+                    }
+                
                 if let urlStr = msg.mediaUrl,
                    let type = msg.mediaType,
                    let url = URL(string: urlStr) {
@@ -1034,7 +1275,7 @@ if attachedMediaType != nil {
                 }
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .padding(.vertical, 6)
             .background(bubbleColor)
             .clipShape(bubbleShape)
             .overlay(
@@ -1080,6 +1321,7 @@ if attachedMediaType != nil {
 
                         TextField("", text: composerBinding, axis: .horizontal)
                             .textFieldStyle(.plain)
+                            .focused($isComposerFocused)
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(forumPrimaryTextColor)
                             .multilineTextAlignment(textAlignment)
@@ -1388,18 +1630,25 @@ if attachedMediaType != nil {
         listener?.remove()
         listener = nil
         participantsByUsers = []
+        isParticipantsLoading = false
     }
-
+    
     private func loadForumParticipantsForBranch(_ branchValue: String) async {
         let cleanBranch = branchValue.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        await MainActor.run {
+            participantsByUsers = []
+            isParticipantsLoading = true
+        }
 
         guard !cleanBranch.isEmpty else {
             await MainActor.run {
                 participantsByUsers = []
+                isParticipantsLoading = false
             }
             return
         }
-
+        
         let currentUid = Auth.auth().currentUser?.uid
         let currentEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let currentName = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1680,6 +1929,7 @@ if attachedMediaType != nil {
 
         await MainActor.run {
             participantsByUsers = participants
+            isParticipantsLoading = false
         }
     }
     
@@ -1930,12 +2180,14 @@ if attachedMediaType != nil {
                 input = ""
                 editText = ""
                 editingMessageId = nil
+                isComposerFocused = false
+                errorText = nil
 
                 #if canImport(FirebaseStorage)
                 clearAttachment()
                 #endif
             }
-
+            
         } catch {
             await MainActor.run {
                 errorText = tr(

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import FirebaseAuth
 import FirebaseFirestore
 
@@ -7,6 +8,12 @@ private extension String {
         let clean = trimmingCharacters(in: .whitespacesAndNewlines)
         return clean.isEmpty ? "—" : clean
     }
+}
+
+private struct MyProfileBranchEntry: Identifiable {
+    let id = UUID()
+    let branch: String
+    let address: String
 }
 
 private struct MyProfileFirestoreInfo {
@@ -20,7 +27,6 @@ private struct MyProfileFirestoreInfo {
     var group: String = ""
     var belt: String = ""
     var role: String = ""
-    var headCoach: String = ""
     var coach: String = ""
     var nextTraining: String = ""
 }
@@ -223,6 +229,19 @@ struct MyProfileView: View {
     }
 
     private var displayedBranchAddress: String {
+        branchAddressEntries
+            .map { $0.address }
+            .joined(separator: "\n")
+            .ifBlankDash()
+    }
+
+    private var branchAddressEntries: [MyProfileBranchEntry] {
+        let branches = profileBranchList(from: resolvedBranch)
+
+        guard !branches.isEmpty else {
+            return []
+        }
+
         let explicitAddress = firstNonEmpty(
             firestoreInfo.branchAddress,
             branchAddress,
@@ -230,27 +249,22 @@ struct MyProfileView: View {
             address
         )
 
-        let branches = profileBranchList(from: resolvedBranch)
-
-        if branches.count <= 1 {
-            return firstNonEmpty(
-                explicitAddress,
-                branchAddressFallback(for: displayedBranch)
-            )
-            .ifBlankDash()
-        }
-
         let explicitAddresses = profileBranchList(from: explicitAddress)
 
-        if explicitAddresses.count == branches.count {
-            return explicitAddresses.joined(separator: "\n").ifBlankDash()
-        }
+        return branches.enumerated().map { index, branchValue in
+            let explicitForBranch = explicitAddresses.indices.contains(index) ? explicitAddresses[index] : ""
 
-        let resolvedAddresses = branches.map { branchValue in
-            branchAddressFallback(for: branchValue)
-        }
+            let resolvedAddress = firstNonEmpty(
+                explicitForBranch,
+                branchAddressFallback(for: branchValue)
+            )
+            .ifBlankDash()
 
-        return resolvedAddresses.joined(separator: "\n").ifBlankDash()
+            return MyProfileBranchEntry(
+                branch: branchValue,
+                address: resolvedAddress
+            )
+        }
     }
 
     private var displayedGroup: String {
@@ -273,19 +287,18 @@ struct MyProfileView: View {
         beltDisplayNameForUi(resolvedBeltId)
     }
 
+    private var resolvedNextBeltId: String {
+        nextBeltIdForUi(resolvedBeltId)
+    }
+
     private var displayedNextBelt: String {
         nextBeltDisplayNameForUi(resolvedBeltId)
     }
 
-    private var displayedHeadCoach: String {
-        firstNonEmpty(
-            firestoreInfo.headCoach,
-            headCoach,
-            tr("איציק ביטון", "Itzik Biton")
-        )
-        .ifBlankDash()
+    private var displayedNextBeltId: String {
+        nextBeltIdForUi(resolvedBeltId)
     }
-
+    
     private var displayedCoach: String {
         firstNonEmpty(
             firestoreInfo.coach,
@@ -468,36 +481,31 @@ struct MyProfileView: View {
     }
 
     private var headerSection: some View {
-        VStack(spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
-                if isEnglish {
-                    headerTextBlock(
-                        alignment: .leading,
-                        frameAlignment: .leading,
-                        textAlignment: .leading
-                    )
+        HStack(alignment: .top, spacing: 8) {
+            if isEnglish {
+                profileBeltImage
+                    .frame(width: 118, height: 76)
+                    .padding(.top, -12)
 
-                    closeButton
-                } else {
-                    closeButton
+                headerTextBlock(
+                    alignment: .leading,
+                    frameAlignment: .leading,
+                    textAlignment: .leading
+                )
+            } else {
+                headerTextBlock(
+                    alignment: .trailing,
+                    frameAlignment: .trailing,
+                    textAlignment: .trailing
+                )
 
-                    headerTextBlock(
-                        alignment: .trailing,
-                        frameAlignment: .trailing,
-                        textAlignment: .trailing
-                    )
-                }
+                profileBeltImage
+                    .frame(width: 104, height: 82)
+                    .padding(.top, -10)
             }
-            .frame(maxWidth: .infinity)
-            .environment(\.layoutDirection, .leftToRight)
-
-            profileBeltImage
-                .frame(maxWidth: .infinity)
-                .frame(height: 76)
-                .padding(.horizontal, 8)
-                .padding(.top, -2)
-                .padding(.bottom, 2)
         }
+        .frame(maxWidth: .infinity)
+        .environment(\.layoutDirection, .leftToRight)
     }
 
     private func headerTextBlock(
@@ -528,7 +536,7 @@ struct MyProfileView: View {
         Image(profileBeltImageName(for: resolvedBeltId))
             .resizable()
             .scaledToFit()
-            .rotationEffect(.degrees(isEnglish ? -5 : 5))
+            .rotationEffect(.degrees(-24))
             .shadow(color: Color.black.opacity(0.17), radius: 7, x: 0, y: 4)
             .accessibilityHidden(true)
     }
@@ -615,24 +623,14 @@ struct MyProfileView: View {
 
     private var profileInfoSections: some View {
         VStack(spacing: 0) {
-            labeledValueBlock(
-                label: tr("סניף:", "Branch:"),
-                value: displayedBranch
-            )
-
-            labeledValueBlock(
-                label: tr("כתובת הסניף:", "Branch address:"),
-                value: displayedBranchAddress
+            branchAddressListBlock(
+                label: tr("סניפים וכתובות:", "Branches and addresses:"),
+                entries: branchAddressEntries
             )
 
             labeledValueBlock(
                 label: tr("קבוצה:", "Group:"),
                 value: displayedGroup
-            )
-
-            labeledValueBlock(
-                label: tr("מאמן בכיר:", "Head coach:"),
-                value: displayedHeadCoach
             )
 
             labeledValueBlock(
@@ -644,12 +642,6 @@ struct MyProfileView: View {
                 label: tr("אימון הבא:", "Next training:"),
                 value: displayedNextTraining
             )
-
-            Spacer().frame(height: 4)
-
-            thinDivider.opacity(0.75)
-
-            Spacer().frame(height: 4)
 
             labeledValueBlock(
                 label: tr("מייל:", "Email:"),
@@ -696,6 +688,58 @@ struct MyProfileView: View {
                 .frame(height: 1)
         }
         .padding(.vertical, 5)
+    }
+
+    private func branchAddressListBlock(
+        label: String,
+        entries: [MyProfileBranchEntry]
+    ) -> some View {
+        VStack(alignment: profileStackAlignment, spacing: 8) {
+            Text(label)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Color(red: 0.35, green: 0.40, blue: 0.50))
+                .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
+                .multilineTextAlignment(profileTextAlignment)
+
+            if entries.isEmpty {
+                Text("—")
+                    .font(.system(size: 15, weight: .heavy))
+                    .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.18))
+                    .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
+                    .multilineTextAlignment(profileTextAlignment)
+            } else {
+                ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                    VStack(alignment: profileStackAlignment, spacing: 4) {
+                        Text(entry.branch.ifBlankDash())
+                            .font(.system(size: 15, weight: .heavy))
+                            .foregroundStyle(Color(red: 0.12, green: 0.23, blue: 0.54))
+                            .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
+                            .multilineTextAlignment(profileTextAlignment)
+
+                        Text(entry.address.ifBlankDash())
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.22, green: 0.25, blue: 0.32))
+                            .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
+                            .multilineTextAlignment(profileTextAlignment)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(index.isMultiple(of: 2) ? Color(red: 0.87, green: 0.92, blue: 1.00) : Color(red: 0.95, green: 0.97, blue: 1.00))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(Color(red: 0.75, green: 0.82, blue: 0.91), lineWidth: 1)
+                            )
+                    )
+                }
+            }
+
+            Rectangle()
+                .fill(Color(red: 0.72, green: 0.79, blue: 0.89))
+                .frame(height: 1)
+        }
+        .padding(.vertical, 6)
     }
 
     private func passwordRow(label: String, password: String) -> some View {
@@ -760,7 +804,7 @@ struct MyProfileView: View {
 
             HStack(spacing: 10) {
                 if isEnglish {
-                    Image(profileBeltImageName(for: displayedNextBelt))
+                    Image(profileBeltImageName(for: resolvedNextBeltId))
                         .resizable()
                         .scaledToFit()
                         .frame(width: 90, height: 38)
@@ -783,7 +827,7 @@ struct MyProfileView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.80)
 
-                    Image(profileBeltImageName(for: displayedNextBelt))
+                    Image(profileBeltImageName(for: resolvedNextBeltId))
                         .resizable()
                         .scaledToFit()
                         .frame(width: 90, height: 38)
@@ -924,15 +968,6 @@ struct MyProfileView: View {
                                 "type"
                             ]
                         ),
-                        headCoach: firstFirestoreString(
-                            data,
-                            keys: [
-                                "headCoach",
-                                "head_coach",
-                                "seniorCoach",
-                                "senior_coach"
-                            ]
-                        ),
                         coach: firstFirestoreString(
                             data,
                             keys: [
@@ -1043,10 +1078,6 @@ struct MyProfileView: View {
             defaults.set(info.role, forKey: "user_role")
         }
 
-        if !info.headCoach.isEmpty {
-            defaults.set(info.headCoach, forKey: "headCoach")
-        }
-
         if !info.coach.isEmpty {
             defaults.set(info.coach, forKey: "coach")
             defaults.set(info.coach, forKey: "coachName")
@@ -1080,6 +1111,15 @@ struct MyProfileView: View {
         case "black",
              "שחורה",
              "שחורה דאן 1",
+             "שחורה דאן 2",
+             "שחורה דאן 3",
+             "שחורה דאן 4",
+             "שחורה דאן 5",
+             "שחורה דאן 6",
+             "שחורה דאן 7",
+             "שחורה דאן 8",
+             "שחורה דאן 9",
+             "שחורה דאן 10",
              "black_dan_2",
              "black_dan_3",
              "black_dan_4",
@@ -1177,6 +1217,47 @@ struct MyProfileView: View {
         }
     }
 
+    private func nextBeltIdForUi(_ raw: String) -> String {
+        let clean = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        switch clean {
+        case "white", "לבנה":
+            return "yellow"
+        case "yellow", "צהובה":
+            return "orange"
+        case "orange", "כתומה":
+            return "green"
+        case "green", "ירוקה":
+            return "blue"
+        case "blue", "כחולה":
+            return "brown"
+        case "brown", "חומה":
+            return "black"
+        case "black", "שחורה", "שחורה דאן 1":
+            return "black_dan_2"
+        case "black_dan_2", "שחורה דאן 2":
+            return "black_dan_3"
+        case "black_dan_3", "שחורה דאן 3":
+            return "black_dan_4"
+        case "black_dan_4", "שחורה דאן 4":
+            return "black_dan_5"
+        case "black_dan_5", "שחורה דאן 5":
+            return "black_dan_6"
+        case "black_dan_6", "שחורה דאן 6":
+            return "black_dan_7"
+        case "black_dan_7", "שחורה דאן 7":
+            return "black_dan_8"
+        case "black_dan_8", "שחורה דאן 8":
+            return "black_dan_9"
+        case "black_dan_9", "שחורה דאן 9":
+            return "black_dan_10"
+        default:
+            return ""
+        }
+    }
+        
     private func nextBeltDisplayNameForUi(_ raw: String) -> String {
         let clean = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)

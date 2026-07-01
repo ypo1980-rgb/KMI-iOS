@@ -16,7 +16,9 @@ final class KmiPushManager: NSObject {
     var lastOpenedRoute: String? = nil
     var lastPayload: [AnyHashable: Any] = [:]
 
-    private let db = Firestore.firestore()
+    private var db: Firestore {
+        Firestore.firestore()
+    }
 
     private override init() {
         super.init()

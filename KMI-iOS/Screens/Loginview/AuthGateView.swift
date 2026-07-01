@@ -1,5 +1,7 @@
 import SwiftUI
+import FirebaseCore
 import FirebaseAuth
+import FirebaseFirestore
 
 struct AuthGateView: View {
 
@@ -10,8 +12,9 @@ struct AuthGateView: View {
     @State private var didBootstrap: Bool = false
     @State private var didFinishInitialAuthCheck: Bool = false
     @State private var didCompleteAuthScreen: Bool = false
-    @State private var didFinishPostLoginLoading: Bool = false
+    @State private var didFinishPostLoginLoading: Bool = true
     @State private var didRequestEnterApp: Bool = false
+    @State private var isCheckingServerUser: Bool = false
 
     private enum AuthEntryStep {
         case intro
@@ -22,110 +25,6 @@ struct AuthGateView: View {
         case registerNewCoach
     }
 
-    private func firstNonBlankProfileValue(_ values: String?...) -> String {
-        values
-            .map { ($0 ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty } ?? ""
-    }
-
-    private func hasAnyNonBlankDefaultValue(_ keys: [String]) -> Bool {
-        let defaults = UserDefaults.standard
-
-        return keys.contains { key in
-            let value = defaults.string(forKey: key)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-            return !value.isEmpty
-        }
-    }
-
-    private var shouldSkipIntroForKnownUser: Bool {
-        let defaults = UserDefaults.standard
-
-        guard let firebaseUser = Auth.auth().currentUser else {
-            return false
-        }
-
-        if firebaseUser.isAnonymous {
-            return false
-        }
-
-        let uid = firebaseUser.uid.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if uid.isEmpty {
-            return false
-        }
-
-        let completedUid = firstNonBlankProfileValue(
-            defaults.string(forKey: "profile_completed_uid"),
-            defaults.string(forKey: "uid"),
-            defaults.string(forKey: "user_uid"),
-            defaults.string(forKey: "firebase_uid"),
-            defaults.string(forKey: "auth_uid")
-        )
-
-        let uidMatches = completedUid.isEmpty || completedUid == uid
-
-        let email = firstNonBlankProfileValue(
-            defaults.string(forKey: "email"),
-            defaults.string(forKey: "user_email"),
-            firebaseUser.email
-        )
-
-        let phone = firstNonBlankProfileValue(
-            defaults.string(forKey: "phone"),
-            defaults.string(forKey: "phone_number"),
-            defaults.string(forKey: "phoneNumber"),
-            defaults.string(forKey: "phoneRaw"),
-            defaults.string(forKey: "user_phone"),
-            defaults.string(forKey: "mobilePhone")
-        )
-        .filter { $0.isNumber }
-
-        let localProfileCompleted =
-            defaults.bool(forKey: "profile_completed") ||
-            defaults.bool(forKey: "registration_complete")
-
-        let hasStoredCompletedProfile =
-            hasAnyNonBlankDefaultValue([
-                "fullName",
-                "full_name",
-                "displayName",
-                "display_name",
-                "user_name",
-                "name"
-            ]) &&
-            hasAnyNonBlankDefaultValue([
-                "region",
-                "active_region",
-                "user_region"
-            ]) &&
-            hasAnyNonBlankDefaultValue([
-                "branch",
-                "active_branch",
-                "activeBranch",
-                "user_branch",
-                "traineeBranch"
-            ]) &&
-            hasAnyNonBlankDefaultValue([
-                "username",
-                "userName",
-                "user_name"
-            ])
-
-        return uidMatches &&
-               (localProfileCompleted || hasStoredCompletedProfile) &&
-               !email.isEmpty &&
-               phone.count >= 9
-    }
-
-    private func enterAppThroughStartupLoading() {
-        auth.reloadProfileIfSignedIn()
-        didCompleteAuthScreen = true
-        didFinishPostLoginLoading = false
-        didRequestEnterApp = true
-    }
-
     @State private var step: AuthEntryStep = .intro
 
     var body: some View {
@@ -133,8 +32,13 @@ struct AuthGateView: View {
             KmiGradientBackground(forceTraineeStyle: true)
 
             Group {
-                if didRequestEnterApp && !didFinishPostLoginLoading {
+                if isCheckingServerUser {
+                    KmiStartupLoadingScreen(
+                        isEnglish: KmiStartupLanguage.currentFromDefaults().isEnglish,
+                        onFinished: { }
+                    )
 
+                } else if didRequestEnterApp && !didFinishPostLoginLoading {
                     KmiStartupLoadingScreen(
                         isEnglish: KmiStartupLanguage.currentFromDefaults().isEnglish,
                         onFinished: {
@@ -143,13 +47,13 @@ struct AuthGateView: View {
                     )
 
                 } else if didRequestEnterApp {
-
                     ContentView()
                         .onAppear {
                             didCompleteAuthScreen = true
+                            didFinishPostLoginLoading = true
                         }
-                } else {
 
+                } else {
                     authFlowStack
                 }
             }
@@ -162,60 +66,92 @@ struct AuthGateView: View {
             didEnterAuthFlow = false
             didCompleteAuthScreen = false
             didFinishInitialAuthCheck = false
-            didFinishPostLoginLoading = false
+            didFinishPostLoginLoading = true
             didRequestEnterApp = false
+            isCheckingServerUser = false
             step = .intro
             nav.popToRoot()
 
-            // נותן ל-SwiftUI לצייר קודם את מסך הכניסה/הרקע,
-            // ורק אחרי זה מתחיל בדיקות Auth/Firebase.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 auth.start()
-
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    if shouldSkipIntroForKnownUser {
-                        enterAppThroughStartupLoading()
-                    }
-                }
             }
         }
         .onChange(of: auth.isSignedIn) { _, isSignedIn in
             if isSignedIn {
-                if shouldSkipIntroForKnownUser {
-                    auth.reloadProfileIfSignedIn()
-                    didCompleteAuthScreen = true
-                    didFinishPostLoginLoading = false
-                    didRequestEnterApp = true
-                } else {
-                    didCompleteAuthScreen = true
-                }
+                routeSignedInUserByServerDocument()
             } else {
-                didRequestEnterApp = false
-                didFinishPostLoginLoading = false
-                didCompleteAuthScreen = false
-                step = .intro
+                resetToIntro()
             }
         }
-        .onChange(of: auth.isSignedIn) { _, isSignedIn in
-            if isSignedIn {
-                if shouldSkipIntroForKnownUser {
-                    auth.reloadProfileIfSignedIn()
-                    didCompleteAuthScreen = true
-                    didFinishPostLoginLoading = false
-                    didRequestEnterApp = true
-                } else {
-                    didCompleteAuthScreen = true
-                }
-            } else {
-                didRequestEnterApp = false
-                didFinishPostLoginLoading = false
-                didCompleteAuthScreen = false
-                step = .intro
-            }
-        }
-        
         .onDisappear {
             auth.stop()
+        }
+    }
+
+    private func resetToIntro() {
+        isCheckingServerUser = false
+        didRequestEnterApp = false
+        didFinishPostLoginLoading = true
+        didCompleteAuthScreen = false
+        step = .intro
+    }
+
+    private func routeSignedInUserByServerDocument() {
+        guard FirebaseApp.app() != nil else {
+            resetToIntro()
+            return
+        }
+
+        guard let firebaseUser = Auth.auth().currentUser else {
+            resetToIntro()
+            return
+        }
+
+        if firebaseUser.isAnonymous {
+            resetToIntro()
+            return
+        }
+
+        let uid = firebaseUser.uid.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !uid.isEmpty else {
+            resetToIntro()
+            return
+        }
+
+        isCheckingServerUser = true
+        didRequestEnterApp = false
+        didFinishPostLoginLoading = true
+
+        Task {
+            do {
+                let snapshot = try await Firestore.firestore()
+                    .collection("users")
+                    .document(uid)
+                    .getDocument()
+
+                await MainActor.run {
+                    isCheckingServerUser = false
+
+                    guard snapshot.exists, snapshot.data() != nil else {
+                        try? Auth.auth().signOut()
+                        resetToIntro()
+                        return
+                    }
+
+                    didCompleteAuthScreen = true
+                    didFinishPostLoginLoading = false
+                    didRequestEnterApp = true
+
+                    auth.reloadProfileIfSignedIn()
+                }
+
+            } catch {
+                await MainActor.run {
+                    isCheckingServerUser = false
+                    resetToIntro()
+                }
+            }
         }
     }
 
@@ -228,10 +164,7 @@ struct AuthGateView: View {
                     KmiIntroGateScreen(
                         onGoogleLogin: {
                             if auth.isSignedIn {
-                                auth.reloadProfileIfSignedIn()
-                                didFinishPostLoginLoading = false
-                                didCompleteAuthScreen = true
-                                didRequestEnterApp = true
+                                routeSignedInUserByServerDocument()
                                 return true
                             }
 
@@ -241,9 +174,7 @@ struct AuthGateView: View {
                             )
 
                             if success || auth.isSignedIn {
-                                didFinishPostLoginLoading = false
-                                didCompleteAuthScreen = true
-                                didRequestEnterApp = true
+                                routeSignedInUserByServerDocument()
                                 return true
                             }
 
@@ -274,9 +205,7 @@ struct AuthGateView: View {
                         onBackToChoice: { step = .intro },
                         onGoToRegister: { step = .registerNewTrainee },
                         onLoginSuccess: {
-                            didCompleteAuthScreen = true
-                            didFinishPostLoginLoading = false
-                            didRequestEnterApp = true
+                            routeSignedInUserByServerDocument()
                         }
                     )
 
@@ -286,9 +215,7 @@ struct AuthGateView: View {
                         onBackToChoice: { step = .intro },
                         onGoToRegister: { step = .registerNewCoach },
                         onLoginSuccess: {
-                            didCompleteAuthScreen = true
-                            didFinishPostLoginLoading = false
-                            didRequestEnterApp = true
+                            routeSignedInUserByServerDocument()
                         }
                     )
 
@@ -300,9 +227,7 @@ struct AuthGateView: View {
                         onBack: { step = .intro },
                         onSubmit: { _ in
                             if auth.isSignedIn {
-                                didCompleteAuthScreen = true
-                                didFinishPostLoginLoading = false
-                                didRequestEnterApp = true
+                                routeSignedInUserByServerDocument()
                             } else {
                                 step = .loginExistingTrainee
                             }
@@ -318,9 +243,7 @@ struct AuthGateView: View {
                         onBack: { step = .intro },
                         onSubmit: { _ in
                             if auth.isSignedIn {
-                                didCompleteAuthScreen = true
-                                didFinishPostLoginLoading = false
-                                didRequestEnterApp = true
+                                routeSignedInUserByServerDocument()
                             } else {
                                 step = .loginExistingCoach
                             }

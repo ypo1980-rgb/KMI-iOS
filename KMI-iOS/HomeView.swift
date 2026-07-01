@@ -981,10 +981,20 @@ struct HomeView: View {
     private func startCoachBroadcastListener() {
         stopCoachBroadcastListener()
 
-        let currentUid = Auth.auth().currentUser?.uid
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let firebaseUser = Auth.auth().currentUser else {
+            recentCoachMessages = []
+            return
+        }
 
-        let currentEmail = Auth.auth().currentUser?.email?
+        let currentUid = firebaseUser.uid
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !currentUid.isEmpty else {
+            recentCoachMessages = []
+            return
+        }
+
+        let currentEmail = firebaseUser.email?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         let currentName = freeSessionsName
@@ -1000,7 +1010,7 @@ struct HomeView: View {
         .filter { !$0.isEmpty }
 
         let currentBranch = normalizeCoachBroadcastText(resolvedBranch)
-        
+
         let currentGroup = normalizeCoachBroadcastText(
             TrainingCatalogIOS.displayGroup(
                 resolvedGroup,
@@ -1008,22 +1018,13 @@ struct HomeView: View {
             )
         )
 
-        guard !currentUid.isEmpty ||
-                !currentEmail.isEmpty ||
-                !currentPhones.isEmpty ||
-                !currentName.isEmpty ||
-                !currentBranch.isEmpty ||
-                !currentGroup.isEmpty else {
-            recentCoachMessages = []
-            return
-        }
-        
         coachBroadcastListener = Firestore.firestore()
             .collection("coachBroadcasts")
-            .order(by: "createdAt", descending: true)
+            .whereField("targetUids", arrayContains: currentUid)
             .limit(to: 40)
             .addSnapshotListener { snapshot, error in
                 if error != nil {
+                    recentCoachMessages = []
                     return
                 }
 
@@ -1038,7 +1039,12 @@ struct HomeView: View {
                     currentBranch: currentBranch,
                     currentGroup: currentGroup
                 )
-                
+                .sorted { left, right in
+                    let leftDate = left.sentAt ?? .distantPast
+                    let rightDate = right.sentAt ?? .distantPast
+                    return leftDate > rightDate
+                }
+
                 recentCoachMessages = Array(messages.prefix(5))
             }
     }

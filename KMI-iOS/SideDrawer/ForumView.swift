@@ -135,10 +135,15 @@ struct ForumView: View {
 
     @State private var listener: ListenerRegistration? = nil
 
-    private let db = Firestore.firestore()
+    private var db: Firestore {
+        Firestore.firestore()
+    }
 
     #if canImport(FirebaseStorage)
-    private let storage = Storage.storage()
+    private var storage: Storage {
+        Storage.storage()
+    }
+    
     #endif
 
     private var isDarkMode: Bool {
@@ -2393,7 +2398,9 @@ private struct ForumExerciseExplanationSheet: View {
 
     @State private var favorites: Set<String> = []
 
-    private let db = Firestore.firestore()
+    private var db: Firestore {
+        Firestore.firestore()
+    }
 
     var body: some View {
         NavigationStack {

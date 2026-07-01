@@ -4,7 +4,9 @@ import FirebaseFirestore
 final class FreeSessionsRepository {
 
     static let shared = FreeSessionsRepository()
-    private let db = Firestore.firestore()
+    private var db: Firestore {
+        Firestore.firestore()
+    }
 
     private init() {}
 

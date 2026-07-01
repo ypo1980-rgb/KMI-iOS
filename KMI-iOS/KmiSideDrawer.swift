@@ -493,7 +493,7 @@ struct KmiSideDrawer: View {
                     .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
 
                     ScrollView {
-                        VStack(spacing: 16) {
+                        VStack(spacing: 14) {
 
                             if !coachItems.isEmpty {
                                 coachAreaCard
@@ -516,11 +516,11 @@ struct KmiSideDrawer: View {
                         }
                         .padding(.horizontal, 0)
                         .padding(.top, 8)
-                        .padding(.bottom, 92)
+                        .padding(.bottom, 118)
                     }
                     Spacer(minLength: 0)
                 }
-                .padding(.top, 42)
+                .padding(.top, 50)
             }
         }
         .onAppear {
@@ -708,6 +708,14 @@ struct KmiSideDrawer: View {
                 }
                 return
 
+            case .controlCenterLogs:
+                onClose()
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
+                    AppNavModel.sharedInstance?.push(.controlCenterLogs)
+                }
+                return
+
             case .logout:
                 auth.signOut()
                 onSelect(it)
@@ -862,9 +870,9 @@ struct KmiSideDrawerContainer<Content: View>: View {
 
     var body: some View {
         GeometryReader { geo in
-            let drawerWidth = min(geo.size.width * 0.82, 336)
+            let drawerWidth = min(geo.size.width * 0.78, 320)
 
-            ZStack(alignment: drawerAlignment) {
+            ZStack {
                 content
                     .overlay {
                         if isOpen {
@@ -901,18 +909,22 @@ struct KmiSideDrawerContainer<Content: View>: View {
                         }
                     )
                     .frame(width: drawerWidth)
-                    .frame(maxHeight: .infinity)
+                    .frame(height: geo.size.height)
                     .ignoresSafeArea()
                     .shadow(
                         color: Color.black.opacity(0.28),
                         radius: 18,
-                        x: isEnglish ? 8 : -8,
+                        x: -8,
                         y: 0
                     )
-                    .transition(.move(edge: drawerTransitionEdge))
+                    // מיקום פיזי מוחלט: צמוד לימין המסך.
+                    .offset(x: (geo.size.width - drawerWidth) / 2)
+                    .transition(.move(edge: .trailing))
                     .zIndex(2)
                 }
             }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .environment(\.layoutDirection, .leftToRight)
             .animation(.easeOut(duration: 0.18), value: isOpen)
         }
     }

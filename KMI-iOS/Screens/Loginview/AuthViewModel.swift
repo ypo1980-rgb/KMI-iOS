@@ -48,7 +48,9 @@ final class AuthViewModel: ObservableObject {
     #endif
 
     init() {
-        isLoading = true
+        // לא מתחילים עם loading שחוסם את המסך הראשון.
+        // ה־UI עולה מיד, והפרופיל נטען ברקע אחרי בדיקת Auth.
+        isLoading = false
         isSignedIn = false
 
         // ✅ UI מהיר עד שנמשוך מהשרת
@@ -97,9 +99,8 @@ final class AuthViewModel: ObservableObject {
         #if canImport(FirebaseAuth)
         guard handle == nil else { return }
 
-        isLoading = true
-
-
+        // לא חוסמים את מסך הפתיחה בזמן בדיקת Firebase/Auth.
+        isLoading = false
 
         handle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             guard let self else { return }
@@ -108,12 +109,16 @@ final class AuthViewModel: ObservableObject {
                 self.isSignedIn = (user != nil)
 
                 if let user {
-                    // ✅ טוענים פרופיל מהשרת כדי לדעת חגורה ותפקיד
-                    await self.loadUserProfile(uid: user.uid)
+                    // מציגים את האפליקציה מיד.
+                    // פרופיל, חגורה, תפקיד ושיוך נטענים ברקע ומעדכנים את ה־UI כשהם מגיעים.
+                    self.isLoading = false
 
+                    Task { @MainActor in
+                        await self.loadUserProfile(uid: user.uid)
+                        self.isLoading = false
+                    }
 
                 } else {
-                    // ✅ יציאה -> מאפסים
                     self.registeredBelt = nil
                     self.nextBelt = BeltFlow.defaultBelt
                     self.userRole = "trainee"
@@ -128,11 +133,9 @@ final class AuthViewModel: ObservableObject {
                     ud.removeObject(forKey: "kmi.user.branch")
                     ud.removeObject(forKey: "kmi.user.group")
                     ud.removeObject(forKey: "coach_code")
+
+                    self.isLoading = false
                 }
-
-                self.isLoading = false
-
-
             }
         }
         #else
@@ -140,7 +143,7 @@ final class AuthViewModel: ObservableObject {
         isLoading = false
         #endif
     }
-
+    
     func stop() {
         #if canImport(FirebaseAuth)
         if let handle {

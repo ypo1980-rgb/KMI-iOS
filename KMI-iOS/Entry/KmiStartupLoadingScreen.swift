@@ -65,20 +65,22 @@ struct KmiStartupLoadingScreen: View {
                 let height = geo.size.height
                 let isCompactHeight = height < 760
                 let isVeryCompactHeight = height < 690
-                let horizontalPadding: CGFloat = isCompactHeight ? 18 : 22
+
                 let heroTopSpace = height * (isVeryCompactHeight ? 0.145 : (isCompactHeight ? 0.155 : 0.165))
                 let cardTopSpace = height * 0.580
+
+                let cardWidth = min(geo.size.width * 0.84, 368)
 
                 ZStack(alignment: .top) {
                     heroCardView
                         .padding(.top, heroTopSpace)
 
                     loadingCardView
-                        .frame(width: min(geo.size.width - 64, 330))
+                        .frame(width: cardWidth)
                         .fixedSize(horizontal: false, vertical: true)
                         .position(
                             x: geo.size.width / 2,
-                            y: cardTopSpace + 118
+                            y: cardTopSpace + 122
                         )
                         .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
                 }
@@ -94,7 +96,7 @@ struct KmiStartupLoadingScreen: View {
             await runLoadingSequence()
         }
     }
-
+    
     private var backgroundView: some View {
         Group {
             if let image = UIImage(named: "kmi_startup_loading_bg") {
@@ -135,19 +137,23 @@ struct KmiStartupLoadingScreen: View {
                 .opacity(glowOpacity)
 
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(red: 0.06, green: 0.10, blue: 0.15).opacity(0.94))
+                .fill(Color(red: 0.06, green: 0.10, blue: 0.15).opacity(0.96))
                 .frame(width: 214, height: 88)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 30, style: .continuous)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Color.white.opacity(0.14), lineWidth: 1)
                 )
-                .shadow(color: Color.black.opacity(0.38), radius: 18, x: 0, y: 12)
+                .shadow(color: Color.black.opacity(0.30), radius: 16, x: 0, y: 10)
 
             KmiLoopingStartupVideoView()
                 .frame(width: 214, height: 88)
-                .scaleEffect(1.26)
+                .scaleEffect(1.18)
                 .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            
+                .opacity(0.92)
+
+            startupLogoBadge
+                .frame(width: 76, height: 76)
+
             GeometryReader { geo in
                 Rectangle()
                     .fill(
@@ -155,7 +161,7 @@ struct KmiStartupLoadingScreen: View {
                             colors: [
                                 Color.clear,
                                 accentBlue.opacity(0.10),
-                                accentPurple.opacity(0.14),
+                                accentPurple.opacity(0.16),
                                 accentBlue.opacity(0.10),
                                 Color.clear
                             ],
@@ -172,7 +178,57 @@ struct KmiStartupLoadingScreen: View {
         .frame(maxWidth: .infinity)
         .frame(height: 98)
     }
+    
+    @ViewBuilder
+    private var startupLogoBadge: some View {
+        if let image = UIImage(named: "app_icon.png") {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(0.24), lineWidth: 1)
+                )
+                .shadow(color: accentBlue.opacity(0.30), radius: 8, x: 0, y: 3)
 
+        } else if let image = UIImage(named: "app_icon") {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(0.24), lineWidth: 1)
+                )
+                .shadow(color: accentBlue.opacity(0.30), radius: 8, x: 0, y: 3)
+
+        } else {
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color.white.opacity(0.18),
+                            Color(red: 0.04, green: 0.10, blue: 0.16).opacity(0.94)
+                        ],
+                        center: .center,
+                        startRadius: 4,
+                        endRadius: 42
+                    )
+                )
+                .overlay(
+                    Text("KMI")
+                        .font(.system(size: 15, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                )
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(0.24), lineWidth: 1)
+                )
+                .shadow(color: accentBlue.opacity(0.30), radius: 8, x: 0, y: 3)
+        }
+    }
+    
     private var accentBlue: Color {
         Color(red: 0.09, green: 0.55, blue: 1.0)
     }
@@ -197,76 +253,70 @@ struct KmiStartupLoadingScreen: View {
                 if isEnglish {
                     HStack(spacing: 12) {
                         Image(systemName: currentStage.systemImage)
-                            .font(.system(size: 22, weight: .semibold))
+                            .font(.system(size: 24, weight: .semibold))
                             .foregroundColor(accentColor)
-                            .frame(width: 28, height: 28)
+                            .frame(width: 30, height: 30)
 
-                        VStack(
-                            alignment: .leading,
-                            spacing: 3
-                        ) {
+                        VStack(alignment: .leading, spacing: 3) {
                             Text("Current stage")
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
                                 .foregroundColor(textSecondary)
 
                             Text(currentStage.titleEn)
-                                .font(.system(size: 15, weight: .black, design: .rounded))
+                                .font(.system(size: 18, weight: .black, design: .rounded))
                                 .foregroundColor(textPrimary)
                                 .lineLimit(1)
-                                .minimumScaleFactor(0.85)
+                                .minimumScaleFactor(0.80)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                         Text("\(Int(progress * 100))%")
-                            .font(.system(size: 14, weight: .black, design: .rounded))
+                            .font(.system(size: 17, weight: .black, design: .rounded))
                             .foregroundColor(Color(red: 0.07, green: 0.24, blue: 0.49))
-                            .frame(width: 42, alignment: .center)
-                            .offset(y: -8)
+                            .frame(width: 48, alignment: .center)
+                            .offset(y: -10)
                     }
                 } else {
                     HStack(spacing: 12) {
                         Text("\(Int(progress * 100))%")
-                            .font(.system(size: 14, weight: .black, design: .rounded))
+                            .font(.system(size: 17, weight: .black, design: .rounded))
                             .foregroundColor(Color(red: 0.07, green: 0.24, blue: 0.49))
-                            .frame(width: 42, alignment: .center)
-                            .offset(y: -8)
+                            .frame(width: 48, alignment: .center)
+                            .offset(y: -10)
 
-                        VStack(
-                            alignment: .trailing,
-                            spacing: 3
-                        ) {
+                        VStack(alignment: .trailing, spacing: 3) {
                             Text("שלב נוכחי")
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
                                 .foregroundColor(textSecondary)
 
                             Text(currentStage.titleHe)
-                                .font(.system(size: 15, weight: .black, design: .rounded))
+                                .font(.system(size: 18, weight: .black, design: .rounded))
                                 .foregroundColor(textPrimary)
                                 .lineLimit(1)
-                                .minimumScaleFactor(0.85)
+                                .minimumScaleFactor(0.80)
                         }
                         .frame(maxWidth: .infinity, alignment: .trailing)
 
                         Image(systemName: currentStage.systemImage)
-                            .font(.system(size: 22, weight: .semibold))
+                            .font(.system(size: 24, weight: .semibold))
                             .foregroundColor(accentColor)
-                            .frame(width: 28, height: 28)
+                            .frame(width: 30, height: 30)
                     }
                 }
             }
             .environment(\.layoutDirection, .leftToRight)
 
             Spacer()
-                .frame(height: 6)
+                .frame(height: 7)
 
             progressBar
                 .offset(y: -4)
 
             Spacer()
-                .frame(height: 4)
+                .frame(height: 5)
 
             checklistView
-            
+
             Spacer()
                 .frame(height: 2)
 
@@ -275,7 +325,7 @@ struct KmiStartupLoadingScreen: View {
                     onFinished()
                 } label: {
                     Text(isEnglish ? "Skip" : "דלג")
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .font(.system(size: 17, weight: .black, design: .rounded))
                         .foregroundColor(Color(red: 0.07, green: 0.24, blue: 0.49))
                 }
                 .buttonStyle(.plain)
@@ -283,16 +333,16 @@ struct KmiStartupLoadingScreen: View {
                 Spacer()
 
                 Text(isEnglish ? "Please wait..." : "אנא המתן...")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundColor(Color(red: 0.07, green: 0.24, blue: 0.49))
 
                 Spacer()
-                    .frame(width: 44)
+                    .frame(width: 52)
             }
-            .frame(height: 32)
+            .frame(height: 34)
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 10)
+        .padding(.horizontal, 14)
+        .padding(.top, 12)
         .padding(.bottom, 6)
         .frame(maxWidth: .infinity)
         .background(
@@ -302,7 +352,7 @@ struct KmiStartupLoadingScreen: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
-
+    
     private var progressBar: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
@@ -327,13 +377,13 @@ struct KmiStartupLoadingScreen: View {
                     if isEnglish {
                         HStack(spacing: 8) {
                             Image(systemName: done ? "checkmark.circle.fill" : stage.systemImage)
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(.system(size: 17, weight: .semibold))
                                 .foregroundColor(iconColor(done: done, active: active))
-                                .scaleEffect(done ? 1.12 : 1.0)
+                                .scaleEffect(done ? 1.14 : 1.0)
                                 .animation(.easeInOut(duration: 0.22), value: done)
 
                             Text(stage.titleEn)
-                                .font(.system(size: 11.5, weight: active ? .semibold : .regular, design: .rounded))
+                                .font(.system(size: 13.2, weight: active ? .bold : .semibold, design: .rounded))
                                 .lineLimit(1)
                                 .foregroundColor(active || done ? textPrimary : textSecondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -341,26 +391,26 @@ struct KmiStartupLoadingScreen: View {
                     } else {
                         HStack(spacing: 8) {
                             Text(stage.titleHe)
-                                .font(.system(size: 11.5, weight: active ? .semibold : .regular, design: .rounded))
+                                .font(.system(size: 13.2, weight: active ? .bold : .semibold, design: .rounded))
                                 .lineLimit(1)
                                 .foregroundColor(active || done ? textPrimary : textSecondary)
                                 .frame(maxWidth: .infinity, alignment: .trailing)
 
                             Image(systemName: done ? "checkmark.circle.fill" : stage.systemImage)
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(.system(size: 17, weight: .semibold))
                                 .foregroundColor(iconColor(done: done, active: active))
-                                .scaleEffect(done ? 1.12 : 1.0)
+                                .scaleEffect(done ? 1.14 : 1.0)
                                 .animation(.easeInOut(duration: 0.22), value: done)
                         }
                     }
                 }
                 .environment(\.layoutDirection, .leftToRight)
-                .opacity(active || done ? 1.0 : 0.55)
+                .opacity(active || done ? 1.0 : 0.48)
                 .animation(.easeInOut(duration: 0.28), value: currentStageIndex)
             }
         }
     }
-
+    
     private var accentColor: Color {
         Color(red: 0.08, green: 0.77, blue: 0.50)
     }
@@ -401,7 +451,7 @@ struct KmiStartupLoadingScreen: View {
     }
 
     private func runLoadingSequence() async {
-        let totalDurationNanoseconds: UInt64 = 10_000_000_000
+        let totalDurationNanoseconds: UInt64 = 6_500_000_000
         let tickNanoseconds: UInt64 = 100_000_000
         let totalSteps = Int(totalDurationNanoseconds / tickNanoseconds)
 

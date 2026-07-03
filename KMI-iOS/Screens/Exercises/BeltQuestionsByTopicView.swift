@@ -50,9 +50,9 @@ struct BeltQuestionsByTopicView: View {
 
     private func exercisesCountText(_ count: Int) -> String {
         if isEnglish {
-            return count == 1 ? "1 exercise" : "\(count) exercises"
+            return "exercises \(count)"
         } else {
-            return count == 1 ? "תרגיל 1" : "\(count) תרגילים"
+            return "\(count) תרגילים"
         }
     }
         
@@ -170,40 +170,40 @@ struct BeltQuestionsByTopicView: View {
                 ]
             )
 
-        // ✅ הכנה לקרקע
+        // ✅ עבודת קרקע
         let groundSubject =
             firstVisible(
                 ids: ["topic_ground_prep", "ground_prep", "ground_preparation"],
-                exactTitles: ["הכנה לעבודת קרקע"],
-                titleContains: ["הכנה לעבודת", "קרקע"]
+                exactTitles: ["עבודת קרקע", "הכנה לעבודת קרקע"],
+                titleContains: ["עבודת קרקע", "הכנה לעבודת", "קרקע"]
             )
             ?? syntheticSubject(
                 id: "topic_ground_prep",
-                titleHeb: "הכנה לעבודת קרקע",
+                titleHeb: "עבודת קרקע",
                 topicsByBelt: [
-                    .orange: ["הכנה לעבודת קרקע"],
-                    .green: ["הכנה לעבודת קרקע"],
-                    .blue: ["הכנה לעבודת קרקע"],
-                    .brown: ["הכנה לעבודת קרקע"],
-                    .black: ["הכנה לעבודת קרקע"]
+                    .orange: ["עבודת קרקע", "הכנה לעבודת קרקע"],
+                    .green: ["עבודת קרקע", "הכנה לעבודת קרקע"],
+                    .blue: ["עבודת קרקע", "הכנה לעבודת קרקע"],
+                    .brown: ["עבודת קרקע", "הכנה לעבודת קרקע"],
+                    .black: ["עבודת קרקע", "הכנה לעבודת קרקע"]
                 ]
             )
 
-        // ✅ קאוולר
-        let kawalSubject =
+        // ✅ קוואלר
+        let kavalerSubject =
             firstVisible(
-                ids: ["topic_kawalr", "topic_kawal", "kawalr", "kawal"],
-                exactTitles: ["קאוולר", "קאוול"],
-                titleContains: ["קאוול", "קאוולר"]
+                ids: ["topic_kavaler", "kavaler"],
+                exactTitles: ["קוואלר"],
+                titleContains: ["קוואלר"]
             )
             ?? syntheticSubject(
-                id: "topic_kawalr",
-                titleHeb: "קאוולר",
+                id: "topic_kavaler",
+                titleHeb: "קוואלר",
                 topicsByBelt: [
-                    .green: ["קאוולר", "קאוול"],
-                    .blue: ["קאוולר", "קאוול"],
-                    .brown: ["קאוולר", "קאוול"],
-                    .black: ["קאוולר", "קאוול"]
+                    .green: ["קוואלר"],
+                    .blue: ["קוואלר"],
+                    .brown: ["קוואלר"],
+                    .black: ["קוואלר"]
                 ]
             )
 
@@ -279,9 +279,9 @@ struct BeltQuestionsByTopicView: View {
             )
         }
 
-        if subjectHasVisibleContentInAnyBelt(kawalSubject) {
+        if subjectHasVisibleContentInAnyBelt(kavalerSubject) {
             out.append(
-                MainTopic(id: "topic_kawalr", titleHeb: "קאוולר", subjects: [kawalSubject])
+                MainTopic(id: "topic_kavaler", titleHeb: "קוואלר", subjects: [kavalerSubject])
             )
         }
 
@@ -361,7 +361,18 @@ struct BeltQuestionsByTopicView: View {
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 17, style: .continuous)                    .fill(Color.white.opacity(0.94))
+                RoundedRectangle(cornerRadius: 17, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                accent.opacity(0.18),
+                                accent.opacity(0.08),
+                                Color.white.opacity(0.92)
+                            ],
+                            startPoint: .trailing,
+                            endPoint: .leading
+                        )
+                    )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 17, style: .continuous)
@@ -937,12 +948,12 @@ struct BeltQuestionsByTopicView: View {
             return "Releases"
         case "throws_root":
             return "Throws"
-        case "topic_kawalr":
-            return "Cavalier"
+        case "topic_kavaler":
+            return "Kavaler"
         case "kicks_root":
             return "Kicks"
         case "topic_ground_prep":
-            return "Groundwork"
+            return "Groundwork Preparation"
         case "topic_breakfalls_rolls":
             return "Breakfalls and Rolls"
         case "topic_ready_stance":
@@ -1065,11 +1076,11 @@ struct BeltQuestionsByTopicView: View {
 
         let catalogTitlesBySubjectId: [String: [String]] = [
             "topic_ready_stance": ["עמידת מוצא"],
-            "topic_kawalr": ["קאוולר", "קאוול"],
+            "topic_kavaler": ["קוואלר"],
             "topic_kicks": ["בעיטות"],
             "kicks_hard": ["בעיטות"],
             "topic_breakfalls_rolls": ["בלימות וגלגולים"],
-            "topic_ground_prep": ["הכנה לעבודת קרקע"]
+            "topic_ground_prep": ["עבודת קרקע", "הכנה לעבודת קרקע"]
         ]
 
         if let topicTitles = catalogTitlesBySubjectId[subjectId] {
@@ -1205,7 +1216,7 @@ struct BeltQuestionsByTopicView: View {
             // כאן לא מחזירים HardSections מזויפים.
             // המסך הבא עדיין יודע למשוך אותם דרך SubjectAcrossBeltsView.
             if subject.id == "topic_ready_stance" ||
-                subject.id == "topic_kawalr" ||
+                subject.id == "topic_kavaler" ||
                 subject.id == "kicks" ||
                 subject.id == "topic_kicks" ||
                 subject.id == "kicks_hard" {
@@ -1238,25 +1249,7 @@ struct BeltQuestionsByTopicView: View {
     }
 
     private func subtitleLineTop(for topic: MainTopic) -> String? {
-        if topic.id == "releases_root" {
-            let count = (HardSectionsCatalog.shared.sectionsForSubject(subjectId: "releases") ?? []).count
-            guard count > 0 else { return nil }
-
-            if isEnglish {
-                return "sub-topics \(count)"
-            } else {
-                return "\(count) תתי נושאים"
-            }
-        }
-
-        let count = topic.subjects.count
-        guard count > 1 else { return nil }
-
-        if isEnglish {
-            return "sub-topics \(count)"
-        } else {
-            return "\(count) תתי נושאים"
-        }
+        nil
     }
 
     private func totalExercisesCount(for topic: MainTopic) -> Int {
@@ -1268,8 +1261,26 @@ struct BeltQuestionsByTopicView: View {
     private func subtitleLineBottom(for topic: MainTopic) -> String {
         let total = totalExercisesCount(for: topic)
 
+        let subTopicsCount: Int
+        if topic.id == "releases_root" {
+            subTopicsCount = max(
+                topic.subjects.count,
+                (HardSectionsCatalog.shared.sectionsForSubject(subjectId: "releases") ?? []).count
+            )
+        } else {
+            subTopicsCount = topic.subjects.count
+        }
+
+        if subTopicsCount > 1 {
+            if isEnglish {
+                return "\(subTopicsCount) sub-topics · \(total) exercises"
+            } else {
+                return "\(subTopicsCount) תתי נושאים · \(total) תרגילים"
+            }
+        }
+
         if isEnglish {
-            return "exercises \(total)"
+            return "\(total) exercises"
         } else {
             return "\(total) תרגילים"
         }
@@ -1451,12 +1462,18 @@ struct BeltQuestionsByTopicView: View {
         guard isEnglish else { return cleanTitle }
 
         switch cleanId {
-        case "def_internal_punch":
+        case "def_internal_punch", "def_internal_punches", "def_internal":
             return "Internal Defenses"
-        case "def_external_punch":
+        case "def_external_punch", "def_external_punches", "def_external":
             return "External Defenses"
         case "kicks_hard":
-            return "Kick Defenses"
+            return "Defenses Against Kicks"
+        case "knife_defense":
+            return "Knife Defenses"
+        case "gun_threat_defense":
+            return "Gun Threat Defenses"
+        case "stick_defense":
+            return "Stick Defenses"
         case "releases_hands_hair_shirt":
             return "Releases from Hand / Hair / Shirt Grabs"
         case "releases_chokes":
@@ -1469,6 +1486,14 @@ struct BeltQuestionsByTopicView: View {
             return "Elbow Strikes"
         case "hands_stick_rifle":
             return "Stick / Rifle Strikes"
+        case "topic_ready_stance":
+            return "Ready Stance"
+        case "topic_ground_prep":
+            return "Groundwork Preparation"
+        case "topic_kavaler":
+            return "Kavaler"
+        case "topic_breakfalls_rolls":
+            return "Breakfalls and Rolls"
         default:
             if let titleFromId = KmiEnglishTitleResolver.englishTitle(for: cleanId) {
                 return titleFromId
@@ -1477,7 +1502,7 @@ struct BeltQuestionsByTopicView: View {
             return KmiEnglishTitleResolver.title(for: cleanTitle, isEnglish: true)
         }
     }
-
+    
     private func accentForTopicSubject(_ subject: SubjectTopic) -> Color {
         let id = subject.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let title = subject.titleHeb.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1551,6 +1576,8 @@ struct BeltQuestionsByTopicView: View {
     }
     
     private func postTopicTopTitleOverride() {
+        guard !embeddedMode else { return }
+
         NotificationCenter.default.post(
             name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
             object: tr("תרגילים לפי נושא", "Exercises by Topic")
@@ -1744,115 +1771,21 @@ struct BeltQuestionsByTopicView: View {
         )
     }
     
-    private var topicModeTabs: some View {
-        HStack(spacing: 8) {
-            topicModeTabButton(
-                title: tr("לפי נושא", "By Topic"),
-                selected: true
-            ) {
-                // כבר נמצאים במסך לפי נושא
-            }
-
-            topicModeTabButton(
-                title: tr("לפי חגורה", "By Belt"),
-                selected: false
-            ) {
-                if embeddedMode {
-                    onSwitchToByBelt?()
-                } else {
-                    nav.pop()
-                }
-            }
-        }
-        .environment(\.layoutDirection, .leftToRight)
-        .frame(maxWidth: .infinity)
-        .padding(5)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.18))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.42), lineWidth: 1)
-        )
-    }
-
-    private func topicModeTabButton(
-        title: String,
-        selected: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 15, weight: .heavy))
-                .foregroundStyle(
-                    selected
-                    ? Color.white
-                    : Color(red: 0.28, green: 0.22, blue: 0.56)
-                )
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(
-                            selected
-                            ? LinearGradient(
-                                colors: [
-                                    Color(red: 0.50, green: 0.00, blue: 1.00),
-                                    Color(red: 0.25, green: 0.32, blue: 0.72)
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                            : LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.96),
-                                    Color.white.opacity(0.86)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(
-                            selected
-                            ? Color.white.opacity(0.42)
-                            : Color(red: 0.50, green: 0.00, blue: 1.00).opacity(0.22),
-                            lineWidth: 1
-                        )
-                )
-                .shadow(
-                    color: selected ? Color.black.opacity(0.16) : Color.black.opacity(0.06),
-                    radius: selected ? 8 : 4,
-                    x: 0,
-                    y: selected ? 5 : 2
-                )
-        }
-        .buttonStyle(.plain)
-    }
     
     var body: some View {
         ZStack {
             KmiAppBackground()
 
             VStack(spacing: 0) {
-                
-                topicModeTabs
-                    .padding(.horizontal, 18)
-                    .padding(.top, 10)
                 GeometryReader { geo in
-                    let reservedBottomForQuickView: CGFloat = 18
+                    let reservedBottomForQuickView: CGFloat = 10
                     let availableHeight = geo.size.height - reservedBottomForQuickView
-                    let cardHeight = embeddedMode ? max(360, availableHeight) : min(max(360, availableHeight), 448)
+                    let cardHeight = max(360, availableHeight)
 
                     WhiteCard {
                         VStack(alignment: isEnglish ? .leading : .trailing, spacing: 14) {
                             
-                            Text(tr("נושאים (קטגוריות)", "Topics (Categories)"))
+                            Text(tr("נושאים (קטגוריות)", "Subjects (Categories)"))
                                 .font(.system(size: 14, weight: .heavy))
                                 .foregroundStyle(Color.black.opacity(0.84))
                                 .frame(maxWidth: .infinity, alignment: .center)
@@ -1910,7 +1843,7 @@ struct BeltQuestionsByTopicView: View {
                     }
                     .frame(height: cardHeight)
                     .padding(.horizontal, 18)
-                    .padding(.top, 8)
+                    .padding(.top, 0)
                 }
 
                 // Android parity:
@@ -2011,12 +1944,6 @@ private struct TopicPulsingLockBadge: View {
     }
 }
 
-#Preview {
-    NavigationStack {
-        BeltQuestionsByTopicView(belt: .orange)
-    }
-}
-
 private struct SubjectSubTopicsListView: View {
 
     let belt: Belt
@@ -2061,26 +1988,11 @@ private struct SubjectSubTopicsListView: View {
 
         guard isEnglish else { return cleanTitle }
 
-        switch cleanId {
-        case "def_internal_punch":
-            return "Internal Defenses"
-        case "def_external_punch":
-            return "External Defenses"
-        case "kicks_hard":
-            return "Kick Defenses"
-        case "releases_hands_hair_shirt":
-            return "Releases from Hand / Hair / Shirt Grabs"
-        case "releases_chokes":
-            return "Choke Releases"
-        case "releases_hugs":
-            return "Hug Releases"
-        default:
-            if let titleFromId = KmiEnglishTitleResolver.englishTitle(for: cleanId) {
-                return titleFromId
-            }
-
-            return KmiEnglishTitleResolver.title(for: cleanTitle, isEnglish: true)
+        if let titleFromId = KmiEnglishTitleResolver.englishTitle(for: cleanId) {
+            return titleFromId
         }
+
+        return KmiEnglishTitleResolver.title(for: cleanTitle, isEnglish: true)
     }
 
     private func uiMainTopicTitle(_ topic: MainTopic) -> String {
@@ -2098,10 +2010,16 @@ private struct SubjectSubTopicsListView: View {
             return "Releases"
         case "throws_root":
             return "Throws"
-        case "topic_kawalr":
-            return "Cavalier"
+        case "topic_kavaler":
+            return "Kavaler"
         case "kicks_root":
             return "Kicks"
+        case "topic_ground_prep":
+            return "Groundwork Preparation"
+        case "topic_breakfalls_rolls":
+            return "Breakfalls and Rolls"
+        case "topic_ready_stance":
+            return "Ready Stance"
         default:
             if let titleFromId = KmiEnglishTitleResolver.englishTitle(for: cleanId) {
                 return titleFromId
@@ -2582,18 +2500,38 @@ private struct SubjectSectionsListView: View {
         guard isEnglish else { return cleanTitle }
 
         switch cleanId {
-        case "def_internal_punch":
+        case "def_internal_punch", "def_internal_punches", "def_internal":
             return "Internal Defenses"
-        case "def_external_punch":
+        case "def_external_punch", "def_external_punches", "def_external":
             return "External Defenses"
         case "kicks_hard":
-            return "Kick Defenses"
+            return "Defenses Against Kicks"
+        case "knife_defense":
+            return "Knife Defenses"
+        case "gun_threat_defense":
+            return "Gun Threat Defenses"
+        case "stick_defense":
+            return "Stick Defenses"
         case "releases_hands_hair_shirt":
             return "Releases from Hand / Hair / Shirt Grabs"
         case "releases_chokes":
             return "Choke Releases"
         case "releases_hugs":
             return "Hug Releases"
+        case "hands_strikes":
+            return "Hand Strikes"
+        case "hands_elbows":
+            return "Elbow Strikes"
+        case "hands_stick_rifle":
+            return "Stick / Rifle Strikes"
+        case "topic_ready_stance":
+            return "Ready Stance"
+        case "topic_ground_prep":
+            return "Groundwork Preparation"
+        case "topic_kavaler":
+            return "Kavaler"
+        case "topic_breakfalls_rolls":
+            return "Breakfalls and Rolls"
         default:
             if let titleFromId = KmiEnglishTitleResolver.englishTitle(for: cleanId) {
                 return titleFromId
@@ -2608,6 +2546,78 @@ private struct SubjectSectionsListView: View {
         let cleanTitle = section.title.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard isEnglish else { return cleanTitle }
+
+        switch cleanId {
+        case "def_internal_punch", "def_internal_punches", "def_internal":
+            return "Internal Defenses"
+        case "def_internal_kick", "def_internal_kicks":
+            return "Internal Defenses - Kicks"
+        case "def_external_punch", "def_external_punches", "def_external":
+            return "External Defenses"
+        case "def_external_kick", "def_external_kicks":
+            return "External Defenses - Kicks"
+        case "kicks_hard":
+            return "Defenses Against Kicks"
+        case "knife_defense":
+            return "Knife Defenses"
+        case "gun_threat_defense":
+            return "Gun Threat Defenses"
+        case "stick_defense":
+            return "Stick Defenses"
+        case "releases_hands_hair_shirt":
+            return "Releases from Hand / Hair / Shirt Grabs"
+        case "releases_chokes":
+            return "Choke Releases"
+        case "releases_hugs":
+            return "Hug Releases"
+        case "hands_strikes":
+            return "Hand Strikes"
+        case "hands_elbows":
+            return "Elbow Strikes"
+        case "hands_stick_rifle":
+            return "Stick / Rifle Strikes"
+        case "topic_ready_stance":
+            return "Ready Stance"
+        case "topic_ground_prep":
+            return "Groundwork Preparation"
+        case "topic_kavaler":
+            return "Kavaler"
+        case "topic_breakfalls_rolls":
+            return "Breakfalls and Rolls"
+        default:
+            break
+        }
+
+        switch cleanTitle {
+        case "שחרור מתפיסות ידיים / שיער / חולצה":
+            return "Releases from Hand / Hair / Shirt Grabs"
+        case "שחרור מחניקות":
+            return "Choke Releases"
+        case "שחרור מחביקות":
+            return "Hug Releases"
+        case "חביקות גוף":
+            return "Body Hugs"
+        case "חביקות צואר":
+            return "Neck Hugs"
+        case "חביקות זרוע":
+            return "Arm Hugs"
+        case "הגנות עם רובה נגד דקירות סכין":
+            return "Rifle Defenses Against Knife Stabs"
+        case "הגנות נגד מספר תוקפים":
+            return "Multiple Attackers Defense"
+        case "מכות יד":
+            return "Hand Strikes"
+        case "מכות מרפק":
+            return "Elbow Strikes"
+        case "מכות במקל / רובה":
+            return "Stick / Rifle Strikes"
+        case "עבודת קרקע":
+            return "Groundwork Preparation"
+        case "קוואלר":
+            return "Kavaler"
+        default:
+            break
+        }
 
         if let titleFromId = KmiEnglishTitleResolver.englishTitle(for: cleanId) {
             return titleFromId

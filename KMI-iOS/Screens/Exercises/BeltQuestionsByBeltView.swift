@@ -60,10 +60,10 @@ struct BeltQuestionsByBeltView: View {
     
     private func subTopicsAndExercisesText(subTopicsCount: Int, exercisesCount: Int) -> String {
         if isEnglish {
-            let subText = subTopicsCount == 1 ? "1 subtopic" : "\(subTopicsCount) subtopics"
-            return "\(subText)  •  \(exercisesCountText(exercisesCount))"
+            let subText = subTopicsCount == 1 ? "1 sub-topic" : "\(subTopicsCount) sub-topics"
+            return "\(subText) · \(exercisesCountText(exercisesCount))"
         } else {
-            return "\(subTopicsCount) תתי נושאים  •  \(exercisesCountText(exercisesCount))"
+            return "\(subTopicsCount) תתי נושאים · \(exercisesCountText(exercisesCount))"
         }
     }
     
@@ -938,14 +938,21 @@ struct BeltQuestionsByBeltView: View {
         ZStack {
             KmiAppBackground()
             
-            tabContent
+            VStack(spacing: 0) {
+                beltModeTabs
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 4)
+                    .padding(.bottom, -2)
+                
+                tabContent
+            }
             
             if tab == .byBelt {
                 GeometryReader { geo in
                     let isCompactHeight = geo.size.height < 760
-                    let pickerWidth: CGFloat = isCompactHeight ? 292 : 304
-                    let pickerHeight: CGFloat = isCompactHeight ? 108 : 114
-                    let pickerOffsetY: CGFloat = isCompactHeight ? 16 : 12
+                    let pickerWidth: CGFloat = isCompactHeight ? 332 : 346
+                    let pickerHeight: CGFloat = isCompactHeight ? 168 : 176
+                    let pickerOffsetY: CGFloat = isCompactHeight ? -28 : -34
                     
                     VStack {
                         Spacer()
@@ -961,7 +968,7 @@ struct BeltQuestionsByBeltView: View {
                     }
                     .frame(width: geo.size.width, height: geo.size.height, alignment: .bottom)
                 }
-                .zIndex(2.2)
+                .zIndex(40)
                 .allowsHitTesting(!quickMenuOpen)
             }
             
@@ -1141,6 +1148,7 @@ struct BeltQuestionsByBeltView: View {
         rowMinHeight: CGFloat
     ) -> some View {
         let rowOpacity: Double = locked ? 0.88 : 1.0
+        let beltTint = BeltPaletteByBeltScreen.color(for: selectedBelt)
 
         Button {
             openTopicFromByBelt(
@@ -1173,19 +1181,19 @@ struct BeltQuestionsByBeltView: View {
                     .fill(
                         LinearGradient(
                             colors: [
-                                Color.white.opacity(0.98),
-                                accent.opacity(0.08),
-                                Color.white.opacity(0.95)
+                                beltTint.opacity(0.18),
+                                Color.white.opacity(0.97),
+                                beltTint.opacity(0.10)
                             ],
-                            startPoint: .top,
-                            endPoint: .bottom
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
                         )
                     )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .stroke(
-                        locked ? Color.orange.opacity(0.34) : accent.opacity(0.14),
+                        locked ? Color.orange.opacity(0.34) : beltTint.opacity(0.34),
                         lineWidth: 1
                     )
             )
@@ -1236,6 +1244,10 @@ struct BeltQuestionsByBeltView: View {
                     isEnglish: isEnglish
                 )
 
+                if locked {
+                    PulsingLockBadge()
+                }
+
                 Spacer(minLength: 0)
 
                 topicTextBlock(
@@ -1243,10 +1255,6 @@ struct BeltQuestionsByBeltView: View {
                     subtitle: entry.subtitle,
                     isEnglish: isEnglish
                 )
-
-                if locked {
-                    PulsingLockBadge()
-                }
 
                 topicIconBox(
                     topicTitle: topicTitle,
@@ -1475,111 +1483,83 @@ struct BeltQuestionsByBeltView: View {
         .buttonStyle(.plain)
     }
    
-        private var beltModeTabs: some View {
-            HStack(spacing: 8) {
-                Button {
-                    withAnimation(.spring(response: 0.24, dampingFraction: 0.92)) {
-                        quickMenuOpen = false
-                        tab = .byTopic
-                    }
-                } label: {
-                    beltModeTabButton(
-                        title: isEnglish ? "By Topic" : "לפי נושא",
-                        selected: tab == .byTopic
-                    )
+    private var beltModeTabs: some View {
+        HStack(spacing: 0) {
+            Button {
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.92)) {
+                    quickMenuOpen = false
+                    tab = .byTopic
                 }
-                .buttonStyle(.plain)
-
-                Button {
-                    withAnimation(.spring(response: 0.24, dampingFraction: 0.92)) {
-                        quickMenuOpen = false
-                        tab = .byBelt
-                    }
-                } label: {
-                    beltModeTabButton(
-                        title: isEnglish ? "By Belt" : "לפי חגורה",
-                        selected: tab == .byBelt
-                    )
-                }
-                .buttonStyle(.plain)
+            } label: {
+                beltModeTabButton(
+                    title: isEnglish ? "By Topic" : "לפי נושא",
+                    selected: tab == .byTopic
+                )
             }
-            .environment(\.layoutDirection, .leftToRight)
-            .frame(maxWidth: .infinity)
-            .padding(5)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(0.18))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.white.opacity(0.42), lineWidth: 1)
-            )
+            .buttonStyle(.plain)
+
+            Rectangle()
+                .fill(Color.white.opacity(0.42))
+                .frame(width: 1, height: 34)
+
+            Button {
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.92)) {
+                    quickMenuOpen = false
+                    tab = .byBelt
+                }
+            } label: {
+                beltModeTabButton(
+                    title: isEnglish ? "By Belt" : "לפי חגורה",
+                    selected: tab == .byBelt
+                )
+            }
+            .buttonStyle(.plain)
         }
-        
+        .environment(\.layoutDirection, .leftToRight)
+        .frame(width: 278, height: 48)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.18, green: 0.34, blue: 0.45),
+                            Color(red: 0.12, green: 0.27, blue: 0.38)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.white.opacity(0.22), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.24), radius: 8, x: 0, y: 4)
+    }
+    
     private func beltModeTabButton(
         title: String,
         selected: Bool
     ) -> some View {
         Text(title)
-            .font(.system(size: 15, weight: .heavy))
-            .foregroundStyle(selected ? Color.white : Color(red: 0.28, green: 0.22, blue: 0.56))
+            .font(.system(size: 17, weight: .heavy))
+            .foregroundStyle(selected ? Color.white : Color.white.opacity(0.72))
             .lineLimit(1)
             .minimumScaleFactor(0.82)
             .frame(maxWidth: .infinity)
             .frame(height: 44)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(
-                        selected
-                        ? LinearGradient(
-                            colors: [
-                                Color(red: 0.50, green: 0.00, blue: 1.00),
-                                Color(red: 0.25, green: 0.32, blue: 0.72)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        : LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.96),
-                                Color.white.opacity(0.86)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(
-                        selected
-                        ? Color.white.opacity(0.42)
-                        : Color(red: 0.50, green: 0.00, blue: 1.00).opacity(0.22),
-                        lineWidth: 1
-                    )
-            )
-            .shadow(
-                color: selected ? Color.black.opacity(0.16) : Color.black.opacity(0.06),
-                radius: selected ? 8 : 4,
-                x: 0,
-                y: selected ? 5 : 2
-            )
+            .contentShape(Rectangle())
     }
     
     @ViewBuilder
     private var byBeltContent: some View {
         VStack(spacing: 0) {
-            beltModeTabs
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                .padding(.bottom, 4)
-            
             GeometryReader { geo in
                 let rowMinHeight: CGFloat = 73
-                let visibleRows: CGFloat = 5.55
+                let visibleRows: CGFloat = 6.15
                 let rowSpacing: CGFloat = 6
                 let listHeight = rowMinHeight * visibleRows + rowSpacing * (visibleRows - 1) + 6
-                let cardHeight = min(geo.size.height * 0.84, listHeight + 74)
+                let cardHeight = min(geo.size.height * 0.92, listHeight + 112)
                 
                 WhiteCard {
                     VStack(spacing: 7) {
@@ -1656,8 +1636,8 @@ struct BeltQuestionsByBeltView: View {
                 }
                 .frame(height: cardHeight)
                 .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
+                .padding(.top, -2)
+                .padding(.bottom, 0)
             }
         }
         .zIndex(1)
@@ -2247,7 +2227,7 @@ private struct BeltScreenSideQuickMenuOverlay: View {
             let fabHeight: CGFloat = 72
             
             let sidePadding: CGFloat = 0
-            let centerY: CGFloat = geo.size.height / 2
+            let centerY: CGFloat = geo.size.height * 0.52
             
             ZStack(alignment: .topLeading) {
                 if isPresented {
@@ -2535,13 +2515,4 @@ private struct PulsingLockBadge: View {
             }
     }
 }
-
-// MARK: - Preview
-
-#Preview {
-    NavigationStack {
-        // ⚠️ בפריוויו הזה עדיין אין KmiRootLayout,
-        // אז תראה "בלי" הסרגל הגלובאלי (זה תקין לפריוויו).
-        BeltQuestionsByBeltView(belt: .orange)
-    }
-}
+ 

@@ -102,6 +102,9 @@ struct LoginView: View {
                             case .settings:
                                 break
 
+                            case .stats:
+                                break
+
                             case .search:
                                 break
 

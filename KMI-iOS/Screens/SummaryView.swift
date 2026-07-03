@@ -39,18 +39,147 @@ struct SummaryView: View {
     @State private var showProgressCard: Bool = false
     @State private var showComparisonCard: Bool = false
     
-    // אותו key כמו TopicExercisesListView (חשוב!)
-    private func markKey(topicTitle: String, item: String) -> String {
-        let b = belt.id
-        let t = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let i = item.trimmingCharacters(in: .whitespacesAndNewlines)
-        return "kmi.mark.\(b).\(t).\(i)"
+    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
+    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+    @AppStorage("selected_language_code") private var selectedLanguageCode: String = "he"
+
+    private var effectiveLanguageCode: String {
+        let values = [
+            kmiAppLanguageCode,
+            selectedLanguageCode,
+            appLanguageRaw,
+            initialLanguageCode
+        ]
+
+        for raw in values {
+            let clean = raw
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            if clean == "en" || clean == "english" {
+                return "en"
+            }
+
+            if clean == "he" || clean == "hebrew" || clean == "עברית" {
+                return "he"
+            }
+        }
+
+        return "he"
     }
-    
-    private func loadMark(topicTitle: String, item: String) -> SummaryMark? {
-        let key = markKey(topicTitle: topicTitle, item: item)
-        guard let raw = UserDefaults.standard.string(forKey: key) else { return nil }
-        return SummaryMark(rawValue: raw)
+
+    private var isEnglish: Bool {
+        effectiveLanguageCode == "en"
+    }
+
+    private var screenLayoutDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
+    private var screenTextAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var screenFrameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+    private func normalizedSummaryText(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\u{200F}", with: "")
+            .replacingOccurrences(of: "\u{200E}", with: "")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .replacingOccurrences(of: "־", with: "-")
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: "—", with: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(
+                of: "\\s+",
+                with: " ",
+                options: .regularExpression
+            )
+            .lowercased()
+    }
+
+    private func summarySafePart(_ value: String) -> String {
+        normalizedSummaryText(value)
+    }
+
+    private func loadMark(
+        topicTitle: String,
+        subTopicTitle: String?,
+        item: String,
+        index: Int
+    ) -> SummaryMark? {
+        let defaults = UserDefaults.standard
+
+        let beltId = belt.id
+        let cleanTopic = summarySafePart(topicTitle)
+        let cleanSubTopic = subTopicTitle.map(summarySafePart) ?? ""
+        let cleanItem = summarySafePart(item)
+
+        let topicKey = cleanSubTopic.isEmpty
+            ? cleanTopic
+            : "\(cleanTopic)__\(cleanSubTopic)"
+
+        let directStringKeys = [
+            "kmi.mark.\(beltId).\(topicTitle).\(item)",
+            "kmi.mark.\(beltId).\(cleanTopic).\(cleanItem)",
+            "kmi.mark.\(beltId).\(topicKey).\(cleanItem)"
+        ]
+
+        for key in directStringKeys {
+            if let raw = defaults.string(forKey: key),
+               let mark = SummaryMark(rawValue: raw) {
+                return mark
+            }
+        }
+
+        let directBoolKeys = [
+            "exercise_\(beltId)_\(item)",
+            "exercise_\(beltId)_\(cleanItem)",
+
+            "status_\(beltId)_\(topicTitle)_\(index)_\(item)",
+            "status_\(beltId)_\(topicTitle)_\(index)_\(cleanItem)",
+
+            "status_\(beltId)_\(topicKey)_\(index)_\(item)",
+            "status_\(beltId)_\(topicKey)_\(index)_\(cleanItem)",
+
+            "\(beltId)_\(topicTitle)_\(item)",
+            "\(beltId)_\(topicKey)_\(item)",
+            "\(beltId)_\(cleanTopic)_\(cleanItem)",
+            "\(beltId)_\(topicKey)_\(cleanItem)"
+        ]
+
+        for key in directBoolKeys {
+            if defaults.object(forKey: key) != nil {
+                return defaults.bool(forKey: key) ? .done : .notDone
+            }
+        }
+
+        for entry in defaults.dictionaryRepresentation() {
+            let normalizedKey = summarySafePart(entry.key)
+
+            guard normalizedKey.contains(beltId),
+                  normalizedKey.contains(cleanItem) else {
+                continue
+            }
+
+            if let raw = entry.value as? String,
+               let mark = SummaryMark(rawValue: raw) {
+                return mark
+            }
+
+            if let boolValue = entry.value as? Bool {
+                return boolValue ? .done : .notDone
+            }
+        }
+
+        return nil
     }
     
     // MARK: - Model for UI
@@ -86,24 +215,37 @@ struct SummaryView: View {
                 }
             } else {
                 out.append(contentsOf: t.items)
-                for st in t.subTopics { out.append(contentsOf: st.items) }
-            }
 
+                func appendSubTopicItems(_ subTopics: [CatalogData.SubTopic]) {
+                    for st in subTopics {
+                        out.append(contentsOf: st.items)
+                    }
+                }
+
+                appendSubTopicItems(t.subTopics)
+            }
+            
             var seen = Set<String>()
             let uniq = out
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
                 .filter { seen.insert($0).inserted }
 
-            let rows: [SummaryRowItem] = uniq.map { item in
-                let m = loadMark(topicTitle: t.title, item: item)
+            let rows: [SummaryRowItem] = uniq.enumerated().map { index, item in
+                let m = loadMark(
+                    topicTitle: t.title,
+                    subTopicTitle: subTopic,
+                    item: item,
+                    index: index
+                )
+
                 return SummaryRowItem(
-                    id: "\(t.title)||\(item)",
+                    id: "\(t.title)||\(subTopic ?? "")||\(item)",
                     title: item,
                     mark: m
                 )
             }
-
+            
             return SummaryTopicBlock(
                 id: t.title,
                 title: t.title,
@@ -159,14 +301,23 @@ struct SummaryView: View {
 
     private var comparisonStatusText: String {
         guard comparisonHasEnoughData else {
-            return "אין עדיין מספיק נתונים להשוואה מול מתאמנים אחרים."
+            return tr(
+                "אין עדיין מספיק נתונים להשוואה מול מתאמנים אחרים.",
+                "There is not enough data yet to compare with other trainees."
+            )
         }
 
         if percentAll >= comparisonAveragePercent {
-            return "אתה מעל \(comparisonBetterThanPercent)% מהמתאמנים בחגורה שלך."
+            return tr(
+                "אתה מעל \(comparisonBetterThanPercent)% מהמתאמנים בחגורה שלך.",
+                "You are above \(comparisonBetterThanPercent)% of trainees in your belt."
+            )
         }
 
-        return "אתה מתחת לממוצע המתאמנים בחגורה שלך."
+        return tr(
+            "אתה מתחת לממוצע המתאמנים בחגורה שלך.",
+            "You are below the average for trainees in your belt."
+        )
     }
     
     private var summaryTitle: String {
@@ -201,44 +352,6 @@ struct SummaryView: View {
             object: summaryTitle
         )
     }
-    
-    private var progressCardTitle: String {
-        if let topic,
-           !topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           let subTopic,
-           !subTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "מד התקדמות – \(topic) / \(subTopic)"
-        }
-
-        if let topic,
-           !topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "מד התקדמות – \(topic)"
-        }
-
-        return "מד התקדמות – חגורה \(belt.heb)"
-    }
-
-    private var shareSummaryText: String {
-
-        var text = "סיכום אימון – חגורה \(belt.heb)\n"
-
-        if let topic,
-           !topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            text += "נושא: \(topic)\n"
-        }
-
-        if let subTopic,
-           !subTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            text += "תת נושא: \(subTopic)\n"
-        }
-
-        text += "\nבוצעו: \(doneCount)"
-        text += "\nלא בוצעו: \(notDoneCount)"
-        text += "\nנותרו: \(remainingCount)"
-        text += "\nאחוז השלמה: \(percentAll)%"
-
-        return text
-    }
 
     var body: some View {
         ZStack {
@@ -259,6 +372,7 @@ struct SummaryView: View {
                                     userPercent: percentAll,
                                     statusText: comparisonStatusText,
                                     hasEnoughData: comparisonHasEnoughData,
+                                    isEnglish: isEnglish,
                                     onClose: {
                                         withAnimation(.easeOut(duration: 0.15)) {
                                             showComparisonCard = false
@@ -293,39 +407,44 @@ struct SummaryView: View {
                                         .buttonStyle(.plain)
                                     }
 
-                                    Text("מד התקדמות")
+                                    Text(tr("מד התקדמות", "Progress meter"))
                                         .font(.system(size: 22, weight: .black))
                                         .foregroundStyle(Color(red: 0.09, green: 0.13, blue: 0.20))
-                                        .frame(maxWidth: .infinity, alignment: .trailing)
-                                        .multilineTextAlignment(.trailing)
+                                        .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                                        .multilineTextAlignment(screenTextAlignment)
                                     
                                     ProgressRing(
                                         percent: markedPercentAll,
                                         doneCount: doneCount,
                                         notDoneCount: notDoneCount,
                                         remainingCount: remainingCount,
-                                        totalCount: totalCount
+                                        totalCount: totalCount,
+                                        isEnglish: isEnglish
                                     )
                                     .frame(width: 194, height: 194)
                                     .padding(.vertical, 4)
 
-                                    Text("סומנו \(markedCount) מתוך \(totalCount)")
+                                    Text(
+                                        isEnglish
+                                        ? "Marked \(markedCount) of \(totalCount)"
+                                        : "סומנו \(markedCount) מתוך \(totalCount)"
+                                    )
                                         .font(.system(size: 14, weight: .bold))
                                         .foregroundStyle(Color.black.opacity(0.62))
 
                                     HStack(spacing: 8) {
                                         SummaryStatusChip(
-                                            title: "יודע: \(doneCount)",
+                                            title: tr("יודע: \(doneCount)", "Known: \(doneCount)"),
                                             tint: Color(red: 0.30, green: 0.69, blue: 0.31)
                                         )
 
                                         SummaryStatusChip(
-                                            title: "לא יודע: \(notDoneCount)",
+                                            title: tr("לא יודע: \(notDoneCount)", "Not known: \(notDoneCount)"),
                                             tint: Color(red: 0.90, green: 0.22, blue: 0.21)
                                         )
 
                                         SummaryStatusChip(
-                                            title: "לא סומן: \(remainingCount)",
+                                            title: tr("לא סומן: \(remainingCount)", "Open: \(remainingCount)"),
                                             tint: Color(red: 0.60, green: 0.64, blue: 0.70)
                                         )
                                     }
@@ -342,11 +461,15 @@ struct SummaryView: View {
                         if blocks.isEmpty {
                             WhiteCard {
                                 VStack(spacing: 10) {
-                                    Text("אין נתוני סיכום להצגה")
+                                    Text(tr("אין נתוני סיכום להצגה", "No summary data to display"))
                                         .font(.system(size: 20, weight: .heavy))
                                         .foregroundStyle(Color.black.opacity(0.82))
 
-                                    Text("עדיין לא סומנו תרגילים עבור הבחירה הנוכחית")
+                                    Text(tr(
+                                        "עדיין לא סומנו תרגילים עבור הבחירה הנוכחית",
+                                        "No exercises have been marked for the current selection yet"
+                                    ))
+                                    
                                         .font(.system(size: 15, weight: .semibold))
                                         .foregroundStyle(Color.black.opacity(0.56))
                                         .multilineTextAlignment(.center)
@@ -357,8 +480,11 @@ struct SummaryView: View {
                             .padding(.top, 8)
                         } else {
                             ForEach(blocks) { block in
-                                TopicSummaryCard(block: block)
-                                    .padding(.horizontal, 16)
+                                TopicSummaryCard(
+                                    block: block,
+                                    isEnglish: isEnglish
+                                )
+                                .padding(.horizontal, 16)
                             }
                         }
 
@@ -377,6 +503,7 @@ struct SummaryView: View {
                     .padding(.bottom, 10)
             }
         }
+        .environment(\.layoutDirection, screenLayoutDirection)
         .onAppear {
             postSummaryTopTitleOverride()
 
@@ -400,7 +527,7 @@ struct SummaryView: View {
     private var summaryTopControls: some View {
         HStack(spacing: 12) {
             summaryTopActionButton(
-                title: "התקדמות",
+                title: tr("התקדמות", "Progress"),
                 systemImage: "chart.line.uptrend.xyaxis",
                 isOpen: showProgressCard
             ) {
@@ -411,7 +538,7 @@ struct SummaryView: View {
             }
 
             summaryTopActionButton(
-                title: "השוואה",
+                title: tr("השוואה", "Compare"),
                 systemImage: "chart.line.uptrend.xyaxis",
                 isOpen: showComparisonCard
             ) {
@@ -475,24 +602,6 @@ struct SummaryView: View {
         }
         .buttonStyle(.plain)
     }
-    
-    private var beltBadgeForSummary: some View {
-        ZStack {
-            Circle()
-                .fill(Color.white.opacity(0.88))
-                .overlay(
-                    Circle()
-                        .stroke(beltAccentForSummary().opacity(0.16), lineWidth: 1)
-                )
-                .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 2)
-
-            Text(beltShortTextForSummary())
-                .font(.system(size: 12, weight: .black))
-                .foregroundStyle(beltAccentForSummary())
-                .minimumScaleFactor(0.72)
-        }
-        .frame(width: 42, height: 42)
-    }
 
     private var summaryBottomBackButton: some View {
         Button {
@@ -516,7 +625,7 @@ struct SummaryView: View {
                     Image(systemName: "star.fill")
                         .font(.system(size: 15, weight: .black))
 
-                    Text("חזרה למסך הנושאים")
+                    Text(tr("חזרה למסך הנושאים", "Back to topics screen"))
                         .font(.system(size: 17, weight: .black))
                 }
                 .foregroundStyle(.white)
@@ -582,8 +691,13 @@ struct SummaryView: View {
         let userPercent: Int
         let statusText: String
         let hasEnoughData: Bool
+        let isEnglish: Bool
         let onClose: () -> Void
 
+        private func tr(_ he: String, _ en: String) -> String {
+            isEnglish ? en : he
+        }
+        
         var body: some View {
             VStack(spacing: 14) {
                 HStack(spacing: 10) {
@@ -600,7 +714,7 @@ struct SummaryView: View {
 
                     Spacer(minLength: 0)
 
-                    Text("המצב שלך בחגורה")
+                    Text(tr("המצב שלך בחגורה", "Your belt progress"))
                         .font(.system(size: 22, weight: .black))
                         .foregroundStyle(Color(red: 0.12, green: 0.17, blue: 0.24))
                         .lineLimit(1)
@@ -612,19 +726,19 @@ struct SummaryView: View {
                     HStack(spacing: 8) {
                         ComparisonMetricBox(
                             value: "\(userPercent)%",
-                            title: "אתה יודע",
+                            title: tr("אתה יודע", "You know"),
                             tint: Color.green.opacity(0.82)
                         )
 
                         ComparisonMetricBox(
                             value: "\(averagePercent)%",
-                            title: "ממוצע",
+                            title: tr("ממוצע", "Average"),
                             tint: Color.blue.opacity(0.72)
                         )
 
                         ComparisonMetricBox(
                             value: "\(traineesCount)",
-                            title: "מתאמנים",
+                            title: tr("מתאמנים", "Trainees"),
                             tint: Color.gray.opacity(0.72)
                         )
                     }
@@ -688,20 +802,14 @@ struct SummaryView: View {
         }
     }
     
-    private struct SummaryBackground: View {
-        var body: some View {
-            Color(red: 0.98, green: 0.94, blue: 0.86) // בז' כמו בתמונה
-                .ignoresSafeArea()
-        }
-    }
-    
     private struct ProgressRing: View {
         let percent: Int
         let doneCount: Int
         let notDoneCount: Int
         let remainingCount: Int
         let totalCount: Int
-
+        let isEnglish: Bool
+        
         private var donePart: CGFloat {
             guard totalCount > 0 else { return 0 }
             return CGFloat(doneCount) / CGFloat(totalCount)
@@ -756,13 +864,17 @@ struct SummaryView: View {
                         .font(.system(size: 25, weight: .black))
                         .foregroundStyle(Color(red: 0.12, green: 0.17, blue: 0.24))
 
-                    Text("סומנו")
+                    Text(isEnglish ? "Marked" : "סומנו")
                         .font(.system(size: 14, weight: .black))
                         .foregroundStyle(Color(red: 0.30, green: 0.69, blue: 0.31))
 
-                    Text("\(doneCount + notDoneCount) מתוך \(totalCount)")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color.black.opacity(0.55))
+                    Text(
+                        isEnglish
+                        ? "\(doneCount + notDoneCount) of \(totalCount)"
+                        : "\(doneCount + notDoneCount) מתוך \(totalCount)"
+                    )
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.black.opacity(0.55))
                 }
             }
         }
@@ -793,7 +905,16 @@ struct SummaryView: View {
     
     private struct TopicSummaryCard: View {
         let block: SummaryTopicBlock
+        let isEnglish: Bool
         @State private var expanded: Bool = true
+
+        private var frameAlignment: Alignment {
+            isEnglish ? .leading : .trailing
+        }
+
+        private var textAlignment: TextAlignment {
+            isEnglish ? .leading : .trailing
+        }
         
         var body: some View {
             VStack(spacing: 8) {
@@ -812,8 +933,8 @@ struct SummaryView: View {
                             .foregroundStyle(Color.black.opacity(0.84))
                             .lineLimit(1)
                             .minimumScaleFactor(0.78)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: .infinity, alignment: frameAlignment)
+                            .multilineTextAlignment(textAlignment)
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
@@ -823,7 +944,11 @@ struct SummaryView: View {
                 if expanded {
                     VStack(spacing: 0) {
                         ForEach(block.items) { item in
-                            SummaryRow(title: item.title, mark: item.mark)
+                            SummaryRow(
+                                title: item.title,
+                                mark: item.mark,
+                                isEnglish: isEnglish
+                            )
 
                             if item.id != block.items.last?.id {
                                 Divider()
@@ -874,6 +999,11 @@ struct SummaryView: View {
     private struct SummaryRow: View {
         let title: String
         let mark: SummaryMark?
+        let isEnglish: Bool
+
+        private var frameAlignment: Alignment {
+            isEnglish ? .leading : .trailing
+        }
 
         var body: some View {
             HStack(spacing: 10) {
@@ -896,34 +1026,10 @@ struct SummaryView: View {
                 Text(title)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Color.black.opacity(0.78))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 10)
-        }
-    }
-
-    private struct SummaryStatPill: View {
-        let title: String
-        let value: Int
-        let tint: Color
-
-        var body: some View {
-            VStack(spacing: 4) {
-                Text("\(value)")
-                    .font(.system(size: 18, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(0.82))
-
-                Text(title)
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Color.black.opacity(0.58))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(tint.opacity(0.10))
-            )
         }
     }
 }

@@ -14,17 +14,20 @@ enum KmiIconStripRouter {
 
         case .settings:
             nav.push(.settings)
-            
+
+        case .stats:
+            nav.push(.progress)
+
         case .search:
-            // ✅ AppRoute דורש חגורה
-            // כרגע משתמשים בברירת מחדל (אפשר בעתיד להעביר belt דינמי)
+            // ✅ AppRoute רגורה דרים
+            // כרגע משתמשים בברירת מחדל
             nav.push(.beltQuestionsByTopic(belt: .orange))
-            
+
         case .assistant:
             nav.push(.voiceAssistant)
-            
+
         case .share:
-            // Share גם Action (UIActivityViewController)
+            // Share גם Action
             break
         }
     }

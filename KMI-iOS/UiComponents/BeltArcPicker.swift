@@ -7,14 +7,14 @@ struct BeltArcPicker: View {
     @Binding var selectedBelt: Belt
     let isEnglish: Bool
 
-    private let big: CGFloat = 126
-    private let small: CGFloat = 70
-    private let stepGap: CGFloat = 18
+    private let big: CGFloat = 112
+    private let small: CGFloat = 58
+    private let stepGap: CGFloat = 46
     private var step: CGFloat { small + stepGap }
 
-    private let arcDepth: CGFloat = 58
-    private var pickerHeight: CGFloat { small + arcDepth + 24 }
-
+    private let arcDepth: CGFloat = 74
+    private var pickerHeight: CGFloat { big + arcDepth - 34 }
+    
     @State private var centerValue: CGFloat = 0
     @State private var dragStartCenter: CGFloat? = nil
     @State private var activeCircleDragIndex: Int? = nil
@@ -33,59 +33,78 @@ struct BeltArcPicker: View {
                     let rel = CGFloat(index) - centerValue
                     let dist = abs(rel)
 
-                    // מציגים את המרכזי ועוד חצי מהעיגולים הקרובים
-                    let hide = dist > 1.10
+                    // Android parity:
+                    // מציגים את המרכזי ועוד עיגולים צדדיים שנחתכים בתחתית.
+                    let hide = dist > 2.55
 
-                    let t = Swift.min(CGFloat(1), dist / 1.0)
+                    let t = Swift.min(CGFloat(1), dist / 2.0)
                     let drop = arcDepth * (1 - cos(t * .pi / 2))
-                    let grow = Swift.max(CGFloat(0), 1 - Swift.min(CGFloat(1), dist))
+                    let grow: CGFloat = {
+                        if dist >= 0.58 { return 0 }
+                        let normalized = (0.58 - dist) / 0.58
+                        return Swift.max(CGFloat(0), Swift.min(CGFloat(1), normalized))
+                    }()
                     let targetSize = small + (big - small) * grow
 
                     let targetAlpha: CGFloat = {
                         if hide { return 0 }
-                        if dist < 0.20 { return 1.0 }
-                        return 0.60
+                        if dist < 0.25 { return 1.0 }
+                        return 0.78
                     }()
 
                     let x = centerX + step * rel
 
-                    let sideBoost = small * 0.42
+                    let sideBoost = small * 1.32
                     let boostFactor = min(1, dist)
                     let yDrop = drop + sideBoost * boostFactor
-                    let y = yDrop + 2
+                    let y = yDrop + 22
+                    let isCenter = dist < 0.25
 
-                    let isCenter = dist < 0.20
+                    ZStack {
+                        if isCenter {
+                            Circle()
+                                .fill(BeltPalette.color(for: belt).opacity(0.26))
+                                .frame(width: targetSize + 22, height: targetSize + 22)
+                                .blur(radius: 12)
 
-                    BeltCircle(
-                        belt: belt,
-                        isCenter: isCenter,
-                        isEnglish: isEnglish
+                            RotatingOrbitRing(
+                                base: BeltPalette.color(for: belt)
+                            )
+                            .frame(width: targetSize + 14, height: targetSize + 14)
+                        }
+
+                        BeltCircle(
+                            belt: belt,
+                            isCenter: isCenter,
+                            isEnglish: isEnglish
+                        )
+                        .padding(isCenter ? 6 : 0)
+                    }
+                    .frame(
+                        width: isCenter ? targetSize + 24 : targetSize,
+                        height: isCenter ? targetSize + 24 : targetSize
                     )
-                    .frame(width: targetSize, height: targetSize)
-                    .scaleEffect(isCenter ? 1.0 : 0.95)
-                        .opacity(targetAlpha)
-                        .position(x: x, y: y + targetSize / 2)
-                        .zIndex(isCenter ? 3 : 1)
-                        .shadow(radius: isCenter ? 6 : 2, y: isCenter ? 4 : 1)
-                        .overlay {
-                            if isCenter {
-                                Circle()
-                                    .stroke(BeltPalette.color(for: belt).opacity(0.55), lineWidth: 6)
-                                    .blur(radius: 6)
-                                    .scaleEffect(1.10)
-                            }
+                    .scaleEffect(1.0)
+                    .opacity(targetAlpha)
+                    .position(x: x, y: y + targetSize / 2)
+                    .zIndex(isCenter ? 3 : 1)
+                    .shadow(
+                        color: isCenter ? Color.black.opacity(0.30) : Color.black.opacity(0.20),
+                        radius: isCenter ? 9 : 4,
+                        x: 0,
+                        y: isCenter ? 5 : 2
+                    )
+                    .contentShape(Circle())
+                    .allowsHitTesting(!hide)
+                    .highPriorityGesture(circleDragGesture(for: index))
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.22)) {
+                            snapToIndex(index)
                         }
-                        .contentShape(Circle())
-                        .allowsHitTesting(!hide)
-                        .highPriorityGesture(circleDragGesture(for: index))
-                        .onTapGesture {
-                            withAnimation(.easeInOut(duration: 0.22)) {
-                                snapToIndex(index)
-                            }
-                        }
+                    }
                 }
             }
-            .frame(width: min(width, 330), height: pickerHeight, alignment: .top)
+            .frame(width: min(width, 360), height: pickerHeight, alignment: .top)
             .clipped()
             .contentShape(Rectangle())
             .gesture(dragGesture())
@@ -100,7 +119,9 @@ struct BeltArcPicker: View {
             }
         }
         .frame(height: pickerHeight)
-        .padding(.bottom, 6)
+        .padding(.top, 18)
+        .padding(.bottom, -12)
+        .zIndex(30)
     }
 
     private func dragGesture() -> some Gesture {
@@ -112,7 +133,7 @@ struct BeltArcPicker: View {
                     dragStartCenter = centerValue
                 }
                 let start = dragStartCenter ?? centerValue
-                let delta = v.translation.width / step
+                let delta = -(v.translation.width / step)
                 let next = (start + delta).clamped(to: 0...CGFloat(Swift.max(0, belts.count - 1)))
                 centerValue = next
             }
@@ -254,6 +275,47 @@ struct BeltArcPicker: View {
                 return t.replacingOccurrences(of: "חגורה", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
             }
             return t
+        }
+    }
+}
+
+private struct RotatingOrbitRing: View {
+    let base: Color
+
+    @State private var angle: Double = 0
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(base.opacity(0.22), lineWidth: 6)
+
+            Circle()
+                .trim(from: 0.0, to: 0.84)
+                .stroke(
+                    AngularGradient(
+                        colors: [
+                            Color(red: 0.13, green: 0.83, blue: 0.93),
+                            Color(red: 0.65, green: 0.47, blue: 0.98),
+                            Color(red: 0.96, green: 0.45, blue: 0.70),
+                            Color(red: 0.98, green: 0.75, blue: 0.18),
+                            Color(red: 0.13, green: 0.83, blue: 0.93)
+                        ],
+                        center: .center
+                    ),
+                    style: StrokeStyle(
+                        lineWidth: 6,
+                        lineCap: .round
+                    )
+                )
+                .rotationEffect(.degrees(angle))
+                .onAppear {
+                    withAnimation(
+                        .linear(duration: 1.9)
+                        .repeatForever(autoreverses: false)
+                    ) {
+                        angle = 360
+                    }
+                }
         }
     }
 }

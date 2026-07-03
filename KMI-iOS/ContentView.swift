@@ -673,11 +673,15 @@ struct ContentView: View {
                         }
 
                     case .progress:
-                        KmiRootLayout(title: "התקדמות", nav: nav, selectedIcon: .home) {
-                            ProgressScreenIOS()
-                                .navigationBarBackButtonHidden(true)
+                        KmiRootLayout(title: "מד התקדמות", nav: nav, selectedIcon: .stats) {
+                            ProgressScreenIOS(
+                                onOpenCarousel: {
+                                    nav.push(.beltQuestionsByBelt(belt: auth.registeredBelt ?? .orange))
+                                }
+                            )
+                            .navigationBarBackButtonHidden(true)
                         }
-
+                        
                     case .trainingHistory:
                         KmiRootLayout(title: "היסטוריית אימונים", nav: nav, selectedIcon: .home) {
                             TrainingHistoryView()

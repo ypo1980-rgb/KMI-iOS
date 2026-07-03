@@ -321,6 +321,9 @@ private enum KmiIconNav {
             
         case .settings:
             return .settings
+
+        case .stats:
+            return .progress
             
         case .search:
             // ✅ חיפוש גלובאלי הוא Sheet, לא Route
@@ -710,11 +713,12 @@ struct KmiRootLayout<Content: View>: View {
             .search,
             .home,
             .settings,
+            .stats,
             .assistant,
             .share
         ]
     }
-
+    
     private var globalIconSideRailLayer: some View {
         ZStack {
             if showGlobalIconMenu {
@@ -821,13 +825,15 @@ struct KmiRootLayout<Content: View>: View {
             return isEnglish ? "Home" : "בית"
         case .settings:
             return isEnglish ? "Settings" : "הגדרות"
+        case .stats:
+            return isEnglish ? "Stats" : "סטטיסטיקה"
         case .assistant:
             return isEnglish ? "Helper" : "עוזר"
         case .share:
             return isEnglish ? "Share" : "שתף"
         }
     }
-
+    
     private func globalRailSystemIcon(_ item: KmiIconStripItem) -> String {
         switch item {
         case .home:
@@ -836,13 +842,15 @@ struct KmiRootLayout<Content: View>: View {
             return "magnifyingglass"
         case .settings:
             return "gearshape.fill"
+        case .stats:
+            return "chart.bar.fill"
         case .assistant:
             return "lightbulb.fill"
         case .share:
             return "square.and.arrow.up.fill"
         }
     }
-
+    
     private func globalRailIconTint(_ item: KmiIconStripItem) -> Color {
         switch item {
         case .search:
@@ -851,6 +859,8 @@ struct KmiRootLayout<Content: View>: View {
             return Color(red: 0.29, green: 0.27, blue: 0.78)
         case .settings:
             return Color(red: 0.95, green: 0.57, blue: 0.06)
+        case .stats:
+            return Color(red: 0.05, green: 0.65, blue: 0.91)
         case .assistant:
             return Color(red: 0.48, green: 0.36, blue: 0.88)
         case .share:

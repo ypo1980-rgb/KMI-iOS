@@ -98,6 +98,15 @@ struct SubjectAcrossBeltsView: View {
         case "topic_breakfalls_rolls", "rolls_breakfalls":
             return "topic_breakfalls_rolls"
 
+        case "topic_ready_stance":
+            return "topic_ready_stance"
+
+        case "topic_ground_prep":
+            return "topic_ground_prep"
+
+        case "topic_kavaler", "kavaler":
+            return "topic_kavaler"
+
         case "kicks", "kicks_hard", "topic_kicks":
             return "topic_kicks"
 
@@ -160,7 +169,7 @@ struct SubjectAcrossBeltsView: View {
         let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isEnglish else { return clean }
 
-        return KmiEnglishTitleResolver.title(for: clean, isEnglish: true)
+        return KmiEnglishTitleResolver.englishTitle(for: clean) ?? clean
     }
 
     private func sectionDirectlyMatchesForcedSelection(

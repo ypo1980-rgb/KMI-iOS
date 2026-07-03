@@ -3,73 +3,125 @@ import Shared
 
 struct ProgressScreenIOS: View {
 
+    let onOpenCarousel: () -> Void
+
+    init(
+        onOpenCarousel: @escaping () -> Void
+    ) {
+        self.onOpenCarousel = onOpenCarousel
+    }
+
     @StateObject private var vm = ProgressViewModel()
-    @State private var showShareSheet: Bool = false
-    @State private var shareItems: [Any] = []
-    @State private var selectedBeltSheet: SelectedBeltSheet? = nil
-
+    // אין State פנימי למסך הסטטיסטיקה.
+    // ניווט ושיתוף נשארים בסרגל הגלובלי.
+    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
+    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+    @AppStorage("selected_language_code") private var selectedLanguageCode: String = "he"
+    
+    private var effectiveLanguageCode: String {
+        let values = [
+            kmiAppLanguageCode,
+            selectedLanguageCode,
+            appLanguageRaw,
+            initialLanguageCode
+        ]
+        
+        for raw in values {
+            let clean = raw
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            
+            if clean == "en" || clean == "english" {
+                return "en"
+            }
+            
+            if clean == "he" || clean == "hebrew" || clean == "עברית" {
+                return "he"
+            }
+        }
+        
+        return "he"
+    }
+    
+    private var isEnglish: Bool {
+        effectiveLanguageCode == "en"
+    }
+    
+    private var screenLayoutDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+    
+    private var screenTextAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+    
+    private var screenFrameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+    
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
+    
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.01, green: 0.05, blue: 0.14),
-                    Color(red: 0.07, green: 0.10, blue: 0.23),
-                    Color(red: 0.11, green: 0.33, blue: 0.80)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-
-            if vm.rows.isEmpty {
-                VStack(spacing: 12) {
-                    ProgressView()
-                        .tint(.white)
-
-                    Text("טוען נתוני התקדמות...")
-                        .foregroundStyle(.white.opacity(0.9))
-                        .font(.system(size: 16, weight: .semibold))
-                }
-            } else {
-                ScrollView {
-                    VStack(spacing: 16) {
-                        ProgressSummaryHeader(
-                            currentBeltTitle: vm.currentBeltTitle,
-                            averagePercent: vm.averagePercent,
-                            onShareTap: {
-                                shareItems = [vm.shareText()]
-                                showShareSheet = true
-                            }
-                        )
-
-                        ForEach(vm.rows) { row in
-                            Button {
-                                selectedBeltSheet = SelectedBeltSheet(belt: row.belt)
-                            } label: {
-                                BeltProgressCard(row: row)
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        Spacer(minLength: 40)
+        VStack(spacing: 0) {
+            ZStack {
+                Color.white
+                    .ignoresSafeArea()
+                
+                if vm.rows.isEmpty {
+                    VStack(spacing: 14) {
+                        PremiumProgressLoadingIOS()
+                        
+                        Text(tr("טוען נתוני התקדמות...", "Loading progress data..."))
+                            .font(.system(size: 19, weight: .heavy))
+                            .foregroundStyle(Color(red: 0.25, green: 0.23, blue: 0.29))
+                            .multilineTextAlignment(.center)
+                        
+                        Text(tr("מסדר את נתוני החגורות שלך", "Organizing your belt progress"))
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.48, green: 0.45, blue: 0.53))
+                            .multilineTextAlignment(.center)
                     }
-                    .padding()
+                } else {
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 14) {
+                            ForEach(vm.rows.filter { $0.belt != .white }) { row in
+                                BeltProgressCard(
+                                    row: row,
+                                    isEnglish: isEnglish
+                                )
+                            }
+                            
+                            Spacer(minLength: 24)
+                        }
+                        .padding(16)
+                    }
                 }
             }
-        }
-        .sheet(isPresented: $showShareSheet) {
-            ActivityViewController(activityItems: shareItems)
-        }
-        .sheet(item: $selectedBeltSheet) { selected in
-            if let row = vm.beltRow(for: selected.belt) {
-                ProgressBeltDetailsSheet(
-                    belt: selected.belt,
-                    row: row,
-                    allItems: vm.allExercises(for: selected.belt),
-                    vm: vm
-                )
+            
+            Button {
+                onOpenCarousel()
+            } label: {
+                Text(tr("מעבר למסך התרגילים", "Go to exercises"))
+                    .font(.system(size: 17, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color(red: 0.12, green: 0.16, blue: 0.22))
+                    )
             }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 18)
+            .padding(.top, 10)
+            .padding(.bottom, 10)
+            .background(Color.white)
         }
+        .environment(\.layoutDirection, screenLayoutDirection)
+        .toolbar(.hidden, for: .navigationBar)
         .onAppear {
             vm.loadProgress()
         }
@@ -78,284 +130,160 @@ struct ProgressScreenIOS: View {
 
 private struct BeltProgressCard: View {
     let row: ProgressViewModel.BeltProgress
+    let isEnglish: Bool
+
+    private var titleText: String {
+        if isEnglish {
+            return "Belt: \(row.title)"
+        }
+
+        let clean = row.title
+            .replacingOccurrences(of: "חגורה:", with: "")
+            .replacingOccurrences(of: "חגורה", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return "חגורה: \(clean)"
+    }
+
+    private var countText: String {
+        isEnglish
+        ? "(\(row.done) of \(row.total))"
+        : "(\(row.done) מתוך \(row.total))"
+    }
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 10) {
-            HStack {
-                ZStack {
-                    Circle()
-                        .fill(row.color.opacity(0.22))
-                        .frame(width: 42, height: 42)
-
-                    Circle()
-                        .stroke(Color.white.opacity(0.14), lineWidth: 1)
-                        .frame(width: 42, height: 42)
-                }
-
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 4) {
-                    HStack(spacing: 8) {
-                        if row.isCurrentBelt {
-                            Text("החגורה שלי")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(.black)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(
-                                    Capsule()
-                                        .fill(Color.white.opacity(0.92))
-                                )
-                        }
-
-                        Text(row.title)
-                            .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
-                    }
-
-                    Text("\(row.done) / \(row.total) תרגילים • \(row.percent)%")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.78))
-                }
-            }
-
-            ProgressView(value: Double(row.percent) / 100.0)
-                .tint(row.color)
-
-            HStack {
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
                 Text("\(row.percent)%")
-                    .font(.system(size: 14, weight: .heavy))
+                    .font(.system(size: 15, weight: .heavy))
                     .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(row.color.opacity(0.90))
+                    )
 
-                Spacer()
+                Spacer(minLength: 10)
 
-                Text("לחץ לצפייה בתרגילים חסרים")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.75))
+                Text(titleText)
+                    .font(.system(size: 18, weight: .heavy))
+                    .foregroundStyle(row.color)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
+
+                Circle()
+                    .fill(row.color)
+                    .frame(width: 13, height: 13)
             }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.10))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.10), lineWidth: 1)
-        )
-    }
-}
 
-private struct ProgressSummaryHeader: View {
-    let currentBeltTitle: String
-    let averagePercent: Int
-    let onShareTap: () -> Void
+            GeometryReader { geo in
+                ZStack(alignment: isEnglish ? .leading : .trailing) {
+                    Capsule(style: .continuous)
+                        .fill(Color.black.opacity(0.08))
 
-    var body: some View {
-        VStack(alignment: .trailing, spacing: 12) {
-            Text("התקדמות לפי חגורות")
-                .font(.title2.bold())
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-
-            Text("החגורה הנוכחית: \(currentBeltTitle)")
-                .font(.system(size: 16, weight: .heavy))
-                .foregroundStyle(.white)
-
-            HStack {
-                Button(action: onShareTap) {
-                    Label("שתף", systemImage: "square.and.arrow.up")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(
-                            Capsule()
-                                .fill(Color.white.opacity(0.14))
+                    Capsule(style: .continuous)
+                        .fill(row.color)
+                        .frame(
+                            width: max(
+                                0,
+                                geo.size.width * CGFloat(row.total == 0 ? 0 : Double(row.done) / Double(row.total))
+                            )
                         )
                 }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("\(averagePercent)%")
-                        .font(.system(size: 28, weight: .heavy))
-                        .foregroundStyle(.white)
-
-                    Text("ממוצע כללי")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.78))
-                }
             }
+            .frame(height: 12)
+
+            Text(countText)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.black.opacity(0.62))
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .multilineTextAlignment(textAlignment)
         }
-        .padding(16)
+        .padding(14)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.white.opacity(0.12))
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(row.color.opacity(0.14))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(row.color.opacity(0.75), lineWidth: 2)
         )
     }
 }
 
-private struct ProgressBeltDetailsSheet: View {
-    let belt: Belt
-    let row: ProgressViewModel.BeltProgress
-    let allItems: [ProgressViewModel.MissingExercise]
-    @ObservedObject var vm: ProgressViewModel
-
-    var doneItemsCount: Int {
-        allItems.filter { vm.isExerciseDone(belt: belt, itemTitle: $0.itemTitle) }.count
-    }
-
-    var missingItemsCount: Int {
-        max(0, allItems.count - doneItemsCount)
-    }
+private struct PremiumProgressLoadingIOS: View {
+    @State private var isAnimating = false
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.01, green: 0.05, blue: 0.14),
-                        Color(red: 0.07, green: 0.10, blue: 0.23),
-                        Color(red: 0.11, green: 0.33, blue: 0.80)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
+        ZStack {
+            Circle()
+                .stroke(
+                    AngularGradient(
+                        colors: [
+                            .clear,
+                            Color(red: 0.49, green: 0.23, blue: 0.93),
+                            Color(red: 0.22, green: 0.74, blue: 0.97),
+                            .clear
+                        ],
+                        center: .center
+                    ),
+                    lineWidth: 5
                 )
-                .ignoresSafeArea()
+                .frame(width: 88, height: 88)
+                .rotationEffect(.degrees(isAnimating ? 360 : 0))
 
-                ScrollView {
-                    VStack(spacing: 16) {
-                        VStack(alignment: .trailing, spacing: 10) {
-                            Text(row.title)
-                                .font(.system(size: 24, weight: .heavy))
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
+            Circle()
+                .stroke(
+                    AngularGradient(
+                        colors: [
+                            .clear,
+                            Color(red: 0.96, green: 0.62, blue: 0.04),
+                            Color(red: 0.13, green: 0.77, blue: 0.36),
+                            .clear
+                        ],
+                        center: .center
+                    ),
+                    lineWidth: 4
+                )
+                .frame(width: 62, height: 62)
+                .rotationEffect(.degrees(isAnimating ? -360 : 0))
 
-                            Text("\(doneItemsCount) מתוך \(allItems.count) תרגילים הושלמו")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.86))
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-
-                            ProgressView(
-                                value: allItems.isEmpty ? 0 : Double(doneItemsCount) / Double(allItems.count)
-                            )
-                            .tint(row.color)
-
-                            Text("חסרים \(missingItemsCount) תרגילים")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                        }
-                        .padding(16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .fill(Color.white.opacity(0.12))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .stroke(Color.white.opacity(0.10), lineWidth: 1)
-                        )
-
-                        if allItems.isEmpty {
-                            VStack(spacing: 10) {
-                                Image(systemName: "tray")
-                                    .font(.system(size: 34, weight: .bold))
-                                    .foregroundStyle(.white)
-
-                                Text("לא נמצאו תרגילים בחגורה זו")
-                                    .font(.system(size: 18, weight: .heavy))
-                                    .foregroundStyle(.white)
-                            }
-                            .padding(24)
-                            .frame(maxWidth: .infinity)
-                            .background(
-                                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                    .fill(Color.white.opacity(0.10))
-                            )
-                        } else {
-                            VStack(spacing: 10) {
-                                ForEach(allItems) { item in
-                                    let isDone = vm.isExerciseDone(belt: belt, itemTitle: item.itemTitle)
-
-                                    Button {
-                                        vm.toggleExerciseDone(belt: belt, itemTitle: item.itemTitle)
-                                    } label: {
-                                        VStack(alignment: .trailing, spacing: 6) {
-                                            HStack(spacing: 10) {
-                                                Image(systemName: isDone ? "checkmark.circle.fill" : "circle")
-                                                    .font(.system(size: 22, weight: .semibold))
-                                                    .foregroundStyle(isDone ? Color.green : Color.white.opacity(0.75))
-
-                                                Spacer()
-
-                                                VStack(alignment: .trailing, spacing: 6) {
-                                                    Text(item.itemTitle)
-                                                        .font(.system(size: 17, weight: .heavy))
-                                                        .foregroundStyle(.white)
-                                                        .frame(maxWidth: .infinity, alignment: .trailing)
-
-                                                    Text(item.topicTitle)
-                                                        .font(.system(size: 13, weight: .semibold))
-                                                        .foregroundStyle(.white.opacity(0.82))
-                                                        .frame(maxWidth: .infinity, alignment: .trailing)
-
-                                                    if let sub = item.subTopicTitle, !sub.isEmpty {
-                                                        Text(sub)
-                                                            .font(.system(size: 12, weight: .medium))
-                                                            .foregroundStyle(.white.opacity(0.70))
-                                                            .frame(maxWidth: .infinity, alignment: .trailing)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        .padding(14)
-                                        .frame(maxWidth: .infinity)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                                .fill(isDone ? Color.white.opacity(0.16) : Color.white.opacity(0.10))
-                                        )
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                                        )
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-
-                        Spacer(minLength: 24)
-                    }
-                    .padding()
-                }
-            }
-            .navigationTitle("פירוט התקדמות")
-            .navigationBarTitleDisplayMode(.inline)
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color.white,
+                            Color(red: 0.95, green: 0.91, blue: 1.00),
+                            Color(red: 0.88, green: 0.95, blue: 1.00)
+                        ],
+                        center: .center,
+                        startRadius: 2,
+                        endRadius: 18
+                    )
+                )
+                .frame(width: 26, height: 26)
+                .overlay(
+                    Circle()
+                        .stroke(Color(red: 0.91, green: 0.84, blue: 1.00), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.16), radius: 8, x: 0, y: 4)
         }
-    }
-}
-
-private struct SelectedBeltSheet: Identifiable {
-    let id = UUID()
-    let belt: Belt
-}
-
-private struct ActivityViewController: UIViewControllerRepresentable {
-    let activityItems: [Any]
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(
-            activityItems: activityItems,
-            applicationActivities: nil
-        )
-    }
-
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
+        .frame(width: 96, height: 96)
+        .onAppear {
+            withAnimation(.linear(duration: 1.35).repeatForever(autoreverses: false)) {
+                isAnimating = true
+            }
+        }
     }
 }

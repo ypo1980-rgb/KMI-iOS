@@ -4,17 +4,18 @@ import SwiftUI
 // MARK: - KmiIconStripBar
 
 enum KmiIconStripItem: CaseIterable, Identifiable {
-    case share, assistant, settings, home, search
-
+    case share, assistant, settings, stats, home, search
+    
     var id: String {
         rawKey
     }
-
+    
     var rawKey: String {
         switch self {
         case .share:     return "share"
         case .assistant: return "assistant"
         case .settings:  return "settings"
+        case .stats:     return "stats"
         case .home:      return "home"
         case .search:    return "search"
         }
@@ -22,11 +23,18 @@ enum KmiIconStripItem: CaseIterable, Identifiable {
 
     var systemName: String {
         switch self {
-        case .share:     return "square.and.arrow.up"
-        case .assistant: return "lightbulb"
-        case .settings:  return "gearshape"
-        case .home:      return "house.fill"
-        case .search:    return "magnifyingglass"
+        case .share:
+            return "square.and.arrow.up"
+        case .assistant:
+            return "lightbulb"
+        case .settings:
+            return "gearshape"
+        case .stats:
+            return "chart.bar"
+        case .home:
+            return "house.fill"
+        case .search:
+            return "magnifyingglass"
         }
     }
 
@@ -38,6 +46,8 @@ enum KmiIconStripItem: CaseIterable, Identifiable {
             return isEnglish ? "Assistant" : "עוזר"
         case .settings:
             return isEnglish ? "Settings" : "הגדרות"
+        case .stats:
+            return isEnglish ? "Stats" : "סטטיסטיקה"
         case .home:
             return isEnglish ? "Home" : "בית"
         case .search:
@@ -121,6 +131,7 @@ struct KmiIconStripBar: View {
 #Preview {
     KmiIconStripBar(
         items: KmiIconStripItem.allCases,
-        selected: .home
+        selected: .stats
     ) { _ in }
 }
+

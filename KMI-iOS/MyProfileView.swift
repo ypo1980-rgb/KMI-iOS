@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import FirebaseAuth
 import FirebaseFirestore
+import Shared
 
 private extension String {
     func ifBlankDash() -> String {
@@ -399,6 +400,20 @@ struct MyProfileView: View {
                 AppNavModel.sharedInstance?.push(.settings)
             }
 
+        case .stats:
+            dismiss()
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                AppNavModel.sharedInstance?.push(.progress)
+            }
+
+        case .search:
+            dismiss()
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                AppNavModel.sharedInstance?.push(.beltQuestionsByTopic(belt: .orange))
+            }
+
         case .assistant:
             dismiss()
 
@@ -406,16 +421,11 @@ struct MyProfileView: View {
                 AppNavModel.sharedInstance?.push(.voiceAssistant)
             }
 
-        case .search:
-            // במסך הפרופיל נשאיר את החיפוש לסבב הבא כדי לא לפתוח Sheet כפול.
-            break
-
         case .share:
-            // שיתוף פרופיל נחבר בסבב הבא אם תרצה.
             break
         }
     }
-
+    
     // MARK: - Background
 
     private var profileBackground: some View {

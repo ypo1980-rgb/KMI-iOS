@@ -32,6 +32,86 @@ final class ProgressViewModel: ObservableObject {
         return Int(round(Double(sum) / Double(rows.count)))
     }
 
+    private func normalizedProgressText(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\u{200F}", with: "")
+            .replacingOccurrences(of: "\u{200E}", with: "")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .replacingOccurrences(of: "־", with: "-")
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: "—", with: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(
+                of: "\\s+",
+                with: " ",
+                options: .regularExpression
+            )
+            .lowercased()
+    }
+
+    private func progressKeySafePart(_ value: String) -> String {
+        normalizedProgressText(value)
+    }
+
+    private func isMarkedDoneInDefaults(
+        defaults: UserDefaults,
+        belt: Belt,
+        topicTitle: String,
+        subTopicTitle: String?,
+        itemTitle: String,
+        index: Int
+    ) -> Bool {
+        let beltId = belt.id
+        let cleanTopic = progressKeySafePart(topicTitle)
+        let cleanSubTopic = subTopicTitle.map(progressKeySafePart) ?? ""
+        let cleanItem = progressKeySafePart(itemTitle)
+
+        let topicKey = cleanSubTopic.isEmpty
+            ? cleanTopic
+            : "\(cleanTopic)__\(cleanSubTopic)"
+
+        let directKeys = [
+            "exercise_\(beltId)_\(itemTitle)",
+            "exercise_\(beltId)_\(cleanItem)",
+
+            "status_\(beltId)_\(topicTitle)_\(index)_\(itemTitle)",
+            "status_\(beltId)_\(topicTitle)_\(index)_\(cleanItem)",
+
+            "status_\(beltId)_\(topicKey)_\(index)_\(itemTitle)",
+            "status_\(beltId)_\(topicKey)_\(index)_\(cleanItem)",
+
+            "\(beltId)_\(topicTitle)_\(itemTitle)",
+            "\(beltId)_\(topicKey)_\(itemTitle)",
+            "\(beltId)_\(cleanTopic)_\(cleanItem)",
+            "\(beltId)_\(topicKey)_\(cleanItem)"
+        ]
+
+        for key in directKeys {
+            if defaults.bool(forKey: key) {
+                return true
+            }
+        }
+
+        let allValues = defaults.dictionaryRepresentation()
+
+        for entry in allValues {
+            guard let isDone = entry.value as? Bool, isDone == true else {
+                continue
+            }
+
+            let normalizedKey = progressKeySafePart(entry.key)
+
+            let containsBelt = normalizedKey.contains(beltId)
+            let containsItem = normalizedKey.contains(cleanItem)
+
+            if containsBelt && containsItem {
+                return true
+            }
+        }
+
+        return false
+    }
+    
     func loadProgress() {
         let defaults = UserDefaults.standard
         let catalog = CatalogData.shared.data
@@ -46,19 +126,40 @@ final class ProgressViewModel: ObservableObject {
         ]
 
         func resolvedCurrentBeltId() -> String {
-            let primary = (defaults.string(forKey: "current_belt") ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
+            let candidates = [
+                defaults.string(forKey: "current_belt"),
+                defaults.string(forKey: "belt_current"),
+                defaults.string(forKey: "belt"),
+                defaults.string(forKey: "registered_belt"),
+                defaults.string(forKey: "user_belt")
+            ]
 
-            if !primary.isEmpty { return primary }
+            for candidate in candidates {
+                let clean = normalizedProgressText(candidate ?? "")
 
-            let secondary = (defaults.string(forKey: "belt_current") ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
+                switch clean {
+                case "white", "לבן", "לבנה":
+                    return "white"
+                case "yellow", "צהוב", "צהובה":
+                    return "yellow"
+                case "orange", "כתום", "כתומה":
+                    return "orange"
+                case "green", "ירוק", "ירוקה":
+                    return "green"
+                case "blue", "כחול", "כחולה":
+                    return "blue"
+                case "brown", "חום", "חומה":
+                    return "brown"
+                case "black", "שחור", "שחורה":
+                    return "black"
+                default:
+                    continue
+                }
+            }
 
-            return secondary
+            return "white"
         }
-
+        
         func displayName(for beltId: String) -> String {
             switch beltId {
             case "yellow", "צהוב", "צהובה": return "צהובה"
@@ -74,38 +175,83 @@ final class ProgressViewModel: ObservableObject {
         func readStats(for belt: Belt) -> (done: Int, total: Int, percent: Int) {
 
             guard let content = catalog[belt] else {
-                return (0,0,0)
+                return (0, 0, 0)
             }
 
             var total = 0
             var done = 0
+            var countedItems = Set<String>()
 
-            for topic in content.topics {
+            func countItem(
+                topicTitle: String,
+                subTopicTitle: String?,
+                itemTitle: String,
+                index: Int
+            ) {
+                let uniqueKey = [
+                    belt.id,
+                    progressKeySafePart(topicTitle),
+                    subTopicTitle.map(progressKeySafePart) ?? "",
+                    progressKeySafePart(itemTitle)
+                ]
+                .joined(separator: "::")
 
-                for item in topic.items {
-                    total += 1
-
-                    let key = "exercise_\(belt.id)_\(item)"
-                    if defaults.bool(forKey: key) {
-                        done += 1
-                    }
+                guard !countedItems.contains(uniqueKey) else {
+                    return
                 }
 
-                for sub in topic.subTopics {
-                    for item in sub.items {
-                        total += 1
+                countedItems.insert(uniqueKey)
+                total += 1
 
-                        let key = "exercise_\(belt.id)_\(item)"
-                        if defaults.bool(forKey: key) {
-                            done += 1
-                        }
-                    }
+                if isMarkedDoneInDefaults(
+                    defaults: defaults,
+                    belt: belt,
+                    topicTitle: topicTitle,
+                    subTopicTitle: subTopicTitle,
+                    itemTitle: itemTitle,
+                    index: index
+                ) {
+                    done += 1
                 }
             }
 
-            let percent = total == 0 ? 0 : Int((Double(done) / Double(total)) * 100)
+            func countSubTopics(
+                topicTitle: String,
+                subTopics: [CatalogData.SubTopic]
+            ) {
+                for subTopic in subTopics {
+                    for itemIndex in subTopic.items.indices {
+                        countItem(
+                            topicTitle: topicTitle,
+                            subTopicTitle: subTopic.title,
+                            itemTitle: subTopic.items[itemIndex],
+                            index: itemIndex
+                        )
+                    }
+                }
+            }
+            
+            for topic in content.topics {
+                for itemIndex in topic.items.indices {
+                    countItem(
+                        topicTitle: topic.title,
+                        subTopicTitle: nil,
+                        itemTitle: topic.items[itemIndex],
+                        index: itemIndex
+                    )
+                }
 
-            return (done,total,percent)
+                countSubTopics(
+                    topicTitle: topic.title,
+                    subTopics: topic.subTopics
+                )
+            }
+
+            let percent = total == 0
+                ? 0
+                : Int((Double(done) / Double(total)) * 100).clamped(to: 0...100)
+
+            return (done, total, percent)
         }
         
         let currentBeltId = resolvedCurrentBeltId()
@@ -238,3 +384,10 @@ final class ProgressViewModel: ObservableObject {
         return result
     }
 }
+
+private extension Comparable {
+    func clamped(to limits: ClosedRange<Self>) -> Self {
+        min(max(self, limits.lowerBound), limits.upperBound)
+    }
+}
+

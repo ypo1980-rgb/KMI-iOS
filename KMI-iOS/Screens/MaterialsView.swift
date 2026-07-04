@@ -328,23 +328,16 @@ struct MaterialsView: View {
             MaterialsScreenSoftBackground(belt: belt)
 
             VStack(spacing: 0) {
-                MaterialsHeaderCard(
+                MaterialsStatsHeader(
                     belt: belt,
-                    title: headerTitle,
                     count: rows.count,
                     masteredCount: masteredCount,
                     unknownCount: unknownCount,
                     favoritesCount: favoritesCount,
                     excludedCount: excludedCount,
                     notesCount: notesCount,
-                    isEnglish: isEnglish,
-                    onBack: {
-                        dismiss()
-                    }
+                    isEnglish: isEnglish
                 )
-                
-                Divider()
-                    .background(BeltPaletteByMaterials.color(for: belt).opacity(0.14))
 
                 ScrollView {
                     VStack(spacing: 0) {
@@ -396,7 +389,7 @@ struct MaterialsView: View {
                     }
                     .padding(.top, 4)
                     .padding(.horizontal, 12)
-                    .padding(.bottom, 10)
+                    .padding(.bottom, 12)
                     .id(refreshToken)
                 }
                 .background(MaterialsBeltLightBackground(belt: belt))
@@ -631,9 +624,11 @@ struct MaterialsView: View {
     }
 
     private func explanationText(for row: ExerciseRow) -> String {
-        let txt = LocalExplanations.shared.get(
+        let txt = KmiExerciseExplanationResolverIOS.shared.get(
             belt: belt,
-            item: row.rawItem
+            topic: materialRootTopic,
+            item: row.rawItem,
+            isEnglish: isEnglish
         )
 
         let clean = txt.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
@@ -998,6 +993,86 @@ private func materialsBeltImageName(for belt: Belt) -> String {
 }
 
 // MARK: - Header
+
+private struct MaterialsStatsHeader: View {
+    let belt: Belt
+    let count: Int
+    let masteredCount: Int
+    let unknownCount: Int
+    let favoritesCount: Int
+    let excludedCount: Int
+    let notesCount: Int
+    let isEnglish: Bool
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(isEnglish ? "← Swipe sideways to see more stats →" : "→→ הזז לצד כדי לראות עוד נתונים →→")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Color(red: 0.36, green: 0.39, blue: 0.45))
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 4)
+                .padding(.bottom, 2)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    if isEnglish {
+                        statChip(title: "Exercises", value: count, color: Color(red: 0.60, green: 0.64, blue: 0.70))
+                        statChip(title: "Known", value: masteredCount, color: Color(red: 0.48, green: 0.80, blue: 0.53))
+                        statChip(title: "Unknown", value: unknownCount, color: Color(red: 0.95, green: 0.66, blue: 0.48))
+                        statChip(title: "Favorites", value: favoritesCount, color: Color(red: 0.91, green: 0.64, blue: 0.71))
+                        statChip(title: "Excluded", value: excludedCount, color: Color(red: 0.58, green: 0.84, blue: 0.60))
+                        statChip(title: "Notes", value: notesCount, color: Color(red: 0.52, green: 0.59, blue: 0.79))
+                    } else {
+                        statChip(title: "תרגילים", value: count, color: Color(red: 0.60, green: 0.64, blue: 0.70))
+                        statChip(title: "יודע", value: masteredCount, color: Color(red: 0.48, green: 0.80, blue: 0.53))
+                        statChip(title: "לא יודע", value: unknownCount, color: Color(red: 0.95, green: 0.66, blue: 0.48))
+                        statChip(title: "מועדפים", value: favoritesCount, color: Color(red: 0.91, green: 0.64, blue: 0.71))
+                        statChip(title: "מוחרגים", value: excludedCount, color: Color(red: 0.58, green: 0.84, blue: 0.60))
+                        statChip(title: "הערות", value: notesCount, color: Color(red: 0.52, green: 0.59, blue: 0.79))
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 6)
+            }
+            .environment(\.layoutDirection, .leftToRight)
+
+            Text(isEnglish ? "More cards are available off-screen" : "יש עוד כרטיסים בהמשך הגלילה")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(Color(red: 0.48, green: 0.51, blue: 0.57))
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 4)
+        }
+        .background(MaterialsBeltLightBackground(belt: belt))
+    }
+
+    private func statChip(title: String, value: Int, color: Color) -> some View {
+        VStack(spacing: 2) {
+            Text("\(value)")
+                .font(.system(size: 14, weight: .black))
+                .foregroundStyle(Color.white)
+                .lineLimit(1)
+
+            Text(title)
+                .font(.system(size: 10, weight: .heavy))
+                .foregroundStyle(Color.white.opacity(0.94))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+        }
+        .frame(minWidth: 64)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(color)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+        )
+    }
+}
 
 private struct MaterialsHeaderCard: View {
 

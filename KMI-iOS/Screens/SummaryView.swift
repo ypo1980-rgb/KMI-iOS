@@ -184,13 +184,29 @@ struct SummaryView: View {
     
     // MARK: - Model for UI
     
-    private var catalogTopics: [CatalogData.Topic] {
-        let catalog = CatalogData.shared.data
-        return catalog[belt]?.topics ?? []
+    private struct SummaryRawTopic {
+        let title: String
+        let items: [String]
+    }
+
+    private var catalogTopics: [SummaryRawTopic] {
+        TopicsEngine.shared.topicTitlesFor(belt: belt)
+            .map { title in
+                let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                return SummaryRawTopic(
+                    title: cleanTitle,
+                    items: ContentRepo.shared.getAllItemsFor(
+                        belt: belt,
+                        topicTitle: cleanTitle,
+                        subTopicTitle: nil
+                    )
+                )
+            }
     }
     
     private var blocks: [SummaryTopicBlock] {
-        let filteredTopics: [CatalogData.Topic]
+        let filteredTopics: [SummaryRawTopic]
 
         if let topic, !topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             filteredTopics = catalogTopics.filter {
@@ -203,27 +219,7 @@ struct SummaryView: View {
 
         return filteredTopics.compactMap { t in
             var out: [String] = []
-
-            if let subTopic, !subTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                if let st = t.subTopics.first(where: {
-                    $0.title.trimmingCharacters(in: .whitespacesAndNewlines) ==
-                    subTopic.trimmingCharacters(in: .whitespacesAndNewlines)
-                }) {
-                    out.append(contentsOf: st.items)
-                } else {
-                    return nil
-                }
-            } else {
-                out.append(contentsOf: t.items)
-
-                func appendSubTopicItems(_ subTopics: [CatalogData.SubTopic]) {
-                    for st in subTopics {
-                        out.append(contentsOf: st.items)
-                    }
-                }
-
-                appendSubTopicItems(t.subTopics)
-            }
+            out.append(contentsOf: t.items)
             
             var seen = Set<String>()
             let uniq = out
@@ -498,10 +494,15 @@ struct SummaryView: View {
             VStack {
                 Spacer()
 
-                summaryBottomBackButton
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 10)
+                VStack(spacing: 0) {
+                    summaryBottomBackButton
+                        .padding(.horizontal, 20)
+                        .padding(.top, 12)
+                        .padding(.bottom, 10)
+                }
+                .background(Color.white.opacity(0.96))
             }
+            .ignoresSafeArea(edges: .bottom)
         }
         .environment(\.layoutDirection, screenLayoutDirection)
         .onAppear {

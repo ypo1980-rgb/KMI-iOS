@@ -79,12 +79,13 @@ struct KmiStartupLoadingScreen: View {
                         .frame(width: cardWidth)
                         .fixedSize(horizontal: false, vertical: true)
                         .position(
-                            x: geo.size.width / 2,
-                            y: cardTopSpace + 122
+                            x: geo.size.width / 2.2,
+                            y: cardTopSpace + 86
                         )
                         .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
+                .environment(\.layoutDirection, .leftToRight)
             }
         }
         .ignoresSafeArea()

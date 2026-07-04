@@ -157,8 +157,6 @@ enum AppRoute: Hashable {
     case beltQuestionsByBelt(belt: Belt)
     case beltQuestionsByTopic(belt: Belt)
     case beltTopics(belt: Belt)
-
-    case topicDetail(topic: CatalogData.Topic)
     case topicAcrossBelts(topicTitle: String, subTopicTitle: String?)
 
     case weakPoints(belt: Belt)
@@ -196,6 +194,7 @@ enum AppRoute: Hashable {
     case paymentsReport
 
     case settings
+    case contactUs
     case exercisesMarks(belt: Belt, topic: String, subTopic: String?)
 
     // ⭐️ Admin
@@ -781,12 +780,23 @@ struct ContentView: View {
                             .navigationBarBackButtonHidden(true)
                         }
 
-                    // ✅ settings (אם קיים אצלך)
-                    case .settings:
-                        KmiRootLayout(title: "הגדרות", nav: nav, selectedIcon: .settings) {
-                            SettingsView(nav: nav)
+                        // ✅ settings (אם קיים אצלך)
+                        case .settings:
+                            KmiRootLayout(title: "הגדרות", nav: nav, selectedIcon: .settings) {
+                                SettingsView(nav: nav)
+                                    .navigationBarBackButtonHidden(true)
+                            }
+
+                        case .contactUs:
+                            KmiRootLayout(title: tr("צור קשר", "Contact Us"), nav: nav, selectedIcon: .home) {
+                                ContactUsViewIOS(
+                                    isEnglish: isEnglish,
+                                    onClose: {
+                                        nav.pop()
+                                    }
+                                )
                                 .navigationBarBackButtonHidden(true)
-                        }
+                            }
                      
                     case .weakPoints(let belt):
                         KmiRootLayout(title: "נקודות תורפה", nav: nav, selectedIcon: .home) {
@@ -823,16 +833,37 @@ struct ContentView: View {
                                     let cleanToken = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
 
                                     if cleanToken.isEmpty || cleanToken == "__ALL__" {
-                                        let catalog = CatalogData.shared.data
-                                        let topics = catalog[belt]?.topics ?? []
+                                        let topicTitles = TopicsEngine.shared.topicTitlesFor(belt: belt)
 
                                         var result: [String] = []
-                                        for t in topics {
-                                            result.append(contentsOf: t.items)
-                                            for st in t.subTopics {
-                                                result.append(contentsOf: st.items)
+
+                                        for title in topicTitles {
+                                            let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                                            result.append(
+                                                contentsOf: ContentRepo.shared.getAllItemsFor(
+                                                    belt: belt,
+                                                    topicTitle: cleanTitle,
+                                                    subTopicTitle: nil
+                                                )
+                                            )
+
+                                            let details = TopicsEngine.shared.topicDetailsFor(
+                                                belt: belt,
+                                                topicTitle: cleanTitle
+                                            )
+
+                                            for subTitle in details.subTitles {
+                                                result.append(
+                                                    contentsOf: ContentRepo.shared.getAllItemsFor(
+                                                        belt: belt,
+                                                        topicTitle: cleanTitle,
+                                                        subTopicTitle: subTitle
+                                                    )
+                                                )
                                             }
                                         }
+
                                         return result
                                     }
 
@@ -1058,143 +1089,7 @@ private struct NoAdminPermissionView: View {
         .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
     }
 }
-
-// MARK: - (אופציונלי) Home UI דמו - נשאר אצלך בקובץ
-private struct KmiHomeView: View {
-
-    let onOpenBeltQuestionsByBelt: (Belt) -> Void
-    let onOpenBeltQuestionsByTopic: () -> Void
-    let onOpenBeltTopics: (Belt) -> Void
-    let onOpenSettings: () -> Void
-
-    private let belts: [Belt] = [
-        Belt.white, Belt.yellow, Belt.orange, Belt.green, Belt.blue, Belt.brown, Belt.black
-    ]
-
-    private let catalog = CatalogData.shared.data
-
-    var body: some View {
-        ZStack {
-            KmiBackground()
-
-            ScrollView {
-                VStack(spacing: 14) {
-
-                    VStack(spacing: 6) {
-                        Text("✅ iOS App is running")
-                            .foregroundStyle(KmiTheme.textPrimary)
-                            .font(.headline)
-
-                        Text("Belts from Shared: \(belts.count)")
-                            .foregroundStyle(KmiTheme.textSecondary)
-                            .font(.footnote)
-                    }
-                    .padding(.top, 8)
-
-                    KmiCard(title: "הגדרות") {
-                        Button {
-                            onOpenSettings()
-                        } label: {
-                            HStack {
-                                Text("SettingsView")
-                                    .foregroundStyle(KmiTheme.textPrimary)
-                                    .font(.body.weight(.semibold))
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(KmiTheme.textSecondary)
-                            }
-                            .contentShape(Rectangle())
-                            .padding(.vertical, 6)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    KmiCard(title: "נושאים (לפי נושא)") {
-                        Button {
-                            onOpenBeltQuestionsByTopic()
-                        } label: {
-                            HStack {
-                                Text("BeltQuestionsByTopicView")
-                                    .foregroundStyle(KmiTheme.textPrimary)
-                                    .font(.body.weight(.semibold))
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(KmiTheme.textSecondary)
-                            }
-                            .contentShape(Rectangle())
-                            .padding(.vertical, 6)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    KmiCard(title: "מסך חגורות (Android-like)") {
-                        VStack(spacing: 10) {
-                            ForEach(belts, id: \.self) { b in
-                                Button {
-                                    onOpenBeltQuestionsByBelt(b)
-                                } label: {
-                                    KmiBeltRow(
-                                        title: b.heb,
-                                        subtitle: "id: \(b.id)"
-                                    )
-                                }
-                                .buttonStyle(.plain)
-
-                                Divider()
-                                    .overlay(Color.white.opacity(0.10))
-                            }
-                        }
-                    }
-
-                    KmiCard(title: "קטלוג – סיכום מהיר") {
-                        VStack(spacing: 10) {
-                            ForEach(belts, id: \.self) { b in
-                                let topicsCount = catalog[b]?.topics.count ?? 0
-
-                                Button {
-                                    onOpenBeltTopics(b)
-                                } label: {
-                                    HStack {
-                                        Text(b.heb)
-                                            .foregroundStyle(KmiTheme.textPrimary)
-                                        Spacer()
-                                        Text("נושאים: \(topicsCount)")
-                                            .font(.caption)
-                                            .foregroundStyle(KmiTheme.textSecondary)
-                                        Image(systemName: "chevron.right")
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundStyle(KmiTheme.textSecondary)
-                                    }
-                                    .contentShape(Rectangle())
-                                    .padding(.vertical, 6)
-                                }
-                                .buttonStyle(.plain)
-
-                                Divider()
-                                    .overlay(Color.white.opacity(0.10))
-                            }
-                        }
-                    }
-
-                    Spacer(minLength: 18)
-                }
-                .padding(.horizontal, 14)
-                .padding(.bottom, 22)
-            }
-        }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text("מסך הבית")
-                    .font(.headline)
-                    .foregroundStyle(KmiTheme.textPrimary)
-            }
-        }
-    }
-}
-
+ 
 // MARK: - Belt Row UI (דומה לרשומת קומפוז)
 private struct KmiBeltRow: View {
     let title: String
@@ -1231,126 +1126,6 @@ private struct KmiBeltRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-    }
-}
-
-// MARK: - Belt Topics Screen (קטלוג)
-struct BeltTopicsView: View {
-    let belt: Belt
-    let catalog: [Belt: CatalogData.BeltContent]
-
-    var body: some View {
-        let topics = catalog[belt]?.topics ?? []
-
-        ZStack {
-            KmiBackground()
-
-            ScrollView {
-                VStack(spacing: 14) {
-
-                    KmiCard(title: "חגורה: \(belt.heb)") {
-                        HStack {
-                            Text("מספר נושאים: \(topics.count)")
-                                .foregroundStyle(KmiTheme.textSecondary)
-                                .font(.footnote)
-                            Spacer()
-                        }
-                    }
-
-                    ForEach(Array(topics.enumerated()), id: \.offset) { _, t in
-                        NavigationLink {
-                            TopicDetailView(topic: t)
-                        } label: {
-                            KmiCard {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(t.title)
-                                        .foregroundStyle(KmiTheme.textPrimary)
-                                        .font(.headline)
-
-                                    Text("פריטים: \(t.items.count) • תתי-נושאים: \(t.subTopics.count)")
-                                        .foregroundStyle(KmiTheme.textSecondary)
-                                        .font(.caption)
-
-                                    HStack {
-                                        Spacer()
-                                        Text("כניסה")
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundStyle(KmiTheme.accent)
-                                        Image(systemName: "chevron.right")
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundStyle(KmiTheme.accent)
-                                    }
-                                }
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    Spacer(minLength: 18)
-                }
-                .padding(.horizontal, 14)
-                .padding(.bottom, 22)
-            }
-        }
-        .navigationTitle(belt.heb)
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-// MARK: - Topic Detail Screen
-struct TopicDetailView: View {
-    let topic: CatalogData.Topic
-
-    var body: some View {
-        ZStack {
-            KmiBackground()
-
-            ScrollView {
-                VStack(spacing: 14) {
-
-                    KmiCard(title: topic.title) {
-                        Text("פריטים: \(topic.items.count) • תתי-נושאים: \(topic.subTopics.count)")
-                            .foregroundStyle(KmiTheme.textSecondary)
-                            .font(.footnote)
-                    }
-
-                    if !topic.items.isEmpty {
-                        KmiCard(title: "תרגילים") {
-                            VStack(alignment: .leading, spacing: 10) {
-                                ForEach(Array(topic.items.enumerated()), id: \.offset) { _, item in
-                                    Text(item)
-                                        .foregroundStyle(KmiTheme.textPrimary)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                                    Divider().overlay(Color.white.opacity(0.10))
-                                }
-                            }
-                        }
-                    }
-
-                    if !topic.subTopics.isEmpty {
-                        ForEach(Array(topic.subTopics.enumerated()), id: \.offset) { _, sub in
-                            KmiCard(title: sub.title) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    ForEach(Array(sub.items.enumerated()), id: \.offset) { _, s in
-                                        Text("• \(s)")
-                                            .foregroundStyle(KmiTheme.textPrimary)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .opacity(0.95)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(minLength: 18)
-                }
-                .padding(.horizontal, 14)
-                .padding(.bottom, 22)
-            }
-        }
-        .navigationTitle("נושא")
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

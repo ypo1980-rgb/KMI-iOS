@@ -432,10 +432,21 @@ struct HomeView: View {
     
     var body: some View {
         ZStack {
-            KmiAppBackground()
+            LinearGradient(
+                colors: [
+                    Color(hex: 0xFFF8FBFF),
+                    Color(hex: 0xFFEAF4FF),
+                    Color(hex: 0xFFB7DDF7),
+                    Color(hex: 0xFF1F78B4),
+                    Color(hex: 0xFF062B4A)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
             
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 12) {
+                VStack(spacing: 10) {
                     
                     WeekHeaderPill(
                         title: isAbroadUser
@@ -449,7 +460,7 @@ struct HomeView: View {
                         ? tr("זמני האימונים מתעדכנים מול המאמן המקומי", "Training times are managed by the local coach")
                         : currentWeekSubtitle
                     )
-                    .padding(.top, 0)
+                    .padding(.top, -2)
                     
                     if isAbroadUser {
                         HomeAbroadBranchNotice(
@@ -467,7 +478,7 @@ struct HomeView: View {
                     } else {
                         VStack(spacing: 12) {
                             ForEach(effectiveUpcomingTrainings) { training in
-                                TrainingCardView(
+                                HomeTrainingCardAndroidStyle(
                                     training: training,
                                     isEnglish: isEnglish,
                                     onNavigateTap: {
@@ -509,31 +520,13 @@ struct HomeView: View {
                     )
                     .padding(.horizontal, 18)
 
-                    Button {
-                        // Android parity:
-                        // במסך לפי חגורה פותחים את החגורה הבאה אחרי החגורה הרשומה.
-                        // אם המשתמש לבנה / לא מוגדרת חגורה — מתחילים מכתומה.
-                        let target = BeltFlow.nextBeltForUser(
-                            registeredBelt: resolvedBelt
-                        )
-
-                        nav.push(.beltQuestionsByBelt(belt: target))
-                    } label: {
-                        HomePremiumExerciseButton(
-                            title: buttonTitleForBelt(),
-                            subtitle: buttonSubtitleForBelt(),
-                            isEnglish: isEnglish
-                        )
-                        .frame(height: 46)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 18)
-                    .padding(.top, 0)
-                    .padding(.bottom, 2)
-                    
-                    Spacer(minLength: 28)
+                    Spacer(minLength: 112)
                 }
             }
+        }
+        
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            bottomBeltSelectionButton
         }
         .overlay {
             quickMenuOverlay
@@ -637,6 +630,27 @@ struct HomeView: View {
         .environment(\.layoutDirection, screenLayoutDirection)
     }
     
+    private var bottomBeltSelectionButton: some View {
+        Button {
+            let target = BeltFlow.nextBeltForUser(
+                registeredBelt: resolvedBelt
+            )
+
+            nav.push(.beltQuestionsByBelt(belt: target))
+        } label: {
+            HomePremiumExerciseButton(
+                title: buttonTitleForBelt(),
+                subtitle: buttonSubtitleForBelt(),
+                isEnglish: isEnglish
+            )
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.top, 4)
+        .padding(.bottom, 4)
+        .background(Color.clear)
+    }
+
     private var quickMenuOverlay: some View {
         GeometryReader { geo in
             let fabWidth: CGFloat = 38
@@ -1390,6 +1404,231 @@ private struct HomeAbroadBranchNotice: View {
     }
 }
 
+private struct HomeTrainingCardAndroidStyle: View {
+    let training: TrainingData
+    let isEnglish: Bool
+    let onNavigateTap: () -> Void
+
+    private var rowDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func unwrapOptional(_ value: Any) -> Any? {
+        let mirror = Mirror(reflecting: value)
+        guard mirror.displayStyle == .optional else {
+            return value
+        }
+
+        return mirror.children.first?.value
+    }
+
+    private func reflectedString(_ labels: [String]) -> String {
+        let mirror = Mirror(reflecting: training)
+
+        for child in mirror.children {
+            guard let label = child.label else { continue }
+            guard labels.contains(label) else { continue }
+
+            let unwrapped = unwrapOptional(child.value)
+
+            if let value = unwrapped as? String {
+                return value.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+
+            if let value = unwrapped {
+                let text = "\(value)".trimmingCharacters(in: .whitespacesAndNewlines)
+                if text != "nil" && !text.isEmpty {
+                    return text
+                }
+            }
+        }
+
+        return ""
+    }
+
+    private func reflectedDate() -> Date? {
+        let mirror = Mirror(reflecting: training)
+
+        for child in mirror.children {
+            guard let label = child.label else { continue }
+            guard ["date", "startDate", "startTime", "cal", "time"].contains(label) else { continue }
+
+            let unwrapped = unwrapOptional(child.value)
+
+            if let date = unwrapped as? Date {
+                return date
+            }
+
+            if let timeInterval = unwrapped as? TimeInterval {
+                if timeInterval > 1_000_000_000_000 {
+                    return Date(timeIntervalSince1970: timeInterval / 1000)
+                }
+
+                if timeInterval > 1_000_000_000 {
+                    return Date(timeIntervalSince1970: timeInterval)
+                }
+            }
+
+            if let millis = unwrapped as? Int64 {
+                return Date(timeIntervalSince1970: Double(millis) / 1000)
+            }
+
+            if let millis = unwrapped as? Int {
+                return Date(timeIntervalSince1970: Double(millis) / 1000)
+            }
+        }
+
+        return nil
+    }
+
+    private var branchTitle: String {
+        let value = reflectedString(["place", "branch", "branchName", "title", "name"])
+        return value.isEmpty ? (isEnglish ? "Training center" : "מרכז קהילתי אופק") : value
+    }
+
+    private var addressText: String {
+        reflectedString(["address", "location", "street"])
+    }
+
+    private var coachText: String {
+        reflectedString(["coach", "coachName", "trainer"])
+    }
+
+    private var dateLine: String {
+        guard let date = reflectedDate() else {
+            return ""
+        }
+
+        let dayFormatter = DateFormatter()
+        dayFormatter.locale = Locale(identifier: isEnglish ? "en_US_POSIX" : "he_IL")
+        dayFormatter.calendar = Calendar(identifier: .gregorian)
+        dayFormatter.dateFormat = "EEEE"
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale = Locale(identifier: isEnglish ? "en_US_POSIX" : "he_IL")
+        dateFormatter.calendar = Calendar(identifier: .gregorian)
+        dateFormatter.dateFormat = "dd/MM"
+
+        let timeFormatter = DateFormatter()
+        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
+        timeFormatter.calendar = Calendar(identifier: .gregorian)
+        timeFormatter.dateFormat = "HH:mm"
+
+        let endDate = Calendar.current.date(byAdding: .minute, value: 90, to: date) ?? date
+
+        return "\(dayFormatter.string(from: date)) \(dateFormatter.string(from: date)) · \(timeFormatter.string(from: date)) – \(timeFormatter.string(from: endDate))"
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            VStack(spacing: 2) {
+                Text(branchTitle)
+                    .font(.system(size: 15, weight: .black))
+                    .foregroundStyle(Color(hex: 0xFF111827))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+
+                if !dateLine.isEmpty {
+                    Text(dateLine)
+                        .font(.system(size: 12.4, weight: .black))
+                        .foregroundStyle(Color(hex: 0xFF111827))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.78)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+
+            Button(action: onNavigateTap) {
+                HStack(spacing: 10) {
+                    if isEnglish {
+                        navigationIcon
+                        navigationTextBlock
+                    } else {
+                        navigationTextBlock
+                        navigationIcon
+                    }
+                }
+                .environment(\.layoutDirection, rowDirection)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 54)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.white.opacity(0.92))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.10), radius: 5, x: 0, y: 3)
+            }
+            .buttonStyle(.plain)
+
+            if !coachText.isEmpty {
+                Text(isEnglish ? "Coach: \(coachText)" : "מאמן: \(coachText)")
+                    .font(.system(size: 11.2, weight: .bold))
+                    .foregroundStyle(Color(hex: 0xFF475569))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.76)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .multilineTextAlignment(textAlignment)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.96))
+        )
+        .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 4)
+        .environment(\.layoutDirection, rowDirection)
+    }
+
+    private var navigationIcon: some View {
+        ZStack {
+            Circle()
+                .fill(Color(hex: 0xFFE0F2FE))
+                .frame(width: 30, height: 30)
+
+            Image(systemName: "location.fill")
+                .font(.system(size: 14, weight: .black))
+                .foregroundStyle(Color(hex: 0xFF2563EB))
+        }
+    }
+
+    private var navigationTextBlock: some View {
+        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 3) {
+            Text(isEnglish ? "Navigate" : "ניווט")
+                .font(.system(size: 13, weight: .black))
+                .foregroundStyle(Color(hex: 0xFF0B1220))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .multilineTextAlignment(textAlignment)
+
+            Text(addressText.isEmpty ? (isEnglish ? "No address" : "אין כתובת") : addressText)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(Color(hex: 0xFF475569))
+                .lineLimit(2)
+                .minimumScaleFactor(0.78)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .multilineTextAlignment(textAlignment)
+        }
+    }
+}
+
 private struct HomePremiumExerciseButton: View {
     let title: String
     let subtitle: String
@@ -1403,10 +1642,10 @@ private struct HomePremiumExerciseButton: View {
         TimelineView(.animation) { timeline in
             let seconds = timeline.date.timeIntervalSinceReferenceDate
             let progress = (seconds.truncatingRemainder(dividingBy: 2.6)) / 2.6
-            let shineX = -180 + 520 * progress
+            let shineX = -120 + 320 * progress
 
             ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [
@@ -1423,24 +1662,24 @@ private struct HomePremiumExerciseButton: View {
                     .fill(
                         RadialGradient(
                             colors: [
-                                Color.white.opacity(0.28),
+                                Color.white.opacity(0.45),
                                 Color.white.opacity(0.00)
                             ],
                             center: .center,
                             startRadius: 0,
-                            endRadius: 46
+                            endRadius: 70
                         )
                     )
-                    .frame(width: 92, height: 92)
+                    .frame(width: 140, height: 140)
                     .offset(x: shineX)
 
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .stroke(
                         LinearGradient(
                             colors: [
-                                Color.white.opacity(0.70),
-                                Color.white.opacity(0.20),
-                                Color.white.opacity(0.70)
+                                Color.white.opacity(0.85),
+                                Color.white.opacity(0.25),
+                                Color.white.opacity(0.85)
                             ],
                             startPoint: .leading,
                             endPoint: .trailing
@@ -1451,12 +1690,12 @@ private struct HomePremiumExerciseButton: View {
                 HStack(spacing: 8) {
                     if isEnglish {
                         Image(systemName: "star.fill")
-                            .font(.system(size: 14, weight: .black))
+                            .font(.system(size: 18, weight: .black))
                             .foregroundStyle(.white)
                     }
 
                     Text(title)
-                        .font(.system(size: 15, weight: .black))
+                        .font(.system(size: 18, weight: .black))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
@@ -1464,7 +1703,7 @@ private struct HomePremiumExerciseButton: View {
 
                     if !isEnglish {
                         Image(systemName: "star.fill")
-                            .font(.system(size: 14, weight: .black))
+                            .font(.system(size: 18, weight: .black))
                             .foregroundStyle(.white)
                     }
                 }
@@ -1472,14 +1711,15 @@ private struct HomePremiumExerciseButton: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.horizontal, 12)
             }
-            .frame(height: 46)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .shadow(color: Color.black.opacity(0.16), radius: 8, x: 0, y: 4)
+            .frame(height: 60)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: Color.black.opacity(0.18), radius: 12, x: 0, y: 6)
         }
-        .frame(height: 46)
+        .frame(height: 60)
         .frame(maxWidth: .infinity)
     }
 }
+ 
 
 // MARK: - Week Header
 private struct WeekHeaderPill: View {
@@ -1593,9 +1833,9 @@ private struct CoachMessagesCard: View {
     }
 
     var body: some View {
-        VStack(alignment: stackAlignment, spacing: 8) {
+        VStack(alignment: stackAlignment, spacing: 6) {
             Text(title)
-                .font(.system(size: 15, weight: .heavy))
+                .font(.system(size: 14.2, weight: .heavy))
                 .foregroundStyle(.white.opacity(0.96))
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
                 .multilineTextAlignment(textAlignment)
@@ -1631,7 +1871,7 @@ private struct CoachMessagesCard: View {
                         .environment(\.layoutDirection, rowDirection)
                         
                         Text(message)
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.23))
                             .frame(maxWidth: .infinity, alignment: frameAlignment)
                             .multilineTextAlignment(textAlignment)
@@ -1679,8 +1919,8 @@ private struct CoachMessagesCard: View {
                     }
                 }
                 .environment(\.layoutDirection, rowDirection)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 13)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 11)
                 .frame(maxWidth: .infinity)
                 .background(
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
@@ -1714,7 +1954,7 @@ private struct CoachMessagesCard: View {
                 .font(.system(size: 17, weight: .bold))
                 .foregroundStyle(Color(red: 0.01, green: 0.41, blue: 0.63))
         }
-        .frame(width: 40, height: 40)
+        .frame(width: 38, height: 38)
     }
     
     private var messagesBadge: some View {

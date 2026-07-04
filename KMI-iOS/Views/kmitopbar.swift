@@ -1,6 +1,9 @@
 import SwiftUI
 import FirebaseAuth
+import FirebaseFirestore
 import Shared
+import StoreKit
+import UIKit
 
 // MARK: - Global bilingual UI helpers
 
@@ -85,6 +88,7 @@ private enum KmiGlobalText {
             "ניהול מנוי": "Subscription",
             "תוכניות מנוי": "Subscription Plans",
             "הגדרות": "Settings",
+            "צור קשר": "Contact Us",
             "אודות הרשת": "About the Network",
             "אודות השיטה": "About the Method",
             "אודות איציק ביטון": "About Itzik Biton",
@@ -118,6 +122,7 @@ private enum KmiGlobalText {
             "Trainees": "אודות מתאמנים",
             "Group Message": "שליחת הודעה לקבוצה",
             "Settings": "הגדרות",
+            "Contact Us": "צור קשר",
             "About the Network": "אודות הרשת",
             "About the Method": "אודות השיטה",
             "About Itzik Biton": "אודות איציק ביטון",
@@ -403,6 +408,7 @@ struct KmiRootLayout<Content: View>: View {
     
     // ✅ Global Search Sheet
     @State private var showGlobalSearch: Bool = false
+    @State private var selectedGlobalSearchHit: ExerciseSearchHit? = nil
 
     // ✅ Global Share Sheet
     @State private var showShareSheet: Bool = false
@@ -574,8 +580,8 @@ struct KmiRootLayout<Content: View>: View {
                     break
 
                 case .contactUs:
-                    break
-
+                    nav.push(.contactUs)
+                    
                 case .forum:
                     nav.push(.forum)
 
@@ -586,7 +592,7 @@ struct KmiRootLayout<Content: View>: View {
                     nav.push(.subscription)
 
                 case .rateUs:
-                    break
+                    openRateUs()
 
                 case .toggleLanguage:
                     break
@@ -632,13 +638,27 @@ struct KmiRootLayout<Content: View>: View {
         // ✅ Sheet של חיפוש גלובאלי
         .sheet(isPresented: $showGlobalSearch) {
             GlobalExerciseSearchSheet_Legacy { hit in
-
                 let key = "\(hit.belt.id)|\(hit.topic)|\(hit.displayTitle)"
 
-                onPickSearchResult?(key)
+                if let onPickSearchResult {
+                    onPickSearchResult(key)
+                } else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        selectedGlobalSearchHit = hit
+                    }
+                }
             }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $selectedGlobalSearchHit) { hit in
+            NavigationStack {
+                ExerciseDetailView(
+                    belt: hit.belt,
+                    topicTitle: hit.topic,
+                    item: hit.displayTitle
+                )
+            }
         }
 
         // ✅ Sheet של שיתוף (WhatsApp דרך Share Sheet)
@@ -868,6 +888,64 @@ struct KmiRootLayout<Content: View>: View {
         }
     }
     
+    private func openContactUsEmail() {
+        let email = "ypo1980@gmail.com"
+        let subject = isEnglish ? "KMI App Contact" : "יצירת קשר מאפליקציית KMI"
+        let body = isEnglish
+        ? "\n\n---\nApp: KMI\niOS: \(UIDevice.current.systemVersion)"
+        : "\n\n---\nאפליקציה: KMI\niOS: \(UIDevice.current.systemVersion)"
+
+        let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let encodedBody = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+
+        if let mailUrl = URL(string: "mailto:\(email)?subject=\(encodedSubject)&body=\(encodedBody)"),
+           UIApplication.shared.canOpenURL(mailUrl) {
+            UIApplication.shared.open(mailUrl)
+            return
+        }
+
+        if let gmailUrl = URL(string: "googlegmail://co?to=\(email)&subject=\(encodedSubject)&body=\(encodedBody)"),
+           UIApplication.shared.canOpenURL(gmailUrl) {
+            UIApplication.shared.open(gmailUrl)
+            return
+        }
+
+        if let webUrl = URL(string: "https://mail.google.com/mail/?view=cm&fs=1&to=\(email)&su=\(encodedSubject)&body=\(encodedBody)") {
+            UIApplication.shared.open(webUrl)
+            return
+        }
+
+        UIPasteboard.general.string = email
+    }
+
+    private func openRateUs() {
+        let defaults = UserDefaults.standard
+
+        let appStoreId = (
+            defaults.string(forKey: "app_store_id") ??
+            defaults.string(forKey: "ios_app_store_id") ??
+            ""
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !appStoreId.isEmpty,
+           let reviewUrl = URL(string: "itms-apps://itunes.apple.com/app/id\(appStoreId)?action=write-review") {
+            UIApplication.shared.open(reviewUrl)
+            return
+        }
+
+        if let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }) {
+            SKStoreReviewController.requestReview(in: scene)
+            return
+        }
+
+        if let fallbackUrl = URL(string: "itms-apps://itunes.apple.com") {
+            UIApplication.shared.open(fallbackUrl)
+        }
+    }
+
     // MARK: - Global handler (אחד לכל האפליקציה)
     private func onGlobalIconTap(_ item: KmiIconStripItem) {
 

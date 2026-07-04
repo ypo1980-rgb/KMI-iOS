@@ -147,8 +147,14 @@ struct ExerciseDetailView: View {
     private var noteKey: String { storageKeyBase + ".note" }
 
     private var explanationText: String {
-        let txt = LocalExplanations.shared.get(belt: belt, item: item)
-        let clean = txt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clean = KmiExerciseExplanationResolverIOS.shared
+            .get(
+                belt: belt,
+                topic: topicTitle,
+                item: item,
+                isEnglish: isEnglish
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
         if clean.isEmpty {
             return tr(

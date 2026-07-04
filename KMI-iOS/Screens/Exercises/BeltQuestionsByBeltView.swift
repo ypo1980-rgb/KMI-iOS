@@ -1096,20 +1096,27 @@ struct BeltQuestionsByBeltView: View {
             )
         }
         .navigationDestination(item: $selectedExerciseRoute) { (route: BeltQuestionsByBeltView.BeltTopicExerciseRoute) in
-            MaterialsView(
-                belt: route.belt,
-                topicTitle: route.topicTitle,
-                subTopicTitle: route.forcedSubTopicTitle,
-                onSummary: { belt, topicTitle, subTopicTitle in
-                    selectedBelt = belt
-                    nav.push(.summary(belt: belt))
-                },
-                onPractice: { belt, topicTitle in
-                    selectedBelt = belt
-                    practiceTokenFromLists = topicTitle
-                    nav.push(.practice(belt: belt, topicTitle: topicTitle))
-                }
-            )
+            KmiRootLayout(
+                title: route.forcedSubTopicTitle ?? route.topicTitle,
+                nav: nav,
+                selectedIcon: .search
+            ) {
+                MaterialsView(
+                    belt: route.belt,
+                    topicTitle: route.topicTitle,
+                    subTopicTitle: route.forcedSubTopicTitle,
+                    onSummary: { belt, topicTitle, subTopicTitle in
+                        selectedBelt = belt
+                        nav.push(.summary(belt: belt))
+                    },
+                    onPractice: { belt, topicTitle in
+                        selectedBelt = belt
+                        practiceTokenFromLists = topicTitle
+                        nav.push(.practice(belt: belt, topicTitle: topicTitle))
+                    }
+                )
+                .navigationBarBackButtonHidden(true)
+            }
         }
         .navigationDestination(item: $selectedSubjectForSubTopics) { subject in
             SubjectSubTopicsView(

@@ -41,7 +41,7 @@ extension SettingsView {
         .lowercased()
 
         let submittedRole = isCoach ? "coach" : "trainee"
-        let resolvedRole = existingRole.isEmpty ? submittedRole : existingRole
+        let resolvedRole = submittedRole
 
         let cleanedBranches = branches
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -112,6 +112,8 @@ extension SettingsView {
             self.branch = firstBranch
             self.group = firstGroup
             self.userRole = resolvedRole
+            self.currentBeltId = defaults.string(forKey: "current_belt") ?? self.currentBeltId
+            self.currentBeltIdUser = defaults.string(forKey: "belt_current") ?? self.currentBeltIdUser
         }
     }
     

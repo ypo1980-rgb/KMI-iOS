@@ -90,38 +90,69 @@ extension SettingsView {
             withIdentifiers: ["training_reminder"]
         )
 
-        let content = UNMutableNotificationContent()
-        content.title = tr("תזכורת לאימון ק.מ.י", "K.M.I training reminder")
-        content.body = tr(
-            "האימון מתחיל בעוד \(minutes) דקות",
-            "Training starts in \(minutes) minutes"
-        )
-        content.sound = .default
+        let branch = resolvedCalendarBranch()
+        let group = resolvedCalendarGroup()
+        let trainings = TrainingCatalogIOS.trainingsFor(branch: branch, group: group)
 
-        let trigger = UNTimeIntervalNotificationTrigger(
-            timeInterval: TimeInterval(minutes * 60),
-            repeats: false
-        )
+        let upcomingTrainings = trainings
+            .filter { $0.date > Date() }
+            .sorted { $0.date < $1.date }
+            .prefix(12)
 
-        let request = UNNotificationRequest(
-            identifier: "training_reminder",
-            content: content,
-            trigger: trigger
-        )
+        var scheduledCount = 0
 
-        UNUserNotificationCenter.current().add(request)
+        for (index, training) in upcomingTrainings.enumerated() {
+            guard let triggerDate = Calendar.current.date(
+                byAdding: .minute,
+                value: -minutes,
+                to: training.date
+            ), triggerDate > Date() else {
+                continue
+            }
+
+            let content = UNMutableNotificationContent()
+            content.title = tr("תזכורת לאימון ק.מ.י", "K.M.I training reminder")
+            content.body = tr(
+                "האימון מתחיל בעוד \(minutes) דקות",
+                "Training starts in \(minutes) minutes"
+            )
+            content.sound = .default
+
+            let comps = Calendar.current.dateComponents(
+                [.year, .month, .day, .hour, .minute],
+                from: triggerDate
+            )
+
+            let trigger = UNCalendarNotificationTrigger(
+                dateMatching: comps,
+                repeats: false
+            )
+
+            let request = UNNotificationRequest(
+                identifier: "training_reminder_\(index)",
+                content: content,
+                trigger: trigger
+            )
+
+            UNUserNotificationCenter.current().add(request)
+            scheduledCount += 1
+        }
 
         toast(tr(
-            "התזכורת נקבעה \(minutes) דקות לפני האימון",
-            "Reminder set \(minutes) minutes before training"
+            "נקבעו \(scheduledCount) תזכורות \(minutes) דקות לפני אימון",
+            "\(scheduledCount) reminders set \(minutes) minutes before training"
         ))
         hapticSuccess()
     }
 
     func cancelTrainingReminders() {
-        UNUserNotificationCenter.current().removePendingNotificationRequests(
-            withIdentifiers: ["training_reminder"]
-        )
+        UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
+            let ids = requests
+                .map(\.identifier)
+                .filter { $0 == "training_reminder" || $0.hasPrefix("training_reminder_") }
+
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ids)
+        }
 
         toast(tr("התזכורות בוטלו", "Reminders were cancelled"))
         hapticSuccess()
@@ -166,9 +197,18 @@ extension SettingsView {
 
                 self.removeCalendarEvents(using: store)
 
-                guard let targetCalendar = store.defaultCalendarForNewEvents else {
+                let targetCalendar: EKCalendar?
+
+                if !self.selectedCalendarIdentifier.isEmpty {
+                    targetCalendar = store.calendar(withIdentifier: self.selectedCalendarIdentifier)
+                } else {
+                    targetCalendar = store.defaultCalendarForNewEvents
+                }
+
+                guard let targetCalendar else {
                     self.calendarSyncEnabled = false
-                    self.toast(self.tr("לא נמצא יומן ברירת מחדל", "Default calendar was not found"))
+                    self.selectedCalendarSyncEnabled = false
+                    self.toast(self.tr("לא נמצא יומן יעד", "Target calendar was not found"))
                     self.hapticError()
                     return
                 }
@@ -233,10 +273,19 @@ extension SettingsView {
         let start = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
         let end = Calendar.current.date(byAdding: .day, value: 365, to: Date()) ?? Date()
 
+        let calendars: [EKCalendar]?
+
+        if !selectedCalendarIdentifier.isEmpty,
+           let selected = store.calendar(withIdentifier: selectedCalendarIdentifier) {
+            calendars = [selected]
+        } else {
+            calendars = nil
+        }
+
         let predicate = store.predicateForEvents(
             withStart: start,
             end: end,
-            calendars: nil
+            calendars: calendars
         )
 
         let events = store.events(matching: predicate)

@@ -74,7 +74,7 @@ struct DailyReminderCardView: View {
                     .buttonStyle(.bordered)
 
                     Button {
-                        center.dismiss()
+                        center.openApp(from: localPayload)
                     } label: {
                         Text("מעבר לאפליקציה")
                             .frame(maxWidth: .infinity)

@@ -167,6 +167,10 @@ struct SettingsView: View {
     @State private var showClearBroadcastHistoryConfirm: Bool = false
     @State private var showClearCacheConfirm: Bool = false
 
+    @State private var showTrainingLeadPicker: Bool = false
+    @State private var tempTrainingLeadHours: Int = 1
+    @State private var tempTrainingLeadMinutes: Int = 0
+    
     private var isCoach: Bool { userRole == "coach" }
 
     private enum LegalTab: Int, Identifiable {
@@ -289,11 +293,12 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 10)
-                .padding(.bottom, 124)
+                .padding(.bottom, 190)
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .overlay(alignment: .bottom) {
             actionButtons
+                .ignoresSafeArea(edges: .bottom)
         }
         .overlay {
             if isBusy { LoadingOverlay() }
@@ -307,6 +312,11 @@ struct SettingsView: View {
             calendarPickerSheet
                 .presentationDetents([.medium, .large])
         }
+        .sheet(isPresented: $showTrainingLeadPicker) {
+            trainingLeadPickerSheet
+                .presentationDetents([.medium])
+        }
+        
         .navigationDestination(isPresented: $goLegal) {
             LegalView(initialTab: legalInitialTab)
         }
@@ -490,9 +500,9 @@ struct SettingsView: View {
 
     private var closeSettingsButton: some View {
         Button {
-            hapticSuccess()
-            nav.pop()
+            saveAllSettingsAndExit()
         } label: {
+            
             Image(systemName: "xmark")
                 .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(Color.white)
@@ -749,8 +759,9 @@ struct SettingsView: View {
                 SettingsListItem(
                     title: tr("תזכורות אימון", "Training reminders"),
                     value: trainingRemindersEnabled
-                    ? tr("\(trainingReminderMinutes) דק׳ לפני", "\(trainingReminderMinutes) min before")
+                    ? formatTrainingLeadTime(trainingReminderMinutes)
                     : tr("כבוי", "Off"),
+                    
                     systemImage: "alarm.fill",
                     tint: Color(hex: 0xFF7B61D9),
                     isEnglish: isEnglish,
@@ -796,22 +807,29 @@ struct SettingsView: View {
                         }
 
                         if trainingRemindersEnabled {
-                            KmiSegmentedTabsInt(
-                                options: [30, 60, 90],
-                                selected: $trainingReminderMinutes,
-                                label: { minutes in
-                                    isEnglish ? "\(minutes) min\nbefore" : "\(minutes) דק׳\nלפני"
+                            VStack(spacing: 9) {
+                                Text(formatTrainingLeadTime(trainingReminderMinutes))
+                                    .font(.system(size: 14, weight: .black))
+                                    .foregroundStyle(Color(hex: 0xFF123C7C))
+                                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                                    .multilineTextAlignment(primaryTextAlignment)
+
+                                Text(tr("ברירת המחדל היא 60 דקות אם לא נבחר זמן אחר.", "Default is 60 minutes if no other time is selected."))
+                                    .font(.system(size: 10.5, weight: .semibold))
+                                    .foregroundStyle(Color(hex: 0xFF64748B))
+                                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                                    .multilineTextAlignment(primaryTextAlignment)
+
+                                SettingsPickerLikeButton(
+                                    title: tr("בחר זמן מדויק", "Choose exact time"),
+                                    subtitle: formatTrainingLeadTime(trainingReminderMinutes),
+                                    systemImage: "clock.badge.checkmark",
+                                    tint: Color(hex: 0xFF7B61D9),
+                                    isEnglish: isEnglish
+                                ) {
+                                    openTrainingLeadPicker()
+                                    feedbackTap()
                                 }
-                            ) { minutes in
-                                trainingReminderMinutes = minutes
-                                scheduleTrainingReminders(minutes: minutes)
-                                toast(
-                                    tr(
-                                        "התזכורת עודכנה ל-\(minutes) דקות לפני האימון",
-                                        "Reminder updated to \(minutes) minutes before training"
-                                    )
-                                )
-                                feedbackTap()
                             }
                         }
                     }
@@ -2094,6 +2112,171 @@ struct SettingsView: View {
         )
     }
     
+    private func formatTrainingLeadTime(_ totalMinutes: Int) -> String {
+        let safeMinutes = totalMinutes > 0 ? totalMinutes : 60
+        let hours = safeMinutes / 60
+        let minutes = safeMinutes % 60
+
+        if isEnglish {
+            if hours > 0 && minutes > 0 {
+                return "\(hours) h \(minutes) min before training"
+            }
+
+            if hours > 0 {
+                return "\(hours) h before training"
+            }
+
+            return "\(minutes) min before training"
+        }
+
+        if hours > 0 && minutes > 0 {
+            return "\(hours) שעה ו־\(minutes) דקות לפני האימון"
+        }
+
+        if hours > 0 {
+            return "\(hours) שעה לפני האימון"
+        }
+
+        return "\(minutes) דקות לפני האימון"
+    }
+
+    private func openTrainingLeadPicker() {
+        let safeMinutes = trainingReminderMinutes > 0 ? trainingReminderMinutes : 60
+        tempTrainingLeadHours = min(max(safeMinutes / 60, 0), 6)
+        tempTrainingLeadMinutes = min(max(safeMinutes % 60, 0), 59)
+        showTrainingLeadPicker = true
+    }
+
+    private func saveTrainingLeadFromPicker() {
+        let totalMinutes = (min(max(tempTrainingLeadHours, 0), 6) * 60) + min(max(tempTrainingLeadMinutes, 0), 59)
+        let lead = totalMinutes > 0 ? totalMinutes : 60
+
+        trainingReminderMinutes = lead
+        UserDefaults.standard.set(lead, forKey: "training_reminder_minutes")
+        UserDefaults.standard.set(lead, forKey: "lead_minutes")
+
+        scheduleTrainingReminders(minutes: lead)
+
+        showTrainingLeadPicker = false
+        toast(
+            tr(
+                "התזכורת עודכנה ל-\(formatTrainingLeadTime(lead))",
+                "Reminder updated to \(formatTrainingLeadTime(lead))"
+            )
+        )
+        feedbackTap()
+    }
+
+    private var trainingLeadPickerSheet: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                VStack(spacing: 6) {
+                    Text(tr("בחירת זמן לפני האימון", "Choose reminder time before training"))
+                        .font(.system(size: 22, weight: .black))
+                        .foregroundStyle(Color.white)
+                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                        .multilineTextAlignment(primaryTextAlignment)
+
+                    Text(tr("בחר שעות ודקות. לדוגמה: שעה ו־18 דקות.", "Choose hours and minutes. For example: 1 hour and 18 minutes."))
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.92))
+                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+                        .multilineTextAlignment(primaryTextAlignment)
+
+                    Text(formatTrainingLeadTime((tempTrainingLeadHours * 60) + tempTrainingLeadMinutes))
+                        .font(.system(size: 16, weight: .black))
+                        .foregroundStyle(Color.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Color.white.opacity(0.14))
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .padding(.top, 8)
+                }
+                .padding(18)
+                .background(
+                    LinearGradient(
+                        colors: [
+                            Color(hex: 0xFF062B4A),
+                            Color(hex: 0xFF0F5E9C),
+                            Color(hex: 0xFF5B35D5)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+
+                HStack(spacing: 12) {
+                    if isEnglish {
+                        trainingLeadWheel(title: tr("שעות", "Hours"), range: 0...6, selection: $tempTrainingLeadHours)
+                        trainingLeadWheel(title: tr("דקות", "Minutes"), range: 0...59, selection: $tempTrainingLeadMinutes)
+                    } else {
+                        trainingLeadWheel(title: tr("דקות", "Minutes"), range: 0...59, selection: $tempTrainingLeadMinutes)
+                        trainingLeadWheel(title: tr("שעות", "Hours"), range: 0...6, selection: $tempTrainingLeadHours)
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    Button {
+                        showTrainingLeadPicker = false
+                    } label: {
+                        Text(tr("ביטול", "Cancel"))
+                            .font(.system(size: 16, weight: .bold))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        saveTrainingLeadFromPicker()
+                    } label: {
+                        Text(tr("שמירה", "Save"))
+                            .font(.system(size: 16, weight: .black))
+                            .foregroundStyle(Color.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(Color(hex: 0xFF5B35D5))
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(18)
+            .background(Color(hex: 0xFFF6F1FB))
+            .environment(\.layoutDirection, settingsLayoutDirection)
+        }
+    }
+
+    private func trainingLeadWheel(
+        title: String,
+        range: ClosedRange<Int>,
+        selection: Binding<Int>
+    ) -> some View {
+        VStack(spacing: 8) {
+            Text(title)
+                .font(.system(size: 15, weight: .black))
+                .foregroundStyle(Color(hex: 0xFF111827))
+
+            Picker(title, selection: selection) {
+                ForEach(Array(range), id: \.self) { value in
+                    Text("\(value)")
+                        .tag(value)
+                }
+            }
+            .pickerStyle(.wheel)
+            .frame(height: 150)
+            .clipped()
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 3)
+    }
+    
     // MARK: Calendar picker
 
     private var calendarPickerSheet: some View {
@@ -2342,6 +2525,56 @@ struct SettingsView: View {
         }
     }
     
+    private func saveAllSettingsAndExit() {
+        UserDefaults.standard.set(kmiAppLanguageCode, forKey: "kmi_app_language")
+        UserDefaults.standard.set(selectedLanguageCode, forKey: "selected_language_code")
+        UserDefaults.standard.set(appLanguageRaw, forKey: "app_language")
+        UserDefaults.standard.set(initialLanguageCode, forKey: "initial_language_code")
+
+        UserDefaults.standard.set(trainingRemindersEnabled, forKey: "training_reminders_enabled")
+        UserDefaults.standard.set(trainingReminderMinutes, forKey: "training_reminder_minutes")
+        UserDefaults.standard.set(trainingReminderMinutes, forKey: "lead_minutes")
+
+        UserDefaults.standard.set(dailyReminderEnabledTrainee, forKey: "daily_exercise_reminder_enabled_trainee")
+        UserDefaults.standard.set(dailyReminderEnabledCoach, forKey: "daily_exercise_reminder_enabled_coach")
+        UserDefaults.standard.set(dailyReminderHour, forKey: "daily_exercise_reminder_hour")
+        UserDefaults.standard.set(dailyReminderMinute, forKey: "daily_exercise_reminder_minute")
+
+        UserDefaults.standard.set(freeSessionsRemindersEnabled, forKey: "free_sessions_reminders_enabled")
+        UserDefaults.standard.set(calendarSyncEnabled, forKey: "calendar_sync_enabled")
+        UserDefaults.standard.set(selectedCalendarSyncEnabled, forKey: "calendar_sync_selected_enabled")
+        UserDefaults.standard.set(selectedCalendarIdentifier, forKey: "calendar_sync_selected_calendar_id")
+        UserDefaults.standard.set(selectedCalendarDisplay, forKey: "calendar_sync_selected_calendar_display")
+
+        UserDefaults.standard.set(clickSounds, forKey: "click_sounds")
+        UserDefaults.standard.set(clickSounds, forKey: "tap_sound")
+        UserDefaults.standard.set(hapticsOn, forKey: "haptics_on")
+        UserDefaults.standard.set(hapticsOn, forKey: "short_haptic")
+
+        UserDefaults.standard.set(cloudVoice, forKey: "voice")
+        UserDefaults.standard.set(cloudVoice, forKey: "kmi_tts_voice")
+
+        UserDefaults.standard.set(themeMode, forKey: "theme_mode")
+        UserDefaults.standard.set(appLockMode, forKey: "app_lock_mode")
+
+        UserDefaults.standard.synchronize()
+
+        if trainingRemindersEnabled {
+            scheduleTrainingReminders(minutes: trainingReminderMinutes)
+        } else {
+            cancelTrainingReminders()
+        }
+
+        if dailyReminderEnabledBinding.wrappedValue {
+            DailyReminderScheduler.shared.refreshSchedule()
+        } else {
+            DailyReminderScheduler.shared.cancelAll()
+        }
+
+        hapticSuccess()
+        nav.pop()
+    }
+    
     // MARK: Action buttons
     private var actionButtons: some View {
         HStack(spacing: 12) {
@@ -2366,8 +2599,7 @@ struct SettingsView: View {
             .buttonStyle(.plain)
 
             Button {
-                hapticSuccess()
-                nav.pop()
+                saveAllSettingsAndExit()
             } label: {
                 Text(tr("אישור", "Confirm"))
                     .font(.system(size: 17, weight: .black))
@@ -2385,16 +2617,22 @@ struct SettingsView: View {
         .padding(.top, 14)
         .padding(.bottom, 14)
         .background(
-            UnevenRoundedRectangle(
-                topLeadingRadius: 28,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0,
-                topTrailingRadius: 28,
-                style: .continuous
-            )
-            .fill(Color(hex: 0xFFF4EFFB).opacity(0.97))
-            .shadow(color: Color.black.opacity(0.16), radius: 18, x: 0, y: -6)
+            ZStack {
+                Color(hex: 0xFFF4EFFB)
+                    .ignoresSafeArea(edges: .bottom)
+
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 28,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 28,
+                    style: .continuous
+                )
+                .fill(Color(hex: 0xFFF4EFFB))
+                .shadow(color: Color.black.opacity(0.16), radius: 18, x: 0, y: -6)
+            }
         )
+        
         .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
     }
 

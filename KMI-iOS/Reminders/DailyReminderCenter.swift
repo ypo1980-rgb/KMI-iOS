@@ -19,4 +19,9 @@ final class DailyReminderCenter: ObservableObject {
         isPresented = false
         currentPayload = nil
     }
+
+    func openApp(from payload: DailyReminderPayload) {
+        currentPayload = nil
+        isPresented = false
+    }
 }

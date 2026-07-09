@@ -160,13 +160,13 @@ private struct BeltProgressCard: View {
     }
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 7) {
             HStack(spacing: 10) {
                 Text("\(row.percent)%")
-                    .font(.system(size: 15, weight: .heavy))
+                    .font(.system(size: 16, weight: .heavy))
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 7)
                     .background(
                         Capsule(style: .continuous)
                             .fill(row.color.opacity(0.90))
@@ -175,7 +175,7 @@ private struct BeltProgressCard: View {
                 Spacer(minLength: 10)
 
                 Text(titleText)
-                    .font(.system(size: 18, weight: .heavy))
+                    .font(.system(size: 19, weight: .heavy))
                     .foregroundStyle(row.color)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
@@ -184,7 +184,7 @@ private struct BeltProgressCard: View {
 
                 Circle()
                     .fill(row.color)
-                    .frame(width: 13, height: 13)
+                    .frame(width: 14, height: 14)
             }
 
             GeometryReader { geo in
@@ -205,15 +205,16 @@ private struct BeltProgressCard: View {
             .frame(height: 12)
 
             Text(countText)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Color.black.opacity(0.62))
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
                 .multilineTextAlignment(textAlignment)
         }
-        .padding(14)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(row.color.opacity(0.14))
+                .fill(row.color.opacity(0.20))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)

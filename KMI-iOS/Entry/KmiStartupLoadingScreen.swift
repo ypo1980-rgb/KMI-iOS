@@ -16,6 +16,7 @@ struct KmiStartupLoadingScreen: View {
     @State private var currentStageIndex: Int = 0
     @State private var completedStagesInCycle: Int = 0
     @State private var progress: CGFloat = 0.0
+    @State private var finishAlreadySent: Bool = false
 
     @State private var pulseScale: CGFloat = 0.96
     @State private var glowOpacity: Double = 0.18
@@ -98,6 +99,12 @@ struct KmiStartupLoadingScreen: View {
         }
     }
     
+    private func finishOnce() {
+        guard !finishAlreadySent else { return }
+        finishAlreadySent = true
+        finishOnce()
+    }
+
     private var backgroundView: some View {
         Group {
             if let image = UIImage(named: "kmi_startup_loading_bg") {
@@ -148,13 +155,9 @@ struct KmiStartupLoadingScreen: View {
 
             KmiLoopingStartupVideoView()
                 .frame(width: 214, height: 88)
-                .scaleEffect(1.18)
+                .scaleEffect(1.26)
                 .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .opacity(0.92)
-
-            startupLogoBadge
-                .frame(width: 76, height: 76)
-
+            
             GeometryReader { geo in
                 Rectangle()
                     .fill(
@@ -323,7 +326,7 @@ struct KmiStartupLoadingScreen: View {
 
             HStack {
                 Button {
-                    onFinished()
+                    finishOnce()
                 } label: {
                     Text(isEnglish ? "Skip" : "דלג")
                         .font(.system(size: 17, weight: .black, design: .rounded))

@@ -42,11 +42,11 @@ struct DefenseFilterSwift {
 
     /// פילטר לפי הטקסט של הנושא הראשי בחגורה (פנימיות/חיצוניות) + תת־נושא/פריט (אגרוף/בעיטה)
     static func filteredItems(belt: Belt, kind: DefenseUIKind, type: AttackUIType) -> [String] {
-        let catalog = CatalogData.shared.data
+        let catalog = ContentRepo.shared.data
         guard let beltContent = catalog[belt] else { return [] }
 
         let kindNeedle = (kind == .internalDef) ? "הגנות פנימיות" : "הגנות חיצוניות"
-
+        
         // מוצאים נושאים שיש בהם "הגנות פנימיות/חיצוניות" בכותרת
         let defenseTopics = beltContent.topics.filter { $0.title.contains(kindNeedle) }
 

@@ -4,7 +4,7 @@ import Shared
 struct TopicSubTopicsListView: View {
 
     let belt: Belt
-    let topic: CatalogData.Topic
+    let topic: ContentRepo.Topic
     let onPickSubTopic: (String) -> Void
 
     @EnvironmentObject private var nav: AppNavModel

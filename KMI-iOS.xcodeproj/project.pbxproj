@@ -11,7 +11,6 @@
 		7E6CD4882F5434D700BE189A /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 7E6CD4872F5434D700BE189A /* FirebaseAuth */; };
 		7E6D2C3E2FA6473A00EB82B2 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 7E6D2C3D2FA6473A00EB82B2 /* LaunchScreen.storyboard */; };
 		7E7B0F3E2F587F88000D9087 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 7E7B0F3D2F587F88000D9087 /* FirebaseFirestore */; };
-		7E7DAA5D2FF94A4600FF4618 /* Shared.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7E7DAA5C2FF94A4600FF4618 /* Shared.xcframework */; };
 		7E7F771D2FA493C90048059D /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 7E7F771C2FA493C90048059D /* GoogleSignIn */; };
 		7E7F771F2FA493C90048059D /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 7E7F771E2FA493C90048059D /* GoogleSignInSwift */; };
 /* End PBXBuildFile section */
@@ -20,7 +19,6 @@
 		7E6CD48C2F543C5900BE189A /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		7E6CF5212F3907D90061115C /* KMI-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "KMI-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7E6D2C3D2FA6473A00EB82B2 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
-		7E7DAA5C2FF94A4600FF4618 /* Shared.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = Shared.xcframework; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -30,6 +28,9 @@
 				Assistant/AssistantTrainingDataSourceAdapter.swift,
 				Info.plist,
 				LaunchScreen.storyboard,
+				Screens/Defenses/DefenseResultsView.swift,
+				Screens/Exercises/ExercisesByBeltCarouselView.swift,
+				Screens/Exercises/ExercisesCatalogView.swift,
 			);
 			target = 7E6CF5202F3907D90061115C /* KMI-iOS */;
 		};
@@ -51,7 +52,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				7E7DAA5D2FF94A4600FF4618 /* Shared.xcframework in Frameworks */,
 				7E7F771F2FA493C90048059D /* GoogleSignInSwift in Frameworks */,
 				7E6CD4862F5434CD00BE189A /* FirebaseCore in Frameworks */,
 				7E7F771D2FA493C90048059D /* GoogleSignIn in Frameworks */,
@@ -85,7 +85,6 @@
 		7E8E72D52F4A0A310099E4E5 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				7E7DAA5C2FF94A4600FF4618 /* Shared.xcframework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -188,7 +187,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "cd \"/Users/yuval/KMI-clean\" || exit 1\n\nexport CONFIGURATION=\"$CONFIGURATION\"\nexport SDK_NAME=\"$SDK_NAME\"\nexport ARCHS=\"$ARCHS\"\n\n./gradlew :shared:embedAndSignAppleFrameworkForXcode\n";
+			shellScript = "cd \"/Users/yuval/Desktop/KMI/KMI-clean\" || exit 1\n\n./gradlew :shared:embedAndSignAppleFrameworkForXcode\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */

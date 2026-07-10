@@ -59,14 +59,34 @@ struct BeltTopicSubTopicsView: View {
                 }
             }
             .map { subTitle in
-                UiSubTopic(
+                let topLevelSubTopics = ContentRepo.shared.getSubTopicsFor(
+                    belt: belt,
+                    topicTitle: cleanTopicTitle
+                )
+
+                guard let matchingSubTopic = topLevelSubTopics.first(where: {
+                    $0.title.trimmingCharacters(in: .whitespacesAndNewlines) == subTitle
+                }) else {
+                    return UiSubTopic(
+                        id: "\(belt.id)::\(cleanTopicTitle)::\(subTitle)",
+                        title: subTitle,
+                        itemsCount: 0
+                    )
+                }
+
+                var pendingSubTopics = [matchingSubTopic]
+                var totalCount = 0
+
+                while !pendingSubTopics.isEmpty {
+                    let current = pendingSubTopics.removeFirst()
+                    totalCount += current.items.count
+                    pendingSubTopics.append(contentsOf: current.subTopics)
+                }
+
+                return UiSubTopic(
                     id: "\(belt.id)::\(cleanTopicTitle)::\(subTitle)",
                     title: subTitle,
-                    itemsCount: ContentRepo.shared.getAllItemsFor(
-                        belt: belt,
-                        topicTitle: cleanTopicTitle,
-                        subTopicTitle: subTitle
-                    ).count
+                    itemsCount: totalCount
                 )
             }
 

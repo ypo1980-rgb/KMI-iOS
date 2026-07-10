@@ -3,7 +3,7 @@ import Shared
 
 struct TopicsBySubjectListView: View {
 
-    private let catalog = CatalogData.shared.data
+    private let catalog = ContentRepo.shared.data
     private let belts: [Belt] = [.white, .yellow, .orange, .green, .blue, .brown, .black]
 
     // ✅ NEW: נושאים חוצי־חגורות (מה-Shared)

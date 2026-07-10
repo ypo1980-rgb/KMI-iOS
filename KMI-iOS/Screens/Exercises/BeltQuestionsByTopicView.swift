@@ -16,7 +16,8 @@ struct BeltQuestionsByTopicView: View {
     var onActiveBeltChange: ((Belt) -> Void)? = nil
 
     @EnvironmentObject private var nav: AppNavModel
-    private let catalog = CatalogData.shared.data
+    // removed: CatalogData is no longer used.
+    // ContentRepo / TopicsEngine are the source of truth.
 
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
@@ -513,7 +514,7 @@ struct BeltQuestionsByTopicView: View {
         }
 
         guard
-            let beltContent = catalog[belt],
+            let beltContent = ContentRepo.shared.data[belt],
             let mappedTopics = subject.topicsByBelt[belt],
             !mappedTopics.isEmpty
         else {
@@ -1008,7 +1009,7 @@ struct BeltQuestionsByTopicView: View {
             let beltsToCheck: [Belt] = [.yellow, .orange, .green, .blue, .brown, .black]
 
             return beltsToCheck.reduce(0) { partial, oneBelt in
-                guard let beltContent = catalog[oneBelt] else {
+                guard let beltContent = ContentRepo.shared.data[oneBelt] else {
                     return partial
                 }
 
@@ -2180,7 +2181,7 @@ private struct SubjectSubTopicsListView: View {
             let beltsToCheck: [Belt] = [.yellow, .orange, .green, .blue, .brown, .black]
 
             return beltsToCheck.reduce(0) { partial, oneBelt in
-                guard let beltContent = CatalogData.shared.data[oneBelt] else { return partial }
+                guard let beltContent = ContentRepo.shared.data[oneBelt] else { return partial }
 
                 let topicCount = beltContent.topics.reduce(0) { topicPartial, topic in
                     let topicKey = normalizedTopicKey(topic.title)

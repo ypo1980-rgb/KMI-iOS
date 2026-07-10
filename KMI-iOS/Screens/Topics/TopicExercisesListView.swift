@@ -4,7 +4,7 @@ import Shared
 /// מסך תרגילים של נושא בתוך חגורה (כמו Android)
 struct TopicExercisesListView: View {
     let belt: Belt
-    let topic: CatalogData.Topic
+    let topic: ContentRepo.Topic
     let forcedSubTopicTitle: String?
 
     // ✅ ניווט גלובאלי מגיע מה-Environment

@@ -205,18 +205,21 @@ struct BeltQuestionsByBeltView: View {
             topicTitle: cleanTopicTitle
         )
 
-        let cleanSubTitles = engineDetails.subTitles
-            .map {
-                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanSubTitles = ContentRepo.shared.getSubTopicsFor(
+            belt: belt,
+            topicTitle: cleanTopicTitle
+        )
+        .map {
+            $0.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        .filter {
+            !$0.isEmpty && $0 != cleanTopicTitle
+        }
+        .reduce(into: [String]()) { result, title in
+            if !result.contains(title) {
+                result.append(title)
             }
-            .filter {
-                !$0.isEmpty && $0 != cleanTopicTitle
-            }
-            .reduce(into: [String]()) { result, title in
-                if !result.contains(title) {
-                    result.append(title)
-                }
-            }
+        }
 
         return TopicDetailsUi(
             itemCount: Int(engineDetails.itemCount),
@@ -224,30 +227,18 @@ struct BeltQuestionsByBeltView: View {
         )
     }
     
+    // Android parity:
+    // הספירה מגיעה ישירות מ־TopicsEngine (ContentRepo הוא מקור האמת).
+    // אין לבצע חישוב מקומי נוסף שעלול ליצור פערים.
     private func topicExercisesCountForUi(
         belt: Belt,
         topicTitle: String,
         subTitles: [String]
     ) -> Int {
-        let cleanTopicTitle = topicTitle
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let topLevelSubTopics = ContentRepo.shared.getSubTopicsFor(
+        topicDetailsFor(
             belt: belt,
-            topicTitle: cleanTopicTitle
-        )
-
-        var pendingSubTopics = Array(topLevelSubTopics)
-        var totalCount = 0
-
-        while !pendingSubTopics.isEmpty {
-            let current = pendingSubTopics.removeFirst()
-
-            totalCount += current.items.count
-            pendingSubTopics.append(contentsOf: current.subTopics)
-        }
-
-        return totalCount
+            topicTitle: topicTitle
+        ).itemCount
     }
     
     private func hasRealSubTopicsForUi(title: String, details: TopicDetailsUi) -> Bool {
@@ -337,13 +328,8 @@ struct BeltQuestionsByBeltView: View {
         return topicTitles.map { title in
             let details = detailsByTitle[title] ?? TopicDetailsUi(itemCount: 0, subTitles: [])
             let subCount = details.subTitles.count
-            
-            let itemCount = topicExercisesCountForUi(
-                belt: selectedBelt,
-                topicTitle: title,
-                subTitles: details.subTitles
-            )
-            
+            let itemCount = details.itemCount
+
             let subtitle: String? = {
                 if subCount > 0 {
                     return subTopicsAndExercisesText(
@@ -354,7 +340,7 @@ struct BeltQuestionsByBeltView: View {
                     return exercisesCountText(itemCount)
                 }
             }()
-            
+
             return BeltTopicUi(
                 id: "belt-topic::\(selectedBelt.id)::\(title)",
                 title: title,
@@ -1649,15 +1635,32 @@ struct BeltQuestionsByBeltView: View {
                                                 topicTitle: topicTitle
                                             )
                                             
-                                            let subTitles = details.subTitles
-                                                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                                                .filter { !$0.isEmpty && $0 != topicTitle }
+                                            let subTitles = {
+                                                let fromEngine = details.subTitles
+                                                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                                                    .filter { !$0.isEmpty && $0 != topicTitle }
+
+                                                if !fromEngine.isEmpty {
+                                                    return fromEngine
+                                                }
+
+                                                return ContentRepo.shared.getSubTopicsFor(
+                                                    belt: selectedBelt,
+                                                    topicTitle: topicTitle
+                                                )
+                                                .map {
+                                                    $0.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                                                }
+                                                .filter {
+                                                    !$0.isEmpty && $0 != topicTitle
+                                                }
                                                 .reduce(into: [String]()) { partial, item in
                                                     if !partial.contains(item) {
                                                         partial.append(item)
                                                     }
                                                 }
-                                            
+                                            }()
+
                                             let hasSubs = !subTitles.isEmpty
                                             let isExpanded = expandedTopic == topicTitle
                                             let locked = isTopicLocked(topicTitle)

@@ -78,7 +78,7 @@ final class GlobalExerciseSearchEngine: ObservableObject {
     private func buildIndex() {
         index.removeAll(keepingCapacity: true)
 
-        let catalog = CatalogData.shared.data
+        let catalog = ContentRepo.shared.data
 
         for belt in beltsOrder {
             guard let beltContent = catalog[belt] else { continue }
@@ -107,6 +107,18 @@ final class GlobalExerciseSearchEngine: ObservableObject {
                                 searchable: it.normHeb()
                             )
                             index.append(row)
+                        }
+
+                        for nested in st.subTopics {
+                            for it in nested.items {
+                                let row = IndexedRow(
+                                    belt: belt,
+                                    topic: topicTitle,
+                                    item: it,
+                                    searchable: it.normHeb()
+                                )
+                                index.append(row)
+                            }
                         }
                     }
                 } else {

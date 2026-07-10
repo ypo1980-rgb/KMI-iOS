@@ -3,7 +3,7 @@ import Shared
 
 struct TopicContentView: View {
     let belt: Belt
-    let topic: CatalogData.Topic
+    let topic: ContentRepo.Topic
 
     @State private var selectedSubIndex: Int? = nil
     @State private var selectedItem: String? = nil
@@ -12,7 +12,7 @@ struct TopicContentView: View {
     // ✅ cache מקומי למועדפים של המסך
     @State private var favoriteMap: [String: Bool] = [:]
 
-    private var subTopics: [CatalogData.SubTopic] {
+    private var subTopics: [ContentRepo.SubTopic] {
         topic.subTopics
     }
 
@@ -240,7 +240,7 @@ struct TopicContentView: View {
     NavigationStack {
         TopicContentView(
             belt: .orange,
-            topic: CatalogData.shared.data[.orange]!.topics.first!
+            topic: ContentRepo.shared.data[.orange]!.topics.first!
         )
     }
 }

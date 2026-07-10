@@ -40,7 +40,7 @@ struct ExercisesHubView: View {
 
                 // תוכן
                 if tab == .byBelt {
-                    ExercisesByBeltCarouselView(selectedBelt: $belt)
+                    BeltQuestionsByBeltView(belt: belt)
                 } else {
                     TopicsBySubjectListView()
                 }

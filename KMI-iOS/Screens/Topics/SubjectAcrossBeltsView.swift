@@ -27,9 +27,6 @@ struct SubjectAcrossBeltsView: View {
     @State private var noteText: String = ""
     @State private var favoriteExerciseIds: Set<String> = []
     @State private var excludedExerciseIds: Set<String> = []
-    
-    // ✅ קטלוג מה-Shared (כמו בשאר המסכים)
-    private let catalog = CatalogData.shared.data
 
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"

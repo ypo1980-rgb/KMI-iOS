@@ -11,19 +11,23 @@ enum ExamDataSource {
     }
 
     static func itemsForBelt(_ belt: Belt) -> [String] {
-        let catalog = CatalogData.shared.data
+        let catalog = ContentRepo.shared.data
         guard let beltContent = catalog[belt] else { return [] }
 
         var out: [String] = []
 
         for t in beltContent.topics {
             out.append(contentsOf: t.items)
+
             for st in t.subTopics {
                 out.append(contentsOf: st.items)
+
+                for nested in st.subTopics {
+                    out.append(contentsOf: nested.items)
+                }
             }
         }
 
-        // unique keep order
         var seen = Set<String>()
         return out
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -32,7 +36,7 @@ enum ExamDataSource {
     }
 
     static func categorizedItemsForBelt(_ belt: Belt) -> [CategorizedExamItem] {
-        let catalog = CatalogData.shared.data
+        let catalog = ContentRepo.shared.data
         guard let beltContent = catalog[belt] else { return [] }
 
         var out: [CategorizedExamItem] = []

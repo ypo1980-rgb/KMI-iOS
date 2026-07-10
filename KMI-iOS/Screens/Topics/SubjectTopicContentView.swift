@@ -12,7 +12,7 @@ struct SubjectTopicContentView: View {
     let belt: Belt
     let subject: SubjectTopic
 
-    private let catalog = CatalogData.shared.data
+    private let catalog = ContentRepo.shared.data
 
     private func norm(_ s: String) -> String {
         s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -72,7 +72,7 @@ struct SubjectTopicContentView: View {
         let allowedTopics = subject.topicsByBelt[belt] ?? []
         let allowedKeys = Set(allowedTopics.map(norm))
 
-        let candidateTopics: [CatalogData.Topic] =
+        let candidateTopics: [ContentRepo.Topic] =
             allowedTopics.isEmpty
             ? beltContent.topics
             : beltContent.topics.filter { topic in

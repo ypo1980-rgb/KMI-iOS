@@ -6,7 +6,7 @@ struct ExerciseSearchView: View {
     @State private var query: String = ""
     @State private var selected: ExerciseHit? = nil
 
-    private let catalog = CatalogData.shared.data
+    private let catalog = ContentRepo.shared.data
     private let belts: [Belt] = [.white, .yellow, .orange, .green, .blue, .brown, .black]
 
     struct ExerciseHit: Identifiable, Hashable {

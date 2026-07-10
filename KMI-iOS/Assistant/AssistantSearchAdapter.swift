@@ -8,7 +8,7 @@ final class AssistantSearchAdapter: AssistantSearchEngine {
 
         var results: [AssistantSearchHit] = []
 
-        let data = CatalogData().data
+        let data = ContentRepo.shared.data
         let requestedBelt = belt
 
         for (beltKey, beltContent) in data {

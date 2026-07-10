@@ -69,7 +69,7 @@ struct ExercisesMarksListView: View {
     }
 
     // ✅ catalog source (Shared)
-    private let catalog = CatalogData.shared.data
+    private let catalog = ContentRepo.shared.data
 
     // UI
     @State private var tab: MarksTab = .all
@@ -101,13 +101,19 @@ struct ExercisesMarksListView: View {
             // אם אין subTopic -> items + subTopics.items
             if subTopic == nil || subTopic?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
                 let base = t.items
-                let subs = t.subTopics.flatMap { $0.items }
+                let subs = t.subTopics.flatMap { sub in
+                    sub.items + sub.subTopics.flatMap { $0.items }
+                }
                 return Array(Set(base + subs)).sorted()
             }
 
             // יש subTopic: נחפש subTopic מדויק
             if let st = subTopic, let sub = t.subTopics.first(where: { $0.title == st }) {
-                return sub.items
+                if sub.subTopics.isEmpty {
+                    return sub.items
+                }
+
+                return sub.items + sub.subTopics.flatMap { $0.items }
             }
 
             // fallback: אם subTopic לא נמצא

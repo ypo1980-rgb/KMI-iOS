@@ -114,7 +114,7 @@ final class ProgressViewModel: ObservableObject {
     
     func loadProgress() {
         let defaults = UserDefaults.standard
-        let catalog = CatalogData.shared.data
+        let catalog = ContentRepo.shared.data
         
         let defs: [(belt: Belt, id: String, title: String, color: Color)] = [
             (.yellow, "yellow", "חגורה: צהובה", .yellow),
@@ -217,7 +217,7 @@ final class ProgressViewModel: ObservableObject {
 
             func countSubTopics(
                 topicTitle: String,
-                subTopics: [CatalogData.SubTopic]
+                subTopics: [ContentRepo.SubTopic]
             ) {
                 for subTopic in subTopics {
                     for itemIndex in subTopic.items.indices {
@@ -228,6 +228,11 @@ final class ProgressViewModel: ObservableObject {
                             index: itemIndex
                         )
                     }
+
+                    countSubTopics(
+                        topicTitle: topicTitle,
+                        subTopics: subTopic.subTopics
+                    )
                 }
             }
             
@@ -290,7 +295,7 @@ final class ProgressViewModel: ObservableObject {
 
     func missingExercises(for belt: Belt) -> [MissingExercise] {
         let defaults = UserDefaults.standard
-        let catalog = CatalogData.shared.data
+        let catalog = ContentRepo.shared.data
 
         guard let content = catalog[belt] else { return [] }
 
@@ -310,20 +315,26 @@ final class ProgressViewModel: ObservableObject {
                 }
             }
 
-            for sub in topic.subTopics {
-                for item in sub.items {
-                    let key = "exercise_\(belt.id)_\(item)"
-                    if !defaults.bool(forKey: key) {
-                        result.append(
-                            MissingExercise(
-                                topicTitle: topic.title,
-                                subTopicTitle: sub.title,
-                                itemTitle: item
+            func appendSubTopics(_ subTopics: [ContentRepo.SubTopic]) {
+                for sub in subTopics {
+                    for item in sub.items {
+                        let key = "exercise_\(belt.id)_\(item)"
+                        if !defaults.bool(forKey: key) {
+                            result.append(
+                                MissingExercise(
+                                    topicTitle: topic.title,
+                                    subTopicTitle: sub.title,
+                                    itemTitle: item
+                                )
                             )
-                        )
+                        }
                     }
+
+                    appendSubTopics(sub.subTopics)
                 }
             }
+
+            appendSubTopics(topic.subTopics)
         }
 
         return result
@@ -352,7 +363,7 @@ final class ProgressViewModel: ObservableObject {
     }
 
     func allExercises(for belt: Belt) -> [MissingExercise] {
-        let catalog = CatalogData.shared.data
+        let catalog = ContentRepo.shared.data
         guard let content = catalog[belt] else { return [] }
 
         var result: [MissingExercise] = []
@@ -368,17 +379,23 @@ final class ProgressViewModel: ObservableObject {
                 )
             }
 
-            for sub in topic.subTopics {
-                for item in sub.items {
-                    result.append(
-                        MissingExercise(
-                            topicTitle: topic.title,
-                            subTopicTitle: sub.title,
-                            itemTitle: item
+            func appendSubTopics(_ subTopics: [ContentRepo.SubTopic]) {
+                for sub in subTopics {
+                    for item in sub.items {
+                        result.append(
+                            MissingExercise(
+                                topicTitle: topic.title,
+                                subTopicTitle: sub.title,
+                                itemTitle: item
+                            )
                         )
-                    )
+                    }
+
+                    appendSubTopics(sub.subTopics)
                 }
             }
+
+            appendSubTopics(topic.subTopics)
         }
 
         return result

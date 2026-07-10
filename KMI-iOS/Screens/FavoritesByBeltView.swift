@@ -4,7 +4,7 @@ import Shared
 struct FavoritesByBeltView: View {
     let belt: Belt
 
-    private let catalog = CatalogData.shared.data
+    private let catalog = ContentRepo.shared.data
 
     // TopicTitle -> (topicItems + subTopic blocks)
     @State private var grouped: [TopicBlock] = []

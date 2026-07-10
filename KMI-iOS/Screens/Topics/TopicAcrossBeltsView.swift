@@ -11,20 +11,25 @@ struct TopicAcrossBeltsView: View {
         self.subTopicTitle = subTopicTitle
     }
 
-    private let catalog = CatalogData.shared.data
+    private let catalog = ContentRepo.shared.data
     private let belts: [Belt] = [.white, .yellow, .orange, .green, .blue, .brown, .black]
 
     private struct BeltTopicPack: Identifiable {
         let id: String
         let belt: Belt
-        let topic: CatalogData.Topic
+        let topic: ContentRepo.Topic
         let itemsFlat: [String]
     }
 
-    private func flattenItems(_ t: CatalogData.Topic) -> [String] {
+    private func flattenItems(_ t: ContentRepo.Topic) -> [String] {
         var out: [String] = []
         out.append(contentsOf: t.items)
-        for st in t.subTopics { out.append(contentsOf: st.items) }
+        for st in t.subTopics {
+            out.append(contentsOf: st.items)
+            for nested in st.subTopics {
+                out.append(contentsOf: nested.items)
+            }
+        }
 
         var seen = Set<String>()
         return out.filter { seen.insert($0).inserted }
@@ -40,7 +45,11 @@ struct TopicAcrossBeltsView: View {
             let flat: [String]
             if let sub = subTopicTitle,
                let subTopic = t.subTopics.first(where: { $0.title == sub }) {
-                flat = subTopic.items
+                if subTopic.subTopics.isEmpty {
+                    flat = subTopic.items
+                } else {
+                    flat = subTopic.items + subTopic.subTopics.flatMap { $0.items }
+                }
             } else {
                 flat = flattenItems(t)
             }

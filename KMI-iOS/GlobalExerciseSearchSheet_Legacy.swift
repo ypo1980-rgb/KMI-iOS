@@ -1,10 +1,3 @@
-//
-//  GlobalExerciseSearchSheet.swift
-//  KMI-iOS
-//
-//  Created by יובל פולק on 03/03/2026.
-//
-
 import SwiftUI
 import Shared
 
@@ -12,7 +5,7 @@ struct GlobalExerciseSearchSheet: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    private let catalog = CatalogData.shared.data
+    private let catalog = ContentRepo.shared.data
     private let belts: [Belt] = [.yellow, .orange, .green, .blue, .brown, .black]
 
     @State private var selectedBelt: Belt = .orange

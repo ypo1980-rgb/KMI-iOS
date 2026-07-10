@@ -2,8 +2,81 @@ import Foundation
 
 enum TrainingCatalogIOS {
 
-    static let regionHoldMessage = "אין סניפים זמינים באזור זה"
+    private struct BranchesCatalogPayload: Decodable {
+        let version: Int
+        let updatedAt: String
+        let regions: [RegionRecord]
+        let branches: [BranchRecord]
+    }
 
+    private struct RegionRecord: Decodable {
+        let id: String
+        let active: Bool
+        let nameHe: String
+        let nameEn: String
+        let country: String
+    }
+
+    private struct BranchRecord: Decodable {
+        let id: String
+        let active: Bool
+        let regionId: String
+        let regionHe: String
+        let regionEn: String
+        let country: String
+        let countryHe: String
+        let countryEn: String
+        let cityHe: String
+        let cityEn: String
+        let nameHe: String
+        let nameEn: String
+        let placeHe: String
+        let placeEn: String
+        let addressHe: String
+        let addressEn: String
+        let coachIds: [String]
+        let trainingDays: [TrainingDayRecord]
+        let notesHe: String
+        let notesEn: String
+    }
+
+    private struct TrainingDayRecord: Decodable {
+        let dayOfWeek: String
+        let dayHe: String
+        let dayEn: String
+        let startTime: String
+        let endTime: String
+        let durationMinutes: Int
+        let groupHe: String
+        let groupEn: String
+        let coachNameHe: String
+        let coachNameEn: String
+    }
+
+    private static let branchesCatalog: BranchesCatalogPayload? = {
+        guard let url = Bundle.main.url(
+            forResource: "branches",
+            withExtension: "json"
+        ) else {
+            print("TrainingCatalogIOS: branches.json was not found in the app bundle")
+            return nil
+        }
+
+        do {
+            let data = try Data(contentsOf: url)
+
+            return try JSONDecoder().decode(
+                BranchesCatalogPayload.self,
+                from: data
+            )
+        } catch {
+            print("TrainingCatalogIOS: failed to decode branches.json: \(error)")
+            return nil
+        }
+    }()
+
+    static let regionHoldMessage = "אין סניפים זמינים באזור זה"
+    
     private static let branchesByRegionRaw: [String: [String]] = [
         "השרון": [
             "נתניה – מרכז קהילתי אופק",
@@ -150,37 +223,7 @@ enum TrainingCatalogIOS {
         "הוד השרון – מרכז ספורט עירוני": "הוד השרון – מרכז ספורט עירוני"
     ]
 
-    static let ageGroupsByBranch: [String: [String]] = [
-        "נתניה – מרכז קהילתי אופק": ["גן חובה - כיתה א", "כיתה ב' - כיתה ה'", "כיתה ו' - כיתה ח'", "נוער + בוגרים", "בוגרים"],
-        "נתניה – מרכז קהילתי סוקולוב": ["בוגרים", "ילדים"],
-        "נתניה – נורדאו": ["טרום חובה וחובה", "כיתה א' - כיתה ב'", "כיתה ג' - כיתה ו'", "בוגרים"],
-        "עזריאל – מושב עזריאל": ["ילדים (גן חובה עד כיתה ב')", "כיתה ג' - כיתה ז'", "נוער + בוגרים"],
-        "רעננה – מרכז קהילתי לב הפארק": ["בוגרים"],
-        "הרצליה – מרכז קהילתי נוף ים": ["בוגרים"],
-        "כפר סבא – היכל התרבות": ["בוגרים"],
-        "הוד השרון – מרכז ספורט עירוני": ["בוגרים"],
-
-        // MARK: - Abroad branches
-        "Smithfield (RI) 🇺🇸 – Kevin Notch": ["בוגרים"],
-        "East Greenwich (RI) 🇺🇸 – Kevin Notch": ["בוגרים"],
-        "Concord – Sergey Baskin": ["בוגרים"],
-        "Thunder Bay – Aviran Ben Sason": ["בוגרים"],
-        "Perth – David Reznik": ["בוגרים"],
-        "Hermosillo – Oscar Monge": ["בוגרים"],
-        "Guanajuato – Alberto Carrillo Moreno": ["בוגרים"],
-        "Szczecin – Maciej Narkiewicz-Jodko": ["בוגרים"],
-        "Istanbul (Beyoglu) – Ibrahim Tokgoz": ["בוגרים"],
-        "Istanbul (Kartal) – Burak Korkmaz, Tugay Akay": ["בוגרים"],
-        "Carrara – Alessio Palagi": ["בוגרים"],
-        "Massa – Alessio Palagi": ["בוגרים"],
-        "Milan – Koren Mor": ["בוגרים"],
-        "Castiglione del Lago (Perugia) – Gimmy Fattoni": ["בוגרים"],
-        "Città della Pieve (PG) – Gimmy Fattoni": ["בוגרים"],
-        "Perugia – Italy CKA – Gimmy Fattoni": ["בוגרים"],
-        "Fabro (TR) – Futura Fitness Club – Gimmy Fattoni": ["בוגרים"],
-        "Ballina – Kevin Martin": ["בוגרים"],
-        "Daegu – Younmin Jeong": ["בוגרים"]
-    ]
+    static let ageGroupsByBranch: [String: [String]] = [:]
 
     static let slots: [TrainingSlot] = [
         TrainingSlot(
@@ -306,7 +349,7 @@ enum TrainingCatalogIOS {
     ]
 
     // MARK: - Display Localization
-
+    
     static func displayRegion(_ value: String, isEnglish: Bool) -> String {
         let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isEnglish else { return clean }
@@ -537,125 +580,319 @@ enum TrainingCatalogIOS {
         return raw
     }
 
-    static func trainingsFor(branch: String, group: String?) -> [TrainingData] {
-        let wanted = normalizeGroupName(group)
-        let normalizedBranch = branch
-            .replacingOccurrences(of: "-", with: "–")
+    private static func normalizedCatalogText(_ value: String) -> String {
+        value
             .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let branchSlots = slots.filter { slot in
-            let slotBranch = slot.branch
-                .replacingOccurrences(of: "-", with: "–")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-
-            return slotBranch == normalizedBranch
-        }
-
-        let groupText = (group ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let filteredSlots: [TrainingSlot]
-        if groupText.isEmpty {
-            filteredSlots = branchSlots
-        } else {
-            let matched = branchSlots.filter { slot in
-                slot.groups.contains(where: {
-                    let raw = $0.trimmingCharacters(in: .whitespacesAndNewlines)
-                    return normalizeGroupName(raw) == wanted || raw == groupText
-                })
-            }
-
-            // ✅ אם אין התאמה מדויקת לקבוצה – נציג את כל האימונים של הסניף
-            filteredSlots = matched.isEmpty ? branchSlots : matched
-        }
-
-        return filteredSlots
-            .map { slot in
-                nextWeekly(
-                    slot: slot,
-                    now: Date()
-                )
-            }
-            .sorted { $0.date < $1.date }
+            .replacingOccurrences(of: "־", with: "-")
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: "—", with: "-")
+            .replacingOccurrences(
+                of: "\\s+",
+                with: " ",
+                options: .regularExpression
+            )
+            .lowercased()
     }
-    
-    static func upcomingFor(region: String, branch: String, group: String, count: Int = 3) -> [TrainingData] {
-        let normalizedRegion = region.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedBranch = branch
-            .replacingOccurrences(of: "-", with: "–")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // ✅ קודם כל: אם יש branch תקין ויש slots – נשתמש בו גם אם region חסר/לא תואם
-        let directUpcoming = trainingsFor(branch: normalizedBranch, group: group)
+    private static func branchFromCatalog(
+        matching branchName: String
+    ) -> BranchRecord? {
+        let wanted = normalizedCatalogText(branchName)
+
+        return branchesCatalog?
+            .branches
+            .first { branch in
+                guard branch.active else {
+                    return false
+                }
+
+                return normalizedCatalogText(branch.nameHe) == wanted ||
+                    normalizedCatalogText(branch.nameEn) == wanted ||
+                    normalizedCatalogText(branch.placeHe) == wanted ||
+                    normalizedCatalogText(branch.placeEn) == wanted
+            }
+    }
+
+    private static func trainingDayMatchesGroup(
+        _ trainingDay: TrainingDayRecord,
+        selectedGroup: String?
+    ) -> Bool {
+        let rawSelected = selectedGroup?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        guard !rawSelected.isEmpty else {
+            return true
+        }
+
+        let selectedNormalized = normalizeGroupName(rawSelected)
+        let hebrewNormalized = normalizeGroupName(trainingDay.groupHe)
+        let englishNormalized = normalizedCatalogText(trainingDay.groupEn)
+        let selectedTextNormalized = normalizedCatalogText(rawSelected)
+
+        if selectedNormalized == hebrewNormalized {
+            return true
+        }
+
+        if normalizedCatalogText(trainingDay.groupHe) == selectedTextNormalized {
+            return true
+        }
+
+        if englishNormalized == selectedTextNormalized {
+            return true
+        }
+
+        if selectedNormalized == "נוער" &&
+            hebrewNormalized == "נוער + בוגרים" {
+            return true
+        }
+
+        if selectedNormalized == "בוגרים" &&
+            hebrewNormalized == "נוער + בוגרים" {
+            return true
+        }
+
+        return false
+    }
+
+    private static func calendarWeekday(
+        from rawValue: String
+    ) -> Int? {
+        switch rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased() {
+
+        case "SUNDAY":
+            return 1
+
+        case "MONDAY":
+            return 2
+
+        case "TUESDAY":
+            return 3
+
+        case "WEDNESDAY":
+            return 4
+
+        case "THURSDAY":
+            return 5
+
+        case "FRIDAY":
+            return 6
+
+        case "SATURDAY":
+            return 7
+
+        default:
+            return nil
+        }
+    }
+
+    private static func timeComponents(
+        from value: String
+    ) -> (hour: Int, minute: Int)? {
+        let parts = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: ":")
+
+        guard
+            parts.count >= 2,
+            let hour = Int(parts[0]),
+            let minute = Int(parts[1]),
+            (0...23).contains(hour),
+            (0...59).contains(minute)
+        else {
+            return nil
+        }
+
+        return (hour, minute)
+    }
+
+    private static func nextTrainingDate(
+        trainingDay: TrainingDayRecord,
+        now: Date,
+        calendar: Calendar
+    ) -> Date? {
+        guard
+            let weekday = calendarWeekday(
+                from: trainingDay.dayOfWeek
+            ),
+            let startTime = timeComponents(
+                from: trainingDay.startTime
+            )
+        else {
+            return nil
+        }
+
+        for offset in 0..<14 {
+            guard let candidateDay = calendar.date(
+                byAdding: .day,
+                value: offset,
+                to: now
+            ) else {
+                continue
+            }
+
+            guard calendar.component(
+                .weekday,
+                from: candidateDay
+            ) == weekday else {
+                continue
+            }
+
+            var components = calendar.dateComponents(
+                [.year, .month, .day],
+                from: candidateDay
+            )
+
+            components.hour = startTime.hour
+            components.minute = startTime.minute
+            components.second = 0
+            components.nanosecond = 0
+
+            guard let candidateDate = calendar.date(
+                from: components
+            ) else {
+                continue
+            }
+
+            if candidateDate > now {
+                return candidateDate
+            }
+        }
+
+        return nil
+    }
+
+    static func trainingsFor(
+        branch: String,
+        group: String?
+    ) -> [TrainingData] {
+        guard let catalogBranch = branchFromCatalog(
+            matching: branch
+        ) else {
+            return []
+        }
 
         let now = Date()
-        let end = Calendar.current.date(byAdding: .day, value: 7, to: now) ?? now
+        let calendar = Calendar(identifier: .gregorian)
 
-        let directFiltered = directUpcoming.filter { training in
-            training.date >= now && training.date <= end
+        let exactMatches = catalogBranch.trainingDays.filter { trainingDay in
+            trainingDayMatchesGroup(
+                trainingDay,
+                selectedGroup: group
+            )
         }
 
-        if !directFiltered.isEmpty {
-            return Array(directFiltered.prefix(count))
+        let selectedGroup = group?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        let trainingDays: [TrainingDayRecord]
+
+        if selectedGroup.isEmpty {
+            trainingDays = catalogBranch.trainingDays
+        } else {
+            trainingDays = exactMatches
         }
 
-        // ✅ fallback ישן – רק אם לא נמצאו אימונים ישירים
-        guard !normalizedRegion.isEmpty else { return [] }
-        guard isRegionActive(normalizedRegion) else { return [] }
-
-        let regionBranches = branchesFor(region: normalizedRegion).map {
-            $0.replacingOccurrences(of: "-", with: "–")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        guard regionBranches.contains(normalizedBranch) else { return [] }
-
-        let upcoming = trainingsFor(branch: normalizedBranch, group: group)
-            .filter { training in
-                training.date >= now && training.date <= end
+        return trainingDays.compactMap { trainingDay in
+            guard let startDate = nextTrainingDate(
+                trainingDay: trainingDay,
+                now: now,
+                calendar: calendar
+            ) else {
+                return nil
             }
 
-        return Array(upcoming.prefix(count))
+            let durationMinutes = trainingDay.durationMinutes > 0
+                ? trainingDay.durationMinutes
+                : 90
+
+            let endDate = startDate.addingTimeInterval(
+                TimeInterval(durationMinutes * 60)
+            )
+
+            let startFormatter = DateFormatter()
+            startFormatter.locale = Locale(identifier: "he_IL")
+            startFormatter.calendar = calendar
+            startFormatter.dateFormat = "dd/MM/yyyy HH:mm"
+
+            let endFormatter = DateFormatter()
+            endFormatter.locale = Locale(identifier: "he_IL")
+            endFormatter.calendar = calendar
+            endFormatter.dateFormat = "HH:mm"
+
+            let stableId = [
+                catalogBranch.id,
+                trainingDay.dayOfWeek,
+                trainingDay.startTime,
+                trainingDay.groupHe,
+                String(Int(startDate.timeIntervalSince1970))
+            ]
+            .joined(separator: "_")
+
+            return TrainingData(
+                id: stableId,
+                date: startDate,
+                startText: startFormatter.string(from: startDate),
+                endText: endFormatter.string(from: endDate),
+                place: catalogBranch.placeHe,
+                address: catalogBranch.addressHe,
+                coach: trainingDay.coachNameHe
+            )
+        }
+        .sorted { left, right in
+            left.date < right.date
+        }
     }
     
-    private static func nextWeekly(slot: TrainingSlot, now: Date) -> TrainingData {
-        let calendar = Calendar(identifier: .gregorian)
-        let locale = Locale(identifier: "he_IL")
+    static func upcomingFor(
+        region: String,
+        branch: String,
+        group: String,
+        count: Int = 5
+    ) -> [TrainingData] {
+        let normalizedBranch = branch
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        var nextDate = now
-        for offset in 0..<14 {
-            guard let candidate = calendar.date(byAdding: .day, value: offset, to: now) else { continue }
-            let weekday = calendar.component(.weekday, from: candidate)
-            if weekday == slot.dayOfWeek {
-                var comps = calendar.dateComponents([.year, .month, .day], from: candidate)
-                comps.hour = slot.startHour
-                comps.minute = slot.startMinute
-                comps.second = 0
-
-                if let finalDate = calendar.date(from: comps), finalDate > now {
-                    nextDate = finalDate
-                    break
-                }
-            }
+        guard !normalizedBranch.isEmpty else {
+            return []
         }
 
-        let endDate = nextDate.addingTimeInterval(TimeInterval(slot.durationMinutes * 60))
+        let now = Date()
+        let calendar = Calendar(identifier: .gregorian)
 
-        let startFormatter = DateFormatter()
-        startFormatter.locale = locale
-        startFormatter.dateFormat = "dd/MM/yyyy HH:mm"
+        let startOfToday = calendar.startOfDay(for: now)
 
-        let endFormatter = DateFormatter()
-        endFormatter.locale = locale
-        endFormatter.dateFormat = "HH:mm"
+        guard let seventhDay = calendar.date(
+            byAdding: .day,
+            value: 6,
+            to: startOfToday
+        ) else {
+            return []
+        }
 
-        return TrainingData(
-            id: slot.id + "_\(Int(nextDate.timeIntervalSince1970))",
-            date: nextDate,
-            startText: startFormatter.string(from: nextDate),
-            endText: endFormatter.string(from: endDate),
-            place: slot.place,
-            address: slot.address,
-            coach: slot.coach
+        guard let endOfSeventhDay = calendar.date(
+            byAdding: DateComponents(
+                day: 1,
+                second: -1
+            ),
+            to: seventhDay
+        ) else {
+            return []
+        }
+
+        let upcoming = trainingsFor(
+            branch: normalizedBranch,
+            group: group
         )
+        .filter { training in
+            training.date >= now &&
+            training.date <= endOfSeventhDay
+        }
+        .sorted { left, right in
+            left.date < right.date
+        }
+
+        return Array(upcoming.prefix(max(0, count)))
     }
 }

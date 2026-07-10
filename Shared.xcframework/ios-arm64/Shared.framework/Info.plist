@@ -5,7 +5,7 @@
     <key>CFBundleExecutable</key>
     <string>Shared</string>
     <key>CFBundleIdentifier</key>
-    <string>Shared</string>
+    <string>il.kmi.Shared</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>

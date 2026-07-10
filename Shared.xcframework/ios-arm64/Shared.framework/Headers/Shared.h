@@ -6,9 +6,9 @@
 #import <Foundation/NSString.h>
 #import <Foundation/NSValue.h>
 
-@class SharedAppStrings, SharedAppStringsLang, SharedKotlinEnumCompanion, SharedKotlinEnum<E>, SharedKotlinArray<T>, SharedKmiSettingsFactory, SharedPlatform, SharedPlatformFile, SharedBeltDto, SharedExerciseContentDto, SharedExerciseDto, SharedInMemoryCatalog, SharedSubTopicDto, SharedTopicDto, SharedKmiCatalogFacade, SharedBeltCompanion, SharedBelt, SharedCoachRegistry, SharedContentRepo, SharedContentRepoSubTopic, SharedContentRepoResolvedItem, SharedContentRepoSearchHit, SharedContentRepoBeltContent, SharedContentRepoTopic, SharedExplanations, SharedExplanationsExplanationAuditRow, SharedSubTopicRegistry, SharedSubjectTopic, SharedTopicsEngine, SharedTopicsEngineTopicDetails, SharedUserRoleCompanion, SharedUserRole, SharedCatalogRepo, SharedCatalogTopic, SharedCatalogRepoBuilder, SharedCatalogSubTopic, SharedCanonical, SharedCanonicalParsedItem, SharedExerciseExplanationsEn, SharedExerciseTitlesEnAliases, SharedExerciseTitlesEnItems, SharedExerciseTitlesEnTopics, SharedExerciseIdentityRegistry, SharedExerciseIdentityRegistryExerciseIdentity, SharedExerciseIdentityRegistryAuditReport, SharedExerciseIdentityRegistryResolvedExerciseIdentity, SharedExerciseIdentityRegistryAuditRow, SharedExerciseTitlesEn, SharedHardSectionsCatalog, SharedKotlinPair<__covariant A, __covariant B>, SharedHardSectionsCatalogSection, SharedHardSectionsCatalogBeltGroup, SharedHardSectionsResolver, SharedHardSectionsResolverBeltItems, SharedHardSectionsResolverNodeResultBeltGroups, SharedHardSectionsResolverSectionEntry, SharedHardSectionsResolverNodeResultSections, SharedSharedExerciseExplanationResolver, SharedSubjectItemsResolver, SharedSubjectItemsResolverUiSection, SharedSubjectItemsResolverUiItem, SharedAttackType, SharedDefenseKind, SharedExamFacade, SharedKotlinx_datetimeInstant, SharedForumMessage, SharedFreeSessionsPaths, SharedParticipantState, SharedFreeSession, SharedFreeSessionPart, SharedParticipantStateCompanion, SharedAppLanguageCompanion, SharedAppLanguage, SharedLanguageKeys, SharedLanguageStrings, SharedLocalizationRuntime, SharedKmiBelt, SharedKmiTopic, SharedKmiBeltContent, SharedKmiSubTopic, SharedPracticeFacade, SharedPracticeItem, SharedPracticeRequest, SharedPracticeFilters, SharedKmiPrefsFacadeCompanion, SharedKmiPrefsFacade, SharedKmiPrefsFactory, SharedKmiPrefs, SharedSharedSettings, SharedSharedSettingsFactoryProvider, SharedProgressFacade, SharedProgressFacadeBeltProgressRow, SharedProgressStoreCompanion, SharedProgressStore, SharedBeltRef, SharedQuestionItem, SharedTopicBucket, SharedSubTopicRef, SharedSubTopicBucket, SharedTopicRef, SharedSharedRegistryQuestionsSource, SharedExerciseTitleFormatter, SharedSearchKeyParser, SharedDailyExerciseItem, SharedBeltProgress, SharedProgressCalc, SharedProgressCalcCounts, SharedProgressReport, SharedKmiSearch, SharedSearchHit, SharedKmiTtsManager, SharedPlatformContext, SharedPlatformCache, SharedPlatformFile_, SharedKotlinByteArray, SharedPlatformClock, SharedPlatformCoroutines, SharedPlatformEnv, SharedPlatformFormat, SharedPlatformHttp, SharedPlatformJson, SharedPlatformPrefs, SharedLogBridge, SharedKotlinThrowable, SharedKotlinx_datetimeInstantCompanion, SharedKotlinException, SharedKotlinRuntimeException, SharedKotlinIllegalStateException, SharedKotlinByteIterator, SharedKotlinx_serialization_coreSerializersModule, SharedKotlinx_serialization_coreSerialKind, SharedKotlinNothing;
+@class SharedExplanations, SharedBelt, SharedKmiSettingsFactory, SharedPlatform, SharedPlatformFile, SharedBeltDto, SharedExerciseContentDto, SharedExerciseDto, SharedInMemoryCatalog, SharedSubTopicDto, SharedTopicDto, SharedKmiCatalogFacade, SharedKotlinEnumCompanion, SharedKotlinEnum<E>, SharedBeltCompanion, SharedKotlinArray<T>, SharedCoachRegistry, SharedContentRepo, SharedContentRepoSubTopic, SharedContentRepoResolvedItem, SharedContentRepoSearchHit, SharedContentRepoBeltContent, SharedContentRepoTopic, SharedSubTopicRegistry, SharedSubjectTopic, SharedTopicsEngine, SharedTopicsEngineTopicDetails, SharedUserRoleCompanion, SharedUserRole, SharedCatalogData, SharedCatalogDataBeltContent, SharedCatalogDataTopic, SharedCatalogDataSubTopic, SharedCatalogRepo, SharedCanonical, SharedCanonicalParsedItem, SharedHardSectionsCatalog, SharedKotlinPair<__covariant A, __covariant B>, SharedHardSectionsCatalogSection, SharedHardSectionsCatalogBeltGroup, SharedHardSectionsResolver, SharedHardSectionsResolverBeltItems, SharedHardSectionsResolverNodeResultBeltGroups, SharedHardSectionsResolverSectionEntry, SharedHardSectionsResolverNodeResultSections, SharedSubjectItemsResolver, SharedSubjectItemsResolverUiSection, SharedSubjectItemsResolverUiItem, SharedAttackType, SharedDefenseKind, SharedExamFacade, SharedKotlinx_datetimeInstant, SharedForumMessage, SharedFreeSessionsPaths, SharedFreeSession, SharedParticipantState, SharedFreeSessionPart, SharedParticipantStateCompanion, SharedKmiBelt, SharedKmiTopic, SharedKmiBeltContent, SharedKmiSubTopic, SharedPracticeFacade, SharedPracticeItem, SharedPracticeRequest, SharedPracticeFilters, SharedKmiPrefsFacadeCompanion, SharedKmiPrefsFacade, SharedKmiPrefsFactory, SharedKmiPrefs, SharedSharedSettings, SharedSharedSettingsFactoryProvider, SharedProgressFacade, SharedProgressFacadeBeltProgressRow, SharedProgressStoreCompanion, SharedProgressStore, SharedBeltRef, SharedQuestionItem, SharedTopicBucket, SharedSubTopicRef, SharedSubTopicBucket, SharedTopicRef, SharedSharedRegistryQuestionsSource, SharedExerciseTitleFormatter, SharedSearchKeyParser, SharedDailyExerciseItem, SharedBeltProgress, SharedProgressCalc, SharedProgressCalcCounts, SharedProgressReport, SharedKmiSearch, SharedSearchHit, SharedKmiTtsManager, SharedPlatformContext, SharedPlatformCache, SharedPlatformFile_, SharedKotlinByteArray, SharedPlatformClock, SharedPlatformCoroutines, SharedPlatformEnv, SharedPlatformFormat, SharedPlatformHttp, SharedPlatformJson, SharedPlatformPrefs, SharedLogBridge, SharedKotlinThrowable, SharedKotlinx_datetimeInstantCompanion, SharedKotlinException, SharedKotlinRuntimeException, SharedKotlinIllegalStateException, SharedKotlinByteIterator, SharedKotlinx_serialization_coreSerializersModule, SharedKotlinx_serialization_coreSerialKind, SharedKotlinNothing;
 
-@protocol SharedKotlinComparable, SharedMultiplatform_settingsSettings, SharedHardSectionsResolverNodeResult, SharedExamFacadeTopicTitlesProvider, SharedExamFacadeItemsProvider, SharedKotlinx_coroutines_coreFlow, SharedLanguageStore, SharedPracticeFacadeTopicTitlesProvider, SharedPracticeFacadeItemsProvider, SharedPracticeFacadeSetProvider, SharedPracticeFacadeExcludedProvider, SharedMultiplatform_settingsSettingsFactory, SharedUserPrefsRepository, SharedProgressFacadeExcludedProvider, SharedProgressFacadeStatusProvider, SharedQuestionsContentSource, SharedKotlinSuspendFunction0, SharedFreeSessionsRepository, SharedKotlinIterator, SharedKotlinx_coroutines_coreFlowCollector, SharedKotlinFunction, SharedKotlinx_datetimeDateTimeFormat, SharedKotlinx_serialization_coreKSerializer, SharedKotlinAppendable, SharedKotlinx_serialization_coreEncoder, SharedKotlinx_serialization_coreSerialDescriptor, SharedKotlinx_serialization_coreSerializationStrategy, SharedKotlinx_serialization_coreDecoder, SharedKotlinx_serialization_coreDeserializationStrategy, SharedKotlinx_serialization_coreCompositeEncoder, SharedKotlinAnnotation, SharedKotlinx_serialization_coreCompositeDecoder, SharedKotlinx_serialization_coreSerializersModuleCollector, SharedKotlinKClass, SharedKotlinKDeclarationContainer, SharedKotlinKAnnotatedElement, SharedKotlinKClassifier;
+@protocol SharedMultiplatform_settingsSettings, SharedKotlinComparable, SharedHardSectionsResolverNodeResult, SharedExamFacadeTopicTitlesProvider, SharedExamFacadeItemsProvider, SharedPracticeFacadeTopicTitlesProvider, SharedPracticeFacadeItemsProvider, SharedPracticeFacadeSetProvider, SharedPracticeFacadeExcludedProvider, SharedMultiplatform_settingsSettingsFactory, SharedUserPrefsRepository, SharedProgressFacadeExcludedProvider, SharedProgressFacadeStatusProvider, SharedQuestionsContentSource, SharedKotlinSuspendFunction0, SharedKotlinIterator, SharedKotlinFunction, SharedKotlinx_datetimeDateTimeFormat, SharedKotlinx_serialization_coreKSerializer, SharedKotlinAppendable, SharedKotlinx_serialization_coreEncoder, SharedKotlinx_serialization_coreSerialDescriptor, SharedKotlinx_serialization_coreSerializationStrategy, SharedKotlinx_serialization_coreDecoder, SharedKotlinx_serialization_coreDeserializationStrategy, SharedKotlinx_serialization_coreCompositeEncoder, SharedKotlinAnnotation, SharedKotlinx_serialization_coreCompositeDecoder, SharedKotlinx_serialization_coreSerializersModuleCollector, SharedKotlinKClass, SharedKotlinKDeclarationContainer, SharedKotlinKAnnotatedElement, SharedKotlinKClassifier;
 
 NS_ASSUME_NONNULL_BEGIN
 #pragma clang diagnostic push
@@ -145,44 +145,13 @@ __attribute__((swift_name("KotlinBoolean")))
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("AppStrings")))
-@interface SharedAppStrings : SharedBase
+__attribute__((swift_name("Explanations")))
+@interface SharedExplanations : SharedBase
 + (instancetype)alloc __attribute__((unavailable));
 + (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-+ (instancetype)appStrings __attribute__((swift_name("init()")));
-@property (class, readonly, getter=shared) SharedAppStrings *shared __attribute__((swift_name("shared")));
-- (NSString *)tKey:(NSString *)key __attribute__((swift_name("t(key:)")));
-@property SharedAppStringsLang *currentLang __attribute__((swift_name("currentLang")));
-@end
-
-__attribute__((swift_name("KotlinComparable")))
-@protocol SharedKotlinComparable
-@required
-- (int32_t)compareToOther:(id _Nullable)other __attribute__((swift_name("compareTo(other:)")));
-@end
-
-__attribute__((swift_name("KotlinEnum")))
-@interface SharedKotlinEnum<E> : SharedBase <SharedKotlinComparable>
-- (instancetype)initWithName:(NSString *)name ordinal:(int32_t)ordinal __attribute__((swift_name("init(name:ordinal:)"))) __attribute__((objc_designated_initializer));
-@property (class, readonly, getter=companion) SharedKotlinEnumCompanion *companion __attribute__((swift_name("companion")));
-- (int32_t)compareToOther:(E)other __attribute__((swift_name("compareTo(other:)")));
-- (BOOL)isEqual:(id _Nullable)other __attribute__((swift_name("isEqual(_:)")));
-- (NSUInteger)hash __attribute__((swift_name("hash()")));
-- (NSString *)description __attribute__((swift_name("description()")));
-@property (readonly) NSString *name __attribute__((swift_name("name")));
-@property (readonly) int32_t ordinal __attribute__((swift_name("ordinal")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("AppStrings.Lang")))
-@interface SharedAppStringsLang : SharedKotlinEnum<SharedAppStringsLang *>
-+ (instancetype)alloc __attribute__((unavailable));
-+ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-- (instancetype)initWithName:(NSString *)name ordinal:(int32_t)ordinal __attribute__((swift_name("init(name:ordinal:)"))) __attribute__((objc_designated_initializer)) __attribute__((unavailable));
-@property (class, readonly) SharedAppStringsLang *he __attribute__((swift_name("he")));
-@property (class, readonly) SharedAppStringsLang *en __attribute__((swift_name("en")));
-+ (SharedKotlinArray<SharedAppStringsLang *> *)values __attribute__((swift_name("values()")));
-@property (class, readonly) NSArray<SharedAppStringsLang *> *entries __attribute__((swift_name("entries")));
++ (instancetype)explanations __attribute__((swift_name("init()")));
+@property (class, readonly, getter=shared) SharedExplanations *shared __attribute__((swift_name("shared")));
+- (NSString *)getBelt:(SharedBelt *)belt item:(NSString *)item __attribute__((swift_name("get(belt:item:)")));
 @end
 
 __attribute__((objc_subclassing_restricted))
@@ -228,13 +197,9 @@ __attribute__((swift_name("Platform")))
 __attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("PlatformFile")))
 @interface SharedPlatformFile : SharedBase
-- (instancetype)initWithPath:(NSString *)path mimeType:(NSString *)mimeType __attribute__((swift_name("init(path:mimeType:)"))) __attribute__((objc_designated_initializer));
-- (SharedPlatformFile *)doCopyPath:(NSString *)path mimeType:(NSString *)mimeType __attribute__((swift_name("doCopy(path:mimeType:)")));
-- (BOOL)isEqual:(id _Nullable)other __attribute__((swift_name("isEqual(_:)")));
-- (NSUInteger)hash __attribute__((swift_name("hash()")));
-- (NSString *)description __attribute__((swift_name("description()")));
-@property (readonly) NSString *mimeType __attribute__((swift_name("mimeType")));
-@property (readonly) NSString *path __attribute__((swift_name("path")));
+- (instancetype)initWithPath:(NSString *)path __attribute__((swift_name("init(path:)"))) __attribute__((objc_designated_initializer));
+@property (readonly) NSString *absolutePath __attribute__((swift_name("absolutePath")));
+@property (readonly) int64_t sizeBytes __attribute__((swift_name("sizeBytes")));
 @end
 
 __attribute__((objc_subclassing_restricted))
@@ -339,6 +304,24 @@ __attribute__((swift_name("TopicDto")))
 @property (readonly) NSString *title __attribute__((swift_name("title")));
 @end
 
+__attribute__((swift_name("KotlinComparable")))
+@protocol SharedKotlinComparable
+@required
+- (int32_t)compareToOther:(id _Nullable)other __attribute__((swift_name("compareTo(other:)")));
+@end
+
+__attribute__((swift_name("KotlinEnum")))
+@interface SharedKotlinEnum<E> : SharedBase <SharedKotlinComparable>
+- (instancetype)initWithName:(NSString *)name ordinal:(int32_t)ordinal __attribute__((swift_name("init(name:ordinal:)"))) __attribute__((objc_designated_initializer));
+@property (class, readonly, getter=companion) SharedKotlinEnumCompanion *companion __attribute__((swift_name("companion")));
+- (int32_t)compareToOther:(E)other __attribute__((swift_name("compareTo(other:)")));
+- (BOOL)isEqual:(id _Nullable)other __attribute__((swift_name("isEqual(_:)")));
+- (NSUInteger)hash __attribute__((swift_name("hash()")));
+- (NSString *)description __attribute__((swift_name("description()")));
+@property (readonly) NSString *name __attribute__((swift_name("name")));
+@property (readonly) int32_t ordinal __attribute__((swift_name("ordinal")));
+@end
+
 __attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("Belt")))
 @interface SharedBelt : SharedKotlinEnum<SharedBelt *>
@@ -356,7 +339,6 @@ __attribute__((swift_name("Belt")))
 + (SharedKotlinArray<SharedBelt *> *)values __attribute__((swift_name("values()")));
 @property (class, readonly) NSArray<SharedBelt *> *entries __attribute__((swift_name("entries")));
 @property (readonly) int64_t colorArgb __attribute__((swift_name("colorArgb")));
-@property (readonly) NSString *en __attribute__((swift_name("en")));
 @property (readonly) NSString *heb __attribute__((swift_name("heb")));
 @property (readonly) NSString *id __attribute__((swift_name("id")));
 @property (readonly) int64_t lightColorArgb __attribute__((swift_name("lightColorArgb")));
@@ -478,37 +460,6 @@ __attribute__((swift_name("ContentRepo.Topic")))
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Explanations")))
-@interface SharedExplanations : SharedBase
-+ (instancetype)alloc __attribute__((unavailable));
-+ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-+ (instancetype)explanations __attribute__((swift_name("init()")));
-@property (class, readonly, getter=shared) SharedExplanations *shared __attribute__((swift_name("shared")));
-- (NSArray<SharedExplanationsExplanationAuditRow *> *)auditKnownExerciseExplanations __attribute__((swift_name("auditKnownExerciseExplanations()")));
-- (NSArray<NSArray<SharedExplanationsExplanationAuditRow *> *> *)duplicateKnownExplanationGroups __attribute__((swift_name("duplicateKnownExplanationGroups()")));
-- (NSString *)getBelt:(SharedBelt *)belt item:(NSString *)item __attribute__((swift_name("get(belt:item:)")));
-- (NSString *)getBelt:(SharedBelt *)belt item:(NSString *)item exerciseId:(NSString * _Nullable)exerciseId __attribute__((swift_name("get(belt:item:exerciseId:)")));
-- (NSString *)getByExerciseIdExerciseId:(NSString *)exerciseId fallbackBelt:(SharedBelt *)fallbackBelt fallbackItem:(NSString *)fallbackItem __attribute__((swift_name("getByExerciseId(exerciseId:fallbackBelt:fallbackItem:)")));
-- (void)logKnownExerciseExplanationsAuditTag:(NSString *)tag maxRows:(int32_t)maxRows __attribute__((swift_name("logKnownExerciseExplanationsAudit(tag:maxRows:)")));
-- (NSArray<SharedExplanationsExplanationAuditRow *> *)missingKnownExerciseExplanations __attribute__((swift_name("missingKnownExerciseExplanations()")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Explanations.ExplanationAuditRow")))
-@interface SharedExplanationsExplanationAuditRow : SharedBase
-- (instancetype)initWithExerciseId:(NSString *)exerciseId belt:(SharedBelt *)belt title:(NSString *)title hasExplanation:(BOOL)hasExplanation explanationPreview:(NSString *)explanationPreview __attribute__((swift_name("init(exerciseId:belt:title:hasExplanation:explanationPreview:)"))) __attribute__((objc_designated_initializer));
-- (SharedExplanationsExplanationAuditRow *)doCopyExerciseId:(NSString *)exerciseId belt:(SharedBelt *)belt title:(NSString *)title hasExplanation:(BOOL)hasExplanation explanationPreview:(NSString *)explanationPreview __attribute__((swift_name("doCopy(exerciseId:belt:title:hasExplanation:explanationPreview:)")));
-- (BOOL)isEqual:(id _Nullable)other __attribute__((swift_name("isEqual(_:)")));
-- (NSUInteger)hash __attribute__((swift_name("hash()")));
-- (NSString *)description __attribute__((swift_name("description()")));
-@property (readonly) SharedBelt *belt __attribute__((swift_name("belt")));
-@property (readonly) NSString *exerciseId __attribute__((swift_name("exerciseId")));
-@property (readonly) NSString *explanationPreview __attribute__((swift_name("explanationPreview")));
-@property (readonly) BOOL hasExplanation __attribute__((swift_name("hasExplanation")));
-@property (readonly) NSString *title __attribute__((swift_name("title")));
-@end
-
-__attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("SubTopicRegistry")))
 @interface SharedSubTopicRegistry : SharedBase
 + (instancetype)alloc __attribute__((unavailable));
@@ -587,53 +538,64 @@ __attribute__((swift_name("UserRole.Companion")))
 @end
 
 __attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("CatalogData")))
+@interface SharedCatalogData : SharedBase
++ (instancetype)alloc __attribute__((unavailable));
++ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
++ (instancetype)catalogData __attribute__((swift_name("init()")));
+@property (class, readonly, getter=shared) SharedCatalogData *shared __attribute__((swift_name("shared")));
+@property (readonly) NSDictionary<SharedBelt *, SharedCatalogDataBeltContent *> *data __attribute__((swift_name("data")));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("CatalogData.BeltContent")))
+@interface SharedCatalogDataBeltContent : SharedBase
+- (instancetype)initWithBelt:(SharedBelt *)belt topics:(NSArray<SharedCatalogDataTopic *> *)topics __attribute__((swift_name("init(belt:topics:)"))) __attribute__((objc_designated_initializer));
+- (SharedCatalogDataBeltContent *)doCopyBelt:(SharedBelt *)belt topics:(NSArray<SharedCatalogDataTopic *> *)topics __attribute__((swift_name("doCopy(belt:topics:)")));
+- (BOOL)isEqual:(id _Nullable)other __attribute__((swift_name("isEqual(_:)")));
+- (NSUInteger)hash __attribute__((swift_name("hash()")));
+- (NSString *)description __attribute__((swift_name("description()")));
+@property (readonly) SharedBelt *belt __attribute__((swift_name("belt")));
+@property (readonly) NSArray<SharedCatalogDataTopic *> *topics __attribute__((swift_name("topics")));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("CatalogData.SubTopic")))
+@interface SharedCatalogDataSubTopic : SharedBase
+- (instancetype)initWithTitle:(NSString *)title items:(NSArray<NSString *> *)items __attribute__((swift_name("init(title:items:)"))) __attribute__((objc_designated_initializer));
+- (SharedCatalogDataSubTopic *)doCopyTitle:(NSString *)title items:(NSArray<NSString *> *)items __attribute__((swift_name("doCopy(title:items:)")));
+- (BOOL)isEqual:(id _Nullable)other __attribute__((swift_name("isEqual(_:)")));
+- (NSUInteger)hash __attribute__((swift_name("hash()")));
+- (NSString *)description __attribute__((swift_name("description()")));
+@property (readonly) NSArray<NSString *> *items __attribute__((swift_name("items")));
+@property (readonly) NSString *title __attribute__((swift_name("title")));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("CatalogData.Topic")))
+@interface SharedCatalogDataTopic : SharedBase
+- (instancetype)initWithTitle:(NSString *)title items:(NSArray<NSString *> *)items subTopics:(NSArray<SharedCatalogDataSubTopic *> *)subTopics __attribute__((swift_name("init(title:items:subTopics:)"))) __attribute__((objc_designated_initializer));
+- (SharedCatalogDataTopic *)doCopyTitle:(NSString *)title items:(NSArray<NSString *> *)items subTopics:(NSArray<SharedCatalogDataSubTopic *> *)subTopics __attribute__((swift_name("doCopy(title:items:subTopics:)")));
+- (BOOL)isEqual:(id _Nullable)other __attribute__((swift_name("isEqual(_:)")));
+- (NSUInteger)hash __attribute__((swift_name("hash()")));
+- (NSString *)description __attribute__((swift_name("description()")));
+@property (readonly) NSArray<NSString *> *items __attribute__((swift_name("items")));
+@property (readonly) NSArray<SharedCatalogDataSubTopic *> *subTopics __attribute__((swift_name("subTopics")));
+@property (readonly) NSString *title __attribute__((swift_name("title")));
+@end
+
+__attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("CatalogRepo")))
 @interface SharedCatalogRepo : SharedBase
 + (instancetype)alloc __attribute__((unavailable));
 + (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
 + (instancetype)catalogRepo __attribute__((swift_name("init()")));
 @property (class, readonly, getter=shared) SharedCatalogRepo *shared __attribute__((swift_name("shared")));
-- (SharedCatalogTopic * _Nullable)findTopicBelt:(SharedBelt *)belt topicTitle:(NSString *)topicTitle __attribute__((swift_name("findTopic(belt:topicTitle:)")));
+- (SharedCatalogDataTopic * _Nullable)findTopicBelt:(SharedBelt *)belt topicTitle:(NSString *)topicTitle __attribute__((swift_name("findTopic(belt:topicTitle:)")));
 - (BOOL)hasTopicBelt:(SharedBelt *)belt topicTitle:(NSString *)topicTitle __attribute__((swift_name("hasTopic(belt:topicTitle:)")));
 - (NSArray<NSString *> *)listItemsBelt:(SharedBelt *)belt topicTitle:(NSString *)topicTitle subTopicTitle:(NSString * _Nullable)subTopicTitle __attribute__((swift_name("listItems(belt:topicTitle:subTopicTitle:)")));
 - (NSArray<NSString *> *)listSubTopicTitlesBelt:(SharedBelt *)belt topicTitle:(NSString *)topicTitle __attribute__((swift_name("listSubTopicTitles(belt:topicTitle:)")));
 - (NSArray<NSString *> *)listTopicTitlesBelt:(SharedBelt *)belt __attribute__((swift_name("listTopicTitles(belt:)")));
-- (void)warmUp __attribute__((swift_name("warmUp()")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("CatalogRepoBuilder")))
-@interface SharedCatalogRepoBuilder : SharedBase
-+ (instancetype)alloc __attribute__((unavailable));
-+ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-+ (instancetype)catalogRepoBuilder __attribute__((swift_name("init()")));
-@property (class, readonly, getter=shared) SharedCatalogRepoBuilder *shared __attribute__((swift_name("shared")));
-- (NSArray<SharedCatalogTopic *> *)buildTopicsForBeltBelt:(SharedBelt *)belt __attribute__((swift_name("buildTopicsForBelt(belt:)")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("CatalogSubTopic")))
-@interface SharedCatalogSubTopic : SharedBase
-- (instancetype)initWithTitle:(NSString *)title items:(NSArray<NSString *> *)items __attribute__((swift_name("init(title:items:)"))) __attribute__((objc_designated_initializer));
-- (SharedCatalogSubTopic *)doCopyTitle:(NSString *)title items:(NSArray<NSString *> *)items __attribute__((swift_name("doCopy(title:items:)")));
-- (BOOL)isEqual:(id _Nullable)other __attribute__((swift_name("isEqual(_:)")));
-- (NSUInteger)hash __attribute__((swift_name("hash()")));
-- (NSString *)description __attribute__((swift_name("description()")));
-@property (readonly) NSArray<NSString *> *items __attribute__((swift_name("items")));
-@property (readonly) NSString *title __attribute__((swift_name("title")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("CatalogTopic")))
-@interface SharedCatalogTopic : SharedBase
-- (instancetype)initWithTitle:(NSString *)title items:(NSArray<NSString *> *)items subTopics:(NSArray<SharedCatalogSubTopic *> *)subTopics __attribute__((swift_name("init(title:items:subTopics:)"))) __attribute__((objc_designated_initializer));
-- (SharedCatalogTopic *)doCopyTitle:(NSString *)title items:(NSArray<NSString *> *)items subTopics:(NSArray<SharedCatalogSubTopic *> *)subTopics __attribute__((swift_name("doCopy(title:items:subTopics:)")));
-- (BOOL)isEqual:(id _Nullable)other __attribute__((swift_name("isEqual(_:)")));
-- (NSUInteger)hash __attribute__((swift_name("hash()")));
-- (NSString *)description __attribute__((swift_name("description()")));
-@property (readonly) NSArray<NSString *> *items __attribute__((swift_name("items")));
-@property (readonly) NSArray<SharedCatalogSubTopic *> *subTopics __attribute__((swift_name("subTopics")));
-@property (readonly) NSString *title __attribute__((swift_name("title")));
 @end
 
 __attribute__((objc_subclassing_restricted))
@@ -662,142 +624,6 @@ __attribute__((swift_name("Canonical.ParsedItem")))
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("ExerciseExplanationsEn")))
-@interface SharedExerciseExplanationsEn : SharedBase
-+ (instancetype)alloc __attribute__((unavailable));
-+ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-+ (instancetype)exerciseExplanationsEn __attribute__((swift_name("init()")));
-@property (class, readonly, getter=shared) SharedExerciseExplanationsEn *shared __attribute__((swift_name("shared")));
-- (NSString *)getBelt:(SharedBelt *)belt item:(NSString *)item __attribute__((swift_name("get(belt:item:)")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("ExerciseTitlesEnAliases")))
-@interface SharedExerciseTitlesEnAliases : SharedBase
-+ (instancetype)alloc __attribute__((unavailable));
-+ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-+ (instancetype)exerciseTitlesEnAliases __attribute__((swift_name("init()")));
-@property (class, readonly, getter=shared) SharedExerciseTitlesEnAliases *shared __attribute__((swift_name("shared")));
-@property (readonly) NSDictionary<NSString *, NSString *> *map __attribute__((swift_name("map")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("ExerciseTitlesEnItems")))
-@interface SharedExerciseTitlesEnItems : SharedBase
-+ (instancetype)alloc __attribute__((unavailable));
-+ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-+ (instancetype)exerciseTitlesEnItems __attribute__((swift_name("init()")));
-@property (class, readonly, getter=shared) SharedExerciseTitlesEnItems *shared __attribute__((swift_name("shared")));
-@property (readonly) NSDictionary<NSString *, NSString *> *map __attribute__((swift_name("map")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("ExerciseTitlesEnTopics")))
-@interface SharedExerciseTitlesEnTopics : SharedBase
-+ (instancetype)alloc __attribute__((unavailable));
-+ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-+ (instancetype)exerciseTitlesEnTopics __attribute__((swift_name("init()")));
-@property (class, readonly, getter=shared) SharedExerciseTitlesEnTopics *shared __attribute__((swift_name("shared")));
-@property (readonly) NSDictionary<NSString *, NSString *> *map __attribute__((swift_name("map")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("ExerciseIdentityRegistry")))
-@interface SharedExerciseIdentityRegistry : SharedBase
-+ (instancetype)alloc __attribute__((unavailable));
-+ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-+ (instancetype)exerciseIdentityRegistry __attribute__((swift_name("init()")));
-@property (class, readonly, getter=shared) SharedExerciseIdentityRegistry *shared __attribute__((swift_name("shared")));
-- (NSArray<SharedExerciseIdentityRegistryExerciseIdentity *> *)allKnown __attribute__((swift_name("allKnown()")));
-- (NSSet<NSString *> *)allKnownIds __attribute__((swift_name("allKnownIds()")));
-- (SharedExerciseIdentityRegistryAuditReport *)auditAgainstContentRepo __attribute__((swift_name("auditAgainstContentRepo()")));
-- (NSString *)favoritePrefsKeyExerciseId:(NSString *)exerciseId __attribute__((swift_name("favoritePrefsKey(exerciseId:)")));
-- (NSString *)idForBelt:(SharedBelt *)belt hebrewTitle:(NSString *)hebrewTitle topicKey:(NSString * _Nullable)topicKey __attribute__((swift_name("idFor(belt:hebrewTitle:topicKey:)")));
-- (BOOL)isKnownIdId:(NSString *)id __attribute__((swift_name("isKnownId(id:)")));
-- (SharedExerciseIdentityRegistryExerciseIdentity * _Nullable)knownByIdId:(NSString *)id __attribute__((swift_name("knownById(id:)")));
-- (NSString *)normalizeRaw:(NSString *)raw __attribute__((swift_name("normalize(raw:)")));
-- (NSString *)notePrefsKeyExerciseId:(NSString *)exerciseId __attribute__((swift_name("notePrefsKey(exerciseId:)")));
-- (SharedExerciseIdentityRegistryResolvedExerciseIdentity *)resolveBelt:(SharedBelt *)belt hebrewTitle:(NSString *)hebrewTitle topicKey:(NSString * _Nullable)topicKey __attribute__((swift_name("resolve(belt:hebrewTitle:topicKey:)")));
-- (NSString *)statusPrefsKeyExerciseId:(NSString *)exerciseId __attribute__((swift_name("statusPrefsKey(exerciseId:)")));
-@property (readonly) NSArray<SharedExerciseIdentityRegistryExerciseIdentity *> *knownExercises __attribute__((swift_name("knownExercises")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("ExerciseIdentityRegistry.AuditReport")))
-@interface SharedExerciseIdentityRegistryAuditReport : SharedBase
-- (instancetype)initWithTotalRows:(int32_t)totalRows knownRows:(int32_t)knownRows legacyRows:(NSArray<SharedExerciseIdentityRegistryAuditRow *> *)legacyRows duplicateIds:(NSDictionary<NSString *, SharedInt *> *)duplicateIds knownIdsCount:(int32_t)knownIdsCount __attribute__((swift_name("init(totalRows:knownRows:legacyRows:duplicateIds:knownIdsCount:)"))) __attribute__((objc_designated_initializer));
-- (SharedExerciseIdentityRegistryAuditReport *)doCopyTotalRows:(int32_t)totalRows knownRows:(int32_t)knownRows legacyRows:(NSArray<SharedExerciseIdentityRegistryAuditRow *> *)legacyRows duplicateIds:(NSDictionary<NSString *, SharedInt *> *)duplicateIds knownIdsCount:(int32_t)knownIdsCount __attribute__((swift_name("doCopy(totalRows:knownRows:legacyRows:duplicateIds:knownIdsCount:)")));
-- (BOOL)isEqual:(id _Nullable)other __attribute__((swift_name("isEqual(_:)")));
-- (NSUInteger)hash __attribute__((swift_name("hash()")));
-- (NSArray<NSString *> *)toLogLinesLimit:(int32_t)limit __attribute__((swift_name("toLogLines(limit:)")));
-- (NSString *)description __attribute__((swift_name("description()")));
-@property (readonly) NSDictionary<NSString *, SharedInt *> *duplicateIds __attribute__((swift_name("duplicateIds")));
-@property (readonly) int32_t knownIdsCount __attribute__((swift_name("knownIdsCount")));
-@property (readonly) int32_t knownRows __attribute__((swift_name("knownRows")));
-@property (readonly) NSArray<SharedExerciseIdentityRegistryAuditRow *> *legacyRows __attribute__((swift_name("legacyRows")));
-@property (readonly) int32_t totalRows __attribute__((swift_name("totalRows")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("ExerciseIdentityRegistry.AuditRow")))
-@interface SharedExerciseIdentityRegistryAuditRow : SharedBase
-- (instancetype)initWithBelt:(SharedBelt *)belt topicTitle:(NSString *)topicTitle subTopicTitle:(NSString * _Nullable)subTopicTitle index:(int32_t)index rawTitle:(NSString *)rawTitle resolvedId:(NSString *)resolvedId isKnown:(BOOL)isKnown __attribute__((swift_name("init(belt:topicTitle:subTopicTitle:index:rawTitle:resolvedId:isKnown:)"))) __attribute__((objc_designated_initializer));
-- (SharedExerciseIdentityRegistryAuditRow *)doCopyBelt:(SharedBelt *)belt topicTitle:(NSString *)topicTitle subTopicTitle:(NSString * _Nullable)subTopicTitle index:(int32_t)index rawTitle:(NSString *)rawTitle resolvedId:(NSString *)resolvedId isKnown:(BOOL)isKnown __attribute__((swift_name("doCopy(belt:topicTitle:subTopicTitle:index:rawTitle:resolvedId:isKnown:)")));
-- (BOOL)isEqual:(id _Nullable)other __attribute__((swift_name("isEqual(_:)")));
-- (NSUInteger)hash __attribute__((swift_name("hash()")));
-- (NSString *)description __attribute__((swift_name("description()")));
-@property (readonly) SharedBelt *belt __attribute__((swift_name("belt")));
-@property (readonly) int32_t index __attribute__((swift_name("index")));
-@property (readonly) BOOL isKnown __attribute__((swift_name("isKnown")));
-@property (readonly) NSString *rawTitle __attribute__((swift_name("rawTitle")));
-@property (readonly) NSString *resolvedId __attribute__((swift_name("resolvedId")));
-@property (readonly) NSString * _Nullable subTopicTitle __attribute__((swift_name("subTopicTitle")));
-@property (readonly) NSString *topicTitle __attribute__((swift_name("topicTitle")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("ExerciseIdentityRegistry.ExerciseIdentity")))
-@interface SharedExerciseIdentityRegistryExerciseIdentity : SharedBase
-- (instancetype)initWithId:(NSString *)id belt:(SharedBelt *)belt hebrewTitle:(NSString *)hebrewTitle topicKeys:(NSSet<NSString *> *)topicKeys aliases:(NSSet<NSString *> *)aliases __attribute__((swift_name("init(id:belt:hebrewTitle:topicKeys:aliases:)"))) __attribute__((objc_designated_initializer));
-- (SharedExerciseIdentityRegistryExerciseIdentity *)doCopyId:(NSString *)id belt:(SharedBelt *)belt hebrewTitle:(NSString *)hebrewTitle topicKeys:(NSSet<NSString *> *)topicKeys aliases:(NSSet<NSString *> *)aliases __attribute__((swift_name("doCopy(id:belt:hebrewTitle:topicKeys:aliases:)")));
-- (BOOL)isEqual:(id _Nullable)other __attribute__((swift_name("isEqual(_:)")));
-- (NSUInteger)hash __attribute__((swift_name("hash()")));
-- (NSString *)description __attribute__((swift_name("description()")));
-@property (readonly) NSSet<NSString *> *aliases __attribute__((swift_name("aliases")));
-@property (readonly) SharedBelt *belt __attribute__((swift_name("belt")));
-@property (readonly) NSString *hebrewTitle __attribute__((swift_name("hebrewTitle")));
-@property (readonly) NSString *id __attribute__((swift_name("id")));
-@property (readonly) NSSet<NSString *> *topicKeys __attribute__((swift_name("topicKeys")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("ExerciseIdentityRegistry.ResolvedExerciseIdentity")))
-@interface SharedExerciseIdentityRegistryResolvedExerciseIdentity : SharedBase
-- (instancetype)initWithId:(NSString *)id isKnown:(BOOL)isKnown belt:(SharedBelt *)belt hebrewTitle:(NSString *)hebrewTitle topicKey:(NSString * _Nullable)topicKey __attribute__((swift_name("init(id:isKnown:belt:hebrewTitle:topicKey:)"))) __attribute__((objc_designated_initializer));
-- (SharedExerciseIdentityRegistryResolvedExerciseIdentity *)doCopyId:(NSString *)id isKnown:(BOOL)isKnown belt:(SharedBelt *)belt hebrewTitle:(NSString *)hebrewTitle topicKey:(NSString * _Nullable)topicKey __attribute__((swift_name("doCopy(id:isKnown:belt:hebrewTitle:topicKey:)")));
-- (BOOL)isEqual:(id _Nullable)other __attribute__((swift_name("isEqual(_:)")));
-- (NSUInteger)hash __attribute__((swift_name("hash()")));
-- (NSString *)description __attribute__((swift_name("description()")));
-@property (readonly) SharedBelt *belt __attribute__((swift_name("belt")));
-@property (readonly) NSString *hebrewTitle __attribute__((swift_name("hebrewTitle")));
-@property (readonly) NSString *id __attribute__((swift_name("id")));
-@property (readonly) BOOL isKnown __attribute__((swift_name("isKnown")));
-@property (readonly) NSString * _Nullable topicKey __attribute__((swift_name("topicKey")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("ExerciseTitlesEn")))
-@interface SharedExerciseTitlesEn : SharedBase
-+ (instancetype)alloc __attribute__((unavailable));
-+ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-+ (instancetype)exerciseTitlesEn __attribute__((swift_name("init()")));
-@property (class, readonly, getter=shared) SharedExerciseTitlesEn *shared __attribute__((swift_name("shared")));
-- (NSString *)displayNameText:(NSString *)text isEnglish:(BOOL)isEnglish __attribute__((swift_name("displayName(text:isEnglish:)")));
-- (NSString * _Nullable)getHebrew:(NSString *)hebrew __attribute__((swift_name("get(hebrew:)")));
-- (NSString *)getOrSameText:(NSString *)text __attribute__((swift_name("getOrSame(text:)")));
-@end
-
-__attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("HardSectionsCatalog")))
 @interface SharedHardSectionsCatalog : SharedBase
 + (instancetype)alloc __attribute__((unavailable));
@@ -809,7 +635,6 @@ __attribute__((swift_name("HardSectionsCatalog")))
 - (int32_t)defenseCountKindRaw:(NSString *)kindRaw pickRaw:(NSString *)pickRaw __attribute__((swift_name("defenseCount(kindRaw:pickRaw:)")));
 - (NSDictionary<NSString *, SharedInt *> *)defenseDialogCounts __attribute__((swift_name("defenseDialogCounts()")));
 - (NSArray<SharedKotlinPair<SharedBelt *, NSArray<NSString *> *> *> *)defenseItemsForKindRaw:(NSString *)kindRaw pickRaw:(NSString *)pickRaw __attribute__((swift_name("defenseItemsFor(kindRaw:pickRaw:)")));
-- (NSArray<SharedKotlinPair<SharedBelt *, NSArray<SharedKotlinPair<NSString *, NSString *> *> *> *> *)defenseItemsForDisplayKindRaw:(NSString *)kindRaw pickRaw:(NSString *)pickRaw isEnglish:(BOOL)isEnglish __attribute__((swift_name("defenseItemsForDisplay(kindRaw:pickRaw:isEnglish:)")));
 - (NSString *)defenseScreenTitleKindRaw:(NSString *)kindRaw pickRaw:(NSString *)pickRaw __attribute__((swift_name("defenseScreenTitle(kindRaw:pickRaw:)")));
 - (int32_t)directItemsCount:(SharedHardSectionsCatalogSection *)receiver __attribute__((swift_name("directItemsCount(_:)")));
 - (SharedHardSectionsCatalogSection * _Nullable)findAnySectionByIdSectionId:(NSString *)sectionId __attribute__((swift_name("findAnySectionById(sectionId:)")));
@@ -822,32 +647,23 @@ __attribute__((swift_name("HardSectionsCatalog")))
 - (NSArray<SharedHardSectionsCatalogSection *> * _Nullable)sectionsForSubjectSubjectId:(NSString *)subjectId __attribute__((swift_name("sectionsForSubject(subjectId:)")));
 - (NSString *)stripDefenseItemPrefixKindRaw:(NSString *)kindRaw pickRaw:(NSString *)pickRaw full:(NSString *)full __attribute__((swift_name("stripDefenseItemPrefix(kindRaw:pickRaw:full:)")));
 - (NSString * _Nullable)subjectDisplayTitleSubjectId:(NSString *)subjectId __attribute__((swift_name("subjectDisplayTitle(subjectId:)")));
-- (NSArray<NSString *> *)subjectItemsForSubjectId:(NSString *)subjectId belt:(SharedBelt *)belt __attribute__((swift_name("subjectItemsFor(subjectId:belt:)")));
-- (NSArray<SharedKotlinPair<NSString *, NSString *> *> *)subjectItemsForDisplaySubjectId:(NSString *)subjectId belt:(SharedBelt *)belt isEnglish:(BOOL)isEnglish __attribute__((swift_name("subjectItemsForDisplay(subjectId:belt:isEnglish:)")));
-- (NSArray<NSString *> *)subjectSubSectionItemsForSubjectId:(NSString *)subjectId subSectionId:(NSString *)subSectionId belt:(SharedBelt *)belt __attribute__((swift_name("subjectSubSectionItemsFor(subjectId:subSectionId:belt:)")));
-- (NSArray<SharedKotlinPair<NSString *, NSString *> *> *)subjectSubSectionItemsForDisplaySubjectId:(NSString *)subjectId subSectionId:(NSString *)subSectionId belt:(SharedBelt *)belt isEnglish:(BOOL)isEnglish __attribute__((swift_name("subjectSubSectionItemsForDisplay(subjectId:subSectionId:belt:isEnglish:)")));
-- (NSArray<SharedHardSectionsCatalogSection *> *)subjectSubSectionsForSubjectId:(NSString *)subjectId __attribute__((swift_name("subjectSubSectionsFor(subjectId:)")));
 - (BOOL)supportsSubjectSubjectId:(NSString *)subjectId __attribute__((swift_name("supportsSubject(subjectId:)")));
 - (int32_t)totalDefenseCount __attribute__((swift_name("totalDefenseCount()")));
 - (int32_t)totalItemsCount:(SharedHardSectionsCatalogSection *)receiver __attribute__((swift_name("totalItemsCount(_:)")));
 @property (readonly) NSArray<SharedBelt *> *beltOrder __attribute__((swift_name("beltOrder")));
+@property (readonly) NSArray<SharedHardSectionsCatalogSection *> *defensesExternalKick __attribute__((swift_name("defensesExternalKick")));
 @property (readonly) NSArray<SharedHardSectionsCatalogSection *> *defensesExternalPunch __attribute__((swift_name("defensesExternalPunch")));
 @property (readonly) NSArray<SharedHardSectionsCatalogSection *> *defensesGunThreat __attribute__((swift_name("defensesGunThreat")));
+@property (readonly) NSArray<SharedHardSectionsCatalogSection *> *defensesInternalKick __attribute__((swift_name("defensesInternalKick")));
 @property (readonly) NSArray<SharedHardSectionsCatalogSection *> *defensesInternalPunch __attribute__((swift_name("defensesInternalPunch")));
 @property (readonly) NSArray<SharedHardSectionsCatalogSection *> *defensesKicks __attribute__((swift_name("defensesKicks")));
 @property (readonly) NSArray<SharedHardSectionsCatalogSection *> *defensesKnife __attribute__((swift_name("defensesKnife")));
-@property (readonly) NSArray<SharedHardSectionsCatalogSection *> *defensesMultipleAttackers __attribute__((swift_name("defensesMultipleAttackers")));
-@property (readonly) NSArray<SharedHardSectionsCatalogSection *> *defensesRoot __attribute__((swift_name("defensesRoot")));
 @property (readonly) NSArray<SharedHardSectionsCatalogSection *> *defensesStick __attribute__((swift_name("defensesStick")));
 @property (readonly) NSArray<SharedHardSectionsCatalogSection *> *handsAll __attribute__((swift_name("handsAll")));
 @property (readonly) NSArray<SharedHardSectionsCatalogSection *> *releases __attribute__((swift_name("releases")));
 @property (readonly) NSSet<NSString *> *supportedSubjectIds __attribute__((swift_name("supportedSubjectIds")));
 @property (readonly) NSArray<SharedHardSectionsCatalogSection *> *topicBreakfallsRolls __attribute__((swift_name("topicBreakfallsRolls")));
-@property (readonly) NSArray<SharedHardSectionsCatalogSection *> *topicGeneral __attribute__((swift_name("topicGeneral")));
-@property (readonly) NSArray<SharedHardSectionsCatalogSection *> *topicGroundPrep __attribute__((swift_name("topicGroundPrep")));
-@property (readonly) NSArray<SharedHardSectionsCatalogSection *> *topicKavaler __attribute__((swift_name("topicKavaler")));
 @property (readonly) NSArray<SharedHardSectionsCatalogSection *> *topicKicks __attribute__((swift_name("topicKicks")));
-@property (readonly) NSArray<SharedHardSectionsCatalogSection *> *topicReadyStance __attribute__((swift_name("topicReadyStance")));
 @end
 
 __attribute__((objc_subclassing_restricted))
@@ -942,17 +758,6 @@ __attribute__((swift_name("HardSectionsResolver.SectionEntry")))
 @property (readonly) NSString *id __attribute__((swift_name("id")));
 @property (readonly) NSString *title __attribute__((swift_name("title")));
 @property (readonly) int32_t totalItemsCount __attribute__((swift_name("totalItemsCount")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("SharedExerciseExplanationResolver")))
-@interface SharedSharedExerciseExplanationResolver : SharedBase
-+ (instancetype)alloc __attribute__((unavailable));
-+ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-+ (instancetype)sharedExerciseExplanationResolver __attribute__((swift_name("init()")));
-@property (class, readonly, getter=shared) SharedSharedExerciseExplanationResolver *shared __attribute__((swift_name("shared")));
-- (NSString *)getBelt:(SharedBelt *)belt topic:(NSString *)topic item:(NSString *)item isEnglish:(BOOL)isEnglish __attribute__((swift_name("get(belt:topic:item:isEnglish:)")));
-- (NSString *)resolveIdBelt:(SharedBelt *)belt topic:(NSString *)topic item:(NSString *)item __attribute__((swift_name("resolveId(belt:topic:item:)")));
 @end
 
 __attribute__((objc_subclassing_restricted))
@@ -1072,37 +877,6 @@ __attribute__((swift_name("FreeSessionsPaths")))
 @property (readonly) NSString *ROOT_GROUPS __attribute__((swift_name("ROOT_GROUPS")));
 @end
 
-__attribute__((swift_name("FreeSessionsRepository")))
-@protocol SharedFreeSessionsRepository
-@required
-
-/**
- * @note This method converts instances of CancellationException to errors.
- * Other uncaught Kotlin exceptions are fatal.
-*/
-- (void)closeSessionBranch:(NSString *)branch groupKey:(NSString *)groupKey sessionId:(NSString *)sessionId completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("closeSession(branch:groupKey:sessionId:completionHandler:)")));
-
-/**
- * @note This method converts instances of CancellationException to errors.
- * Other uncaught Kotlin exceptions are fatal.
-*/
-- (void)createFreeSessionBranch:(NSString *)branch groupKey:(NSString *)groupKey title:(NSString *)title locationName:(NSString * _Nullable)locationName lat:(SharedDouble * _Nullable)lat lng:(SharedDouble * _Nullable)lng startsAt:(int64_t)startsAt createdByUid:(NSString *)createdByUid createdByName:(NSString *)createdByName completionHandler:(void (^)(NSString * _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("createFreeSession(branch:groupKey:title:locationName:lat:lng:startsAt:createdByUid:createdByName:completionHandler:)")));
-
-/**
- * @note This method converts instances of CancellationException to errors.
- * Other uncaught Kotlin exceptions are fatal.
-*/
-- (void)deleteFreeSessionBranch:(NSString *)branch groupKey:(NSString *)groupKey sessionId:(NSString *)sessionId completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("deleteFreeSession(branch:groupKey:sessionId:completionHandler:)")));
-- (id<SharedKotlinx_coroutines_coreFlow>)observeParticipantsBranch:(NSString *)branch groupKey:(NSString *)groupKey sessionId:(NSString *)sessionId __attribute__((swift_name("observeParticipants(branch:groupKey:sessionId:)")));
-- (id<SharedKotlinx_coroutines_coreFlow>)observeUpcomingBranch:(NSString *)branch groupKey:(NSString *)groupKey nowMillis:(int64_t)nowMillis __attribute__((swift_name("observeUpcoming(branch:groupKey:nowMillis:)")));
-
-/**
- * @note This method converts instances of CancellationException to errors.
- * Other uncaught Kotlin exceptions are fatal.
-*/
-- (void)setParticipantStateBranch:(NSString *)branch groupKey:(NSString *)groupKey sessionId:(NSString *)sessionId uid:(NSString *)uid name:(NSString *)name state:(SharedParticipantState *)state completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("setParticipantState(branch:groupKey:sessionId:uid:name:state:completionHandler:)")));
-@end
-
 __attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("FreeSession")))
 @interface SharedFreeSession : SharedBase
@@ -1168,86 +942,6 @@ __attribute__((swift_name("ParticipantState.Companion")))
 + (instancetype)companion __attribute__((swift_name("init()")));
 @property (class, readonly, getter=shared) SharedParticipantStateCompanion *shared __attribute__((swift_name("shared")));
 - (SharedParticipantState *)fromIdRaw:(NSString * _Nullable)raw __attribute__((swift_name("fromId(raw:)")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("AppLanguage")))
-@interface SharedAppLanguage : SharedKotlinEnum<SharedAppLanguage *>
-+ (instancetype)alloc __attribute__((unavailable));
-+ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-- (instancetype)initWithName:(NSString *)name ordinal:(int32_t)ordinal __attribute__((swift_name("init(name:ordinal:)"))) __attribute__((objc_designated_initializer)) __attribute__((unavailable));
-@property (class, readonly, getter=companion) SharedAppLanguageCompanion *companion __attribute__((swift_name("companion")));
-@property (class, readonly) SharedAppLanguage *hebrew __attribute__((swift_name("hebrew")));
-@property (class, readonly) SharedAppLanguage *english __attribute__((swift_name("english")));
-+ (SharedKotlinArray<SharedAppLanguage *> *)values __attribute__((swift_name("values()")));
-@property (class, readonly) NSArray<SharedAppLanguage *> *entries __attribute__((swift_name("entries")));
-@property (readonly) NSString *code __attribute__((swift_name("code")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("AppLanguage.Companion")))
-@interface SharedAppLanguageCompanion : SharedBase
-+ (instancetype)alloc __attribute__((unavailable));
-+ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-+ (instancetype)companion __attribute__((swift_name("init()")));
-@property (class, readonly, getter=shared) SharedAppLanguageCompanion *shared __attribute__((swift_name("shared")));
-- (SharedAppLanguage *)fromCodeCode:(NSString * _Nullable)code __attribute__((swift_name("fromCode(code:)")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("LanguageKeys")))
-@interface SharedLanguageKeys : SharedBase
-+ (instancetype)alloc __attribute__((unavailable));
-+ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-+ (instancetype)languageKeys __attribute__((swift_name("init()")));
-@property (class, readonly, getter=shared) SharedLanguageKeys *shared __attribute__((swift_name("shared")));
-@property (readonly) NSString *CANCEL __attribute__((swift_name("CANCEL")));
-@property (readonly) NSString *ENGLISH __attribute__((swift_name("ENGLISH")));
-@property (readonly) NSString *HEBREW __attribute__((swift_name("HEBREW")));
-@property (readonly) NSString *HOME __attribute__((swift_name("HOME")));
-@property (readonly) NSString *LANGUAGE __attribute__((swift_name("LANGUAGE")));
-@property (readonly) NSString *LOGIN __attribute__((swift_name("LOGIN")));
-@property (readonly) NSString *LOGOUT __attribute__((swift_name("LOGOUT")));
-@property (readonly) NSString *SAVE __attribute__((swift_name("SAVE")));
-@property (readonly) NSString *SEARCH __attribute__((swift_name("SEARCH")));
-@property (readonly) NSString *SEND_MESSAGE __attribute__((swift_name("SEND_MESSAGE")));
-@property (readonly) NSString *SETTINGS __attribute__((swift_name("SETTINGS")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("LanguageRepository")))
-@interface SharedLanguageRepository : SharedBase
-- (instancetype)initWithLanguageStore:(id<SharedLanguageStore>)languageStore __attribute__((swift_name("init(languageStore:)"))) __attribute__((objc_designated_initializer));
-- (SharedAppLanguage *)currentLanguage __attribute__((swift_name("currentLanguage()")));
-- (void)setLanguageLanguage:(SharedAppLanguage *)language __attribute__((swift_name("setLanguage(language:)")));
-- (NSString *)textKey:(NSString *)key __attribute__((swift_name("text(key:)")));
-@end
-
-__attribute__((swift_name("LanguageStore")))
-@protocol SharedLanguageStore
-@required
-- (SharedAppLanguage *)getLanguage __attribute__((swift_name("getLanguage()")));
-- (void)setLanguageLanguage:(SharedAppLanguage *)language __attribute__((swift_name("setLanguage(language:)")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("LanguageStrings")))
-@interface SharedLanguageStrings : SharedBase
-+ (instancetype)alloc __attribute__((unavailable));
-+ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-+ (instancetype)languageStrings __attribute__((swift_name("init()")));
-@property (class, readonly, getter=shared) SharedLanguageStrings *shared __attribute__((swift_name("shared")));
-- (NSString *)getLanguage:(SharedAppLanguage *)language key:(NSString *)key __attribute__((swift_name("get(language:key:)")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("LocalizationRuntime")))
-@interface SharedLocalizationRuntime : SharedBase
-+ (instancetype)alloc __attribute__((unavailable));
-+ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-+ (instancetype)localizationRuntime __attribute__((swift_name("init()")));
-@property (class, readonly, getter=shared) SharedLocalizationRuntime *shared __attribute__((swift_name("shared")));
-@property SharedAppLanguage *currentLanguage __attribute__((swift_name("currentLanguage")));
 @end
 
 __attribute__((objc_subclassing_restricted))
@@ -1899,7 +1593,7 @@ __attribute__((swift_name("PlatformEnv")))
 __attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("PlatformFile_")))
 @interface SharedPlatformFile_ : SharedBase
-- (instancetype)initWithPath:(NSString *)path __attribute__((swift_name("init(path:)"))) __attribute__((objc_designated_initializer));
+- (instancetype)initWithFilePath:(NSString *)filePath __attribute__((swift_name("init(filePath:)"))) __attribute__((objc_designated_initializer));
 @property (readonly) NSString *absolutePath __attribute__((swift_name("absolutePath")));
 @property (readonly) int64_t sizeBytes __attribute__((swift_name("sizeBytes")));
 @end
@@ -1961,13 +1655,6 @@ __attribute__((swift_name("LogBridge")))
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("FreeSessionsRepository_iosKt")))
-@interface SharedFreeSessionsRepository_iosKt : SharedBase
-+ (id<SharedFreeSessionsRepository>)freeSessionsRepository __attribute__((swift_name("freeSessionsRepository()")));
-+ (int64_t)systemNowMillis __attribute__((swift_name("systemNowMillis()")));
-@end
-
-__attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("GreetingKt")))
 @interface SharedGreetingKt : SharedBase
 + (NSString *)greet __attribute__((swift_name("greet()")));
@@ -1982,27 +1669,6 @@ __attribute__((swift_name("TextExtensionsKt")))
 + (NSString *)normHebOrEmpty:(NSString * _Nullable)receiver __attribute__((swift_name("normHebOrEmpty(_:)")));
 + (int32_t)searchScore:(NSString * _Nullable)receiver query:(NSString * _Nullable)query __attribute__((swift_name("searchScore(_:query:)")));
 + (NSArray<NSString *> *)toSearchKeywords:(NSString * _Nullable)receiver minLen:(int32_t)minLen __attribute__((swift_name("toSearchKeywords(_:minLen:)")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("KotlinEnumCompanion")))
-@interface SharedKotlinEnumCompanion : SharedBase
-+ (instancetype)alloc __attribute__((unavailable));
-+ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-+ (instancetype)companion __attribute__((swift_name("init()")));
-@property (class, readonly, getter=shared) SharedKotlinEnumCompanion *shared __attribute__((swift_name("shared")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("KotlinArray")))
-@interface SharedKotlinArray<T> : SharedBase
-+ (instancetype)arrayWithSize:(int32_t)size init:(T _Nullable (^)(SharedInt *))init __attribute__((swift_name("init(size:init:)")));
-+ (instancetype)alloc __attribute__((unavailable));
-+ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-- (T _Nullable)getIndex:(int32_t)index __attribute__((swift_name("get(index:)")));
-- (id<SharedKotlinIterator>)iterator __attribute__((swift_name("iterator()")));
-- (void)setIndex:(int32_t)index value:(T _Nullable)value __attribute__((swift_name("set(index:value:)")));
-@property (readonly) int32_t size __attribute__((swift_name("size")));
 @end
 
 __attribute__((swift_name("Multiplatform_settingsSettings")))
@@ -2030,6 +1696,27 @@ __attribute__((swift_name("Multiplatform_settingsSettings")))
 - (void)putStringKey:(NSString *)key value:(NSString *)value __attribute__((swift_name("putString(key:value:)")));
 - (void)removeKey:(NSString *)key __attribute__((swift_name("remove(key:)")));
 @property (readonly) NSSet<NSString *> *keys __attribute__((swift_name("keys")));
+@property (readonly) int32_t size __attribute__((swift_name("size")));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("KotlinEnumCompanion")))
+@interface SharedKotlinEnumCompanion : SharedBase
++ (instancetype)alloc __attribute__((unavailable));
++ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
++ (instancetype)companion __attribute__((swift_name("init()")));
+@property (class, readonly, getter=shared) SharedKotlinEnumCompanion *shared __attribute__((swift_name("shared")));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("KotlinArray")))
+@interface SharedKotlinArray<T> : SharedBase
++ (instancetype)arrayWithSize:(int32_t)size init:(T _Nullable (^)(SharedInt *))init __attribute__((swift_name("init(size:init:)")));
++ (instancetype)alloc __attribute__((unavailable));
++ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
+- (T _Nullable)getIndex:(int32_t)index __attribute__((swift_name("get(index:)")));
+- (id<SharedKotlinIterator>)iterator __attribute__((swift_name("iterator()")));
+- (void)setIndex:(int32_t)index value:(T _Nullable)value __attribute__((swift_name("set(index:value:)")));
 @property (readonly) int32_t size __attribute__((swift_name("size")));
 @end
 
@@ -2064,6 +1751,12 @@ __attribute__((swift_name("Kotlinx_datetimeInstant")))
 - (NSString *)description __attribute__((swift_name("description()")));
 @property (readonly) int64_t epochSeconds __attribute__((swift_name("epochSeconds")));
 @property (readonly) int32_t nanosecondsOfSecond __attribute__((swift_name("nanosecondsOfSecond")));
+@end
+
+__attribute__((swift_name("Multiplatform_settingsSettingsFactory")))
+@protocol SharedMultiplatform_settingsSettingsFactory
+@required
+- (id<SharedMultiplatform_settingsSettings>)createName:(NSString * _Nullable)name __attribute__((swift_name("create(name:)")));
 @end
 
 __attribute__((swift_name("KotlinThrowable")))
@@ -2127,23 +1820,6 @@ __attribute__((swift_name("KotlinCancellationException")))
 - (instancetype)initWithMessage:(NSString * _Nullable)message cause:(SharedKotlinThrowable * _Nullable)cause __attribute__((swift_name("init(message:cause:)"))) __attribute__((objc_designated_initializer));
 @end
 
-__attribute__((swift_name("Kotlinx_coroutines_coreFlow")))
-@protocol SharedKotlinx_coroutines_coreFlow
-@required
-
-/**
- * @note This method converts instances of CancellationException to errors.
- * Other uncaught Kotlin exceptions are fatal.
-*/
-- (void)collectCollector:(id<SharedKotlinx_coroutines_coreFlowCollector>)collector completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("collect(collector:completionHandler:)")));
-@end
-
-__attribute__((swift_name("Multiplatform_settingsSettingsFactory")))
-@protocol SharedMultiplatform_settingsSettingsFactory
-@required
-- (id<SharedMultiplatform_settingsSettings>)createName:(NSString * _Nullable)name __attribute__((swift_name("create(name:)")));
-@end
-
 __attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("KotlinByteArray")))
 @interface SharedKotlinByteArray : SharedBase
@@ -2195,17 +1871,6 @@ __attribute__((swift_name("Kotlinx_datetimeInstant.Companion")))
 - (id<SharedKotlinx_serialization_coreKSerializer>)serializer __attribute__((swift_name("serializer()")));
 @property (readonly) SharedKotlinx_datetimeInstant *DISTANT_FUTURE __attribute__((swift_name("DISTANT_FUTURE")));
 @property (readonly) SharedKotlinx_datetimeInstant *DISTANT_PAST __attribute__((swift_name("DISTANT_PAST")));
-@end
-
-__attribute__((swift_name("Kotlinx_coroutines_coreFlowCollector")))
-@protocol SharedKotlinx_coroutines_coreFlowCollector
-@required
-
-/**
- * @note This method converts instances of CancellationException to errors.
- * Other uncaught Kotlin exceptions are fatal.
-*/
-- (void)emitValue:(id _Nullable)value completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("emit(value:completionHandler:)")));
 @end
 
 __attribute__((swift_name("KotlinByteIterator")))

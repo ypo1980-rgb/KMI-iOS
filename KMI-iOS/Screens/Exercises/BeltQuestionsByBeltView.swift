@@ -200,14 +200,14 @@ struct BeltQuestionsByBeltView: View {
         let cleanTopicTitle = topicTitle
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let subTopics = ContentRepo.shared.getSubTopicsFor(
+        let engineDetails = TopicsEngine.shared.topicDetailsFor(
             belt: belt,
             topicTitle: cleanTopicTitle
         )
 
-        let cleanSubTitles = subTopics
+        let cleanSubTitles = engineDetails.subTitles
             .map {
-                $0.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             .filter {
                 !$0.isEmpty && $0 != cleanTopicTitle
@@ -218,12 +218,8 @@ struct BeltQuestionsByBeltView: View {
                 }
             }
 
-        let totalCount = subTopics.reduce(0) { total, subTopic in
-            total + subTopic.items.count
-        }
-
         return TopicDetailsUi(
-            itemCount: totalCount,
+            itemCount: Int(engineDetails.itemCount),
             subTitles: cleanSubTitles
         )
     }
@@ -236,13 +232,22 @@ struct BeltQuestionsByBeltView: View {
         let cleanTopicTitle = topicTitle
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        return ContentRepo.shared.getSubTopicsFor(
+        let topLevelSubTopics = ContentRepo.shared.getSubTopicsFor(
             belt: belt,
             topicTitle: cleanTopicTitle
         )
-        .reduce(0) { total, subTopic in
-            total + subTopic.items.count
+
+        var pendingSubTopics = Array(topLevelSubTopics)
+        var totalCount = 0
+
+        while !pendingSubTopics.isEmpty {
+            let current = pendingSubTopics.removeFirst()
+
+            totalCount += current.items.count
+            pendingSubTopics.append(contentsOf: current.subTopics)
         }
+
+        return totalCount
     }
     
     private func hasRealSubTopicsForUi(title: String, details: TopicDetailsUi) -> Bool {
@@ -720,7 +725,14 @@ struct BeltQuestionsByBeltView: View {
             lower.contains("ground") {
             return "topic_ground_fighting"
         }
-        
+
+        if clean.contains("מקל") ||
+            clean.contains("חבטה") ||
+            lower.contains("stick") ||
+            lower.contains("baton") {
+            return "topic_stick"
+        }
+
         if clean.contains("קוואלר") ||
             clean.contains("קאוולר") ||
             clean.contains("קאוול") ||
@@ -1322,23 +1334,29 @@ struct BeltQuestionsByBeltView: View {
         let cleanSubTopicTitle = subTopicTitle
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let subTopics = ContentRepo.shared.getSubTopicsFor(
+        let topLevelSubTopics = ContentRepo.shared.getSubTopicsFor(
             belt: belt,
             topicTitle: cleanTopicTitle
         )
 
-        if let matchingSubTopic = subTopics.first(where: {
+        guard let matchingSubTopic = topLevelSubTopics.first(where: {
             $0.title.trimmingCharacters(in: .whitespacesAndNewlines) ==
             cleanSubTopicTitle
-        }) {
-            return matchingSubTopic.items.count
+        }) else {
+            return 0
         }
 
-        return ContentRepo.shared.getAllItemsFor(
-            belt: belt,
-            topicTitle: cleanTopicTitle,
-            subTopicTitle: cleanSubTopicTitle
-        ).count
+        var pendingSubTopics = [matchingSubTopic]
+        var totalCount = 0
+
+        while !pendingSubTopics.isEmpty {
+            let current = pendingSubTopics.removeFirst()
+
+            totalCount += current.items.count
+            pendingSubTopics.append(contentsOf: current.subTopics)
+        }
+
+        return totalCount
     }
 
     @ViewBuilder
@@ -2554,4 +2572,3 @@ private struct PulsingLockBadge: View {
             }
     }
 }
- 

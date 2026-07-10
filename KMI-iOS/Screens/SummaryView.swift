@@ -7,6 +7,17 @@ import Shared
 enum SummaryMark: String {
     case done
     case notDone
+
+    static func fromStoredValue(_ value: String) -> SummaryMark? {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "done", "mastered":
+            return .done
+        case "notdone", "not_done", "unknown":
+            return .notDone
+        default:
+            return nil
+        }
+    }
 }
 
 struct SummaryRowItem: Identifiable {
@@ -127,6 +138,12 @@ struct SummaryView: View {
             : "\(cleanTopic)__\(cleanSubTopic)"
 
         let directStringKeys = [
+            "mark.status_\(beltId)_\(topicTitle)_\(index)_\(item)",
+            "mark.status_\(beltId)_\(topicTitle)_\(index)_\(cleanItem)",
+
+            "mark.status_\(beltId)_\(topicKey)_\(index)_\(item)",
+            "mark.status_\(beltId)_\(topicKey)_\(index)_\(cleanItem)",
+
             "kmi.mark.\(beltId).\(topicTitle).\(item)",
             "kmi.mark.\(beltId).\(cleanTopic).\(cleanItem)",
             "kmi.mark.\(beltId).\(topicKey).\(cleanItem)"
@@ -134,7 +151,7 @@ struct SummaryView: View {
 
         for key in directStringKeys {
             if let raw = defaults.string(forKey: key),
-               let mark = SummaryMark(rawValue: raw) {
+               let mark = SummaryMark.fromStoredValue(raw) {
                 return mark
             }
         }
@@ -170,7 +187,7 @@ struct SummaryView: View {
             }
 
             if let raw = entry.value as? String,
-               let mark = SummaryMark(rawValue: raw) {
+               let mark = SummaryMark.fromStoredValue(raw) {
                 return mark
             }
 
@@ -194,13 +211,36 @@ struct SummaryView: View {
             .map { title in
                 let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
 
-                return SummaryRawTopic(
-                    title: cleanTitle,
-                    items: ContentRepo.shared.getAllItemsFor(
+                var allItems: [String] = []
+
+                allItems.append(
+                    contentsOf: ContentRepo.shared.getAllItemsFor(
                         belt: belt,
                         topicTitle: cleanTitle,
                         subTopicTitle: nil
                     )
+                )
+
+                let subTopicTitles = ContentRepo.shared.getSubTopicsFor(
+                    belt: belt,
+                    topicTitle: cleanTitle
+                )
+                .map { $0.title.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+
+                for subTopicTitle in subTopicTitles {
+                    allItems.append(
+                        contentsOf: ContentRepo.shared.getAllItemsFor(
+                            belt: belt,
+                            topicTitle: cleanTitle,
+                            subTopicTitle: subTopicTitle
+                        )
+                    )
+                }
+
+                return SummaryRawTopic(
+                    title: cleanTitle,
+                    items: allItems
                 )
             }
     }

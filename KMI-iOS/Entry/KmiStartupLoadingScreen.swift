@@ -102,7 +102,7 @@ struct KmiStartupLoadingScreen: View {
     private func finishOnce() {
         guard !finishAlreadySent else { return }
         finishAlreadySent = true
-        finishOnce()
+        onFinished()
     }
 
     private var backgroundView: some View {

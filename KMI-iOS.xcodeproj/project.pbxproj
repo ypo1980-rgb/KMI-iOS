@@ -174,7 +174,7 @@
 		7E89F28E2F6328D300DC6F40 /* Run Script */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
+			buildActionMask = 12;
 			files = (
 			);
 			inputFileListPaths = (
@@ -189,6 +189,7 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "cd \"/Users/yuval/KMI-clean\" || exit 1\n\nexport CONFIGURATION=\"$CONFIGURATION\"\nexport SDK_NAME=\"$SDK_NAME\"\nexport ARCHS=\"$ARCHS\"\n\n./gradlew :shared:embedAndSignAppleFrameworkForXcode\n";
+			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
 

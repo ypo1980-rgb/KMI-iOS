@@ -967,10 +967,31 @@ struct KmiRootLayout<Content: View>: View {
             return
         }
 
-        // ✅ SHARE -> open share sheet with screenshot
+        // ✅ SHARE:
+        // קודם מאפשרים למסך הפעיל לבצע שיתוף ייעודי, למשל PDF.
+        // אם אף מסך לא טיפל בבקשה — ממשיכים לשיתוף הרגיל.
         if item == .share {
-            let shareTitle = KmiGlobalText.screenTitle(title, isEnglish: isEnglish)
-            shareItems = GlobalShareService.shareItemsForCurrentScreen(extraText: shareTitle)
+            let shareRequest = NSMutableDictionary()
+            shareRequest["handled"] = false
+
+            NotificationCenter.default.post(
+                name: Notification.Name("KMI_GLOBAL_SHARE_REQUEST"),
+                object: shareRequest
+            )
+
+            if shareRequest["handled"] as? Bool == true {
+                return
+            }
+
+            let shareTitle = KmiGlobalText.screenTitle(
+                title,
+                isEnglish: isEnglish
+            )
+
+            shareItems = GlobalShareService.shareItemsForCurrentScreen(
+                extraText: shareTitle
+            )
+
             showShareSheet = true
             return
         }

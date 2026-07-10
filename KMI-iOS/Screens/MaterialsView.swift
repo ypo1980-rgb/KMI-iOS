@@ -109,6 +109,9 @@ struct MaterialsView: View {
     @State private var toastMessage: String? = nil
     @State private var showResetConfirmation: Bool = false
 
+    @State private var generatedPdfURL: URL? = nil
+    @State private var showPdfShareSheet: Bool = false
+
     @State private var speechSynth = AVSpeechSynthesizer()
     @State private var isSpeakingExplanation: Bool = false
 
@@ -166,7 +169,22 @@ struct MaterialsView: View {
     }
 
     private var nestedSubTopicTitles: [String] {
-        []
+        guard let materialParentSubTopic else {
+            return []
+        }
+
+        return ContentRepo.shared.getNestedSubTopicTitles(
+            belt: belt,
+            topicTitle: materialRootTopic.trimmingCharacters(in: .whitespacesAndNewlines),
+            subTopicTitle: materialParentSubTopic.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        .map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        .filter {
+            !$0.isEmpty
+        }
+        .removingDuplicatesKeepingOrder()
     }
 
     private var isShowingNestedSubTopicPicker: Bool {
@@ -174,7 +192,7 @@ struct MaterialsView: View {
     }
 
     private var effectiveSubTopicUi: String? {
-        materialParentSubTopic
+        openedNestedSubTopic ?? materialParentSubTopic
     }
 
     private var topicKey: String {
@@ -182,11 +200,16 @@ struct MaterialsView: View {
             return materialRootTopic
         }
 
+        if let openedNestedSubTopic,
+           !openedNestedSubTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "\(materialRootTopic)__\(materialParentSubTopic)__\(openedNestedSubTopic)"
+        }
+
         return "\(materialRootTopic)__\(materialParentSubTopic)"
     }
 
     private var scopeKey: String {
-        "\(belt.id)||\(materialRootTopic)||\(effectiveSubTopicUi ?? "")"
+        "\(belt.id)||\(materialRootTopic)||\(materialParentSubTopic ?? "")||\(openedNestedSubTopic ?? "")"
     }
 
     private func normalizeStatusPart(_ value: String) -> String {
@@ -209,16 +232,67 @@ struct MaterialsView: View {
     }
 
     private var materialItems: [String] {
+        let cleanRootTopic = materialRootTopic
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
         if let materialParentSubTopic {
-            let rootAndParentItems = ContentRepo.shared.getAllItemsFor(
+            let cleanParentSubTopic = materialParentSubTopic
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if let openedNestedSubTopic,
+               !openedNestedSubTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let nestedItems = ContentRepo.shared.getNestedItemsFor(
+                    belt: belt,
+                    topicTitle: cleanRootTopic,
+                    subTopicTitle: cleanParentSubTopic,
+                    nestedSubTopicTitle: openedNestedSubTopic
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+                .removingDuplicatesKeepingOrder()
+
+                if !nestedItems.isEmpty {
+                    return nestedItems
+                }
+            }
+
+            let nestedTitles = ContentRepo.shared.getNestedSubTopicTitles(
                 belt: belt,
-                topicTitle: materialRootTopic,
-                subTopicTitle: materialParentSubTopic
+                topicTitle: cleanRootTopic,
+                subTopicTitle: cleanParentSubTopic
+            )
+            .map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .filter {
+                !$0.isEmpty
+            }
+            .removingDuplicatesKeepingOrder()
+
+            if !nestedTitles.isEmpty {
+                let nestedItems = nestedTitles.flatMap { nestedTitle in
+                    ContentRepo.shared.getNestedItemsFor(
+                        belt: belt,
+                        topicTitle: cleanRootTopic,
+                        subTopicTitle: cleanParentSubTopic,
+                        nestedSubTopicTitle: nestedTitle
+                    )
+                }
+                .removingDuplicatesKeepingOrder()
+
+                if !nestedItems.isEmpty {
+                    return nestedItems
+                }
+            }
+
+            let parentItems = ContentRepo.shared.getAllItemsFor(
+                belt: belt,
+                topicTitle: cleanRootTopic,
+                subTopicTitle: cleanParentSubTopic
             )
             .removingDuplicatesKeepingOrder()
 
-            if !rootAndParentItems.isEmpty {
-                return rootAndParentItems
+            if !parentItems.isEmpty {
+                return parentItems
             }
 
             let originalTopicItems = ContentRepo.shared.getAllItemsFor(
@@ -234,7 +308,7 @@ struct MaterialsView: View {
 
             let parentAsTopicItems = ContentRepo.shared.getAllItemsFor(
                 belt: belt,
-                topicTitle: materialParentSubTopic,
+                topicTitle: cleanParentSubTopic,
                 subTopicTitle: nil
             )
             .removingDuplicatesKeepingOrder()
@@ -246,7 +320,7 @@ struct MaterialsView: View {
 
         let rootItems = ContentRepo.shared.getAllItemsFor(
             belt: belt,
-            topicTitle: materialRootTopic,
+            topicTitle: cleanRootTopic,
             subTopicTitle: nil
         )
         .removingDuplicatesKeepingOrder()
@@ -286,10 +360,35 @@ struct MaterialsView: View {
     }
 
     private var headerTitle: String {
-        let topicDisplay = KmiEnglishTitleResolver.title(for: materialRootTopic, isEnglish: isEnglish)
+        let topicDisplay = KmiEnglishTitleResolver.title(
+            for: materialRootTopic,
+            isEnglish: isEnglish
+        )
+
+        if let openedNestedSubTopic,
+           !openedNestedSubTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let nestedDisplay = KmiEnglishTitleResolver.title(
+                for: openedNestedSubTopic,
+                isEnglish: isEnglish
+            )
+
+            if let materialParentSubTopic {
+                let parentDisplay = KmiEnglishTitleResolver.title(
+                    for: materialParentSubTopic,
+                    isEnglish: isEnglish
+                )
+
+                return "\(parentDisplay) – \(nestedDisplay)"
+            }
+
+            return "\(topicDisplay) – \(nestedDisplay)"
+        }
 
         if let materialParentSubTopic {
-            let parentDisplay = KmiEnglishTitleResolver.title(for: materialParentSubTopic, isEnglish: isEnglish)
+            let parentDisplay = KmiEnglishTitleResolver.title(
+                for: materialParentSubTopic,
+                isEnglish: isEnglish
+            )
 
             if materialRootTopic == topicUi {
                 return parentDisplay
@@ -426,7 +525,6 @@ struct MaterialsView: View {
         .navigationBarBackButtonHidden(true)
         .environment(\.layoutDirection, screenLayoutDirection)
         .onAppear {
-            openedNestedSubTopic = nil
             loadState()
         }
         .onDisappear {
@@ -434,8 +532,19 @@ struct MaterialsView: View {
             isSpeakingExplanation = false
         }
         .onChange(of: scopeKey) { _, _ in
-            openedNestedSubTopic = nil
             loadState()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name("KMI_GLOBAL_SHARE_REQUEST")
+            )
+        ) { notification in
+            guard let shareRequest = notification.object as? NSMutableDictionary else {
+                return
+            }
+
+            shareRequest["handled"] = true
+            createAndShareMaterialsPdf()
         }
         .confirmationDialog(
             tr("לאפס את כל הסימונים בנושא הזה?", "Reset all marks for this topic?"),
@@ -515,6 +624,11 @@ struct MaterialsView: View {
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showPdfShareSheet) {
+            if let generatedPdfURL {
+                MaterialsPdfShareSheet(items: [generatedPdfURL])
+            }
         }
     }
 
@@ -773,6 +887,52 @@ struct MaterialsView: View {
         refreshToken = UUID()
     }
 
+    private func pdfStatusText(for row: ExerciseRow) -> String {
+        switch currentMark(for: row.statusId) {
+        case .mastered:
+            return tr("יודע", "Known")
+        case .unknown:
+            return tr("לא יודע", "Unknown")
+        case nil:
+            return tr("לא סומן", "Not marked")
+        }
+    }
+
+    private func createAndShareMaterialsPdf() {
+        let pdfItems = rows.enumerated().map { index, row in
+            MaterialsPdfItemIOS(
+                number: index + 1,
+                title: row.displayName,
+                status: pdfStatusText(for: row),
+                isFavorite: favorites.contains(row.canonicalId),
+                isExcluded: excluded.contains(row.canonicalId),
+                hasNote: !(notes[row.canonicalId]?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .isEmpty ?? true)
+            )
+        }
+
+        do {
+            generatedPdfURL = try MaterialsPdfGeneratorIOS.create(
+                belt: belt,
+                topicTitle: headerTitle,
+                items: pdfItems,
+                isEnglish: isEnglish
+            )
+
+            showPdfShareSheet = true
+        } catch {
+            generatedPdfURL = nil
+
+            showToast(
+                tr(
+                    "לא ניתן היה ליצור את קובץ ה־PDF.",
+                    "The PDF file could not be created."
+                )
+            )
+        }
+    }
+
     private func resetCurrentScope() {
         speechSynth.stopSpeaking(at: .immediate)
 
@@ -1006,13 +1166,18 @@ private struct MaterialsStatsHeader: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            Text(isEnglish ? "← Swipe sideways to see more stats →" : "→→ הזז לצד כדי לראות עוד נתונים →→")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(Color(red: 0.36, green: 0.39, blue: 0.45))
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 4)
-                .padding(.bottom, 2)
+            Text(
+                isEnglish
+                ? "← Swipe sideways to see more stats →"
+                : "→→ הזז לצד כדי לראות עוד נתונים →→"
+            )
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(Color(red: 0.36, green: 0.39, blue: 0.45))
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 14)
+            .padding(.top, 4)
+            .padding(.bottom, 2)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
@@ -1118,12 +1283,6 @@ private struct MaterialsHeaderCard: View {
             }
 
             VStack(spacing: 4) {
-                Text(isEnglish ? "← Swipe sideways to see more stats →" : "→→ הזז לצד כדי לראות עוד נתונים →→")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.36, green: 0.39, blue: 0.45))
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 7) {
                         if isEnglish {
@@ -2128,6 +2287,623 @@ private enum BeltPaletteByMaterials {
             topicTitle: "שחרורים",
             subTopicTitle: nil
         )
+    }
+}
+
+private struct MaterialsPdfItemIOS {
+    let number: Int
+    let title: String
+    let status: String
+    let isFavorite: Bool
+    let isExcluded: Bool
+    let hasNote: Bool
+}
+
+private enum MaterialsPdfGeneratorIOS {
+
+    static func create(
+        belt: Belt,
+        topicTitle: String,
+        items: [MaterialsPdfItemIOS],
+        isEnglish: Bool
+    ) throws -> URL {
+        let pageWidth: CGFloat = 595
+        let pageHeight: CGFloat = 842
+        let pageBounds = CGRect(
+            x: 0,
+            y: 0,
+            width: pageWidth,
+            height: pageHeight
+        )
+
+        let renderer = UIGraphicsPDFRenderer(bounds: pageBounds)
+
+        let fileName = "materials_\(Int(Date().timeIntervalSince1970)).pdf"
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(fileName)
+
+        try renderer.writePDF(to: fileURL) { context in
+            let firstPageCapacity = 6
+            let nextPageCapacity = 8
+
+            let totalPages: Int = {
+                if items.count <= firstPageCapacity {
+                    return 1
+                }
+
+                let remaining = items.count - firstPageCapacity
+                return 1 + Int(ceil(Double(remaining) / Double(nextPageCapacity)))
+            }()
+
+            var itemIndex = 0
+
+            for pageNumber in 1...totalPages {
+                context.beginPage()
+
+                drawHeader(
+                    context: context.cgContext,
+                    pageBounds: pageBounds,
+                    topicTitle: topicTitle,
+                    isEnglish: isEnglish
+                )
+
+                var currentY: CGFloat = 136
+
+                if pageNumber == 1 {
+                    currentY = drawSummary(
+                        context: context.cgContext,
+                        pageBounds: pageBounds,
+                        top: currentY,
+                        items: items,
+                        isEnglish: isEnglish
+                    )
+                } else {
+                    drawText(
+                        isEnglish ? "Exercises list" : "רשימת תרגילים",
+                        in: CGRect(
+                            x: 24,
+                            y: currentY,
+                            width: pageWidth - 48,
+                            height: 24
+                        ),
+                        font: .systemFont(ofSize: 17, weight: .bold),
+                        color: UIColor(red: 12 / 255, green: 78 / 255, blue: 130 / 255, alpha: 1),
+                        alignment: .center
+                    )
+
+                    currentY += 34
+                }
+
+                let capacity = pageNumber == 1
+                    ? firstPageCapacity
+                    : nextPageCapacity
+
+                if items.isEmpty {
+                    drawRoundedBox(
+                        context: context.cgContext,
+                        rect: CGRect(
+                            x: 24,
+                            y: currentY,
+                            width: pageWidth - 48,
+                            height: 92
+                        ),
+                        fill: UIColor(red: 244 / 255, green: 250 / 255, blue: 1, alpha: 1),
+                        stroke: UIColor(red: 191 / 255, green: 213 / 255, blue: 232 / 255, alpha: 1)
+                    )
+
+                    drawText(
+                        isEnglish
+                        ? "No exercises to display"
+                        : "אין תרגילים להצגה",
+                        in: CGRect(
+                            x: 40,
+                            y: currentY + 28,
+                            width: pageWidth - 80,
+                            height: 32
+                        ),
+                        font: .systemFont(ofSize: 17, weight: .bold),
+                        color: UIColor(red: 12 / 255, green: 78 / 255, blue: 130 / 255, alpha: 1),
+                        alignment: .center
+                    )
+                } else {
+                    for _ in 0..<capacity {
+                        guard itemIndex < items.count else { break }
+
+                        currentY = drawItem(
+                            context: context.cgContext,
+                            pageBounds: pageBounds,
+                            item: items[itemIndex],
+                            top: currentY,
+                            isEnglish: isEnglish,
+                            alternate: itemIndex.isMultiple(of: 2)
+                        )
+
+                        itemIndex += 1
+                    }
+                }
+
+                drawFooter(
+                    context: context.cgContext,
+                    pageBounds: pageBounds,
+                    pageNumber: pageNumber,
+                    totalPages: totalPages,
+                    isEnglish: isEnglish
+                )
+            }
+        }
+
+        return fileURL
+    }
+
+    private static func drawHeader(
+        context: CGContext,
+        pageBounds: CGRect,
+        topicTitle: String,
+        isEnglish: Bool
+    ) {
+        context.setFillColor(UIColor.white.cgColor)
+        context.fill(pageBounds)
+
+        let navy = UIColor(
+            red: 2 / 255,
+            green: 43 / 255,
+            blue: 74 / 255,
+            alpha: 1
+        )
+
+        context.setFillColor(navy.cgColor)
+
+        let headerPath = UIBezierPath()
+        headerPath.move(to: CGPoint(x: pageBounds.width, y: 0))
+        headerPath.addLine(to: CGPoint(x: pageBounds.width, y: 122))
+        headerPath.addLine(to: CGPoint(x: 178, y: 122))
+        headerPath.addLine(to: CGPoint(x: 238, y: 0))
+        headerPath.close()
+        headerPath.fill()
+
+        drawLogo(
+            context: context,
+            center: CGPoint(x: 78, y: 58),
+            radius: 42
+        )
+
+        drawText(
+            isEnglish ? "Belt exercises" : "תרגילים לפי חגורה",
+            in: CGRect(
+                x: 250,
+                y: 28,
+                width: pageBounds.width - 284,
+                height: 38
+            ),
+            font: .systemFont(ofSize: 28, weight: .bold),
+            color: .white,
+            alignment: isEnglish ? .left : .right
+        )
+
+        drawText(
+            String(topicTitle.prefix(52)),
+            in: CGRect(
+                x: 250,
+                y: 68,
+                width: pageBounds.width - 284,
+                height: 28
+            ),
+            font: .systemFont(ofSize: 14, weight: .regular),
+            color: .white,
+            alignment: isEnglish ? .left : .right
+        )
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd/MM/yyyy"
+
+        drawText(
+            "\(isEnglish ? "Generated:" : "תאריך הפקה:") \(formatter.string(from: Date()))",
+            in: CGRect(
+                x: 24,
+                y: 130,
+                width: pageBounds.width - 48,
+                height: 18
+            ),
+            font: .systemFont(ofSize: 9),
+            color: UIColor(red: 80 / 255, green: 100 / 255, blue: 120 / 255, alpha: 1),
+            alignment: isEnglish ? .left : .right
+        )
+    }
+
+    private static func drawSummary(
+        context: CGContext,
+        pageBounds: CGRect,
+        top: CGFloat,
+        items: [MaterialsPdfItemIOS],
+        isEnglish: Bool
+    ) -> CGFloat {
+        let knownTitle = isEnglish ? "Known" : "יודע"
+        let unknownTitle = isEnglish ? "Unknown" : "לא יודע"
+
+        let stats: [(String, String)] = [
+            ("\(items.count)", isEnglish ? "Exercises" : "תרגילים"),
+            ("\(items.filter { $0.status == knownTitle }.count)", knownTitle),
+            ("\(items.filter { $0.status == unknownTitle }.count)", unknownTitle),
+            ("\(items.filter(\.isExcluded).count)", isEnglish ? "Excluded" : "מוחרגים"),
+            ("\(items.filter(\.isFavorite).count)", isEnglish ? "Favorites" : "מועדפים"),
+            ("\(items.filter(\.hasNote).count)", isEnglish ? "Notes" : "הערות")
+        ]
+
+        let container = CGRect(
+            x: 24,
+            y: top,
+            width: pageBounds.width - 48,
+            height: 120
+        )
+
+        drawRoundedBox(
+            context: context,
+            rect: container,
+            fill: UIColor(red: 234 / 255, green: 246 / 255, blue: 1, alpha: 1),
+            stroke: UIColor(red: 191 / 255, green: 213 / 255, blue: 232 / 255, alpha: 1)
+        )
+
+        drawText(
+            isEnglish ? "Exercises summary" : "סיכום תרגילים",
+            in: CGRect(
+                x: container.minX + 18,
+                y: container.minY + 12,
+                width: container.width - 36,
+                height: 24
+            ),
+            font: .systemFont(ofSize: 17, weight: .bold),
+            color: UIColor(red: 12 / 255, green: 78 / 255, blue: 130 / 255, alpha: 1),
+            alignment: isEnglish ? .left : .right
+        )
+
+        let boxWidth = (container.width - 38) / 3
+
+        for (index, stat) in stats.enumerated() {
+            let row = index / 3
+            let column = index % 3
+
+            let rect = CGRect(
+                x: container.minX + 12 + CGFloat(column) * (boxWidth + 7),
+                y: container.minY + 45 + CGFloat(row) * 34,
+                width: boxWidth,
+                height: 28
+            )
+
+            drawRoundedBox(
+                context: context,
+                rect: rect,
+                fill: UIColor(red: 244 / 255, green: 250 / 255, blue: 1, alpha: 1),
+                stroke: UIColor(red: 191 / 255, green: 213 / 255, blue: 232 / 255, alpha: 1),
+                radius: 9
+            )
+
+            drawText(
+                stat.0,
+                in: CGRect(
+                    x: rect.minX,
+                    y: rect.minY + 2,
+                    width: rect.width,
+                    height: 13
+                ),
+                font: .systemFont(ofSize: 12, weight: .bold),
+                color: UIColor(red: 2 / 255, green: 43 / 255, blue: 74 / 255, alpha: 1),
+                alignment: .center
+            )
+
+            drawText(
+                stat.1,
+                in: CGRect(
+                    x: rect.minX,
+                    y: rect.minY + 14,
+                    width: rect.width,
+                    height: 12
+                ),
+                font: .systemFont(ofSize: 8.5),
+                color: UIColor(red: 80 / 255, green: 100 / 255, blue: 120 / 255, alpha: 1),
+                alignment: .center
+            )
+        }
+
+        return top + 144
+    }
+
+    private static func drawItem(
+        context: CGContext,
+        pageBounds: CGRect,
+        item: MaterialsPdfItemIOS,
+        top: CGFloat,
+        isEnglish: Bool,
+        alternate: Bool
+    ) -> CGFloat {
+        let rect = CGRect(
+            x: 24,
+            y: top,
+            width: pageBounds.width - 48,
+            height: 74
+        )
+
+        drawRoundedBox(
+            context: context,
+            rect: rect,
+            fill: alternate
+            ? UIColor(red: 234 / 255, green: 246 / 255, blue: 1, alpha: 1)
+            : UIColor(red: 244 / 255, green: 250 / 255, blue: 1, alpha: 1),
+            stroke: UIColor(red: 191 / 255, green: 213 / 255, blue: 232 / 255, alpha: 1)
+        )
+
+        let numberRect = CGRect(
+            x: isEnglish ? rect.minX + 18 : rect.maxX - 50,
+            y: rect.minY + 20,
+            width: 30,
+            height: 30
+        )
+
+        context.setFillColor(
+            UIColor(red: 12 / 255, green: 78 / 255, blue: 130 / 255, alpha: 1).cgColor
+        )
+        context.fillEllipse(in: numberRect)
+
+        drawText(
+            "\(item.number)",
+            in: numberRect.offsetBy(dx: 0, dy: 6),
+            font: .systemFont(ofSize: 11, weight: .bold),
+            color: .white,
+            alignment: .center
+        )
+
+        let textX = isEnglish
+            ? numberRect.maxX + 14
+            : rect.minX + 22
+
+        let textWidth = rect.width - 90
+
+        drawText(
+            item.title,
+            in: CGRect(
+                x: textX,
+                y: rect.minY + 12,
+                width: textWidth,
+                height: 30
+            ),
+            font: .systemFont(ofSize: 13, weight: .bold),
+            color: UIColor(red: 15 / 255, green: 23 / 255, blue: 42 / 255, alpha: 1),
+            alignment: isEnglish ? .left : .right
+        )
+
+        let statusColor: UIColor = {
+            if item.status == (isEnglish ? "Known" : "יודע") {
+                return UIColor(red: 22 / 255, green: 163 / 255, blue: 74 / 255, alpha: 1)
+            }
+
+            if item.status == (isEnglish ? "Unknown" : "לא יודע") {
+                return UIColor(red: 217 / 255, green: 119 / 255, blue: 6 / 255, alpha: 1)
+            }
+
+            return UIColor(red: 80 / 255, green: 100 / 255, blue: 120 / 255, alpha: 1)
+        }()
+
+        drawText(
+            item.status,
+            in: CGRect(
+                x: textX,
+                y: rect.minY + 45,
+                width: textWidth,
+                height: 18
+            ),
+            font: .systemFont(ofSize: 10.5, weight: .bold),
+            color: statusColor,
+            alignment: isEnglish ? .left : .right
+        )
+
+        var tags: [String] = []
+
+        if item.isFavorite {
+            tags.append(isEnglish ? "Favorite" : "מועדף")
+        }
+
+        if item.isExcluded {
+            tags.append(isEnglish ? "Excluded" : "מוחרג")
+        }
+
+        if item.hasNote {
+            tags.append(isEnglish ? "Note" : "הערה")
+        }
+
+        drawText(
+            tags.isEmpty ? "—" : tags.joined(separator: " · "),
+            in: CGRect(
+                x: rect.minX + 18,
+                y: rect.minY + 48,
+                width: rect.width - 36,
+                height: 16
+            ),
+            font: .systemFont(ofSize: 9.5),
+            color: item.isExcluded
+            ? UIColor(red: 220 / 255, green: 38 / 255, blue: 38 / 255, alpha: 1)
+            : UIColor(red: 80 / 255, green: 100 / 255, blue: 120 / 255, alpha: 1),
+            alignment: isEnglish ? .right : .left
+        )
+
+        return rect.maxY + 8
+    }
+
+    private static func drawFooter(
+        context: CGContext,
+        pageBounds: CGRect,
+        pageNumber: Int,
+        totalPages: Int,
+        isEnglish: Bool
+    ) {
+        let footerY: CGFloat = 804
+
+        context.setStrokeColor(
+            UIColor(red: 2 / 255, green: 43 / 255, blue: 74 / 255, alpha: 1).cgColor
+        )
+        context.setLineWidth(2)
+        context.move(to: CGPoint(x: 0, y: footerY))
+        context.addLine(to: CGPoint(x: pageBounds.width, y: footerY))
+        context.strokePath()
+
+        drawLogo(
+            context: context,
+            center: CGPoint(x: 38, y: footerY + 22),
+            radius: 13
+        )
+
+        drawText(
+            "Together We Protect",
+            in: CGRect(
+                x: 58,
+                y: footerY + 14,
+                width: 150,
+                height: 18
+            ),
+            font: .systemFont(ofSize: 8.5),
+            color: UIColor(red: 80 / 255, green: 100 / 255, blue: 120 / 255, alpha: 1),
+            alignment: .left
+        )
+
+        drawText(
+            isEnglish
+            ? "Page \(pageNumber) of \(totalPages)"
+            : "עמוד \(pageNumber) מתוך \(totalPages)",
+            in: CGRect(
+                x: 210,
+                y: footerY + 14,
+                width: 175,
+                height: 18
+            ),
+            font: .systemFont(ofSize: 8.5),
+            color: UIColor(red: 80 / 255, green: 100 / 255, blue: 120 / 255, alpha: 1),
+            alignment: .center
+        )
+
+        drawText(
+            "Krav Maga Israel\nwww.kmi.org.il",
+            in: CGRect(
+                x: pageBounds.width - 180,
+                y: footerY + 8,
+                width: 150,
+                height: 30
+            ),
+            font: .systemFont(ofSize: 8),
+            color: UIColor(red: 80 / 255, green: 100 / 255, blue: 120 / 255, alpha: 1),
+            alignment: .right
+        )
+    }
+
+    private static func drawLogo(
+        context: CGContext,
+        center: CGPoint,
+        radius: CGFloat
+    ) {
+        let navy = UIColor(
+            red: 2 / 255,
+            green: 43 / 255,
+            blue: 74 / 255,
+            alpha: 1
+        )
+
+        context.setFillColor(navy.cgColor)
+        context.fillEllipse(
+            in: CGRect(
+                x: center.x - radius,
+                y: center.y - radius,
+                width: radius * 2,
+                height: radius * 2
+            )
+        )
+
+        context.setFillColor(UIColor.white.cgColor)
+        context.fillEllipse(
+            in: CGRect(
+                x: center.x - radius + 4,
+                y: center.y - radius + 4,
+                width: (radius - 4) * 2,
+                height: (radius - 4) * 2
+            )
+        )
+
+        drawText(
+            "KAMI",
+            in: CGRect(
+                x: center.x - radius,
+                y: center.y - radius * 0.28,
+                width: radius * 2,
+                height: radius * 0.60
+            ),
+            font: .systemFont(
+                ofSize: max(radius * 0.42, 7),
+                weight: .bold
+            ),
+            color: navy,
+            alignment: .center
+        )
+    }
+
+    private static func drawRoundedBox(
+        context: CGContext,
+        rect: CGRect,
+        fill: UIColor,
+        stroke: UIColor,
+        radius: CGFloat = 12
+    ) {
+        let path = UIBezierPath(
+            roundedRect: rect,
+            cornerRadius: radius
+        )
+
+        fill.setFill()
+        path.fill()
+
+        stroke.setStroke()
+        path.lineWidth = 1
+        path.stroke()
+    }
+
+    private static func drawText(
+        _ text: String,
+        in rect: CGRect,
+        font: UIFont,
+        color: UIColor,
+        alignment: NSTextAlignment
+    ) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = alignment
+        paragraph.lineBreakMode = .byTruncatingTail
+
+        (text as NSString).draw(
+            with: rect,
+            options: [
+                .usesLineFragmentOrigin,
+                .usesFontLeading
+            ],
+            attributes: [
+                .font: font,
+                .foregroundColor: color,
+                .paragraphStyle: paragraph
+            ],
+            context: nil
+        )
+    }
+}
+
+private struct MaterialsPdfShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(
+        context: Context
+    ) -> UIActivityViewController {
+        UIActivityViewController(
+            activityItems: items,
+            applicationActivities: nil
+        )
+    }
+
+    func updateUIViewController(
+        _ uiViewController: UIActivityViewController,
+        context: Context
+    ) {
     }
 }
 

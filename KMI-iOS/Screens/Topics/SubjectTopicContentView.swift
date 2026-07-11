@@ -1,9 +1,4 @@
-//
-//  SubjectTopicContentView.swift
-//  KMI-iOS
-//
-//  Created by יובל פולק on 28/02/2026.
-//
+
 import SwiftUI
 import Shared
 

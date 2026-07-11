@@ -88,219 +88,146 @@ struct BeltQuestionsByTopicView: View {
     @State private var pickedAcrossBeltsSubject: SubjectTopic? = nil
     @State private var pickedAcrossBeltsSubTopicTitle: String? = nil
     @State private var showQuickActionsDialog: Bool = false
-    
+
     private var mainTopics: [MainTopic] {
 
-        let allSubjects = TopicsBySubjectRegistry.allSubjects()
+        let visibleRootSubjects =
+            TopicsBySubjectRegistry
+                .allSubjects()
+                .filter { subjectHasVisibleContentInAnyBelt($0) }
 
-        let visibleSubjects = allSubjects.filter { subject in
-            subjectHasVisibleContentInAnyBelt(subject)
+        let visibleRegistryChildren =
+            TopicsBySubjectRegistry
+                .all
+                .filter { subject in
+                    subject.parentId != nil &&
+                    subjectHasVisibleContentInAnyBelt(subject)
+                }
+
+        func rootSubject(_ id: String) -> SubjectTopic? {
+            let cleanId = id
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            return visibleRootSubjects.first { subject in
+                subject.id
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased() == cleanId
+            }
         }
 
-        func firstVisible(
-            ids: [String] = [],
-            exactTitles: [String] = [],
-            titleContains: [String] = []
-        ) -> SubjectTopic? {
-            let normalizedIds = ids.map {
-                $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            }
+        func childSubjects(parentId: String) -> [SubjectTopic] {
+            let cleanParentId = parentId
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
 
-            if let exactIdMatch = visibleSubjects.first(where: { subject in
-                normalizedIds.contains(
-                    subject.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                )
-            }) {
-                return exactIdMatch
-            }
-
-            if let exactTitleMatch = visibleSubjects.first(where: { subject in
-                exactTitles.contains(
-                    subject.titleHeb.trimmingCharacters(in: .whitespacesAndNewlines)
-                )
-            }) {
-                return exactTitleMatch
-            }
-
-            return visibleSubjects.first { subject in
-                let subjectTitle = subject.titleHeb.trimmingCharacters(in: .whitespacesAndNewlines)
-                return titleContains.contains { fragment in
-                    subjectTitle.contains(fragment)
-                }
+            return visibleRegistryChildren.filter { subject in
+                subject.parentId?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased() == cleanParentId
             }
         }
 
         var out: [MainTopic] = []
 
-        // ✅ בלימות וגלגולים
-        let rollsSubject =
-            firstVisible(
-                ids: ["topic_breakfalls_rolls"],
-                exactTitles: ["בלימות וגלגולים"],
-                titleContains: []
-            )
-            ?? syntheticSubject(
-                id: "topic_breakfalls_rolls",
-                titleHeb: "בלימות וגלגולים",
-                topicsByBelt: [
-                    .yellow: ["בלימות וגלגולים"],
-                    .orange: ["בלימות וגלגולים"],
-                    .green: ["בלימות וגלגולים"],
-                    .blue: ["בלימות וגלגולים"],
-                    .brown: ["בלימות וגלגולים"]
-                ]
-            )
+        let defenseSubjects = defenseRootSubjects
+        let releaseSubjects = childSubjects(parentId: "releases")
 
-        // ✅ עמידת מוצא
-        let readySubject =
-            firstVisible(
-                ids: ["topic_ready_stance", "ready_stance", "stance_ready"],
-                exactTitles: ["עמידת מוצא"],
-                titleContains: ["עמידת מוצא"]
-            )
-            ?? syntheticSubject(
-                id: "topic_ready_stance",
-                titleHeb: "עמידת מוצא",
-                topicsByBelt: [
-                    .yellow: ["עמידת מוצא"],
-                    .orange: ["עמידת מוצא"],
-                    .green: ["עמידת מוצא"],
-                    .blue: ["עמידת מוצא"],
-                    .brown: ["עמידת מוצא"],
-                    .black: ["עמידת מוצא"]
-                ]
-            )
-
-        // ✅ עבודת קרקע
-        let groundSubject =
-            firstVisible(
-                ids: ["topic_ground_prep", "ground_prep", "ground_preparation"],
-                exactTitles: ["עבודת קרקע", "הכנה לעבודת קרקע"],
-                titleContains: ["עבודת קרקע", "הכנה לעבודת", "קרקע"]
-            )
-            ?? syntheticSubject(
-                id: "topic_ground_prep",
-                titleHeb: "עבודת קרקע",
-                topicsByBelt: [
-                    .orange: ["עבודת קרקע", "הכנה לעבודת קרקע"],
-                    .green: ["עבודת קרקע", "הכנה לעבודת קרקע"],
-                    .blue: ["עבודת קרקע", "הכנה לעבודת קרקע"],
-                    .brown: ["עבודת קרקע", "הכנה לעבודת קרקע"],
-                    .black: ["עבודת קרקע", "הכנה לעבודת קרקע"]
-                ]
-            )
-
-        // ✅ קוואלר
-        let kavalerSubject =
-            firstVisible(
-                ids: ["topic_kavaler", "kavaler"],
-                exactTitles: ["קוואלר"],
-                titleContains: ["קוואלר"]
-            )
-            ?? syntheticSubject(
-                id: "topic_kavaler",
-                titleHeb: "קוואלר",
-                topicsByBelt: [
-                    .green: ["קוואלר"],
-                    .blue: ["קוואלר"],
-                    .brown: ["קוואלר"],
-                    .black: ["קוואלר"]
-                ]
-            )
-
-        // ✅ שחרורים
-        let releasesSubjects = releasesRootSubjects
-        
-        // ✅ בעיטות
-        let kicksSubject =
-            firstVisible(
-                ids: ["kicks_hard", "kicks", "topic_kicks"],
-                exactTitles: ["בעיטות"],
-                titleContains: []
-            )
-            ?? syntheticSubject(
-                id: "kicks_hard",
-                titleHeb: "בעיטות",
-                topicsByBelt: [
-                    .yellow: ["בעיטות"],
-                    .orange: ["בעיטות"],
-                    .green: ["בעיטות"],
-                    .blue: ["בעיטות"],
-                    .brown: ["בעיטות"],
-                    .black: ["בעיטות"]
-                ]
-            )
-        
-        // ✅ הטלות
-        let throwsSubjects = visibleSubjects.filter {
-            $0.titleHeb.contains("הטלה") ||
-            $0.titleHeb.contains("הטלות")
-        }
-
-        // ✅ סדר כמו Android:
-        // הגנות -> שחרורים -> עבודת ידיים -> בלימות -> עמידת מוצא -> עבודת קרקע -> קאוולר -> בעיטות -> הטלות
-
-        if !defenseRootSubjects.isEmpty {
-            out.append(
-                MainTopic(id: "defenses_root", titleHeb: "הגנות", subjects: defenseRootSubjects)
-            )
-        }
-
-        if !releasesSubjects.isEmpty {
+        if !defenseSubjects.isEmpty {
             out.append(
                 MainTopic(
-                    id: "releases_root",
-                    titleHeb: "שחרורים",
-                    subjects: releasesSubjects
+                    id: "defense_root",
+                    titleHeb: "הגנות",
+                    subjects: defenseSubjects
                 )
             )
         }
 
-        if !handsRootSubjects.isEmpty {
+        if !releaseSubjects.isEmpty {
             out.append(
-                MainTopic(id: "hands_root", titleHeb: "עבודת ידיים", subjects: handsRootSubjects)
+                MainTopic(
+                    id: "releases",
+                    titleHeb: "שחרורים",
+                    subjects: releaseSubjects
+                )
             )
         }
 
-        if subjectHasVisibleContentInAnyBelt(rollsSubject) {
+        let visibleHandsSubjects = childSubjects(
+            parentId: "hands_all"
+        )
+
+        if !visibleHandsSubjects.isEmpty {
             out.append(
-                MainTopic(id: "topic_breakfalls_rolls", titleHeb: "בלימות וגלגולים", subjects: [rollsSubject])
+                MainTopic(
+                    id: "hands_root",
+                    titleHeb: "עבודת ידיים",
+                    subjects: visibleHandsSubjects
+                )
+            )
+        } else if let handsRoot = rootSubject("hands_all") {
+            out.append(
+                MainTopic(
+                    id: "hands_root",
+                    titleHeb: handsRoot.titleHeb,
+                    subjects: [handsRoot]
+                )
             )
         }
 
-        if subjectHasVisibleContentInAnyBelt(readySubject) {
+        if let rollsSubject = rootSubject("rolls_breakfalls") {
             out.append(
-                MainTopic(id: "topic_ready_stance", titleHeb: "עמידת מוצא", subjects: [readySubject])
+                MainTopic(
+                    id: "rolls_breakfalls",
+                    titleHeb: rollsSubject.titleHeb,
+                    subjects: [rollsSubject]
+                )
             )
         }
 
-        if subjectHasVisibleContentInAnyBelt(groundSubject) {
+        if let readySubject = rootSubject("topic_ready_stance") {
             out.append(
-                MainTopic(id: "topic_ground_prep", titleHeb: "עבודת קרקע", subjects: [groundSubject])
+                MainTopic(
+                    id: "topic_ready_stance",
+                    titleHeb: readySubject.titleHeb,
+                    subjects: [readySubject]
+                )
             )
         }
 
-        if subjectHasVisibleContentInAnyBelt(kavalerSubject) {
+        if let groundSubject = rootSubject("topic_ground_prep") {
             out.append(
-                MainTopic(id: "topic_kavaler", titleHeb: "קוואלר", subjects: [kavalerSubject])
+                MainTopic(
+                    id: "topic_ground_prep",
+                    titleHeb: groundSubject.titleHeb,
+                    subjects: [groundSubject]
+                )
             )
         }
 
-        if subjectHasVisibleContentInAnyBelt(kicksSubject) {
+        if let kavalerSubject = rootSubject("topic_kavaler") {
             out.append(
-                MainTopic(id: "kicks_root", titleHeb: "בעיטות", subjects: [kicksSubject])
+                MainTopic(
+                    id: "topic_kavaler",
+                    titleHeb: kavalerSubject.titleHeb,
+                    subjects: [kavalerSubject]
+                )
             )
         }
 
-        if !throwsSubjects.isEmpty {
+        if let kicksSubject = rootSubject("kicks") {
             out.append(
-                MainTopic(id: "throws_root", titleHeb: "הטלות", subjects: throwsSubjects)
+                MainTopic(
+                    id: "kicks",
+                    titleHeb: kicksSubject.titleHeb,
+                    subjects: [kicksSubject]
+                )
             )
         }
 
         return out
     }
-    
+
     private struct TopicRowCard: View {
         let title: String
         let accent: Color
@@ -502,6 +429,135 @@ struct BeltQuestionsByTopicView: View {
             .joined(separator: " ")
     }
 
+    private func catalogSubjectExerciseCount(
+        _ subject: SubjectTopic
+    ) -> Int {
+        func normalizedItemKey(_ raw: String) -> String {
+            raw
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "\u{200F}", with: "")
+                .replacingOccurrences(of: "\u{200E}", with: "")
+                .replacingOccurrences(of: "\u{00A0}", with: " ")
+                .replacingOccurrences(of: "–", with: "-")
+                .replacingOccurrences(of: "—", with: "-")
+                .replacingOccurrences(
+                    of: "\\s+",
+                    with: " ",
+                    options: .regularExpression
+                )
+                .lowercased()
+        }
+
+        func itemPasses(
+            _ item: String,
+            subTopicTitle: String?
+        ) -> Bool {
+            let combined = normalizedItemKey(
+                "\(subTopicTitle ?? "") \(item)"
+            )
+
+            if let hint = subject.subTopicHint?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !hint.isEmpty,
+               !combined.contains(normalizedItemKey(hint)) {
+                return false
+            }
+
+            let excluded = subject.excludeItemKeywords.contains { keyword in
+                let cleanKeyword = normalizedItemKey(keyword)
+                return !cleanKeyword.isEmpty &&
+                    combined.contains(cleanKeyword)
+            }
+
+            if excluded {
+                return false
+            }
+
+            let requiredKeywords = subject.requireAllItemKeywords
+                .map(normalizedItemKey)
+                .filter { !$0.isEmpty }
+
+            if !requiredKeywords.isEmpty,
+               !requiredKeywords.allSatisfy({ combined.contains($0) }) {
+                return false
+            }
+
+            let includedKeywords = subject.includeItemKeywords
+                .map(normalizedItemKey)
+                .filter { !$0.isEmpty }
+
+            if !includedKeywords.isEmpty,
+               !includedKeywords.contains(where: { combined.contains($0) }) {
+                return false
+            }
+
+            return true
+        }
+
+        var uniqueItems = Set<String>()
+
+        for oneBelt in subject.belts {
+            guard
+                let beltContent = ContentRepo.shared.data[oneBelt],
+                let mappedTopicTitles = subject.topicsByBelt[oneBelt],
+                !mappedTopicTitles.isEmpty
+            else {
+                continue
+            }
+
+            let mappedKeys = Set(
+                mappedTopicTitles.map(normalizedTopicKey)
+            )
+
+            for topic in beltContent.topics {
+                let topicKey = normalizedTopicKey(topic.title)
+                let topicIsMapped = mappedKeys.contains(topicKey)
+
+                if topicIsMapped {
+                    for item in topic.items {
+                        let itemKey = normalizedItemKey(item)
+
+                        if !itemKey.isEmpty {
+                            let catalogKey = [
+                                oneBelt.id,
+                                topicKey,
+                                "__topic_items__",
+                                itemKey
+                            ].joined(separator: "||")
+
+                            uniqueItems.insert(catalogKey)
+                        }
+                    }
+                }
+
+                for subTopic in topic.subTopics {
+                    let subTopicKey = normalizedTopicKey(subTopic.title)
+
+                    guard topicIsMapped || mappedKeys.contains(subTopicKey) else {
+                        continue
+                    }
+
+                    for item in subTopic.items {
+                        let itemKey = normalizedItemKey(item)
+
+                        if !itemKey.isEmpty {
+                            let catalogKey = [
+                                oneBelt.id,
+                                topicKey,
+                                subTopicKey,
+                                itemKey
+                            ].joined(separator: "||")
+
+                            uniqueItems.insert(catalogKey)
+                        }
+                    }
+                }
+            }
+        }
+
+        return uniqueItems.count
+    }
+
     private func subjectHasVisibleContent(_ subject: SubjectTopic, for belt: Belt) -> Bool {
 
         let sections = SubjectItemsResolver.shared.resolveBySubject(
@@ -694,36 +750,67 @@ struct BeltQuestionsByTopicView: View {
                     .black: ["הגנות"]
                 ],
                 subTopicHint: "סכין",
-                excludeItemKeywords: ["מקל", "אקדח", "תמ\"ק"]
+                excludeItemKeywords: [
+                    "רובה",
+                    "מקל",
+                    "אקדח",
+                    "תמ\"ק"
+                ]
+            ),
+            syntheticSubject(
+                id: "knife_rifle_defense",
+                titleHeb: "הגנות עם רובה נגד דקירות סכין",
+                topicsByBelt: [
+                    .black: ["הגנות"]
+                ],
+                subTopicHint: "סכין",
+                includeItemKeywords: ["רובה"]
             ),
             syntheticSubject(
                 id: "gun_threat_defense",
                 titleHeb: "הגנות מאיום אקדח",
                 topicsByBelt: [
-                    .green: ["הגנות"],
-                    .blue: ["הגנות"],
                     .brown: ["הגנות"],
                     .black: ["הגנות"]
                 ],
                 subTopicHint: "אקדח",
-                excludeItemKeywords: ["סכין", "מקל", "תמ\"ק"]
+                excludeItemKeywords: [
+                    "סכין",
+                    "מקל"
+                ]
+            ),
+            syntheticSubject(
+                id: "multiple_attackers_defense",
+                titleHeb: "הגנות נגד מספר תוקפים",
+                topicsByBelt: [
+                    .black: ["הגנות"]
+                ],
+                includeItemKeywords: [
+                    "1 מקל",
+                    "2 תוקפים"
+                ]
             ),
             syntheticSubject(
                 id: "stick_defense",
                 titleHeb: "הגנות נגד מקל",
                 topicsByBelt: [
                     .green: ["הגנות"],
-                    .blue: ["הגנות"],
                     .brown: ["הגנות"],
                     .black: ["הגנות"]
                 ],
                 subTopicHint: "מקל",
-                excludeItemKeywords: ["סכין", "אקדח"]
+                excludeItemKeywords: [
+                    "סכין",
+                    "אקדח",
+                    "תמ\"ק"
+                ]
             )
         ]
 
         return candidates.filter { subject in
-            totalExercisesCountForSubjectId(subject.id) > 0
+            SubjectAcrossBeltsView.resolvedExerciseCount(
+                subject: subject
+            ) > 0
         }
     }
     
@@ -997,102 +1084,345 @@ struct BeltQuestionsByTopicView: View {
         }
     }
 
-    private func totalExercisesCountForSubjectId(_ subjectId: String) -> Int {
-        func countSections(_ sections: [HardSectionsCatalog.Section]) -> Int {
-            sections.reduce(0) { partial, section in
-                partial + totalItemsCountForSection(section)
-            }
+    private func uniqueExerciseCount(
+        in sections: [HardSectionsCatalog.Section]
+    ) -> Int {
+        func normalizedItemKey(_ raw: String) -> String {
+            raw
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "\u{200F}", with: "")
+                .replacingOccurrences(of: "\u{200E}", with: "")
+                .replacingOccurrences(of: "\u{00A0}", with: " ")
+                .replacingOccurrences(of: "–", with: "-")
+                .replacingOccurrences(of: "—", with: "-")
+                .replacingOccurrences(
+                    of: "\\s+",
+                    with: " ",
+                    options: .regularExpression
+                )
+                .lowercased()
         }
 
-        func countFromCatalog(topicTitles: [String]) -> Int {
-            let normalizedTitles = Set(topicTitles.map(normalizedTopicKey))
-            let beltsToCheck: [Belt] = [.yellow, .orange, .green, .blue, .brown, .black]
+        func collectItems(
+            from section: HardSectionsCatalog.Section
+        ) -> [String] {
+            if !section.subSections.isEmpty {
+                return section.subSections.flatMap {
+                    collectItems(from: $0)
+                }
+            }
 
-            return beltsToCheck.reduce(0) { partial, oneBelt in
-                guard let beltContent = ContentRepo.shared.data[oneBelt] else {
-                    return partial
+            return section.beltGroups.flatMap(\.items)
+        }
+
+        let keys = sections
+            .flatMap { collectItems(from: $0) }
+            .map(normalizedItemKey)
+            .filter { !$0.isEmpty }
+
+        return Set(keys).count
+    }
+
+    private func releaseSection(
+        withId sectionId: String
+    ) -> HardSectionsCatalog.Section? {
+        let roots =
+            HardSectionsCatalog.shared.sectionsForSubject(
+                subjectId: "releases"
+            ) ?? []
+
+        func find(
+            in sections: [HardSectionsCatalog.Section]
+        ) -> HardSectionsCatalog.Section? {
+            for section in sections {
+                if section.id
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    == sectionId {
+                    return section
                 }
 
-                let topicCount = beltContent.topics.reduce(0) { topicPartial, topic in
-                    let topicKey = normalizedTopicKey(topic.title)
+                if let child = find(in: section.subSections) {
+                    return child
+                }
+            }
 
-                    if normalizedTitles.contains(topicKey) {
-                        return topicPartial
-                            + topic.items.count
-                            + topic.subTopics.reduce(0) { $0 + $1.items.count }
-                    }
+            return nil
+        }
 
-                    let matchingSubTopicsCount = topic.subTopics.reduce(0) { subPartial, subTopic in
-                        let subTopicKey = normalizedTopicKey(subTopic.title)
-                        return subPartial + (normalizedTitles.contains(subTopicKey) ? subTopic.items.count : 0)
-                    }
+        return find(in: roots)
+    }
 
-                    return topicPartial + matchingSubTopicsCount
+    private func releaseSectionCount(
+        sectionId: String,
+        currentBelt: Belt
+    ) -> Int {
+        guard let section = releaseSection(withId: sectionId) else {
+            return 0
+        }
+
+        func normalizedItemKey(_ raw: String) -> String {
+            raw
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "\u{200F}", with: "")
+                .replacingOccurrences(of: "\u{200E}", with: "")
+                .replacingOccurrences(of: "\u{00A0}", with: " ")
+                .replacingOccurrences(of: "–", with: "-")
+                .replacingOccurrences(of: "—", with: "-")
+                .replacingOccurrences(
+                    of: "\\s+",
+                    with: " ",
+                    options: .regularExpression
+                )
+                .lowercased()
+        }
+
+        func countForCurrentBelt(
+            _ currentSection: HardSectionsCatalog.Section
+        ) -> Int {
+            if !currentSection.subSections.isEmpty {
+                return currentSection.subSections.reduce(0) { partial, child in
+                    partial + countForCurrentBelt(child)
+                }
+            }
+
+            let keys = currentSection.beltGroups
+                .filter { $0.belt == currentBelt }
+                .flatMap { $0.items }
+                .map(normalizedItemKey)
+                .filter { !$0.isEmpty }
+
+            return Set(keys).count
+        }
+
+        func countForAllBelts(
+            _ currentSection: HardSectionsCatalog.Section
+        ) -> Int {
+            if !currentSection.subSections.isEmpty {
+                return currentSection.subSections.reduce(0) { partial, child in
+                    partial + countForAllBelts(child)
+                }
+            }
+
+            let keys = currentSection.beltGroups
+                .flatMap { $0.items }
+                .map(normalizedItemKey)
+                .filter { !$0.isEmpty }
+
+            return Set(keys).count
+        }
+
+        let currentBeltCount = countForCurrentBelt(section)
+
+        return currentBeltCount > 0
+            ? currentBeltCount
+            : countForAllBelts(section)
+    }
+
+    private func handsSectionExerciseKeys(
+        sectionId: String
+    ) -> Set<String> {
+        let roots =
+            HardSectionsCatalog.shared.sectionsForSubject(
+                subjectId: "hands_all"
+            ) ?? []
+
+        func normalizedItemKey(_ raw: String) -> String {
+            raw
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "\u{200F}", with: "")
+                .replacingOccurrences(of: "\u{200E}", with: "")
+                .replacingOccurrences(of: "\u{00A0}", with: " ")
+                .replacingOccurrences(of: "–", with: "-")
+                .replacingOccurrences(of: "—", with: "-")
+                .replacingOccurrences(
+                    of: "\\s+",
+                    with: " ",
+                    options: .regularExpression
+                )
+                .lowercased()
+        }
+
+        func findSection(
+            in sections: [HardSectionsCatalog.Section]
+        ) -> HardSectionsCatalog.Section? {
+            for section in sections {
+                let cleanSectionId = section.id
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                if cleanSectionId == sectionId {
+                    return section
                 }
 
-                return partial + topicCount
+                if let found = findSection(in: section.subSections) {
+                    return found
+                }
             }
+
+            return nil
         }
 
-        if subjectId == "def_internal_punch" {
-            let punchSections = HardSectionsCatalog.shared.sectionsForSubject(subjectId: "def_internal_punch") ?? []
-            let kickSections = HardSectionsCatalog.shared.sectionsForSubject(subjectId: "def_internal_kick") ?? []
-            let total = countSections(punchSections) + countSections(kickSections)
+        func collectKeys(
+            from section: HardSectionsCatalog.Section
+        ) -> Set<String> {
+            if !section.subSections.isEmpty {
+                return section.subSections.reduce(into: Set<String>()) {
+                    partial, child in
 
-            if total > 0 {
-                return total
+                    partial.formUnion(
+                        collectKeys(from: child)
+                    )
+                }
             }
+
+            let keys = section.beltGroups
+                .flatMap { $0.items }
+                .map(normalizedItemKey)
+                .filter { !$0.isEmpty }
+
+            return Set(keys)
         }
 
-        if subjectId == "def_external_punch" {
-            let punchSections = HardSectionsCatalog.shared.sectionsForSubject(subjectId: "def_external_punch") ?? []
-            let kickSections = HardSectionsCatalog.shared.sectionsForSubject(subjectId: "def_external_kick") ?? []
-            let total = countSections(punchSections) + countSections(kickSections)
-
-            if total > 0 {
-                return total
-            }
+        guard let section = findSection(in: roots) else {
+            return []
         }
 
-        let directSections = HardSectionsCatalog.shared.sectionsForSubject(subjectId: subjectId) ?? []
-        let directCount = countSections(directSections)
+        return collectKeys(from: section)
+    }
 
-        if directCount > 0 {
-            return directCount
+    private func subjectForCounting(
+        _ subjectId: String
+    ) -> SubjectTopic? {
+        let cleanSubjectId = subjectId
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let registrySubject =
+            TopicsBySubjectRegistry.subjectById(cleanSubjectId) {
+            return registrySubject
         }
 
-        if subjectId == "hands_strikes" ||
-            subjectId == "hands_elbows" ||
-            subjectId == "hands_stick_rifle" {
-            let allHands = HardSectionsCatalog.shared.sectionsForSubject(subjectId: "hands_all") ?? []
-            let matching = allHands.filter { section in
-                section.id == subjectId
-            }
-            let handsCount = countSections(matching)
-
-            if handsCount > 0 {
-                return handsCount
-            }
+        return handsRootSubjects.first { subject in
+            subject.id
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                == cleanSubjectId
         }
+    }
 
-        let catalogTitlesBySubjectId: [String: [String]] = [
-            "topic_ready_stance": ["עמידת מוצא"],
-            "topic_kavaler": ["קוואלר"],
-            "topic_kicks": ["בעיטות"],
-            "kicks_hard": ["בעיטות"],
-            "topic_breakfalls_rolls": ["בלימות וגלגולים"],
-            "topic_ground_prep": ["עבודת קרקע", "הכנה לעבודת קרקע"]
+    private func exerciseKeys(
+        for subject: SubjectTopic,
+        beltsToResolve: [Belt]? = nil
+    ) -> Set<String> {
+        let resolvedBelts = beltsToResolve ?? [
+            .yellow,
+            .orange,
+            .green,
+            .blue,
+            .brown,
+            .black
         ]
 
-        if let topicTitles = catalogTitlesBySubjectId[subjectId] {
-            let catalogCount = countFromCatalog(topicTitles: topicTitles)
+        var uniqueExerciseKeys = Set<String>()
 
-            if catalogCount > 0 {
-                return catalogCount
+        for oneBelt in resolvedBelts {
+            let sections = SubjectItemsResolver.shared.resolveBySubject(
+                belt: oneBelt,
+                subject: toSharedSubject(subject)
+            )
+
+            for section in sections {
+                for item in section.items {
+                    let mirror = Mirror(reflecting: item)
+
+                    let canonicalId =
+                        mirror.children.first {
+                            $0.label == "canonicalId"
+                        }?.value as? String
+
+                    let displayName =
+                        mirror.children.first {
+                            $0.label == "displayName"
+                        }?.value as? String
+
+                    let rawKey =
+                        canonicalId
+                        ?? displayName
+                        ?? String(describing: item)
+
+                    let normalizedKey = rawKey
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .replacingOccurrences(of: "\u{200F}", with: "")
+                        .replacingOccurrences(of: "\u{200E}", with: "")
+                        .replacingOccurrences(of: "\u{00A0}", with: " ")
+                        .replacingOccurrences(of: "–", with: "-")
+                        .replacingOccurrences(of: "—", with: "-")
+                        .replacingOccurrences(
+                            of: "\\s+",
+                            with: " ",
+                            options: .regularExpression
+                        )
+                        .lowercased()
+
+                    if !normalizedKey.isEmpty {
+                        uniqueExerciseKeys.insert(normalizedKey)
+                    }
+                }
             }
         }
 
-        return 0
+        return uniqueExerciseKeys
+    }
+
+    private func totalExercisesCountForSubjectId(
+        _ subjectId: String
+    ) -> Int {
+        let cleanSubjectId = subjectId
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch cleanSubjectId {
+        case "releases_hands_hair_shirt":
+            return releaseSectionCount(
+                sectionId: "releases_hands_hair_shirt",
+                currentBelt: belt
+            )
+
+        case "releases_chokes":
+            return releaseSectionCount(
+                sectionId: "releases_chokes",
+                currentBelt: belt
+            )
+
+        case "releases_hugs":
+            return releaseSectionCount(
+                sectionId: "releases_hugs",
+                currentBelt: belt
+            )
+
+        case "hands_strikes",
+             "hands_elbows",
+             "hands_stick_rifle":
+            guard let subject = subjectForCounting(cleanSubjectId) else {
+                return 0
+            }
+
+            return SubjectAcrossBeltsView.resolvedExerciseCount(
+                subject: subject
+            )
+
+        default:
+            break
+        }
+
+        guard let subject = subjectForCounting(cleanSubjectId) else {
+            return 0
+        }
+
+        if cleanSubjectId == "rolls_breakfalls" {
+            return exerciseKeys(
+                for: subject,
+                beltsToResolve: [belt]
+            ).count
+        }
+
+        return exerciseKeys(for: subject).count
     }
 
     private func resolvedSections(for subject: SubjectTopic) -> [HardSectionsCatalog.Section] {
@@ -1186,16 +1516,27 @@ struct BeltQuestionsByTopicView: View {
             }
         }
 
-        if subject.id == "def_internal_punch" {
-            let punchSections = HardSectionsCatalog.shared.sectionsForSubject(subjectId: "def_internal_punch") ?? []
-            let kickSections = HardSectionsCatalog.shared.sectionsForSubject(subjectId: "def_internal_kick") ?? []
-            return punchSections + kickSections
-        }
+        switch subject.id {
+        case "def_internal",
+             "def_internal_punch",
+             "def_internal_punches",
+             "def_internal_kick",
+             "def_internal_kicks":
+            return HardSectionsCatalog.shared.sectionsForSubject(
+                subjectId: "def_internal"
+            ) ?? []
 
-        if subject.id == "def_external_punch" {
-            let punchSections = HardSectionsCatalog.shared.sectionsForSubject(subjectId: "def_external_punch") ?? []
-            let kickSections = HardSectionsCatalog.shared.sectionsForSubject(subjectId: "def_external_kick") ?? []
-            return punchSections + kickSections
+        case "def_external",
+             "def_external_punch",
+             "def_external_punches",
+             "def_external_kick",
+             "def_external_kicks":
+            return HardSectionsCatalog.shared.sectionsForSubject(
+                subjectId: "def_external"
+            ) ?? []
+
+        default:
+            break
         }
 
         let directSections = HardSectionsCatalog.shared.sectionsForSubject(subjectId: subject.id) ?? []
@@ -1249,14 +1590,103 @@ struct BeltQuestionsByTopicView: View {
         return []
     }
 
+    private func displayedExerciseCount(
+        for subject: SubjectTopic
+    ) -> Int {
+        let cleanSubjectId = subject.id
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let sections = resolvedSections(for: subject)
+
+        let defenseSubjectIds: Set<String> = [
+            "def_internal",
+            "def_internal_punch",
+            "def_external",
+            "def_external_punch",
+            "kicks_hard",
+            "knife_defense",
+            "knife_rifle_defense",
+            "gun_threat_defense",
+            "multiple_attackers_defense",
+            "stick_defense"
+        ]
+
+        if defenseSubjectIds.contains(cleanSubjectId) {
+            return uniqueExerciseCount(
+                in: sections
+            )
+        }
+
+        let forcedSectionTitle: String?
+        if sections.count == 1 {
+            forcedSectionTitle = sections.first?.title
+        } else {
+            forcedSectionTitle = nil
+        }
+
+        return SubjectAcrossBeltsView.resolvedExerciseCount(
+            subject: subject,
+            forcedSectionTitle: forcedSectionTitle
+        )
+    }
+
     private func subtitleLineTop(for topic: MainTopic) -> String? {
         nil
     }
 
     private func totalExercisesCount(for topic: MainTopic) -> Int {
-        return topic.subjects.reduce(0) { partial, subject in
-            partial + totalExercisesCountForSubjectId(subject.id)
+        if topic.id == "releases" {
+            return [
+                "releases_hands_hair_shirt",
+                "releases_chokes",
+                "releases_hugs"
+            ].reduce(0) { partial, sectionId in
+                partial + releaseSectionCount(
+                    sectionId: sectionId,
+                    currentBelt: belt
+                )
+            }
         }
+
+        if topic.id == "defense_root" {
+            return topic.subjects.reduce(0) { partial, subject in
+                partial + displayedExerciseCount(
+                    for: subject
+                )
+            }
+        }
+
+        if topic.id == "hands_root" {
+            return topic.subjects.reduce(0) { partial, subject in
+                partial + SubjectAcrossBeltsView.resolvedExerciseCount(
+                    subject: subject
+                )
+            }
+        }
+
+        if topic.id == "kicks",
+           let kicksSubject = topic.subjects.first {
+            return SubjectAcrossBeltsView.resolvedExerciseCount(
+                subject: kicksSubject
+            )
+        }
+
+        if topic.id == "rolls_breakfalls",
+           let rollsSubject = topic.subjects.first {
+            return SubjectAcrossBeltsView.resolvedExerciseCount(
+                subject: rollsSubject
+            )
+        }
+
+        var uniqueExerciseKeys = Set<String>()
+
+        for subject in topic.subjects {
+            uniqueExerciseKeys.formUnion(
+                exerciseKeys(for: subject)
+            )
+        }
+
+        return uniqueExerciseKeys.count
     }
 
     private func subtitleLineBottom(for topic: MainTopic) -> String {
@@ -1424,7 +1854,13 @@ struct BeltQuestionsByTopicView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.80)
 
-            Text(exercisesCountText(totalExercisesCountForSubjectId(subject.id)))
+            Text(
+                exercisesCountText(
+                    displayedExerciseCount(
+                        for: subject
+                    )
+                )
+            )
                 .font(.system(size: 10.5, weight: .black))
                 .foregroundStyle(accentForTopicSubject(subject).opacity(0.90))
                 .frame(

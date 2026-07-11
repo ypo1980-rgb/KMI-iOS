@@ -20,6 +20,8 @@ struct SubjectTopic: Identifiable, Hashable {
     let belts: [Belt]
     let topicsByBelt: [Belt: [String]]
     let subTopicHint: String?
+    let parentId: String?
+    let subTopics: [String]
 
     // OR
     let includeItemKeywords: [String]
@@ -38,6 +40,8 @@ struct SubjectTopic: Identifiable, Hashable {
         belts: [Belt],
         topicsByBelt: [Belt: [String]],
         subTopicHint: String? = nil,
+        parentId: String? = nil,
+        subTopics: [String] = [],
         includeItemKeywords: [String] = [],
         requireAllItemKeywords: [String] = [],
         excludeItemKeywords: [String] = []
@@ -48,6 +52,8 @@ struct SubjectTopic: Identifiable, Hashable {
         self.belts = belts
         self.topicsByBelt = topicsByBelt
         self.subTopicHint = subTopicHint
+        self.parentId = parentId
+        self.subTopics = subTopics
         self.includeItemKeywords = includeItemKeywords
         self.requireAllItemKeywords = requireAllItemKeywords
         self.excludeItemKeywords = excludeItemKeywords
@@ -56,20 +62,173 @@ struct SubjectTopic: Identifiable, Hashable {
 
 enum TopicsBySubjectRegistry {
 
+    private static let orderedTrainingBelts: [Belt] = [
+        .yellow,
+        .orange,
+        .green,
+        .blue,
+        .brown,
+        .black
+    ]
+
+    private static let releasesBelts: [Belt] = {
+        let releaseSections =
+            HardSectionsCatalog.shared.sectionsForSubject(
+                subjectId: "releases"
+            ) ?? []
+
+        var usedBelts = Set<Belt>()
+
+        func collectBelts(
+            from section: HardSectionsCatalog.Section
+        ) {
+            for group in section.beltGroups where !group.items.isEmpty {
+                usedBelts.insert(group.belt)
+            }
+
+            for child in section.subSections {
+                collectBelts(from: child)
+            }
+        }
+
+        releaseSections.forEach(collectBelts)
+
+        return orderedTrainingBelts.filter {
+            usedBelts.contains($0)
+        }
+    }()
+
+    private static let releasesTopicsByBelt: [Belt: [String]] = {
+        Dictionary(
+            uniqueKeysWithValues: releasesBelts.map {
+                ($0, ["שחרורים"])
+            }
+        )
+    }()
+
     static let all: [SubjectTopic] = [
+
+        // ================== עבודת ידיים ==================
+        SubjectTopic(
+            id: "hands_all",
+            titleHeb: "עבודת ידיים",
+            description: "מכות יד + מכות מרפק + מכות במקל / רובה",
+            belts: [
+                .yellow,
+                .orange,
+                .green,
+                .black
+            ],
+            topicsByBelt: [
+                .yellow: [
+                    "עבודת ידיים",
+                    "מכות ידיים",
+                    "מכות יד"
+                ],
+                .orange: [
+                    "עבודת ידיים",
+                    "מכות יד",
+                    "מכות ידיים"
+                ],
+                .green: [
+                    "מכות מרפק",
+                    "מכות במקל / רובה"
+                ],
+                .black: [
+                    "מכות במקל / רובה",
+                    "מכות במקל קצר"
+                ]
+            ],
+            subTopics: [
+                "מכות יד",
+                "מכות מרפק",
+                "מכות במקל / רובה"
+            ]
+        ),
+
+        // ================== עבודת ידיים – מכות יד ==================
+        SubjectTopic(
+            id: "hands_strikes",
+            titleHeb: "מכות יד",
+            description: "תרגילי מכות יד מתוך עבודת ידיים",
+            belts: [
+                .yellow,
+                .orange
+            ],
+            topicsByBelt: [
+                .yellow: [
+                    "עבודת ידיים",
+                    "מכות ידיים",
+                    "מכות יד"
+                ],
+                .orange: [
+                    "עבודת ידיים",
+                    "מכות יד",
+                    "מכות ידיים"
+                ]
+            ],
+            subTopicHint: "מכות יד",
+            parentId: "hands_all"
+        ),
+
+        // ================== עבודת ידיים – מכות מרפק ==================
+        SubjectTopic(
+            id: "hands_elbows",
+            titleHeb: "מכות מרפק",
+            description: "תרגילי מכות מרפק מתוך עבודת ידיים",
+            belts: [
+                .green
+            ],
+            topicsByBelt: [
+                .green: [
+                    "מכות מרפק"
+                ]
+            ],
+            subTopicHint: "מרפק",
+            parentId: "hands_all"
+        ),
+
+        // ================== עבודת ידיים – מכות במקל / רובה ==================
+        SubjectTopic(
+            id: "hands_stick_rifle",
+            titleHeb: "מכות במקל / רובה",
+            description: "תרגילי מכות במקל וברובה מתוך עבודת ידיים",
+            belts: [
+                .green,
+                .black
+            ],
+            topicsByBelt: [
+                .green: [
+                    "מכות במקל / רובה"
+                ],
+                .black: [
+                    "מכות במקל / רובה",
+                    "מכות במקל קצר"
+                ]
+            ],
+            subTopicHint: "מקל",
+            parentId: "hands_all"
+        ),
 
         // ================== בלימות וגלגולים ==================
         SubjectTopic(
-            id: "topic_breakfalls_rolls",
+            id: "rolls_breakfalls",
             titleHeb: "בלימות וגלגולים",
-            description: "בלימות וגלגולים בסיסיים ומתקדמים לעבודה בטוחה.",
-            belts: [.yellow, .orange, .green, .blue, .brown],
+            belts: [
+                .yellow,
+                .orange,
+                .green,
+                .blue
+            ],
             topicsByBelt: [
-                .yellow: ["בלימות וגלגולים"],
-                .orange: ["בלימות וגלגולים"],
-                .green:  ["בלימות וגלגולים"],
-                .blue:   ["בלימות וגלגולים"],
-                .brown:  ["בלימות וגלגולים"]
+                .yellow: ["כללי"],
+                .orange: ["כללי"],
+                .green: ["בלימות וגלגולים"],
+                .blue: ["בלימות וגלגולים"]
+            ],
+            includeItemKeywords: [
+                "בלימ",
+                "גלגול"
             ]
         ),
 
@@ -77,45 +236,61 @@ enum TopicsBySubjectRegistry {
         SubjectTopic(
             id: "topic_ready_stance",
             titleHeb: "עמידת מוצא",
-            description: "עמידת מוצא, תנועה בסיסית והכנת הגוף לעבודה.",
-            belts: [.yellow, .orange, .green, .blue, .brown, .black],
+            description: "עמידות מוצא בסיסיות",
+            belts: [
+                .yellow
+            ],
             topicsByBelt: [
-                .yellow: ["עמידת מוצא"],
-                .orange: ["עמידת מוצא"],
-                .green:  ["עמידת מוצא"],
-                .blue:   ["עמידת מוצא"],
-                .brown:  ["עמידת מוצא"],
-                .black:  ["עמידת מוצא"]
+                .yellow: ["עמידת מוצא"]
             ]
         ),
 
-        // ================== הכנה לעבודת קרקע ==================
+        // ================== עבודת קרקע ==================
         SubjectTopic(
             id: "topic_ground_prep",
-            titleHeb: "הכנה לעבודת קרקע",
-            description: "מעברים, הכנה בסיסית ושליטה ראשונית לעבודת קרקע.",
-            belts: [.orange, .green, .blue, .brown, .black],
+            titleHeb: "עבודת קרקע",
+            description: "הוצאת אגן, הרמת אגן ומוצא לעבודת קרקע",
+            belts: [
+                .yellow
+            ],
             topicsByBelt: [
-                .orange: ["הכנה לעבודת קרקע"],
-                .green:  ["הכנה לעבודת קרקע"],
-                .blue:   ["הכנה לעבודת קרקע"],
-                .brown:  ["הכנה לעבודת קרקע"],
-                .black:  ["הכנה לעבודת קרקע"]
+                .yellow: ["עבודת קרקע"]
             ]
         ),
 
-        // ================== קוואליר ==================
+        // ================== קוואלר ==================
         SubjectTopic(
-            id: "topic_kawalr",
-            titleHeb: "קוואליר",
-            description: "עקרונות קוואליר ותרגול תנועות/כניסות רלוונטיות.",
-            belts: [.orange, .green, .blue, .brown, .black],
+            id: "topic_kavaler",
+            titleHeb: "קוואלר",
+            description: "תרגילי קוואלר",
+            belts: [
+                .green
+            ],
             topicsByBelt: [
-                .orange: ["קוואליר"],
-                .green:  ["קוואליר"],
-                .blue:   ["קוואליר"],
-                .brown:  ["קוואליר"],
-                .black:  ["קוואליר"]
+                .green: ["קוואלר"]
+            ]
+        ),
+
+        // ================== הגנות – נושא אב ==================
+        SubjectTopic(
+            id: "defenses",
+            titleHeb: "הגנות",
+            description: "הגנות פנימיות, חיצוניות, בעיטות, סכין, אקדח, מקל ומספר תוקפים",
+            belts: [
+                .yellow,
+                .orange,
+                .green,
+                .blue,
+                .brown,
+                .black
+            ],
+            topicsByBelt: [
+                .yellow: ["הגנות"],
+                .orange: ["הגנות"],
+                .green: ["הגנות"],
+                .blue: ["הגנות"],
+                .brown: ["הגנות"],
+                .black: ["הגנות"]
             ]
         ),
 
@@ -124,16 +299,26 @@ enum TopicsBySubjectRegistry {
             id: "def_internal_punches",
             titleHeb: "הגנות פנימיות – אגרופים",
             description: "הגנות פנימיות נגד אגרופים.",
-            belts: [.yellow, .orange, .green, .blue, .brown, .black],
+            belts: [
+                .yellow,
+                .orange,
+                .green,
+                .blue,
+                .brown,
+                .black
+            ],
             topicsByBelt: [
                 .yellow: ["הגנות"],
                 .orange: ["הגנות"],
-                .green:  ["הגנות"],
-                .blue:   ["הגנות"],
-                .brown:  ["הגנות"],
-                .black:  ["הגנות"]
+                .green: ["הגנות"],
+                .blue: ["הגנות"],
+                .brown: ["הגנות"],
+                .black: ["הגנות"]
             ],
-            includeItemKeywords: ["def:internal:punch"]
+            parentId: "defenses",
+            requireAllItemKeywords: [
+                "def:internal:punch"
+            ]
         ),
 
         // ================== הגנות פנימיות – בעיטות ==================
@@ -141,16 +326,26 @@ enum TopicsBySubjectRegistry {
             id: "def_internal_kicks",
             titleHeb: "הגנות פנימיות – בעיטות",
             description: "הגנות פנימיות נגד בעיטות.",
-            belts: [.yellow, .orange, .green, .blue, .brown, .black],
+            belts: [
+                .yellow,
+                .orange,
+                .green,
+                .blue,
+                .brown,
+                .black
+            ],
             topicsByBelt: [
                 .yellow: ["הגנות"],
                 .orange: ["הגנות"],
-                .green:  ["הגנות"],
-                .blue:   ["הגנות"],
-                .brown:  ["הגנות"],
-                .black:  ["הגנות"]
+                .green: ["הגנות"],
+                .blue: ["הגנות"],
+                .brown: ["הגנות"],
+                .black: ["הגנות"]
             ],
-            includeItemKeywords: ["def:internal:kick"]
+            parentId: "defenses",
+            requireAllItemKeywords: [
+                "def:internal:kick"
+            ]
         ),
 
         // ================== הגנות חיצוניות – אגרופים ==================
@@ -158,16 +353,26 @@ enum TopicsBySubjectRegistry {
             id: "def_external_punches",
             titleHeb: "הגנות חיצוניות – אגרופים",
             description: "הגנות חיצוניות נגד אגרופים.",
-            belts: [.yellow, .orange, .green, .blue, .brown, .black],
+            belts: [
+                .yellow,
+                .orange,
+                .green,
+                .blue,
+                .brown,
+                .black
+            ],
             topicsByBelt: [
                 .yellow: ["הגנות"],
                 .orange: ["הגנות"],
-                .green:  ["הגנות"],
-                .blue:   ["הגנות"],
-                .brown:  ["הגנות"],
-                .black:  ["הגנות"]
+                .green: ["הגנות"],
+                .blue: ["הגנות"],
+                .brown: ["הגנות"],
+                .black: ["הגנות"]
             ],
-            includeItemKeywords: ["def:external:punch"]
+            parentId: "defenses",
+            requireAllItemKeywords: [
+                "def:external:punch"
+            ]
         ),
 
         // ================== הגנות חיצוניות – בעיטות ==================
@@ -175,76 +380,159 @@ enum TopicsBySubjectRegistry {
             id: "def_external_kicks",
             titleHeb: "הגנות חיצוניות – בעיטות",
             description: "הגנות חיצוניות נגד בעיטות.",
-            belts: [.yellow, .orange, .green, .blue, .brown, .black],
+            belts: [
+                .yellow,
+                .orange,
+                .green,
+                .blue,
+                .brown,
+                .black
+            ],
             topicsByBelt: [
                 .yellow: ["הגנות"],
                 .orange: ["הגנות"],
-                .green:  ["הגנות"],
-                .blue:   ["הגנות"],
-                .brown:  ["הגנות"],
-                .black:  ["הגנות"]
+                .green: ["הגנות"],
+                .blue: ["הגנות"],
+                .brown: ["הגנות"],
+                .black: ["הגנות"]
             ],
-            includeItemKeywords: ["def:external:kick"]
+            parentId: "defenses",
+            requireAllItemKeywords: [
+                "def:external:kick"
+            ]
         ),
 
         // ================== בעיטות ==================
         SubjectTopic(
             id: "kicks",
             titleHeb: "בעיטות",
-            description: "בעיטות בסיסיות ומתקדמות – קדמית, עגולה, צד, בניתור ועוד.",
-            belts: [.yellow, .orange, .green, .blue, .brown, .black],
+            description: "מגל, הגנה, בניתור, צד",
+            belts: [
+                .yellow,
+                .orange,
+                .green,
+                .blue,
+                .brown,
+                .black
+            ],
             topicsByBelt: [
                 .yellow: ["בעיטות"],
                 .orange: ["בעיטות"],
-                .green:  ["בעיטות"],
-                .blue:   ["בעיטות"],
-                .brown:  ["בעיטות"],
-                .black:  ["בעיטות"]
+                .green: ["בעיטות"],
+                .blue: ["בעיטות"],
+                .brown: ["בעיטות"],
+                .black: ["בעיטות"]
             ]
         ),
 
-        // ================== חביקות גוף ==================
-        SubjectTopic(
-            id: "body_hugs",
-            titleHeb: "חביקות גוף",
-            description: "שחרורים ותגובות מול חביקות גוף – מלפנים/מאחור, ידיים חופשיות/נעולות ועוד.",
-            belts: [.yellow, .orange, .green, .blue, .brown, .black],
-            topicsByBelt: [
-                .yellow: ["שחרורים"],
-                .orange: ["שחרורים"],
-                .green:  ["שחרורים"],
-                .blue:   ["שחרורים"],
-                .brown:  ["שחרורים"],
-                .black:  ["שחרורים"]
-            ],
-            includeItemKeywords: ["חביק", "חיבוק", "חיבוקים", "חביקות"]
-        ),
-
-        // ================== שחרורים ==================
+        // ================== שחרורים – נושא אב ==================
         SubjectTopic(
             id: "releases",
             titleHeb: "שחרורים",
-            description: "שחרורים מתפיסות ידיים, חניקות וחביקות בכל רמות החגורות.",
-            belts: [.yellow, .orange, .green, .blue, .brown, .black],
-            topicsByBelt: [
-                .yellow: ["שחרורים"],
-                .orange: ["שחרורים"],
-                .green:  ["שחרורים"],
-                .blue:   ["שחרורים"],
-                .brown:  ["שחרורים"],
-                .black:  ["שחרורים"]
+            description: "מתפיסות ידיים, מחניקות ומחביקות",
+            belts: releasesBelts,
+            topicsByBelt: releasesTopicsByBelt,
+            subTopics: [
+                "שחרור מתפיסות ידיים / שיער / חולצה",
+                "שחרור מחניקות",
+                "שחרור מחביקות"
             ]
         ),
 
-        // ================== עבודת ידיים ==================
+        // ================== שחרור מתפיסות ==================
+        SubjectTopic(
+            id: "releases_hands_hair_shirt",
+            titleHeb: "שחרור מתפיסות ידיים / שיער / חולצה",
+            description: "תפיסות ידיים, תפיסות שיער ואחיזות חולצה",
+            belts: releasesBelts,
+            topicsByBelt: releasesTopicsByBelt,
+            parentId: "releases",
+            includeItemKeywords: [
+                "תפיס",
+                "אחיז",
+                "אוחז",
+                "חולצ",
+                "חולצה",
+                "שיער"
+            ],
+            excludeItemKeywords: [
+                "חניק",
+                "חביק",
+                "אקדח",
+                "סכין",
+                "מקל"
+            ]
+        ),
+
+        // ================== שחרור מחניקות ==================
+        SubjectTopic(
+            id: "releases_chokes",
+            titleHeb: "שחרור מחניקות",
+            description: "חניקות צואר מלפנים/מאחור",
+            belts: releasesBelts,
+            topicsByBelt: releasesTopicsByBelt,
+            parentId: "releases",
+            includeItemKeywords: [
+                "חניק",
+                "חניקה",
+                "חניקות",
+                "צואר"
+            ],
+            excludeItemKeywords: [
+                "תפיס",
+                "אחיז",
+                "חביק",
+                "חולצ",
+                "שיער"
+            ]
+        ),
+
+        // ================== שחרור מחביקות ==================
+        SubjectTopic(
+            id: "releases_hugs",
+            titleHeb: "שחרור מחביקות",
+            description: "חביקות גוף / צואר / זרוע",
+            belts: releasesBelts,
+            topicsByBelt: releasesTopicsByBelt,
+            parentId: "releases",
+            subTopics: [
+                "חביקות גוף",
+                "חביקות צואר",
+                "חביקות זרוע"
+            ],
+            includeItemKeywords: [
+                "חביק",
+                "חיבוק",
+                "חיבוקים",
+                "חביקות"
+            ],
+            excludeItemKeywords: [
+                "חניק",
+                "תפיס",
+                "אחיז",
+                "חולצ",
+                "שיער"
+            ]
+        ),
+
+        // ================== עבודת ידיים – תאימות קיימת ==================
         SubjectTopic(
             id: "punches",
             titleHeb: "עבודת ידיים",
             description: "עבודת אגרופים ומכות יד – ישרים, מגל, פיסת יד ועוד.",
-            belts: [.yellow, .orange],
+            belts: [
+                .yellow,
+                .orange
+            ],
             topicsByBelt: [
                 .yellow: ["עבודת ידיים"],
                 .orange: ["עבודת ידיים"]
+            ],
+            includeItemKeywords: [
+                "אגרוף",
+                "פיסת",
+                "מגל",
+                "סנוקרת"
             ]
         ),
 
@@ -253,49 +541,137 @@ enum TopicsBySubjectRegistry {
             id: "knife_defense",
             titleHeb: "הגנות סכין",
             description: "עקרונות עבודה והגנות מול איום ודקירות בסכין.",
-            belts: [.green, .blue, .brown, .black],
+            belts: [
+                .green,
+                .blue,
+                .brown,
+                .black
+            ],
             topicsByBelt: [
-                .green: ["הגנות סכין"],
-                .blue:  ["הגנות סכין"],
-                .brown: ["הגנות סכין"],
-                .black: ["הגנות סכין"]
+                .green: ["הגנות"],
+                .blue: ["הגנות"],
+                .brown: ["הגנות"],
+                .black: ["הגנות"]
+            ],
+            subTopicHint: "סכין",
+            parentId: "defenses",
+            excludeItemKeywords: [
+                "מקל",
+                "אקדח",
+                "תמ\"ק"
             ]
         ),
 
-        // ================== הגנות מאיום אקדח ==================
+        // ================== הגנות עם רובה נגד סכין ==================
+        SubjectTopic(
+            id: "knife_rifle_defense",
+            titleHeb: "הגנות עם רובה נגד דקירות סכין",
+            belts: [
+                .black
+            ],
+            topicsByBelt: [
+                .black: ["הגנות"]
+            ],
+            subTopicHint: "סכין",
+            parentId: "defenses",
+            includeItemKeywords: [
+                "רובה"
+            ]
+        ),
+
+        // ================== מספר תוקפים ==================
+        SubjectTopic(
+            id: "multiple_attackers_defense",
+            titleHeb: "הגנות נגד מספר תוקפים",
+            belts: [
+                .black
+            ],
+            topicsByBelt: [
+                .black: ["הגנות"]
+            ],
+            parentId: "defenses",
+            includeItemKeywords: [
+                "1 מקל",
+                "2 תוקפים"
+            ]
+        ),
+
+        // ================== איום אקדח ==================
         SubjectTopic(
             id: "gun_threat_defense",
             titleHeb: "הגנות מאיום אקדח",
-            description: "הגנות ואילוצים כנגד איומי אקדח במצבי עמידה שונים.",
-            belts: [.brown, .black],
+            belts: [
+                .brown,
+                .black
+            ],
             topicsByBelt: [
                 .brown: ["הגנות"],
                 .black: ["הגנות"]
             ],
-            subTopicHint: "אקדח"
+            subTopicHint: "אקדח",
+            parentId: "defenses",
+            includeItemKeywords: [
+                "אקדח",
+                "תמ\"ק"
+            ],
+            excludeItemKeywords: [
+                "סכין",
+                "מקל"
+            ]
         ),
 
         // ================== הגנות נגד מקל ==================
         SubjectTopic(
             id: "stick_defense",
             titleHeb: "הגנות נגד מקל",
-            description: "עבודה מול תקיפות במקל – בלימות, כניסות וניטרול.",
-            belts: [.green, .brown, .black],
+            belts: [
+                .green,
+                .brown,
+                .black
+            ],
             topicsByBelt: [
                 .green: ["הגנות"],
                 .brown: ["הגנות"],
                 .black: ["הגנות"]
+            ],
+            subTopicHint: "מקל",
+            parentId: "defenses",
+            excludeItemKeywords: [
+                "סכין",
+                "אקדח",
+                "תמ\"ק"
             ]
         )
     ]
 
-    static func allSubjects() -> [SubjectTopic] { all }
+    static func allSubjects() -> [SubjectTopic] {
+        all.filter { $0.parentId == nil }
+    }
 
     static func subjectById(_ id: String) -> SubjectTopic? {
-        all.first { $0.id == id }
+        let cleanId = id.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return all.first {
+            $0.id.trimmingCharacters(in: .whitespacesAndNewlines) == cleanId
+        }
     }
 
     static func subjectsForBelt(_ belt: Belt) -> [SubjectTopic] {
-        all.filter { $0.belts.contains(belt) }
+        all.filter {
+            $0.parentId == nil &&
+            $0.belts.contains(belt)
+        }
+    }
+
+    static func subSubjectsFor(
+        parentId: String,
+        belt: Belt
+    ) -> [SubjectTopic] {
+        let cleanParentId = parentId.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return all.filter {
+            $0.parentId?.trimmingCharacters(in: .whitespacesAndNewlines) == cleanParentId &&
+            $0.belts.contains(belt)
+        }
     }
 }

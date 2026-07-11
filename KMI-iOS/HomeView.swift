@@ -1,7 +1,47 @@
 import SwiftUI
+import UIKit
 import FirebaseAuth
 import FirebaseFirestore
 import Shared
+
+private struct HomePDFShareItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+private struct HomePDFShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(
+        context: Context
+    ) -> UIActivityViewController {
+        UIActivityViewController(
+            activityItems: items,
+            applicationActivities: nil
+        )
+    }
+
+    func updateUIViewController(
+        _ uiViewController: UIActivityViewController,
+        context: Context
+    ) {
+    }
+}
+
+private enum HomePDFExportError: LocalizedError {
+    case noTrainings
+    case writeFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .noTrainings:
+            return "אין אימונים זמינים ליצירת PDF"
+
+        case .writeFailed:
+            return "לא ניתן היה ליצור את קובץ ה־PDF"
+        }
+    }
+}
 
 private struct CoachHomeMessage: Identifiable, Hashable {
     let id: String
@@ -52,6 +92,9 @@ struct HomeView: View {
 
     @State private var selectedTraining: TrainingData? = nil
     @State private var showNavigationSheet: Bool = false
+
+    @State private var pdfShareItem: HomePDFShareItem? = nil
+    @State private var pdfExportErrorMessage: String? = nil
 
     // Android parity: quick menu icon must always be visible on Home
     @State private var showHomeQuickMenu: Bool = false
@@ -627,6 +670,54 @@ struct HomeView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
+        .sheet(item: $pdfShareItem) { shareItem in
+            HomePDFShareSheet(
+                items: [shareItem.url]
+            )
+        }
+        .alert(
+            tr("לא ניתן לשתף", "Unable to Share"),
+            isPresented: Binding(
+                get: {
+                    pdfExportErrorMessage != nil
+                },
+                set: { isPresented in
+                    if !isPresented {
+                        pdfExportErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button(tr("אישור", "OK"), role: .cancel) {
+                pdfExportErrorMessage = nil
+            }
+        } message: {
+            Text(pdfExportErrorMessage ?? "")
+        }
+        .toolbar {
+            ToolbarItem(
+                placement: isEnglish
+                ? .topBarTrailing
+                : .topBarLeading
+            ) {
+                Button {
+                    shareUpcomingTrainingsPDF()
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 17, weight: .bold))
+                }
+                .disabled(
+                    isAbroadUser ||
+                    effectiveUpcomingTrainings.isEmpty
+                )
+                .accessibilityLabel(
+                    tr(
+                        "שתף את לוח האימונים כקובץ PDF",
+                        "Share training schedule as PDF"
+                    )
+                )
+            }
+        }
         .environment(\.layoutDirection, screenLayoutDirection)
     }
     
@@ -983,6 +1074,981 @@ struct HomeView: View {
     }
     
     // MARK: - Helpers
+
+    @MainActor
+    private func shareUpcomingTrainingsPDF() {
+        do {
+            let url = try createUpcomingTrainingsPDF()
+
+            pdfShareItem = HomePDFShareItem(
+                url: url
+            )
+        } catch {
+            pdfExportErrorMessage =
+                error.localizedDescription
+        }
+    }
+
+    private func createUpcomingTrainingsPDF() throws -> URL {
+        let trainings = effectiveUpcomingTrainings
+            .sorted { left, right in
+                left.date < right.date
+            }
+
+        guard !trainings.isEmpty else {
+            throw HomePDFExportError.noTrainings
+        }
+
+        let displayedTrainings = Array(
+            trainings.prefix(5)
+        )
+
+        let pageRect = CGRect(
+            x: 0,
+            y: 0,
+            width: 595,
+            height: 842
+        )
+
+        let renderer = UIGraphicsPDFRenderer(
+            bounds: pageRect
+        )
+
+        let pdfData = renderer.pdfData { context in
+
+            let cg = context.cgContext
+
+            let navy = UIColor(
+                red: 2/255,
+                green: 43/255,
+                blue: 74/255,
+                alpha: 1
+            )
+
+            let blue = UIColor(
+                red: 12/255,
+                green: 78/255,
+                blue: 130/255,
+                alpha: 1
+            )
+
+            let lightBlue = UIColor(
+                red: 234/255,
+                green: 246/255,
+                blue: 255/255,
+                alpha: 1
+            )
+
+            let softBlue = UIColor(
+                red: 244/255,
+                green: 250/255,
+                blue: 255/255,
+                alpha: 1
+            )
+
+            let borderBlue = UIColor(
+                red: 191/255,
+                green: 213/255,
+                blue: 232/255,
+                alpha: 1
+            )
+
+            var currentY: CGFloat = 0
+
+            func newPage() {
+                context.beginPage()
+                currentY = 0
+            }
+
+            newPage()
+
+            cg.setFillColor(UIColor.white.cgColor)
+            cg.fill(pageRect)
+
+            let banner = UIBezierPath()
+
+            banner.move(
+                to: CGPoint(x: 595, y: 0)
+            )
+
+            banner.addLine(
+                to: CGPoint(x: 595, y: 122)
+            )
+
+            banner.addLine(
+                to: CGPoint(x: 178, y: 122)
+            )
+
+            banner.addLine(
+                to: CGPoint(x: 238, y: 0)
+            )
+
+            banner.close()
+
+            navy.setFill()
+
+            banner.fill()
+
+            UIColor(
+                red: 36/255,
+                green: 103/255,
+                blue: 158/255,
+                alpha: 1
+            ).setFill()
+
+            let stripeOne = UIBezierPath()
+
+            stripeOne.move(
+                to: CGPoint(x: 208, y: 122)
+            )
+
+            stripeOne.addLine(
+                to: CGPoint(x: 224, y: 122)
+            )
+
+            stripeOne.addLine(
+                to: CGPoint(x: 284, y: 0)
+            )
+
+            stripeOne.addLine(
+                to: CGPoint(x: 268, y: 0)
+            )
+
+            stripeOne.close()
+
+            stripeOne.fill()
+
+            UIColor(
+                red: 128/255,
+                green: 183/255,
+                blue: 220/255,
+                alpha: 1
+            ).setFill()
+
+            let stripeTwo = UIBezierPath()
+
+            stripeTwo.move(
+                to: CGPoint(x: 230, y: 122)
+            )
+
+            stripeTwo.addLine(
+                to: CGPoint(x: 238, y: 122)
+            )
+
+            stripeTwo.addLine(
+                to: CGPoint(x: 298, y: 0)
+            )
+
+            stripeTwo.addLine(
+                to: CGPoint(x: 290, y: 0)
+            )
+
+            stripeTwo.close()
+
+            stripeTwo.fill()
+
+            cg.setStrokeColor(
+                navy.cgColor
+            )
+
+            cg.setLineWidth(4)
+
+            cg.strokeEllipse(
+                in: CGRect(
+                    x: 36,
+                    y: 18,
+                    width: 84,
+                    height: 84
+                )
+            )
+
+            let logoAttributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.boldSystemFont(ofSize: 24),
+                .foregroundColor: navy
+            ]
+
+            NSAttributedString(
+                string: "KAMI",
+                attributes: logoAttributes
+            )
+            .draw(
+                in: CGRect(
+                    x: 46,
+                    y: 46,
+                    width: 64,
+                    height: 30
+                )
+            )
+
+            let titleStyle = NSMutableParagraphStyle()
+            titleStyle.alignment = .right
+
+            let titleAttributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.boldSystemFont(ofSize: 29),
+                .foregroundColor: UIColor.white,
+                .paragraphStyle: titleStyle
+            ]
+
+            let subAttributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 14),
+                .foregroundColor: UIColor.white,
+                .paragraphStyle: titleStyle
+            ]
+
+            NSAttributedString(
+                string: tr(
+                    "מסך הבית",
+                    "Home"
+                ),
+                attributes: titleAttributes
+            )
+            .draw(
+                in: CGRect(
+                    x: 250,
+                    y: 28,
+                    width: 310,
+                    height: 40
+                )
+            )
+
+            NSAttributedString(
+                string: tr(
+                    "דו״ח אימונים לשבוע הקרוב",
+                    "Upcoming weekly trainings"
+                ),
+                attributes: subAttributes
+            )
+            .draw(
+                in: CGRect(
+                    x: 250,
+                    y: 66,
+                    width: 310,
+                    height: 22
+                )
+            )
+
+            currentY = 136
+
+            let textDark = UIColor(
+                red: 15/255,
+                green: 23/255,
+                blue: 42/255,
+                alpha: 1
+            )
+
+            let textMuted = UIColor(
+                red: 80/255,
+                green: 100/255,
+                blue: 120/255,
+                alpha: 1
+            )
+
+            func pdfParagraphStyle(
+                alignment: NSTextAlignment
+            ) -> NSMutableParagraphStyle {
+                let style = NSMutableParagraphStyle()
+                style.alignment = alignment
+                style.baseWritingDirection = isEnglish
+                    ? .leftToRight
+                    : .rightToLeft
+                style.lineBreakMode = .byTruncatingTail
+                return style
+            }
+
+            func drawRoundedRectangle(
+                _ rect: CGRect,
+                fillColor: UIColor,
+                strokeColor: UIColor? = nil,
+                cornerRadius: CGFloat = 12,
+                lineWidth: CGFloat = 1.2
+            ) {
+                let path = UIBezierPath(
+                    roundedRect: rect,
+                    cornerRadius: cornerRadius
+                )
+
+                fillColor.setFill()
+                path.fill()
+
+                if let strokeColor {
+                    strokeColor.setStroke()
+                    path.lineWidth = lineWidth
+                    path.stroke()
+                }
+                }
+
+                let centeredStyle = pdfParagraphStyle(
+                    alignment: .center
+                )
+
+                let generatedDateFormatter = DateFormatter()
+                generatedDateFormatter.locale = Locale(
+                    identifier: isEnglish
+                        ? "en_US_POSIX"
+                        : "he_IL"
+                )
+                generatedDateFormatter.calendar = calendar
+                generatedDateFormatter.dateFormat = "dd/MM/yyyy"
+
+            let generatedText = tr(
+                "תאריך הפקה: \(generatedDateFormatter.string(from: Date()))",
+                "Generated: \(generatedDateFormatter.string(from: Date()))"
+            )
+
+            let generatedAttributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(
+                    ofSize: 9,
+                    weight: .regular
+                ),
+                .foregroundColor: textMuted,
+                .paragraphStyle: pdfParagraphStyle(
+                    alignment: .right
+                )
+            ]
+
+            NSAttributedString(
+                string: generatedText,
+                attributes: generatedAttributes
+            )
+            .draw(
+                in: CGRect(
+                    x: 34,
+                    y: currentY,
+                    width: pageRect.width - 68,
+                    height: 16
+                )
+            )
+
+            currentY += 22
+
+            let summaryRect = CGRect(
+                x: 24,
+                y: currentY,
+                width: pageRect.width - 48,
+                height: 78
+            )
+
+            drawRoundedRectangle(
+                summaryRect,
+                fillColor: lightBlue,
+                strokeColor: borderBlue
+            )
+
+            let summaryTitleAttributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.boldSystemFont(ofSize: 17),
+                .foregroundColor: blue,
+                .paragraphStyle: pdfParagraphStyle(
+                    alignment: .right
+                )
+            ]
+
+            NSAttributedString(
+                string: tr(
+                    "אימונים לשבוע הקרוב",
+                    "Upcoming trainings"
+                ),
+                attributes: summaryTitleAttributes
+            )
+            .draw(
+                in: CGRect(
+                    x: summaryRect.minX + 22,
+                    y: summaryRect.minY + 17,
+                    width: summaryRect.width - 44,
+                    height: 24
+                )
+            )
+
+            let countLabelAttributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.boldSystemFont(ofSize: 10.5),
+                .foregroundColor: blue,
+                .paragraphStyle: pdfParagraphStyle(
+                    alignment: .right
+                )
+            ]
+
+            NSAttributedString(
+                string: tr(
+                    "מספר אימונים מוצגים:",
+                    "Displayed trainings:"
+                ),
+                attributes: countLabelAttributes
+            )
+            .draw(
+                in: CGRect(
+                    x: summaryRect.midX,
+                    y: summaryRect.minY + 46,
+                    width: summaryRect.width / 2 - 22,
+                    height: 18
+                )
+            )
+
+            let countAttributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.boldSystemFont(ofSize: 24),
+                .foregroundColor: navy,
+                .paragraphStyle: pdfParagraphStyle(
+                    alignment: .left
+                )
+            ]
+
+            NSAttributedString(
+                string: "\(displayedTrainings.count)",
+                attributes: countAttributes
+            )
+            .draw(
+                in: CGRect(
+                    x: summaryRect.minX + 28,
+                    y: summaryRect.minY + 32,
+                    width: 90,
+                    height: 34
+                )
+            )
+
+            currentY = summaryRect.maxY + 22
+
+            let detailsTitleAttributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.boldSystemFont(ofSize: 17),
+                .foregroundColor: blue,
+                .paragraphStyle: centeredStyle
+            ]
+
+            NSAttributedString(
+                string: tr(
+                    "פירוט אימונים",
+                    "Training details"
+                ),
+                attributes: detailsTitleAttributes
+            )
+            .draw(
+                in: CGRect(
+                    x: 24,
+                    y: currentY,
+                    width: pageRect.width - 48,
+                    height: 24
+                )
+            )
+
+            currentY += 32
+
+            for (index, training) in displayedTrainings.enumerated() {
+                let cardHeight: CGFloat = 92
+                let cardSpacing: CGFloat = 6
+
+                if currentY + cardHeight > 792 {
+                    break
+                }
+
+                let cardRect = CGRect(
+                    x: 24,
+                    y: currentY,
+                    width: pageRect.width - 48,
+                    height: cardHeight
+                )
+
+                drawRoundedRectangle(
+                    cardRect,
+                    fillColor: index.isMultiple(of: 2)
+                        ? lightBlue
+                        : softBlue,
+                    strokeColor: borderBlue
+                )
+
+                let dividerX = cardRect.midX
+
+                cg.saveGState()
+                cg.setStrokeColor(borderBlue.cgColor)
+                cg.setLineWidth(1)
+                cg.move(
+                    to: CGPoint(
+                        x: dividerX,
+                        y: cardRect.minY + 22
+                    )
+                )
+                cg.addLine(
+                    to: CGPoint(
+                        x: dividerX,
+                        y: cardRect.maxY - 20
+                    )
+                )
+                cg.strokePath()
+                cg.restoreGState()
+
+                let localeIdentifier =
+                    isEnglish ? "en_US_POSIX" : "he_IL"
+
+                let dayFormatter = DateFormatter()
+                dayFormatter.locale = Locale(
+                    identifier: localeIdentifier
+                )
+                dayFormatter.calendar = calendar
+                dayFormatter.dateFormat = "EEEE"
+
+                let dateFormatter = DateFormatter()
+                dateFormatter.locale = Locale(
+                    identifier: localeIdentifier
+                )
+                dateFormatter.calendar = calendar
+                dateFormatter.dateFormat = "dd/MM"
+
+                let timeFormatter = DateFormatter()
+                timeFormatter.locale = Locale(
+                    identifier: "en_US_POSIX"
+                )
+                timeFormatter.calendar = calendar
+                timeFormatter.dateFormat = "HH:mm"
+
+                let dayText = dayFormatter.string(
+                    from: training.date
+                )
+
+                let dateText = dateFormatter.string(
+                    from: training.date
+                )
+
+                let startTime = timeFormatter.string(
+                    from: training.date
+                )
+
+                let endTime = training.endText
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+                let timeText = endTime.isEmpty
+                    ? startTime
+                    : "\(startTime) – \(endTime)"
+
+                let place = TrainingCatalogIOS.displayPlace(
+                    training.place,
+                    isEnglish: isEnglish
+                )
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+                let address = TrainingCatalogIOS.displayAddress(
+                    training.address,
+                    isEnglish: isEnglish
+                )
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+                let coach = TrainingCatalogIOS.displayCoach(
+                    training.coach,
+                    isEnglish: isEnglish
+                )
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+                let rightColumnRect = CGRect(
+                    x: dividerX + 18,
+                    y: cardRect.minY + 16,
+                    width: cardRect.maxX - dividerX - 40,
+                    height: cardHeight - 28
+                )
+
+                let leftColumnRect = CGRect(
+                    x: cardRect.minX + 22,
+                    y: cardRect.minY + 16,
+                    width: dividerX - cardRect.minX - 44,
+                    height: cardHeight - 28
+                )
+
+                let rightAlignment: NSTextAlignment =
+                    isEnglish ? .left : .right
+
+                let leftAlignment: NSTextAlignment =
+                    isEnglish ? .left : .right
+
+                let placeAttributes: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.boldSystemFont(ofSize: 13.5),
+                    .foregroundColor: blue,
+                    .paragraphStyle: pdfParagraphStyle(
+                        alignment: rightAlignment
+                    )
+                ]
+
+                let labelAttributes: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.boldSystemFont(ofSize: 10.5),
+                    .foregroundColor: blue,
+                    .paragraphStyle: pdfParagraphStyle(
+                        alignment: leftAlignment
+                    )
+                ]
+
+                let valueAttributes: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(
+                        ofSize: 12.5,
+                        weight: .regular
+                    ),
+                    .foregroundColor: textDark,
+                    .paragraphStyle: pdfParagraphStyle(
+                        alignment: leftAlignment
+                    )
+                ]
+
+                let boldValueAttributes: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.boldSystemFont(ofSize: 13),
+                    .foregroundColor: textDark,
+                    .paragraphStyle: pdfParagraphStyle(
+                        alignment: leftAlignment
+                    )
+                ]
+
+                let displayedPlace = place.isEmpty
+                    ? tr(
+                        "מיקום לא הוגדר",
+                        "Location not set"
+                    )
+                    : place
+
+                NSAttributedString(
+                    string: displayedPlace,
+                    attributes: placeAttributes
+                )
+                .draw(
+                    in: CGRect(
+                        x: rightColumnRect.minX,
+                        y: rightColumnRect.minY,
+                        width: rightColumnRect.width,
+                        height: 22
+                    )
+                )
+
+                let dateLabelAttributes: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.boldSystemFont(ofSize: 10.5),
+                    .foregroundColor: blue,
+                    .paragraphStyle: pdfParagraphStyle(
+                        alignment: rightAlignment
+                    )
+                ]
+
+                let dateValueAttributes: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.boldSystemFont(ofSize: 13),
+                    .foregroundColor: textDark,
+                    .paragraphStyle: pdfParagraphStyle(
+                        alignment: rightAlignment
+                    )
+                ]
+
+                NSAttributedString(
+                    string: tr(
+                        "תאריך ושעה:",
+                        "Date and time:"
+                    ),
+                    attributes: dateLabelAttributes
+                )
+                .draw(
+                    in: CGRect(
+                        x: rightColumnRect.minX,
+                        y: rightColumnRect.minY + 32,
+                        width: rightColumnRect.width,
+                        height: 16
+                    )
+                )
+
+                NSAttributedString(
+                    string: "\(dayText) \(dateText) · \(timeText)",
+                    attributes: dateValueAttributes
+                )
+                .draw(
+                    in: CGRect(
+                        x: rightColumnRect.minX,
+                        y: rightColumnRect.minY + 50,
+                        width: rightColumnRect.width,
+                        height: 20
+                    )
+                )
+
+                NSAttributedString(
+                    string: tr(
+                        "כתובת:",
+                        "Address:"
+                    ),
+                    attributes: labelAttributes
+                )
+                .draw(
+                    in: CGRect(
+                        x: leftColumnRect.minX,
+                        y: leftColumnRect.minY,
+                        width: leftColumnRect.width,
+                        height: 16
+                    )
+                )
+
+                NSAttributedString(
+                    string: address.isEmpty ? "—" : address,
+                    attributes: valueAttributes
+                )
+                .draw(
+                    in: CGRect(
+                        x: leftColumnRect.minX,
+                        y: leftColumnRect.minY + 18,
+                        width: leftColumnRect.width,
+                        height: 24
+                    )
+                )
+
+                NSAttributedString(
+                    string: tr(
+                        "מאמן:",
+                        "Coach:"
+                    ),
+                    attributes: labelAttributes
+                )
+                .draw(
+                    in: CGRect(
+                        x: leftColumnRect.minX,
+                        y: leftColumnRect.minY + 48,
+                        width: leftColumnRect.width,
+                        height: 16
+                    )
+                )
+
+                NSAttributedString(
+                    string: coach.isEmpty ? "—" : coach,
+                    attributes: boldValueAttributes
+                )
+                .draw(
+                    in: CGRect(
+                        x: leftColumnRect.minX,
+                        y: leftColumnRect.minY + 65,
+                        width: leftColumnRect.width,
+                        height: 18
+                    )
+                )
+
+                currentY = cardRect.maxY + cardSpacing
+                }
+
+                // MARK: - PDF Footer
+
+                let footerY: CGFloat = 804
+
+                cg.saveGState()
+                cg.setStrokeColor(navy.cgColor)
+                cg.setLineWidth(2)
+                cg.move(
+                    to: CGPoint(
+                        x: 0,
+                        y: footerY
+                    )
+                )
+                cg.addLine(
+                    to: CGPoint(
+                        x: pageRect.width,
+                        y: footerY
+                    )
+                )
+                cg.strokePath()
+                cg.restoreGState()
+
+                let footerLogoCenter = CGPoint(
+                    x: 38,
+                    y: footerY + 22
+                )
+
+                let footerLogoRadius: CGFloat = 13
+
+                cg.saveGState()
+
+                cg.setFillColor(navy.cgColor)
+                cg.fillEllipse(
+                    in: CGRect(
+                        x: footerLogoCenter.x - footerLogoRadius,
+                        y: footerLogoCenter.y - footerLogoRadius,
+                        width: footerLogoRadius * 2,
+                        height: footerLogoRadius * 2
+                    )
+                )
+
+                cg.setFillColor(UIColor.white.cgColor)
+                cg.fillEllipse(
+                    in: CGRect(
+                        x: footerLogoCenter.x - footerLogoRadius + 3,
+                        y: footerLogoCenter.y - footerLogoRadius + 3,
+                        width: (footerLogoRadius - 3) * 2,
+                        height: (footerLogoRadius - 3) * 2
+                    )
+                )
+
+                cg.restoreGState()
+
+                let footerLogoStyle = NSMutableParagraphStyle()
+                footerLogoStyle.alignment = .center
+
+                let footerLogoAttributes: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.boldSystemFont(ofSize: 6.6),
+                    .foregroundColor: navy,
+                    .paragraphStyle: footerLogoStyle
+                ]
+
+                NSAttributedString(
+                    string: "KAMI",
+                    attributes: footerLogoAttributes
+                )
+                .draw(
+                    in: CGRect(
+                        x: footerLogoCenter.x - footerLogoRadius,
+                        y: footerLogoCenter.y - 4,
+                        width: footerLogoRadius * 2,
+                        height: 10
+                    )
+                )
+
+                let footerSmallFont = UIFont.systemFont(
+                    ofSize: 9,
+                    weight: .regular
+                )
+
+                let footerLeftStyle = NSMutableParagraphStyle()
+                footerLeftStyle.alignment = .left
+                footerLeftStyle.baseWritingDirection = .leftToRight
+
+                let footerCenterStyle = NSMutableParagraphStyle()
+                footerCenterStyle.alignment = .center
+                footerCenterStyle.baseWritingDirection = isEnglish
+                    ? .leftToRight
+                    : .rightToLeft
+
+                let footerRightStyle = NSMutableParagraphStyle()
+                footerRightStyle.alignment = .right
+                footerRightStyle.baseWritingDirection = .leftToRight
+
+                let footerLeftAttributes: [NSAttributedString.Key: Any] = [
+                    .font: footerSmallFont,
+                    .foregroundColor: textMuted,
+                    .paragraphStyle: footerLeftStyle
+                ]
+
+                let footerCenterAttributes: [NSAttributedString.Key: Any] = [
+                    .font: footerSmallFont,
+                    .foregroundColor: textMuted,
+                    .paragraphStyle: footerCenterStyle
+                ]
+
+                let footerRightAttributes: [NSAttributedString.Key: Any] = [
+                    .font: footerSmallFont,
+                    .foregroundColor: textMuted,
+                    .paragraphStyle: footerRightStyle
+                ]
+
+                NSAttributedString(
+                    string: "Together We Protect",
+                    attributes: footerLeftAttributes
+                )
+                .draw(
+                    in: CGRect(
+                        x: 62,
+                        y: footerY + 16,
+                        width: 150,
+                        height: 16
+                    )
+                )
+
+                NSAttributedString(
+                    string: tr(
+                        "עמוד 1 מתוך 1",
+                        "Page 1 of 1"
+                    ),
+                    attributes: footerCenterAttributes
+                )
+                .draw(
+                    in: CGRect(
+                        x: pageRect.midX - 70,
+                        y: footerY + 16,
+                        width: 140,
+                        height: 16
+                    )
+                )
+
+                NSAttributedString(
+                    string: "Krav Maga Israel",
+                    attributes: footerRightAttributes
+                )
+                .draw(
+                    in: CGRect(
+                        x: pageRect.width - 190,
+                        y: footerY + 10,
+                        width: 124,
+                        height: 14
+                    )
+                )
+
+                NSAttributedString(
+                    string: "www.kmi.org.il",
+                    attributes: footerRightAttributes
+                )
+                .draw(
+                    in: CGRect(
+                        x: pageRect.width - 190,
+                        y: footerY + 23,
+                        width: 124,
+                        height: 14
+                    )
+                )
+
+                let flagBlue = UIColor(
+                    red: 20/255,
+                    green: 85/255,
+                    blue: 200/255,
+                    alpha: 1
+                )
+
+                cg.saveGState()
+                cg.setFillColor(flagBlue.cgColor)
+
+                cg.fill(
+                    CGRect(
+                        x: pageRect.width - 48,
+                        y: footerY + 14,
+                        width: 28,
+                        height: 4
+                    )
+                )
+
+                cg.fill(
+                    CGRect(
+                        x: pageRect.width - 48,
+                        y: footerY + 28,
+                        width: 28,
+                        height: 4
+                    )
+                )
+
+                cg.restoreGState()
+                }
+
+        let fileDateFormatter = DateFormatter()
+        fileDateFormatter.locale = Locale(
+            identifier: "en_US_POSIX"
+        )
+        fileDateFormatter.calendar = calendar
+        fileDateFormatter.dateFormat = "yyyy-MM-dd"
+
+        let dateKey = fileDateFormatter.string(
+            from: Date()
+        )
+
+        let fileName =
+            "KMI_Weekly_Trainings_\(dateKey).pdf"
+
+        let destinationURL =
+            FileManager.default.temporaryDirectory
+                .appendingPathComponent(fileName)
+
+        do {
+            try pdfData.write(
+                to: destinationURL,
+                options: .atomic
+            )
+
+            return destinationURL
+        } catch {
+            throw HomePDFExportError.writeFailed
+        }
+    }
 
     private func reloadTrainingsIfNeeded() {
         if isAbroadUser {

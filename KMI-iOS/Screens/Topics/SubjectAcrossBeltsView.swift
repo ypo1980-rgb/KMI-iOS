@@ -104,27 +104,34 @@ struct SubjectAcrossBeltsView: View {
         case "topic_kavaler", "kavaler":
             return "topic_kavaler"
 
-        case "kicks", "kicks_hard", "topic_kicks":
+        case "kicks", "topic_kicks":
             return "topic_kicks"
+
+        case "kicks_hard":
+            return "kicks_hard"
 
         case "releases", "releases_root":
             return "releases"
 
-        // ✅ עבודת ידיים
-        case "hands_strikes", "topic_hands", "punches":
-            return "hands_strikes"
-
-        case "hands_elbows":
-            return "hands_elbows"
-
-        case "hands_stick_rifle":
-            return "hands_stick_rifle"
-
-        case "hands_all":
-            return "hands_all"
+        // עבודת ידיים אינה נפתרת דרך HardSectionsCatalog.
+        // היא ממשיכה למסלול SubjectItemsResolver,
+        // שהוא מקור הרשימה החוצה־חגורות שמוצגת בפועל.
+        case "hands_strikes",
+             "topic_hands",
+             "punches",
+             "hands_elbows",
+             "hands_stick_rifle",
+             "hands_all":
+            return nil
 
         case "knife_defense":
             return "knife_defense"
+
+        case "knife_rifle_defense":
+            return "knife_rifle_defense"
+
+        case "multiple_attackers_defense":
+            return "multiple_attackers_defense"
 
         case "gun_threat_defense":
             return "gun_threat_defense"
@@ -510,6 +517,24 @@ struct SubjectAcrossBeltsView: View {
         }
 
         return out
+    }
+
+    static func resolvedExerciseCount(
+        subject: KMI_iOS.SubjectTopic,
+        forcedSectionTitle: String? = nil
+    ) -> Int {
+        let resolverView = SubjectAcrossBeltsView(
+            subject: subject,
+            forcedSectionTitle: forcedSectionTitle
+        )
+
+        return resolverView.belts.reduce(0) { partial, belt in
+            let sections = resolverView.sections(for: belt)
+
+            return partial + sections.reduce(0) { sectionPartial, section in
+                sectionPartial + section.items.count
+            }
+        }
     }
 
     private var heroIcon: some View {

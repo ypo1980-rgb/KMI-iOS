@@ -80,28 +80,36 @@ private enum KmiGlobalText {
             "מבחן פנימי": "Internal Exam",
             "דו״ח נוכחות": "Attendance Report",
             "דוח נוכחות": "Attendance Report",
+            "נוכחות": "Attendance",
             "התקדמות": "Progress",
+            "מד התקדמות": "Progress",
             "היסטוריית אימונים": "Training History",
             "אימונים חופשיים": "Free Sessions",
             "אודות מתאמנים": "Trainees",
+            "רשימת מתאמנים": "Trainee List",
             "שליחת הודעה לקבוצה": "Group Message",
             "ניהול מנוי": "Subscription",
             "תוכניות מנוי": "Subscription Plans",
+            "תשלום דמי חבר": "Membership Payment",
+            "פרטי תשלום": "Payment Details",
+            "דוח תשלומים": "Payments Report",
+            "דו״ח תשלומים": "Payments Report",
             "הגדרות": "Settings",
+            "עריכת פרופיל": "Edit Profile",
             "צור קשר": "Contact Us",
             "אודות הרשת": "About the Network",
             "אודות השיטה": "About the Method",
             "אודות איציק ביטון": "About Itzik Biton",
             "אודות אבי אביסידון": "About Avi Abisidon",
+            "אודות המאמנים ברשת": "Network Coaches",
             "פורום הסניף": "Branch Forum",
+            "ניהול משתמשים": "User Management",
             "מרכז בקרה ולוגים": "Control Center & Logs",
             "אין הרשאה": "No Permission"
         ]
         
         let enToHe: [String: String] = [
             "Home": "בית",
-            "Subscription Plans": "תוכניות מנוי",
-            "Subscription": "ניהול מנוי",
             "Exercises by Belt": "תרגילים לפי חגורה",
             "Exercises by Topic": "תרגילים לפי נושא",
             "By Belt": "לפי חגורה",
@@ -116,18 +124,28 @@ private enum KmiGlobalText {
             "Final Exam": "מבחן מסכם",
             "Internal Exam": "מבחן פנימי",
             "Attendance Report": "דו״ח נוכחות",
+            "Attendance": "נוכחות",
             "Progress": "התקדמות",
             "Training History": "היסטוריית אימונים",
             "Free Sessions": "אימונים חופשיים",
             "Trainees": "אודות מתאמנים",
+            "Trainee List": "רשימת מתאמנים",
             "Group Message": "שליחת הודעה לקבוצה",
+            "Subscription": "ניהול מנוי",
+            "Subscription Plans": "תוכניות מנוי",
+            "Membership Payment": "תשלום דמי חבר",
+            "Payment Details": "פרטי תשלום",
+            "Payments Report": "דו״ח תשלומים",
             "Settings": "הגדרות",
+            "Edit Profile": "עריכת פרופיל",
             "Contact Us": "צור קשר",
             "About the Network": "אודות הרשת",
             "About the Method": "אודות השיטה",
             "About Itzik Biton": "אודות איציק ביטון",
             "About Avi Abisidon": "אודות אבי אביסידון",
+            "Network Coaches": "אודות המאמנים ברשת",
             "Branch Forum": "פורום הסניף",
+            "User Management": "ניהול משתמשים",
             "Control Center & Logs": "מרכז בקרה ולוגים",
             "No Permission": "אין הרשאה"
         ]
@@ -191,6 +209,7 @@ struct KmiTopBar: View {
     let roleLabel: String
     let title: String
     let onMenu: () -> Void
+    let onBack: (() -> Void)?
     
     let rightText: String?
     
@@ -228,10 +247,27 @@ struct KmiTopBar: View {
     }
     
     private var localizedRoleLabel: String {
-        KmiGlobalText.roleLabel(roleLabel, isEnglish: isEnglish)
+        KmiGlobalText.roleLabel(
+            roleLabel,
+            isEnglish: isEnglish
+        )
+    }
+
+    private var isCoachRole: Bool {
+        let normalizedRole =
+            roleLabel
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
+
+        return normalizedRole == "coach" ||
+            normalizedRole == "instructor" ||
+            normalizedRole == "מאמן" ||
+            normalizedRole.contains("coach") ||
+            normalizedRole.contains("מאמן")
     }
     
-    // ✅ NEW
     let titleColor: Color
     
     init(
@@ -239,120 +275,179 @@ struct KmiTopBar: View {
         title: String,
         rightText: String? = nil,
         titleColor: Color = Color.black.opacity(0.85),
+        onBack: (() -> Void)? = nil,
         onMenu: @escaping () -> Void
     ) {
         self.roleLabel = roleLabel
         self.title = title
         self.rightText = rightText
         self.titleColor = titleColor
+        self.onBack = onBack
         self.onMenu = onMenu
     }
     
     var body: some View {
         HStack(spacing: 10) {
             Group {
-                if !localizedRoleLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if !localizedRoleLabel
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                    .isEmpty {
                     Text(localizedRoleLabel)
-                        .font(.system(size: 10.5, weight: .black))
+                        .font(
+                            .system(
+                                size: 8.5,
+                                weight: .bold
+                            )
+                        )
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
                         .background(
                             Capsule(style: .continuous)
-                                .fill(Color(red: 0.17, green: 0.12, blue: 0.35))
+                                .fill(
+                                    isCoachRole
+                                    ? Color(hex: 0xFF2A1F52)
+                                    : Color(hex: 0xFF1E2947)
+                                )
+                                .opacity(0.94)
+                        )
+                        .overlay(
+                            Capsule(style: .continuous)
+                                .stroke(
+                                    (
+                                        isCoachRole
+                                        ? Color(hex: 0xFFD8B4FE)
+                                        : Color(hex: 0xFFBFDBFE)
+                                    )
+                                    .opacity(0.30),
+                                    lineWidth: 1
+                                )
+                        )
+                        .shadow(
+                            color: Color.black.opacity(0.10),
+                            radius: 1,
+                            x: 0,
+                            y: 1
                         )
                 } else {
                     Color.clear
-                        .frame(width: 50, height: 32)
+                        .frame(width: 74, height: 34)
                 }
             }
-            .frame(width: 62, alignment: .leading)
-            
-            Spacer(minLength: 8)
-            
+            .frame(width: 82, alignment: .leading)
+
+            Spacer(minLength: 4)
+
             HStack(spacing: 8) {
                 Text(localizedTitle)
-                    .font(.system(size: 22, weight: .black, design: .rounded))
+                    .font(
+                        .system(
+                            size: 20,
+                            weight: .black,
+                            design: .rounded
+                        )
+                    )
                     .foregroundStyle(titleColor)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.76)
-                
-                if let rightText, !rightText.isEmpty {
-                    Text(rightText)
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(Color.black.opacity(0.70))
-                        .lineLimit(1)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .center)
-            
-            Spacer(minLength: 8)
-            
-            Button(action: onMenu) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color(red: 0.90, green: 0.90, blue: 0.94))
+                    .minimumScaleFactor(0.68)
+                    .multilineTextAlignment(.center)
 
-                    Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 19, weight: .black))
-                        .foregroundStyle(Color(red: 0.29, green: 0.27, blue: 0.56))
+                if let rightText,
+                   !rightText
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                    .isEmpty {
+                    Text(rightText)
+                        .font(
+                            .system(
+                                size: 18,
+                                weight: .heavy
+                            )
+                        )
+                        .foregroundStyle(
+                            Color.black.opacity(0.70)
+                        )
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                 }
-                .frame(width: 34, height: 34)
-                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
-            .buttonStyle(.plain)
-            .frame(width: 62, alignment: .trailing)
+            .frame(
+                maxWidth: .infinity,
+                alignment: .center
+            )
+
+            Spacer(minLength: 4)
+
+            HStack(spacing: 6) {
+
+                Button(action: onMenu) {
+                    ZStack {
+                        RoundedRectangle(
+                            cornerRadius: 11,
+                            style: .continuous
+                        )
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(hex: 0xFF8B5CF6),
+                                    Color(hex: 0xFF6D4ED8),
+                                    Color(hex: 0xFF3B1F82)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .overlay(
+                            RoundedRectangle(
+                                cornerRadius: 11,
+                                style: .continuous
+                            )
+                            .stroke(
+                                Color.white.opacity(0.28),
+                                lineWidth: 1
+                            )
+                        )
+
+                        VStack(spacing: 4) {
+                            ForEach(0..<3, id: \.self) { _ in
+                                Capsule(style: .continuous)
+                                    .fill(Color.white)
+                                    .frame(width: 20, height: 3)
+                            }
+                        }
+                    }
+                    .frame(width: 38, height: 38)
+                    .contentShape(
+                        RoundedRectangle(
+                            cornerRadius: 11,
+                            style: .continuous
+                        )
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    isEnglish ? "Menu" : "תפריט"
+                )
+            }
+            .frame(width: 82, alignment: .trailing)
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 10)
         .padding(.top, 10)
         .padding(.bottom, 2)
         .frame(height: 68)
-        .environment(\.layoutDirection, .leftToRight)
+        .environment(
+            \.layoutDirection,
+            isEnglish ? .rightToLeft : .leftToRight
+        )
     }
 }
 
-// MARK: - Global Icon Navigation (אייקון -> Route אחד לכל האפליקציה)
-private enum KmiIconNav {
-    
-    /// מחזיר Route אם זה מסך ניווט, או nil אם זה פעולה / Sheet (Share/Search/Assistant וכו')
-    static func route(for item: KmiIconStripItem) -> AppRoute? {
-        switch item {
-        case .home:
-            // ✅ HomeView: חוזרים לשורש
-            return nil
-            
-        case .settings:
-            return .settings
-
-        case .stats:
-            return .progress
-            
-        case .search:
-            // ✅ חיפוש גלובאלי הוא Sheet, לא Route
-            return nil
-            
-        case .share:
-            return nil
-            
-        case .assistant:
-            return .voiceAssistant
-        }
-    }
-    
-    static func handleActionIfNeeded(_ item: KmiIconStripItem) {
-        switch item {
-        case .share:
-            break
-        case .assistant:
-            break
-        default:
-            break
-        }
-    }
-}
 
 // MARK: - Root Layout
 struct KmiRootLayout<Content: View>: View {
@@ -398,6 +493,7 @@ struct KmiRootLayout<Content: View>: View {
     let rightText: String?
     let titleColor: Color
     let onPickSearchResult: ((String) -> Void)?
+    let onShare: (() -> Void)?
     
     @ObservedObject var nav: AppNavModel
     let selectedIcon: KmiIconStripItem?
@@ -408,11 +504,15 @@ struct KmiRootLayout<Content: View>: View {
     
     // ✅ Global Search Sheet
     @State private var showGlobalSearch: Bool = false
+    @State private var globalSearchInitialQuery: String = ""
     @State private var selectedGlobalSearchHit: ExerciseSearchHit? = nil
 
     // ✅ Global Share Sheet
     @State private var showShareSheet: Bool = false
     @State private var shareItems: [Any] = []
+
+    // שגיאה בפעולה מתוך תפריט הצד
+    @State private var drawerActionErrorMessage: String? = nil
 
     init(
         title: String,
@@ -422,6 +522,7 @@ struct KmiRootLayout<Content: View>: View {
         rightText: String? = nil,
         titleColor: Color = Color.black.opacity(0.85),
         onPickSearchResult: ((String) -> Void)? = nil,
+        onShare: (() -> Void)? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
@@ -431,26 +532,44 @@ struct KmiRootLayout<Content: View>: View {
         self.rightText = rightText
         self.titleColor = titleColor
         self.onPickSearchResult = onPickSearchResult
+        self.onShare = onShare
         self.content = content()
     }
   
     private var effectiveRole: String {
-        let loginRole = UserDefaults.standard.string(forKey: "user_role")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+        let authRole =
+            auth.userRole
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
 
-        if let loginRole, !loginRole.isEmpty {
-            return loginRole
+        if !authRole.isEmpty {
+            return authRole
         }
 
-        return auth.userRole
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-    }
+        let defaults = UserDefaults.standard
+        let roleKeys = [
+            "user_role",
+            "role",
+            "userRole",
+            "profile_role"
+        ]
 
-    private var isCoachTheme: Bool {
-        let r = effectiveRole.lowercased()
-        return r.contains("coach") || r.contains("trainer") || r.contains("מאמן")
+        for key in roleKeys {
+            let storedRole =
+                defaults.string(forKey: key)?
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                    .lowercased() ?? ""
+
+            if !storedRole.isEmpty {
+                return storedRole
+            }
+        }
+
+        return "trainee"
     }
 
     private var effectiveTopBarTitle: String {
@@ -465,29 +584,10 @@ struct KmiRootLayout<Content: View>: View {
     }
     
     private var globalRoleBadgeText: String {
-        let r = effectiveRole.lowercased()
-
-        if isEnglish {
-            if r.contains("coach") || r.contains("trainer") || r.contains("מאמן") {
-                return "Coach"
-            }
-
-            if r.contains("admin") || r.contains("מנהל") {
-                return "Admin"
-            }
-
-            return "Trainee"
-        } else {
-            if r.contains("coach") || r.contains("trainer") || r.contains("מאמן") {
-                return "מאמן"
-            }
-
-            if r.contains("admin") || r.contains("מנהל") {
-                return "מנהל"
-            }
-
-            return "מתאמן"
-        }
+        KmiGlobalText.roleLabel(
+            effectiveRole,
+            isEnglish: isEnglish
+        )
     }
 
     @ViewBuilder
@@ -499,38 +599,142 @@ struct KmiRootLayout<Content: View>: View {
         KmiSideDrawerContainer(
             isOpen: $drawerOpen,
             onItem: { item in
+                drawerOpen = false
+                showGlobalIconMenu = false
+                showGlobalSearch = false
+
+                let defaults =
+                    UserDefaults.standard
+
                 let freeSessionsUid =
-                    Auth.auth().currentUser?.uid ?? "demo_ios"
+                    Auth.auth().currentUser?.uid
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ) ?? ""
 
                 let freeSessionsName: String = {
-                    let rawDisplayName =
+                    let firebaseName =
                         (Auth.auth().currentUser?.displayName ?? "")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .trimmingCharacters(
+                                in: .whitespacesAndNewlines
+                            )
 
-                    if !rawDisplayName.isEmpty { return rawDisplayName }
+                    if !firebaseName.isEmpty {
+                        return firebaseName
+                    }
 
-                    let rawEmail =
+                    let nameKeys = [
+                        "fullName",
+                        "full_name",
+                        "name",
+                        "user_name"
+                    ]
+
+                    for key in nameKeys {
+                        let value =
+                            defaults.string(forKey: key)?
+                                .trimmingCharacters(
+                                    in: .whitespacesAndNewlines
+                                ) ?? ""
+
+                        if !value.isEmpty {
+                            return value
+                        }
+                    }
+
+                    let email =
                         (Auth.auth().currentUser?.email ?? "")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .trimmingCharacters(
+                                in: .whitespacesAndNewlines
+                            )
 
-                    if !rawEmail.isEmpty { return rawEmail }
+                    if !email.isEmpty {
+                        return email
+                    }
 
-                    return "משתמש"
+                    return isEnglish
+                        ? "User"
+                        : "משתמש"
                 }()
 
                 let freeSessionsBranch: String = {
-                    let clean = auth.userBranch.trimmingCharacters(in: .whitespacesAndNewlines)
-                    return clean.isEmpty ? "default_branch" : clean
+                    let authBranch =
+                        auth.userBranch
+                            .trimmingCharacters(
+                                in: .whitespacesAndNewlines
+                            )
+
+                    if !authBranch.isEmpty {
+                        return authBranch
+                    }
+
+                    let branchKeys = [
+                        "active_branch",
+                        "activeBranch",
+                        "branch"
+                    ]
+
+                    for key in branchKeys {
+                        let value =
+                            defaults.string(forKey: key)?
+                                .trimmingCharacters(
+                                    in: .whitespacesAndNewlines
+                                ) ?? ""
+
+                        if !value.isEmpty {
+                            return value
+                        }
+                    }
+
+                    return ""
                 }()
 
                 let freeSessionsGroupKey: String = {
-                    let clean = auth.userGroup.trimmingCharacters(in: .whitespacesAndNewlines)
-                    return clean.isEmpty ? "default_group" : clean
+                    let authGroup =
+                        auth.userGroup
+                            .trimmingCharacters(
+                                in: .whitespacesAndNewlines
+                            )
+
+                    if !authGroup.isEmpty {
+                        return authGroup
+                    }
+
+                    let groupKeys = [
+                        "active_group",
+                        "activeGroup",
+                        "group",
+                        "age_group"
+                    ]
+
+                    for key in groupKeys {
+                        let value =
+                            defaults.string(forKey: key)?
+                                .trimmingCharacters(
+                                    in: .whitespacesAndNewlines
+                                ) ?? ""
+
+                        if !value.isEmpty {
+                            return value
+                        }
+                    }
+
+                    return ""
                 }()
 
                 switch item.routeKey {
 
                 case .freeSessions:
+                    guard !freeSessionsUid.isEmpty,
+                          !freeSessionsBranch.isEmpty,
+                          !freeSessionsGroupKey.isEmpty else {
+                        drawerActionErrorMessage =
+                            isEnglish
+                            ? "Branch, group or user details are missing."
+                            : "חסרים סניף, קבוצה או פרטי משתמש."
+                        return
+                    }
+
                     nav.push(
                         .freeSessions(
                             branch: freeSessionsBranch,
@@ -544,7 +748,53 @@ struct KmiRootLayout<Content: View>: View {
                     nav.push(.attendance)
 
                 case .internalExam:
-                    nav.push(.internalExam(belt: auth.registeredBelt ?? .green))
+                    let storedBelt =
+                        (
+                            defaults.string(
+                                forKey: "current_belt"
+                            ) ??
+                            defaults.string(
+                                forKey: "belt_current"
+                            ) ??
+                            "white"
+                        )
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                        .lowercased()
+
+                    let fallbackBelt: Belt
+
+                    switch storedBelt {
+                    case "yellow", "צהוב", "צהובה":
+                        fallbackBelt = .yellow
+
+                    case "orange", "כתום", "כתומה":
+                        fallbackBelt = .orange
+
+                    case "green", "ירוק", "ירוקה":
+                        fallbackBelt = .green
+
+                    case "blue", "כחול", "כחולה":
+                        fallbackBelt = .blue
+
+                    case "brown", "חום", "חומה":
+                        fallbackBelt = .brown
+
+                    case "black", "שחור", "שחורה":
+                        fallbackBelt = .black
+
+                    default:
+                        fallbackBelt = .white
+                    }
+
+                    nav.push(
+                        .internalExam(
+                            belt:
+                                auth.registeredBelt ??
+                                fallbackBelt
+                        )
+                    )
 
                 case .myProfile:
                     nav.push(.editProfile)
@@ -562,7 +812,7 @@ struct KmiRootLayout<Content: View>: View {
                     nav.push(.adminUsers)
 
                 case .controlCenterLogs:
-                    break
+                    nav.push(.controlCenterLogs)
 
                 case .aboutAvi:
                     nav.push(.aboutAvi)
@@ -574,10 +824,16 @@ struct KmiRootLayout<Content: View>: View {
                     nav.push(.aboutMethod)
 
                 case .demoVideos:
-                    break
+                    drawerActionErrorMessage =
+                        isEnglish
+                        ? "The demonstration videos screen is being connected to iOS."
+                        : "מסך סרטוני ההדגמה עדיין נמצא בתהליך חיבור ל־iOS."
 
                 case .formsPayments:
-                    break
+                    drawerActionErrorMessage =
+                        isEnglish
+                        ? "The forms and payments screen is being connected to iOS."
+                        : "מסך הטפסים והתשלומים עדיין נמצא בתהליך חיבור ל־iOS."
 
                 case .contactUs:
                     nav.push(.contactUs)
@@ -586,7 +842,7 @@ struct KmiRootLayout<Content: View>: View {
                     nav.push(.forum)
 
                 case .editProfile:
-                    break
+                    nav.push(.editProfile)
 
                 case .subscription:
                     nav.push(.subscription)
@@ -595,9 +851,45 @@ struct KmiRootLayout<Content: View>: View {
                     openRateUs()
 
                 case .toggleLanguage:
-                    break
+                    let nextCode =
+                        isEnglish ? "he" : "en"
+
+                    let nextLegacyCode =
+                        isEnglish
+                        ? "HEBREW"
+                        : "ENGLISH"
+
+                    kmiAppLanguageCode = nextCode
+                    selectedLanguageCode = nextCode
+                    appLanguageRaw = nextLegacyCode
+                    initialLanguageCode = nextLegacyCode
+
+                    defaults.set(
+                        nextCode,
+                        forKey: "kmi_app_language"
+                    )
+                    defaults.set(
+                        nextCode,
+                        forKey: "selected_language_code"
+                    )
+                    defaults.set(
+                        nextLegacyCode,
+                        forKey: "app_language"
+                    )
+                    defaults.set(
+                        nextLegacyCode,
+                        forKey: "initial_language_code"
+                    )
 
                 case .logout:
+                    drawerOpen = false
+                    showGlobalIconMenu = false
+                    showGlobalSearch = false
+                    showShareSheet = false
+                    selectedGlobalSearchHit = nil
+                    titleOverride = nil
+                    shareItems.removeAll()
+                    nav.popToRoot()
                     auth.signOut()
                 }
             }
@@ -612,7 +904,11 @@ struct KmiRootLayout<Content: View>: View {
                         title: effectiveTopBarTitle,
                         rightText: rightText,
                         titleColor: titleColor,
-                        onMenu: { drawerOpen = true }
+                        onBack: nil,
+                        onMenu: {
+                            showGlobalIconMenu = false
+                            drawerOpen = true
+                        }
                     )
                     .background(Color.white)
                     .overlay(
@@ -623,6 +919,10 @@ struct KmiRootLayout<Content: View>: View {
                     )
                     .overlay(
                         globalIconRailToggle,
+                        alignment: .top
+                    )
+                    .overlay(
+                        globalVoiceCommandsToggle,
                         alignment: .top
                     )
                     .zIndex(20)
@@ -636,18 +936,29 @@ struct KmiRootLayout<Content: View>: View {
         }
         
         // ✅ Sheet של חיפוש גלובאלי
-        .sheet(isPresented: $showGlobalSearch) {
-            GlobalExerciseSearchSheet_Legacy { hit in
-                let key = "\(hit.belt.id)|\(hit.topic)|\(hit.displayTitle)"
+        .sheet(
+            isPresented: $showGlobalSearch,
+            onDismiss: {
+                globalSearchInitialQuery = ""
+            }
+        ) {
+            GlobalExerciseSearchSheet_Legacy(
+                initialQuery: globalSearchInitialQuery
+            ) { hit in
+                let key =
+                    "\(hit.belt.id)|\(hit.topic)|\(hit.displayTitle)"
 
                 if let onPickSearchResult {
                     onPickSearchResult(key)
                 } else {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    DispatchQueue.main.asyncAfter(
+                        deadline: .now() + 0.25
+                    ) {
                         selectedGlobalSearchHit = hit
                     }
                 }
             }
+            .id(globalSearchInitialQuery)
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
@@ -667,17 +978,208 @@ struct KmiRootLayout<Content: View>: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
-        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+        .alert(
+            isEnglish
+            ? "Unable to Open"
+            : "לא ניתן לפתוח",
+            isPresented: Binding(
+                get: {
+                    drawerActionErrorMessage != nil
+                },
+                set: { isPresented in
+                    if !isPresented {
+                        drawerActionErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button(
+                isEnglish ? "OK" : "אישור",
+                role: .cancel
+            ) {
+                drawerActionErrorMessage = nil
+            }
+        } message: {
+            Text(drawerActionErrorMessage ?? "")
+        }
+        .environment(
+            \.layoutDirection,
+            isEnglish ? .leftToRight : .rightToLeft
+        )
         .onReceive(
             NotificationCenter.default.publisher(
-                for: Notification.Name("KMI_TOP_TITLE_OVERRIDE")
+                for: Notification.Name(
+                    "KMI_TOP_TITLE_OVERRIDE"
+                )
             )
         ) { notification in
-            if let newTitle = notification.object as? String {
-                let clean = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                titleOverride = clean.isEmpty ? nil : clean
+            guard let newTitle =
+                    notification.object as? String else {
+                return
+            }
+
+            let clean =
+                newTitle.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+            titleOverride =
+                clean.isEmpty ? nil : clean
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name(
+                    "KMI_OPEN_GLOBAL_SEARCH"
+                )
+            )
+        ) { notification in
+            let receivedQuery =
+                (notification.object as? String)?
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    ) ?? ""
+
+            drawerOpen = false
+            showGlobalIconMenu = false
+            globalSearchInitialQuery = receivedQuery
+            showGlobalSearch = true
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name(
+                    "KMI_FIND_AND_OPEN_EXERCISE"
+                )
+            )
+        ) { notification in
+            let query =
+                (notification.object as? String)?
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    ) ?? ""
+
+            guard !query.isEmpty else {
+                globalSearchInitialQuery = ""
+                showGlobalSearch = true
+                return
+            }
+
+            drawerOpen = false
+            showGlobalIconMenu = false
+            showGlobalSearch = false
+
+            let engine =
+                GlobalExerciseSearchEngine.shared
+
+            engine.ensureBuilt()
+
+            let matches =
+                engine.search(
+                    query: query,
+                    beltFilter: nil,
+                    limit: 1
+                )
+
+            if let firstMatch = matches.first {
+                selectedGlobalSearchHit =
+                    firstMatch
+            } else {
+                globalSearchInitialQuery = query
+                showGlobalSearch = true
             }
         }
+    }
+
+    private var globalVoiceCommandsToggle: some View {
+        HStack(spacing: 0) {
+            globalVoiceCommandsButton
+                .padding(.leading, 8)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 28)
+        .offset(y: 67)
+        .environment(
+            \.layoutDirection,
+            .leftToRight
+        )
+    }
+
+    private var globalVoiceCommandsButton: some View {
+        Button {
+            showGlobalIconMenu = false
+            drawerOpen = false
+
+            VoiceCommandsBridge.open()
+        } label: {
+            Image(systemName: "mic.fill")
+                .font(
+                    .system(
+                        size: 15,
+                        weight: .black
+                    )
+                )
+                .foregroundStyle(
+                    Color(hex: 0xFF4B478F)
+                )
+                .frame(width: 48, height: 28)
+                .background(
+                    LinearGradient(
+                        colors: [
+                            Color(hex: 0xFFF8F7FF),
+                            Color(hex: 0xFFF0EEFF),
+                            Color(hex: 0xFFE6E2FF)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .clipShape(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 0,
+                        bottomLeadingRadius: 18,
+                        bottomTrailingRadius: 18,
+                        topTrailingRadius: 0,
+                        style: .continuous
+                    )
+                )
+                .overlay(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 0,
+                        bottomLeadingRadius: 18,
+                        bottomTrailingRadius: 18,
+                        topTrailingRadius: 0,
+                        style: .continuous
+                    )
+                    .stroke(
+                        Color(hex: 0xFFB7AEF5),
+                        lineWidth: 1
+                    )
+                )
+                .overlay(
+                    Rectangle()
+                        .fill(
+                            Color.white.opacity(0.40)
+                        )
+                        .frame(height: 1),
+                    alignment: .top
+                )
+                .contentShape(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 0,
+                        bottomLeadingRadius: 18,
+                        bottomTrailingRadius: 18,
+                        topTrailingRadius: 0,
+                        style: .continuous
+                    )
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+            isEnglish
+            ? "Voice commands"
+            : "פקודות קוליות"
+        )
     }
 
     private var globalIconRailToggle: some View {
@@ -685,47 +1187,119 @@ struct KmiRootLayout<Content: View>: View {
             Spacer(minLength: 0)
 
             globalIconRailToggleButton
+                .padding(.trailing, 8)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 30)
-        .offset(y: 68)
-        .environment(\.layoutDirection, .leftToRight)
+        .frame(height: 28)
+        .offset(y: 67)
+        .environment(
+            \.layoutDirection,
+            .leftToRight
+        )
     }
 
     private var globalIconRailToggleButton: some View {
         Button {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            withAnimation(
+                .spring(
+                    response: 0.25,
+                    dampingFraction: 0.9
+                )
+            ) {
                 showGlobalIconMenu.toggle()
             }
         } label: {
-            ZStack {
+            Image(
+                systemName:
+                    showGlobalIconMenu
+                    ? "chevron.up"
+                    : "chevron.down"
+            )
+            .font(
+                .system(
+                    size: 17,
+                    weight: .black
+                )
+            )
+            .foregroundStyle(
+                Color(hex: 0xFF4B478F)
+            )
+            .frame(width: 48, height: 28)
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color(hex: 0xFFFFFFFF),
+                        Color(hex: 0xFFF2F2F4),
+                        Color(hex: 0xFFE2E2E6)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .clipShape(
                 UnevenRoundedRectangle(
                     topLeadingRadius: 0,
                     bottomLeadingRadius: 18,
-                    bottomTrailingRadius: 0,
+                    bottomTrailingRadius: 18,
                     topTrailingRadius: 0,
                     style: .continuous
                 )
-                .fill(Color.white)
-
-                Image(systemName: showGlobalIconMenu ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 17, weight: .black))
-                    .foregroundStyle(Color(red: 0.31, green: 0.27, blue: 0.78))
-                    .offset(x: -7, y: -1)
-            }
-            .frame(width: 58, height: 30)
-            .clipped()
+            )
+            .overlay(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 18,
+                    bottomTrailingRadius: 18,
+                    topTrailingRadius: 0,
+                    style: .continuous
+                )
+                .stroke(
+                    Color.black.opacity(0.20),
+                    lineWidth: 1
+                )
+            )
+            .overlay(
+                Rectangle()
+                    .fill(
+                        Color.black.opacity(0.13)
+                    )
+                    .frame(height: 1),
+                alignment: .top
+            )
             .contentShape(
                 UnevenRoundedRectangle(
                     topLeadingRadius: 0,
                     bottomLeadingRadius: 18,
-                    bottomTrailingRadius: 0,
+                    bottomTrailingRadius: 18,
                     topTrailingRadius: 0,
                     style: .continuous
                 )
             )
         }
         .buttonStyle(.plain)
+        .scaleEffect(
+            showGlobalIconMenu ? 0.97 : 1
+        )
+        .animation(
+            .spring(
+                response: 0.22,
+                dampingFraction: 0.78
+            ),
+            value: showGlobalIconMenu
+        )
+        .accessibilityLabel(
+            showGlobalIconMenu
+            ? (
+                isEnglish
+                ? "Close icon rail"
+                : "סגור סרגל אייקונים"
+            )
+            : (
+                isEnglish
+                ? "Open icon rail"
+                : "פתח סרגל אייקונים"
+            )
+        )
     }
 
     private var globalRailItems: [KmiIconStripItem] {
@@ -735,6 +1309,7 @@ struct KmiRootLayout<Content: View>: View {
             .settings,
             .stats,
             .assistant,
+            .guide,
             .share
         ]
     }
@@ -758,8 +1333,11 @@ struct KmiRootLayout<Content: View>: View {
                         alignment: .topTrailing
                     )
                     .padding(.top, 104)
-                    .padding(.trailing, 0)
-                    .environment(\.layoutDirection, .leftToRight)
+                    .padding(.trailing, 2)
+                    .environment(
+                        \.layoutDirection,
+                        .leftToRight
+                    )
                     .transition(
                         .opacity
                             .combined(with: .move(edge: .trailing))
@@ -774,35 +1352,73 @@ struct KmiRootLayout<Content: View>: View {
     private var globalVerticalRailPanel: some View {
         VStack(spacing: 6) {
             ForEach(globalRailItems, id: \.self) { item in
+                let isEnabled =
+                    isGlobalRailItemEnabled(item)
+
                 Button {
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                    guard isEnabled else {
+                        return
+                    }
+
+                    withAnimation(
+                        .spring(
+                            response: 0.25,
+                            dampingFraction: 0.9
+                        )
+                    ) {
                         showGlobalIconMenu = false
                     }
 
                     onGlobalIconTap(item)
                 } label: {
                     globalRailIcon(item)
+                        .opacity(isEnabled ? 1 : 0.58)
                 }
                 .buttonStyle(.plain)
+                .disabled(!isEnabled)
             }
         }
         .padding(.horizontal, 5)
         .padding(.vertical, 7)
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white.opacity(0.98))
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.98),
+                        Color(hex: 0xFFF8F7FF),
+                        Color.white.opacity(0.98)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .stroke(
+                Color(hex: 0xFFE7DDFB),
+                lineWidth: 1
+            )
         )
-        .shadow(color: Color.black.opacity(0.16), radius: 8, x: 0, y: 5)
+        .shadow(
+            color: Color.black.opacity(0.16),
+            radius: 10,
+            x: 0,
+            y: 6
+        )
     }
 
     private func globalRailIcon(_ item: KmiIconStripItem) -> some View {
         let isSelected = selectedIcon == item
 
-        return VStack(spacing: 3) {
+        return VStack(spacing: 1) {
             ZStack {
                 Circle()
                     .fill(
@@ -810,9 +1426,15 @@ struct KmiRootLayout<Content: View>: View {
                         ? Color(red: 0.31, green: 0.27, blue: 0.78).opacity(0.18)
                         : Color(red: 0.94, green: 0.95, blue: 0.98)
                     )
+                    .shadow(
+                        color: Color.black.opacity(0.12),
+                        radius: 2,
+                        x: 0,
+                        y: 1
+                    )
 
                 Image(systemName: globalRailSystemIcon(item))
-                    .font(.system(size: 16.5, weight: .black))
+                    .font(.system(size: 17, weight: .black))
                     .foregroundStyle(
                         isSelected
                         ? Color(red: 0.31, green: 0.27, blue: 0.78)
@@ -820,21 +1442,28 @@ struct KmiRootLayout<Content: View>: View {
                     )
             }
             .frame(width: 34, height: 34)
-            .overlay(
-                Circle()
-                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
-            )
 
             Text(globalRailTitle(item))
-                .font(.system(size: 10, weight: .heavy))
-                .foregroundStyle(Color(red: 0.12, green: 0.15, blue: 0.22))
+                .font(.system(size: 8.5, weight: .black))
+                .foregroundStyle(
+                    Color(
+                        red: 0.07,
+                        green: 0.09,
+                        blue: 0.15
+                    )
+                )
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
                 .multilineTextAlignment(.center)
-                .frame(width: 52)
+                .frame(width: 52, height: 10)
         }
-        .frame(width: 58, height: 52)
-        .contentShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .frame(width: 58, height: 49)
+        .contentShape(
+            RoundedRectangle(
+                cornerRadius: 14,
+                style: .continuous
+            )
+        )
     }
 
     private func globalRailTitle(_ item: KmiIconStripItem) -> String {
@@ -848,7 +1477,11 @@ struct KmiRootLayout<Content: View>: View {
         case .stats:
             return isEnglish ? "Stats" : "סטטיסטיקה"
         case .assistant:
-            return isEnglish ? "Helper" : "עוזר"
+            return isEnglish ? "AI" : "עוזר"
+
+        case .guide:
+            return isEnglish ? "Guide" : "הדרכה"
+
         case .share:
             return isEnglish ? "Share" : "שתף"
         }
@@ -866,28 +1499,59 @@ struct KmiRootLayout<Content: View>: View {
             return "chart.bar.fill"
         case .assistant:
             return "lightbulb.fill"
+
+        case .guide:
+            return "questionmark.circle.fill"
+
         case .share:
             return "square.and.arrow.up.fill"
         }
     }
     
-    private func globalRailIconTint(_ item: KmiIconStripItem) -> Color {
+    private func globalRailIconTint(
+        _ item: KmiIconStripItem
+    ) -> Color {
         switch item {
         case .search:
-            return Color(red: 0.05, green: 0.63, blue: 0.45)
+            return Color(hex: 0xFF10B981)
+
         case .home:
-            return Color(red: 0.29, green: 0.27, blue: 0.78)
+            return Color(hex: 0xFF2563EB)
+
         case .settings:
-            return Color(red: 0.95, green: 0.57, blue: 0.06)
+            return Color(hex: 0xFFF59E0B)
+
         case .stats:
-            return Color(red: 0.05, green: 0.65, blue: 0.91)
+            return Color(hex: 0xFF0EA5E9)
+
         case .assistant:
-            return Color(red: 0.48, green: 0.36, blue: 0.88)
+            return Color(hex: 0xFF8B5CF6)
+
+        case .guide:
+            return Color(hex: 0xFF06B6D4)
+
         case .share:
-            return Color(red: 0.94, green: 0.22, blue: 0.58)
+            return Color(hex: 0xFFEC4899)
         }
     }
     
+    private func isGlobalRailItemEnabled(
+        _ item: KmiIconStripItem
+    ) -> Bool {
+        switch item {
+        case .settings,
+             .stats,
+             .assistant,
+             .guide:
+            return selectedIcon != item
+
+        case .search,
+             .home,
+             .share:
+            return true
+        }
+    }
+
     private func openContactUsEmail() {
         let email = "ypo1980@gmail.com"
         let subject = isEnglish ? "KMI App Contact" : "יצירת קשר מאפליקציית KMI"
@@ -947,62 +1611,96 @@ struct KmiRootLayout<Content: View>: View {
     }
 
     // MARK: - Global handler (אחד לכל האפליקציה)
-    private func onGlobalIconTap(_ item: KmiIconStripItem) {
+    private func onGlobalIconTap(
+        _ item: KmiIconStripItem
+    ) {
+        drawerOpen = false
+        showGlobalIconMenu = false
 
-        // ✅ HOME תמיד חייב לעבוד, גם אם הוא כבר מסומן
-        if item == .home {
+        switch item {
+        case .home:
+            showGlobalSearch = false
+            showShareSheet = false
+            selectedGlobalSearchHit = nil
+            titleOverride = nil
             nav.popToRoot()
-            return
-        }
 
-        // ✅ אם לוחצים על האייקון שכבר מסומן במסך הנוכחי — לא עושים כלום
-        // (אבל: חיפוש/שיתוף תמיד צריכים לעבוד גם אם כבר "נבחרו")
-        if item != .search, item != .share, let selectedIcon, selectedIcon == item {
-            return
-        }
-
-        // ✅ SEARCH -> open sheet
-        if item == .search {
+        case .search:
             showGlobalSearch = true
-            return
-        }
 
-        // ✅ SHARE:
-        // קודם מאפשרים למסך הפעיל לבצע שיתוף ייעודי, למשל PDF.
-        // אם אף מסך לא טיפל בבקשה — ממשיכים לשיתוף הרגיל.
-        if item == .share {
-            let shareRequest = NSMutableDictionary()
-            shareRequest["handled"] = false
-
-            NotificationCenter.default.post(
-                name: Notification.Name("KMI_GLOBAL_SHARE_REQUEST"),
-                object: shareRequest
-            )
-
-            if shareRequest["handled"] as? Bool == true {
-                return
+        case .settings:
+            if selectedIcon != .settings {
+                nav.push(.settings)
             }
 
-            let shareTitle = KmiGlobalText.screenTitle(
-                title,
+        case .stats:
+            if selectedIcon != .stats {
+                nav.push(.progress)
+            }
+
+        case .assistant:
+            if selectedIcon != .assistant {
+                nav.push(.voiceAssistant)
+            }
+
+        case .guide:
+            if selectedIcon != .guide {
+                nav.push(
+                    .onboarding(
+                        manual: true
+                    )
+                )
+            }
+
+        case .share:
+            performGlobalShare()
+        }
+    }
+
+    private func performGlobalShare() {
+        if let onShare {
+            onShare()
+            return
+        }
+
+        let shareRequest =
+            NSMutableDictionary(
+                dictionary: [
+                    "handled": false
+                ]
+            )
+
+        NotificationCenter.default.post(
+            name: Notification.Name(
+                "KMI_GLOBAL_SHARE_REQUEST"
+            ),
+            object: shareRequest
+        )
+
+        if shareRequest["handled"] as? Bool == true {
+            return
+        }
+
+        let localizedShareTitle =
+            KmiGlobalText.screenTitle(
+                effectiveTopBarTitle,
                 isEnglish: isEnglish
             )
 
-            shareItems = GlobalShareService.shareItemsForCurrentScreen(
-                extraText: shareTitle
-            )
+        shareItems =
+            GlobalShareService
+                .shareItemsForCurrentScreen(
+                    extraText: localizedShareTitle
+                )
 
-            showShareSheet = true
+        guard !shareItems.isEmpty else {
+            drawerActionErrorMessage =
+                isEnglish
+                ? "There is no content available to share on this screen."
+                : "אין במסך זה תוכן זמין לשיתוף."
             return
         }
 
-        // ✅ אם יש route -> navigate
-        if let r = KmiIconNav.route(for: item) {
-            nav.push(r)
-            return
-        }
-
-        // ✅ אחרת זו פעולה (assistant וכו')
-        KmiIconNav.handleActionIfNeeded(item)
+        showShareSheet = true
     }
 }

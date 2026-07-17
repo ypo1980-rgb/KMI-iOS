@@ -321,119 +321,56 @@ struct MyProfileView: View {
 
     var body: some View {
         GeometryReader { geo in
-            VStack(spacing: 0) {
-                profileTopChrome
+            ZStack {
+                profileBackground
 
-                ZStack {
-                    profileBackground
-
-                    ScrollView(showsIndicators: false) {
-                        VStack(spacing: 14) {
-                            if isLoadingFirestoreProfile {
-                                syncingBadge
-                            }
-
-                            profileGlassCard
+                ScrollView(
+                    .vertical,
+                    showsIndicators: false
+                ) {
+                    VStack(spacing: 14) {
+                        if isLoadingFirestoreProfile {
+                            syncingBadge
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 20)
-                        .padding(.bottom, max(34, geo.safeAreaInsets.bottom + 24))
+
+                        profileGlassCard
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(
+                        .bottom,
+                        max(
+                            34,
+                            geo.safeAreaInsets.bottom + 24
+                        )
+                    )
                 }
             }
             .ignoresSafeArea(edges: .bottom)
         }
-        .environment(\.layoutDirection, screenLayoutDirection)
-        .toolbar(.hidden, for: .navigationBar)
+        .environment(
+            \.layoutDirection,
+            screenLayoutDirection
+        )
+        .toolbar(
+            .hidden,
+            for: .navigationBar
+        )
         .onAppear {
             loadFirestoreProfileIfNeeded()
         }
     }
 
-    private var profileTopChrome: some View {
-        VStack(spacing: 0) {
-            KmiTopBar(
-                roleLabel: tr("מצב\nמאמן", "Coach\nMode"),
-                title: tr("הפרופיל שלי", "My Profile"),
-                rightText: nil,
-                titleColor: Color.black.opacity(0.86),
-                onMenu: {
-                    dismiss()
-                }
-            )
-            .background(Color.white)
-
-            HStack {
-                Spacer()
-
-                KmiIconStripBar(
-                    items: KmiIconStripItem.allCases,
-                    selected: nil
-                ) { item in
-                    handleProfileIconTap(item)
-                }
-                .frame(width: 330)
-
-                Spacer()
-            }
-            .padding(.top, 0)
-            .padding(.bottom, 4)
-            .background(Color.white)
-        }
-        .overlay(
-            Rectangle()
-                .fill(Color.black.opacity(0.06))
-                .frame(height: 1),
-            alignment: .bottom
-        )
-    }
-
-    private func handleProfileIconTap(_ item: KmiIconStripItem) {
-        switch item {
-        case .home:
-            dismiss()
-
-        case .settings:
-            dismiss()
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                AppNavModel.sharedInstance?.push(.settings)
-            }
-
-        case .stats:
-            dismiss()
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                AppNavModel.sharedInstance?.push(.progress)
-            }
-
-        case .search:
-            dismiss()
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                AppNavModel.sharedInstance?.push(.beltQuestionsByTopic(belt: .orange))
-            }
-
-        case .assistant:
-            dismiss()
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                AppNavModel.sharedInstance?.push(.voiceAssistant)
-            }
-
-        case .share:
-            break
-        }
-    }
-    
     // MARK: - Background
 
     private var profileBackground: some View {
         LinearGradient(
             colors: [
-                Color(red: 0.055, green: 0.086, blue: 0.188),
-                Color(red: 0.122, green: 0.165, blue: 0.322),
-                Color(red: 0.145, green: 0.459, blue: 0.737)
+                Color(hex: 0xFFF8FBFF),
+                Color(hex: 0xFFEAF4FF),
+                Color(hex: 0xFFB7DDF7),
+                Color(hex: 0xFF1F78B4),
+                Color(hex: 0xFF062B4A)
             ],
             startPoint: .top,
             endPoint: .bottom

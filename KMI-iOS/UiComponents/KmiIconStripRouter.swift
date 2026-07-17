@@ -1,7 +1,7 @@
 import SwiftUI
 import Shared
 
-/// Router גלובאלי לאייקונים העליונים
+/// Router גלובלי לאייקונים העליונים.
 enum KmiIconStripRouter {
     
     static func handle(
@@ -19,15 +19,32 @@ enum KmiIconStripRouter {
             nav.push(.progress)
 
         case .search:
-            // ✅ AppRoute רגורה דרים
-            // כרגע משתמשים בברירת מחדל
-            nav.push(.beltQuestionsByTopic(belt: .orange))
+            /*
+             * החיפוש הגלובלי נפתח באמצעות ההתראה
+             * שאליה KmiRootLayout כבר מאזין.
+             */
+            NotificationCenter.default.post(
+                name: Notification.Name(
+                    "KMI_OPEN_GLOBAL_SEARCH"
+                ),
+                object: nil
+            )
 
         case .assistant:
             nav.push(.voiceAssistant)
 
+        case .guide:
+            nav.push(
+                .onboarding(
+                    manual: true
+                )
+            )
+
         case .share:
-            // Share גם Action
+            /*
+             * השיתוף תלוי בתוכן של המסך הפעיל,
+             * ולכן מטופל ב-KmiRootLayout.
+             */
             break
         }
     }

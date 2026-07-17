@@ -3,104 +3,82 @@ import Shared
 
 struct GlobalExerciseSearchSheet_Legacy: View {
 
+    let initialQuery: String
     let onPick: (ExerciseSearchHit) -> Void
 
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismiss)
+    private var dismiss
 
-    @StateObject private var engine = GlobalExerciseSearchEngine.shared
+    @StateObject private var engine =
+        GlobalExerciseSearchEngine.shared
 
-    @State private var query: String = ""
+    @AppStorage("kmi_app_language")
+    private var kmiAppLanguageCode: String = "he"
+
+    @AppStorage("selected_language_code")
+    private var selectedLanguageCode: String = "he"
+
+    @State private var query: String
     @State private var beltFilter: Belt? = nil
-
     @State private var results: [ExerciseSearchHit] = []
-    @State private var selectedHit: ExerciseSearchHit? = nil
+
+    init(
+        initialQuery: String = "",
+        onPick: @escaping (ExerciseSearchHit) -> Void
+    ) {
+        let cleanQuery =
+            initialQuery.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        self.initialQuery = cleanQuery
+        self.onPick = onPick
+        _query = State(initialValue: cleanQuery)
+    }
+
+    private var isEnglish: Bool {
+        let values = [
+            kmiAppLanguageCode,
+            selectedLanguageCode
+        ]
+        .map {
+            $0.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased()
+        }
+
+        return values.contains("en") ||
+            values.contains("english")
+    }
+
+    private var screenLayoutDirection:
+        LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 12) {
-
-                // Search input
-                VStack(spacing: 10) {
-                    HStack(spacing: 10) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.headline)
-
-                        TextField("חפש תרגיל…", text: $query)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled(true)
-                            .submitLabel(.search)
-                            .onSubmit { refresh() }
-
-                        if !query.isEmpty {
-                            Button {
-                                query = ""
-                                refresh()
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.title3)
-                                    .opacity(0.7)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-                    // Optional belt filter (אפשר להוריד אם לא צריך)
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            beltChip(title: "הכל", selected: beltFilter == nil) {
-                                beltFilter = nil
-                                refresh()
-                            }
-
-                            ForEach([Belt.yellow, .orange, .green, .blue, .brown, .black], id: \.self) { b in
-                                beltChip(title: b.name, selected: beltFilter == b) {
-                                    beltFilter = b
-                                    refresh()
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 2)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-
-                // Results
-                Group {
-                    if query.normHeb().isEmpty {
-                        emptyState(text: "התחל להקליד כדי למצוא תרגיל")
-                    } else if results.isEmpty {
-                        emptyState(text: "אין תוצאות עבור \"\(query)\"")
-                    } else {
-                        List(results) { hit in
-                            Button {
-                                onPick(hit)
-                                dismiss()
-                            } label: {                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(hit.displayTitle)
-                                        .font(.headline)
-
-                                    Text("\(hit.topic) • \(hit.belt.name)")
-                                        .font(.subheadline)
-                                        .opacity(0.75)
-                                }
-                                .padding(.vertical, 4)
-                            }
-                        }
-                        .listStyle(.plain)
-                    }
-                }
-                .animation(.easeInOut(duration: 0.15), value: results)
+                searchControls
+                resultsContent
             }
-            .navigationTitle("חיפוש תרגיל")
+            .navigationTitle(
+                tr(
+                    "חיפוש תרגיל",
+                    "Exercise Search"
+                )
+            )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("סגור") { dismiss() }
+                ToolbarItem(
+                    placement: .topBarLeading
+                ) {
+                    Button(
+                        tr("סגור", "Close")
+                    ) {
+                        dismiss()
+                    }
                 }
             }
             .onAppear {
@@ -114,65 +92,271 @@ struct GlobalExerciseSearchSheet_Legacy: View {
                 refresh()
             }
         }
+        .environment(
+            \.layoutDirection,
+            screenLayoutDirection
+        )
+    }
+
+    private var searchControls: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Image(
+                    systemName: "magnifyingglass"
+                )
+                .font(.headline)
+                .foregroundStyle(
+                    Color(hex: 0xFF10B981)
+                )
+
+                TextField(
+                    tr(
+                        "חפש תרגיל…",
+                        "Search exercise…"
+                    ),
+                    text: $query
+                )
+                .textInputAutocapitalization(
+                    .never
+                )
+                .autocorrectionDisabled(true)
+                .submitLabel(.search)
+                .onSubmit {
+                    refresh()
+                }
+
+                if !query.isEmpty {
+                    Button {
+                        query = ""
+                    } label: {
+                        Image(
+                            systemName:
+                                "xmark.circle.fill"
+                        )
+                        .font(.title3)
+                        .foregroundStyle(
+                            Color.black.opacity(0.55)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        tr(
+                            "נקה חיפוש",
+                            "Clear Search"
+                        )
+                    )
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(
+                    cornerRadius: 14,
+                    style: .continuous
+                )
+                .fill(
+                    Color.white.opacity(0.92)
+                )
+            )
+            .overlay(
+                RoundedRectangle(
+                    cornerRadius: 14,
+                    style: .continuous
+                )
+                .stroke(
+                    Color.black.opacity(0.08),
+                    lineWidth: 1
+                )
+            )
+
+            ScrollView(
+                .horizontal,
+                showsIndicators: false
+            ) {
+                HStack(spacing: 8) {
+                    beltChip(
+                        title: tr(
+                            "הכל",
+                            "All"
+                        ),
+                        selected:
+                            beltFilter == nil
+                    ) {
+                        beltFilter = nil
+                    }
+
+                    ForEach(
+                        [
+                            Belt.yellow,
+                            .orange,
+                            .green,
+                            .blue,
+                            .brown,
+                            .black
+                        ],
+                        id: \.self
+                    ) { belt in
+                        beltChip(
+                            title: belt.name,
+                            selected:
+                                beltFilter == belt
+                        ) {
+                            beltFilter = belt
+                        }
+                    }
+                }
+                .padding(.horizontal, 2)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+    }
+
+    @ViewBuilder
+    private var resultsContent: some View {
+        if query.normHeb().isEmpty {
+            emptyState(
+                text: tr(
+                    "התחל להקליד כדי למצוא תרגיל",
+                    "Start typing to find an exercise"
+                )
+            )
+        } else if results.isEmpty {
+            emptyState(
+                text: tr(
+                    "אין תוצאות עבור „\(query)”",
+                    "No results for “\(query)”"
+                )
+            )
+        } else {
+            List(results) { hit in
+                Button {
+                    onPick(hit)
+                    dismiss()
+                } label: {
+                    VStack(
+                        alignment:
+                            isEnglish
+                            ? .leading
+                            : .trailing,
+                        spacing: 4
+                    ) {
+                        Text(hit.displayTitle)
+                            .font(.headline)
+                            .foregroundStyle(
+                                Color(hex: 0xFF172036)
+                            )
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment:
+                                    isEnglish
+                                    ? .leading
+                                    : .trailing
+                            )
+
+                        Text(
+                            "\(hit.topic) • \(hit.belt.name)"
+                        )
+                        .font(.subheadline)
+                        .foregroundStyle(
+                            Color(hex: 0xFF64748B)
+                        )
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment:
+                                isEnglish
+                                ? .leading
+                                : .trailing
+                        )
+                    }
+                    .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+            }
+            .listStyle(.plain)
+        }
     }
 
     private func refresh() {
-        results = engine.search(query: query, beltFilter: beltFilter, limit: 50)
+        results = engine.search(
+            query: query,
+            beltFilter: beltFilter,
+            limit: 50
+        )
     }
 
-    private func emptyState(text: String) -> some View {
+    private func emptyState(
+        text: String
+    ) -> some View {
         VStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 34))
-                .opacity(0.55)
+            Image(
+                systemName: "magnifyingglass"
+            )
+            .font(
+                .system(
+                    size: 34,
+                    weight: .semibold
+                )
+            )
+            .foregroundStyle(
+                Color(hex: 0xFF10B981)
+                    .opacity(0.70)
+            )
+
             Text(text)
+                .font(
+                    .system(
+                        size: 15,
+                        weight: .semibold
+                    )
+                )
                 .multilineTextAlignment(.center)
-                .opacity(0.8)
+                .foregroundStyle(
+                    Color(hex: 0xFF475569)
+                )
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: .infinity
+        )
         .padding(24)
     }
 
-    private func beltChip(title: String, selected: Bool, onTap: @escaping () -> Void) -> some View {
+    private func beltChip(
+        title: String,
+        selected: Bool,
+        onTap: @escaping () -> Void
+    ) -> some View {
         Button(action: onTap) {
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .font(
+                    .subheadline.weight(
+                        .semibold
+                    )
+                )
+                .foregroundStyle(
+                    selected
+                    ? Color.white
+                    : Color(hex: 0xFF475569)
+                )
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
-                .background(selected ? Color.white.opacity(0.22) : Color.white.opacity(0.10))
-                .clipShape(Capsule())
+                .background(
+                    Capsule()
+                        .fill(
+                            selected
+                            ? Color(hex: 0xFF4F46E5)
+                            : Color.black.opacity(0.06)
+                        )
+                )
         }
         .buttonStyle(.plain)
     }
-}
 
-// MARK: - Placeholder explanation screen (until Explanations file is built)
-private struct ExerciseExplanationPlaceholderView: View {
-
-    let hit: ExerciseSearchHit
-
-    var body: some View {
-        VStack(spacing: 14) {
-            Text(hit.displayTitle)
-                .font(.title2.weight(.heavy))
-                .multilineTextAlignment(.center)
-
-            Text("\(hit.topic) • \(hit.belt.name)")
-                .font(.subheadline)
-                .opacity(0.75)
-
-            Divider().opacity(0.25)
-
-            Text("כאן יוצג ההסבר מתוך קובץ ההסברים שנבנה בהמשך.\n\nכרגע זה מסך Placeholder בלבד.")
-                .multilineTextAlignment(.center)
-                .opacity(0.85)
-                .padding(.horizontal, 18)
-
-            Spacer()
-        }
-        .padding(.top, 24)
-        .padding(.horizontal, 16)
-        .navigationTitle("הסבר")
-        .navigationBarTitleDisplayMode(.inline)
+    private func tr(
+        _ hebrew: String,
+        _ english: String
+    ) -> String {
+        isEnglish ? english : hebrew
     }
 }

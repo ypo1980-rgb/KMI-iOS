@@ -58,8 +58,7 @@ struct MonthlyTrainingBoardView: View {
                 .padding(.bottom, 24)
             }
         }
-        .navigationTitle("לוח אימונים חודשי")
-        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
         .onChange(of: visibleMonth) { newMonth in
             if let firstDay = firstSelectableDay(in: newMonth) {
                 if let selectedDate {
@@ -90,15 +89,11 @@ struct MonthlyTrainingBoardView: View {
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: 4) {
-                Text("לוח אימונים חודשי")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.82))
-
-                Text(monthData.titleHeb)
-                    .font(.title3.weight(.heavy))
-                    .foregroundStyle(.white)
-            }
+            Text(monthData.titleHeb)
+                .font(.title3.weight(.heavy))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.80)
 
             Spacer()
 

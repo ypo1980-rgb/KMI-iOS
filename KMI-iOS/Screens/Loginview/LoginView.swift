@@ -78,55 +78,26 @@ struct LoginView: View {
             LoginGradientBackground(role: role)
             
             VStack(spacing: 0) {
-                VStack(spacing: 0) {
-                    KmiTopBar(
-                        roleLabel: "",
-                        title: tr("התחברות", "Login"),
-                        rightText: nil,
-                        titleColor: Color.black.opacity(0.88),
-                        onMenu: { onBackToChoice() }
-                    )
-                    .background(Color.white)
-
-                    HStack {
-                        Spacer()
-
-                        KmiIconStripBar(
-                            items: KmiIconStripItem.allCases,
-                            selected: nil
-                        ) { item in
-                            switch item {
-                            case .home:
-                                onBackToChoice()
-
-                            case .settings:
-                                break
-
-                            case .stats:
-                                break
-
-                            case .search:
-                                break
-
-                            case .share:
-                                break
-
-                            case .assistant:
-                                break
-                            }
-                        }
-                        .frame(width: 330)
-
-                        Spacer()
+                KmiTopBar(
+                    roleLabel: "",
+                    title: tr(
+                        "התחברות",
+                        "Login"
+                    ),
+                    rightText: nil,
+                    titleColor:
+                        Color.black.opacity(0.88),
+                    onMenu: {
+                        onBackToChoice()
                     }
-                    .padding(.top, 0)
-                    .padding(.bottom, 4)
-                    .background(Color.white)
-                }
+                )
+                .background(Color.white)
                 .padding(.bottom, 12)
                 .overlay(
                     Rectangle()
-                        .fill(Color.black.opacity(0.04))
+                        .fill(
+                            Color.black.opacity(0.04)
+                        )
                         .frame(height: 1),
                     alignment: .bottom
                 )

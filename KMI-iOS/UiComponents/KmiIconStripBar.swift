@@ -1,10 +1,15 @@
-
 import SwiftUI
 
 // MARK: - KmiIconStripBar
 
 enum KmiIconStripItem: CaseIterable, Identifiable {
-    case share, assistant, settings, stats, home, search
+    case share
+    case guide
+    case assistant
+    case settings
+    case stats
+    case home
+    case search
     
     var id: String {
         rawKey
@@ -12,12 +17,26 @@ enum KmiIconStripItem: CaseIterable, Identifiable {
     
     var rawKey: String {
         switch self {
-        case .share:     return "share"
-        case .assistant: return "assistant"
-        case .settings:  return "settings"
-        case .stats:     return "stats"
-        case .home:      return "home"
-        case .search:    return "search"
+        case .share:
+            return "share"
+
+        case .guide:
+            return "guide"
+
+        case .assistant:
+            return "assistant"
+
+        case .settings:
+            return "settings"
+
+        case .stats:
+            return "stats"
+
+        case .home:
+            return "home"
+
+        case .search:
+            return "search"
         }
     }
 
@@ -25,31 +44,49 @@ enum KmiIconStripItem: CaseIterable, Identifiable {
         switch self {
         case .share:
             return "square.and.arrow.up"
+
+        case .guide:
+            return "questionmark.circle"
+
         case .assistant:
             return "lightbulb"
+
         case .settings:
             return "gearshape"
+
         case .stats:
             return "chart.bar"
+
         case .home:
             return "house.fill"
+
         case .search:
             return "magnifyingglass"
         }
     }
 
-    func title(isEnglish: Bool) -> String {
+    func title(
+        isEnglish: Bool
+    ) -> String {
         switch self {
         case .share:
             return isEnglish ? "Share" : "שתף"
+
+        case .guide:
+            return isEnglish ? "Guide" : "הדרכה"
+
         case .assistant:
-            return isEnglish ? "Assistant" : "עוזר"
+            return isEnglish ? "AI" : "עוזר"
+
         case .settings:
             return isEnglish ? "Settings" : "הגדרות"
+
         case .stats:
             return isEnglish ? "Stats" : "סטטיסטיקה"
+
         case .home:
             return isEnglish ? "Home" : "בית"
+
         case .search:
             return isEnglish ? "Search" : "חיפוש"
         }
@@ -58,9 +95,14 @@ enum KmiIconStripItem: CaseIterable, Identifiable {
 
 struct KmiIconStripBar: View {
 
-    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
-    @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
-    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+    @AppStorage("kmi_app_language")
+    private var kmiAppLanguageCode: String = "he"
+
+    @AppStorage("app_language")
+    private var appLanguageRaw: String = "HEBREW"
+
+    @AppStorage("initial_language_code")
+    private var initialLanguageCode: String = "HEBREW"
 
     let items: [KmiIconStripItem]
     let selected: KmiIconStripItem?
@@ -73,58 +115,86 @@ struct KmiIconStripBar: View {
             initialLanguageCode.lowercased()
         ]
 
-        return values.contains("en") || values.contains("english")
+        return values.contains("en") ||
+            values.contains("english")
     }
 
     var body: some View {
         HStack(spacing: 0) {
             ForEach(items) { item in
-                let isSelected = (selected == item)
+                let isSelected =
+                    selected == item
 
                 Button {
                     onTap(item)
                 } label: {
                     VStack(spacing: 4) {
-                        Image(systemName: item.systemName)
-                            .font(.system(size: 16, weight: .semibold))
-                            .frame(height: 18)
-                            .foregroundStyle(
-                                isSelected
-                                ? Color.purple.opacity(0.95)
-                                : Color.black.opacity(0.70)
+                        Image(
+                            systemName:
+                                item.systemName
+                        )
+                        .font(
+                            .system(
+                                size: 16,
+                                weight: .semibold
                             )
+                        )
+                        .frame(height: 18)
+                        .foregroundStyle(
+                            isSelected
+                            ? Color.purple.opacity(0.95)
+                            : Color.black.opacity(0.70)
+                        )
 
-                        Text(item.title(isEnglish: isEnglish))
-                            .font(.system(size: 11, weight: .semibold))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.72)
-                            .foregroundStyle(
-                                isSelected
-                                ? Color.purple.opacity(0.95)
-                                : Color.black.opacity(0.70)
+                        Text(
+                            item.title(
+                                isEnglish: isEnglish
                             )
+                        )
+                        .font(
+                            .system(
+                                size: 11,
+                                weight: .semibold
+                            )
+                        )
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                        .foregroundStyle(
+                            isSelected
+                            ? Color.purple.opacity(0.95)
+                            : Color.black.opacity(0.70)
+                        )
                     }
-                    .frame(width: isEnglish ? 70 : 64)
-                    .padding(.vertical, 8)
-                    .background(
-                        Group {
-                            if isSelected {
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(Color.purple.opacity(0.12))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 6)
-                            } else {
-                                Color.clear
-                            }
-                        }
+                    .frame(
+                        width:
+                            isEnglish
+                            ? 70
+                            : 64
                     )
+                    .padding(.vertical, 8)
+                    .background {
+                        if isSelected {
+                            RoundedRectangle(
+                                cornerRadius: 12,
+                                style: .continuous
+                            )
+                            .fill(
+                                Color.purple.opacity(0.12)
+                            )
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                        }
+                    }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
         .background(Color.clear)
-        .environment(\.layoutDirection, .leftToRight)
+        .environment(
+            \.layoutDirection,
+            .leftToRight
+        )
     }
 }
 
@@ -134,4 +204,3 @@ struct KmiIconStripBar: View {
         selected: .stats
     ) { _ in }
 }
-

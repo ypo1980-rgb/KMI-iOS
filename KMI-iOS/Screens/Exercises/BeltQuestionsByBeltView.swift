@@ -114,11 +114,17 @@ struct BeltQuestionsByBeltView: View {
     @State private var didInitializeSelectedBelt: Bool = false
     @State private var tab: Tab = .byBelt
     @State private var quickMenuOpen: Bool = false
+    @State private var showPracticeMenu: Bool = false
     @State private var expandedTopic: String? = nil
     @State private var accessRefreshTick: Int = 0
     
     // Global search
     @State private var pickedExercise: ExerciseSelection? = nil
+
+    // PDF sharing
+    @State private var showPDFShareSheet: Bool = false
+    @State private var pdfShareItems: [Any] = []
+    @State private var pdfErrorMessage: String? = nil
     
     // ✅ Android parity:
     // באנדרואיד מצב הגישה מתרענן גם בלי שינוי SharedPreferences,
@@ -193,52 +199,95 @@ struct BeltQuestionsByBeltView: View {
         let subTitles: [String]
     }
 
+    private func deepExerciseCount(
+        belt: Belt,
+        topicTitle: String
+    ) -> Int {
+        let cleanTopicTitle =
+            topicTitle.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        var pendingSubTopics =
+            ContentRepo.shared.getSubTopicsFor(
+                belt: belt,
+                topicTitle: cleanTopicTitle
+            )
+
+        var totalCount = 0
+
+        while !pendingSubTopics.isEmpty {
+            let current =
+                pendingSubTopics.removeFirst()
+
+            totalCount += current.items.count
+
+            pendingSubTopics.append(
+                contentsOf: current.subTopics
+            )
+        }
+
+        return totalCount
+    }
+
     private func topicDetailsFor(
         belt: Belt,
         topicTitle: String
     ) -> TopicDetailsUi {
-        let cleanTopicTitle = topicTitle
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanTopicTitle =
+            topicTitle.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
 
-        let engineDetails = TopicsEngine.shared.topicDetailsFor(
-            belt: belt,
-            topicTitle: cleanTopicTitle
-        )
+        let topLevelSubTopics =
+            ContentRepo.shared.getSubTopicsFor(
+                belt: belt,
+                topicTitle: cleanTopicTitle
+            )
 
-        let cleanSubTitles = ContentRepo.shared.getSubTopicsFor(
-            belt: belt,
-            topicTitle: cleanTopicTitle
-        )
-        .map {
-            $0.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        .filter {
-            !$0.isEmpty && $0 != cleanTopicTitle
-        }
-        .reduce(into: [String]()) { result, title in
-            if !result.contains(title) {
-                result.append(title)
-            }
-        }
+        let cleanSubTitles =
+            topLevelSubTopics
+                .map {
+                    $0.title.trimmingCharacters(
+                        in:
+                            .whitespacesAndNewlines
+                    )
+                }
+                .filter {
+                    !$0.isEmpty &&
+                    $0 != cleanTopicTitle
+                }
+                .reduce(
+                    into: [String]()
+                ) { result, title in
+                    if !result.contains(title) {
+                        result.append(title)
+                    }
+                }
 
         return TopicDetailsUi(
-            itemCount: Int(engineDetails.itemCount),
-            subTitles: cleanSubTitles
+            itemCount:
+                deepExerciseCount(
+                    belt: belt,
+                    topicTitle:
+                        cleanTopicTitle
+                ),
+            subTitles:
+                cleanSubTitles
         )
     }
-    
+
     // Android parity:
-    // הספירה מגיעה ישירות מ־TopicsEngine (ContentRepo הוא מקור האמת).
-    // אין לבצע חישוב מקומי נוסף שעלול ליצור פערים.
+    // סופרים בפועל את items בכל עץ תתי־הנושאים.
     private func topicExercisesCountForUi(
         belt: Belt,
         topicTitle: String,
-        subTitles: [String]
+        subTitles _: [String]
     ) -> Int {
-        topicDetailsFor(
+        deepExerciseCount(
             belt: belt,
             topicTitle: topicTitle
-        ).itemCount
+        )
     }
     
     private func hasRealSubTopicsForUi(title: String, details: TopicDetailsUi) -> Bool {
@@ -388,58 +437,118 @@ struct BeltQuestionsByBeltView: View {
             }
         )
 
+        if tab == .byBelt {
+            items.append(
+                BeltScreenQuickMenuItem(
+                    title:
+                        isEnglish
+                            ? "All Lists"
+                            : "כל הרשימות",
+                    systemImage:
+                        "list.bullet.rectangle.fill"
+                ) {
+                    if LockedContentPolicy
+                        .shouldShowLock(
+                            accessMode:
+                                LockedContentPolicy
+                                    .currentAccessMode(),
+                            title:
+                                isEnglish
+                                    ? "All Lists"
+                                    : "כל הרשימות"
+                        ) {
+                        nav.push(
+                            .subscriptionPlans
+                        )
+                    } else {
+                        nav.push(
+                            .allLists(
+                                belt:
+                                    quickMenuBelt
+                            )
+                        )
+                    }
+                }
+            )
+        }
+
         items.append(
             BeltScreenQuickMenuItem(
-                title: isEnglish ? "All Lists" : "כל הרשימות",
-                systemImage: "list.bullet.rectangle.fill"
+                title:
+                    isEnglish
+                        ? "Practice"
+                        : "תרגול",
+                systemImage:
+                    "figure.martial.arts"
             ) {
                 if LockedContentPolicy.shouldShowLock(
-                    accessMode: LockedContentPolicy.currentAccessMode(),
-                    title: isEnglish ? "All Lists" : "כל הרשימות"
+                    accessMode:
+                        LockedContentPolicy
+                            .currentAccessMode(),
+                    title:
+                        isEnglish
+                            ? "Practice"
+                            : "תרגול"
                 ) {
-                    nav.push(.subscriptionPlans)
+                    nav.push(
+                        .subscriptionPlans
+                    )
                 } else {
-                    nav.push(.allLists(belt: quickMenuBelt))
+                    withAnimation(
+                        .spring(
+                            response: 0.24,
+                            dampingFraction: 0.9
+                        )
+                    ) {
+                        quickMenuOpen = false
+                    }
+
+                    showPracticeMenu = true
                 }
             }
         )
 
-        items.append(
-            BeltScreenQuickMenuItem(
-                title: isEnglish ? "Practice" : "תרגול",
-                systemImage: "figure.martial.arts"
-            ) {
-                if LockedContentPolicy.shouldShowLock(
-                    accessMode: LockedContentPolicy.currentAccessMode(),
-                    title: isEnglish ? "Practice" : "תרגול"
+        if tab == .byBelt {
+            items.append(
+                BeltScreenQuickMenuItem(
+                    title:
+                        isEnglish
+                            ? "Summary"
+                            : "מסך סיכום",
+                    systemImage:
+                        "chart.bar.doc.horizontal"
                 ) {
-                    nav.push(.subscriptionPlans)
-                } else {
-                    practiceTokenFromLists = "__ALL__"
-                    nav.push(.practice(belt: quickMenuBelt, topicTitle: "__ALL__"))
+                    if LockedContentPolicy
+                        .shouldShowLock(
+                            accessMode:
+                                LockedContentPolicy
+                                    .currentAccessMode(),
+                            title:
+                                isEnglish
+                                    ? "Summary"
+                                    : "מסך סיכום"
+                        ) {
+                        nav.push(
+                            .subscriptionPlans
+                        )
+                    } else {
+                        nav.push(
+                            .summary(
+                                belt:
+                                    quickMenuBelt
+                            )
+                        )
+                    }
                 }
-            }
-        )
+            )
+        }
 
         items.append(
             BeltScreenQuickMenuItem(
-                title: isEnglish ? "Summary" : "מסך סיכום",
-                systemImage: "chart.bar.doc.horizontal"
-            ) {
-                if LockedContentPolicy.shouldShowLock(
-                    accessMode: LockedContentPolicy.currentAccessMode(),
-                    title: isEnglish ? "Summary" : "מסך סיכום"
-                ) {
-                    nav.push(.subscriptionPlans)
-                } else {
-                    nav.push(.summary(belt: quickMenuBelt))
-                }
-            }
-        )
-
-        items.append(
-            BeltScreenQuickMenuItem(
-                title: isEnglish ? "Voice Assistant" : "עוזר קולי",
+                title:
+                    isEnglish
+                        ? "Voice Assistant"
+                        : "עוזר קולי",
                 systemImage: "mic.fill"
             ) {
                 nav.push(.voiceAssistant)
@@ -934,6 +1043,432 @@ struct BeltQuestionsByBeltView: View {
         .animation(.easeInOut(duration: 0.25), value: tab)
     }
     
+    private struct BeltPDFSourceRow {
+        let topicTitle: String
+        let rawItem: String
+        let indexInsideTopic: Int
+    }
+
+    private func normalizedPDFStatusPart(
+        _ value: String
+    ) -> String {
+        value
+            .replacingOccurrences(
+                of: "\u{200F}",
+                with: ""
+            )
+            .replacingOccurrences(
+                of: "\u{200E}",
+                with: ""
+            )
+            .replacingOccurrences(
+                of: "\u{00A0}",
+                with: " "
+            )
+            .replacingOccurrences(
+                of: "\\s+",
+                with: " ",
+                options: .regularExpression
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+    }
+
+    private func uniquePDFItems(
+        _ values: [String]
+    ) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+
+        for rawValue in values {
+            let cleanValue =
+                rawValue.trimmingCharacters(
+                    in:
+                        .whitespacesAndNewlines
+                )
+
+            guard !cleanValue.isEmpty else {
+                continue
+            }
+
+            let normalizedKey =
+                normalizedPDFStatusPart(
+                    cleanValue
+                )
+                .lowercased()
+
+            guard seen
+                .insert(
+                    normalizedKey
+                )
+                .inserted else {
+                continue
+            }
+
+            result.append(
+                cleanValue
+            )
+        }
+
+        return result
+    }
+
+    private func pdfSourceRows(
+        for belt: Belt
+    ) -> [BeltPDFSourceRow] {
+        let topicTitles =
+            TopicsEngine.shared
+                .topicTitlesFor(
+                    belt: belt
+                )
+                .map {
+                    $0.trimmingCharacters(
+                        in:
+                            .whitespacesAndNewlines
+                    )
+                }
+                .filter {
+                    !$0.isEmpty
+                }
+                .reduce(
+                    into: [String]()
+                ) { result, title in
+                    if !result.contains(title) {
+                        result.append(title)
+                    }
+                }
+
+        var result:
+            [BeltPDFSourceRow] = []
+
+        for topicTitle in topicTitles {
+            let details =
+                topicDetailsFor(
+                    belt: belt,
+                    topicTitle:
+                        topicTitle
+                )
+
+            var topicItems =
+                ContentRepo.shared
+                    .getAllItemsFor(
+                        belt: belt,
+                        topicTitle:
+                            topicTitle,
+                        subTopicTitle:
+                            nil
+                    )
+
+            for rawSubTopicTitle
+                in details.subTitles {
+                let cleanSubTopicTitle =
+                    rawSubTopicTitle
+                        .trimmingCharacters(
+                            in:
+                                .whitespacesAndNewlines
+                        )
+
+                guard !cleanSubTopicTitle
+                    .isEmpty,
+                      cleanSubTopicTitle !=
+                        topicTitle else {
+                    continue
+                }
+
+                topicItems.append(
+                    contentsOf:
+                        ContentRepo.shared
+                            .getAllItemsFor(
+                                belt: belt,
+                                topicTitle:
+                                    topicTitle,
+                                subTopicTitle:
+                                    cleanSubTopicTitle
+                            )
+                )
+            }
+
+            let uniqueItems =
+                uniquePDFItems(
+                    topicItems
+                )
+
+            for (
+                index,
+                rawItem
+            ) in uniqueItems.enumerated() {
+                result.append(
+                    BeltPDFSourceRow(
+                        topicTitle:
+                            topicTitle,
+                        rawItem:
+                            rawItem,
+                        indexInsideTopic:
+                            index
+                    )
+                )
+            }
+        }
+
+        return result
+    }
+
+    private func pdfStatusText(
+        belt: Belt,
+        sourceRow: BeltPDFSourceRow
+    ) -> String {
+        let cleanItem =
+            normalizedPDFStatusPart(
+                sourceRow.rawItem
+            )
+
+        let statusId =
+            "status_\(belt.id)_" +
+            "\(sourceRow.topicTitle)_" +
+            "\(sourceRow.indexInsideTopic)_" +
+            cleanItem
+
+        let storedStatus =
+            UserDefaults.standard
+                .string(
+                    forKey:
+                        "mark.\(statusId)"
+                )
+
+        switch storedStatus {
+        case "mastered":
+            return isEnglish
+                ? "Known"
+                : "יודע"
+
+        case "unknown":
+            return isEnglish
+                ? "Unknown"
+                : "לא יודע"
+
+        default:
+            return isEnglish
+                ? "Not marked"
+                : "לא סומן"
+        }
+    }
+
+    private func canonicalPDFId(
+        belt: Belt,
+        sourceRow: BeltPDFSourceRow
+    ) -> String {
+        let cleanItem =
+            sourceRow.rawItem
+                .trimmingCharacters(
+                    in:
+                        .whitespacesAndNewlines
+                )
+
+        return
+            "\(belt.id)||" +
+            "\(sourceRow.topicTitle)||" +
+            "||\(cleanItem)"
+    }
+
+    private func pdfDisplayTitle(
+        sourceRow: BeltPDFSourceRow
+    ) -> String {
+        let localizedTopic =
+            KmiEnglishTitleResolver.title(
+                for:
+                    sourceRow.topicTitle,
+                isEnglish:
+                    isEnglish
+            )
+
+        let localizedExercise =
+            KmiEnglishTitleResolver.title(
+                for:
+                    sourceRow.rawItem,
+                isEnglish:
+                    isEnglish
+            )
+
+        return
+            "\(localizedTopic) — " +
+            localizedExercise
+    }
+
+    private func materialsPDFItems(
+        for belt: Belt
+    ) -> [MaterialsPdfItemIOS] {
+        let defaults =
+            UserDefaults.standard
+
+        let sourceRows =
+            pdfSourceRows(
+                for: belt
+            )
+
+        let practiceFavoriteKeys =
+            Set(
+                (
+                    defaults.stringArray(
+                        forKey:
+                            "practice_favorites"
+                    ) ?? []
+                )
+                .map {
+                    normalizedPDFStatusPart(
+                        $0
+                    )
+                    .lowercased()
+                }
+                .filter {
+                    !$0.isEmpty
+                }
+            )
+
+        return sourceRows
+            .enumerated()
+            .map {
+                globalIndex,
+                sourceRow in
+
+                let canonicalId =
+                    canonicalPDFId(
+                        belt: belt,
+                        sourceRow:
+                            sourceRow
+                    )
+
+                let normalizedRawItem =
+                    normalizedPDFStatusPart(
+                        sourceRow.rawItem
+                    )
+                    .lowercased()
+
+                let localizedItem =
+                    KmiEnglishTitleResolver
+                        .title(
+                            for:
+                                sourceRow
+                                    .rawItem,
+                            isEnglish:
+                                isEnglish
+                        )
+
+                let normalizedLocalizedItem =
+                    normalizedPDFStatusPart(
+                        localizedItem
+                    )
+                    .lowercased()
+
+                let isCanonicalFavorite =
+                    defaults.bool(
+                        forKey:
+                            "favorite.\(canonicalId)"
+                    )
+
+                let isPracticeFavorite =
+                    practiceFavoriteKeys
+                        .contains(
+                            normalizedRawItem
+                        ) ||
+                    practiceFavoriteKeys
+                        .contains(
+                            normalizedLocalizedItem
+                        )
+
+                let note =
+                    defaults.string(
+                        forKey:
+                            "note.\(canonicalId)"
+                    )?
+                    .trimmingCharacters(
+                        in:
+                            .whitespacesAndNewlines
+                    ) ?? ""
+
+                return MaterialsPdfItemIOS(
+                    number:
+                        globalIndex + 1,
+                    title:
+                        pdfDisplayTitle(
+                            sourceRow:
+                                sourceRow
+                        ),
+                    status:
+                        pdfStatusText(
+                            belt: belt,
+                            sourceRow:
+                                sourceRow
+                        ),
+                    isFavorite:
+                        isCanonicalFavorite ||
+                        isPracticeFavorite,
+                    isExcluded:
+                        defaults.bool(
+                            forKey:
+                                "excluded.\(canonicalId)"
+                        ),
+                    hasNote:
+                        !note.isEmpty
+                )
+            }
+    }
+
+    private func createAndSharePDF() {
+        let pdfBelt =
+            quickMenuBelt
+
+        let pdfItems =
+            materialsPDFItems(
+                for: pdfBelt
+            )
+
+        guard !pdfItems.isEmpty else {
+            pdfShareItems.removeAll()
+
+            pdfErrorMessage =
+                isEnglish
+                    ? "There are no exercises available for this belt."
+                    : "אין תרגילים זמינים לחגורה זו."
+
+            return
+        }
+
+        let pdfTitle =
+            isEnglish
+                ? "\(beltDisplayTitle(pdfBelt)) Belt"
+                : "חגורה \(beltDisplayTitle(pdfBelt))"
+
+        do {
+            let fileURL =
+                try MaterialsPdfGeneratorIOS
+                    .create(
+                        belt:
+                            pdfBelt,
+                        topicTitle:
+                            pdfTitle,
+                        items:
+                            pdfItems,
+                        isEnglish:
+                            isEnglish
+                    )
+
+            pdfShareItems = [
+                fileURL
+            ]
+
+            showPDFShareSheet =
+                true
+        } catch {
+            pdfShareItems.removeAll()
+
+            pdfErrorMessage =
+                isEnglish
+                    ? "The PDF file could not be created."
+                    : "לא ניתן היה ליצור את קובץ ה־PDF."
+        }
+    }
+
     var body: some View {
         ZStack {
             KmiAppBackground()
@@ -1057,6 +1592,15 @@ struct BeltQuestionsByBeltView: View {
         .onReceive(accessRefreshTimer) { _ in
             accessRefreshTick += 1
         }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name(
+                    "KMI_BELT_MATERIALS_SHARE_PDF"
+                )
+            )
+        ) { _ in
+            createAndSharePDF()
+        }
         .onDisappear {
             NotificationCenter.default.post(
                 name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
@@ -1139,6 +1683,142 @@ struct BeltQuestionsByBeltView: View {
                 belt: selection.belt,
                 topicTitle: selection.topicTitle,
                 item: selection.item
+            )
+        }
+        .sheet(
+            isPresented:
+                $showPracticeMenu
+        ) {
+            KmiPracticeMenuSheet(
+                defaultBelt:
+                    quickMenuBelt,
+                canUseExtras:
+                    true,
+                isEnglish:
+                    isEnglish,
+                onRandomPractice: {
+                    selectedPracticeBelt in
+
+                    showPracticeMenu = false
+                    practiceTokenFromLists =
+                        "__ALL__"
+
+                    DispatchQueue.main
+                        .asyncAfter(
+                            deadline:
+                                .now() + 0.22
+                        ) {
+                            nav.push(
+                                .practice(
+                                    belt:
+                                        selectedPracticeBelt,
+                                    topicTitle:
+                                        "__ALL__"
+                                )
+                            )
+                        }
+                },
+                onFinalExam: {
+                    selectedPracticeBelt in
+
+                    showPracticeMenu = false
+
+                    DispatchQueue.main
+                        .asyncAfter(
+                            deadline:
+                                .now() + 0.22
+                        ) {
+                            nav.push(
+                                .beltFinalExam(
+                                    belt:
+                                        selectedPracticeBelt
+                                )
+                            )
+                        }
+                },
+                onPracticeByTopic: {
+                    selectedPracticeBelt,
+                    selectedTopicTitle in
+
+                    showPracticeMenu = false
+                    selectedBelt =
+                        selectedPracticeBelt
+
+                    practiceTokenFromLists =
+                        selectedTopicTitle
+
+                    DispatchQueue.main
+                        .asyncAfter(
+                            deadline:
+                                .now() + 0.22
+                        ) {
+                            nav.push(
+                                .practice(
+                                    belt:
+                                        selectedPracticeBelt,
+                                    topicTitle:
+                                        selectedTopicTitle
+                                )
+                            )
+                        }
+                },
+                onDismiss: {
+                    showPracticeMenu = false
+                }
+            )
+            .presentationDetents([
+                .medium,
+                .large
+            ])
+            .presentationDragIndicator(
+                .visible
+            )
+            .interactiveDismissDisabled(
+                false
+            )
+        }
+        .sheet(
+            isPresented:
+                $showPDFShareSheet,
+            onDismiss: {
+                pdfShareItems.removeAll()
+            }
+        ) {
+            KmiShareSheet(
+                items: pdfShareItems
+            )
+            .presentationDetents([
+                .medium,
+                .large
+            ])
+            .presentationDragIndicator(
+                .visible
+            )
+        }
+        .alert(
+            isEnglish
+                ? "PDF Creation Failed"
+                : "יצירת ה־PDF נכשלה",
+            isPresented: Binding(
+                get: {
+                    pdfErrorMessage != nil
+                },
+                set: { isPresented in
+                    if !isPresented {
+                        pdfErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button(
+                isEnglish ? "OK" : "אישור",
+                role: .cancel
+            ) {
+                pdfErrorMessage = nil
+            }
+        } message: {
+            Text(
+                pdfErrorMessage ?? ""
             )
         }
     }
@@ -2281,18 +2961,31 @@ private struct BeltScreenSideQuickMenuOverlay: View {
     let onClose: () -> Void
     
     var body: some View {
-        GeometryReader { geo in
-            let fabWidth: CGFloat = 38
-            let panelWidth: CGFloat = 190
-            let fabHeight: CGFloat = 72
-            
-            let sidePadding: CGFloat = 0
-            let centerY: CGFloat = geo.size.height * 0.52
+        GeometryReader { geometry in
+            let fabWidth: CGFloat = 46
+            let panelWidth: CGFloat = 248
+            let fabHeight: CGFloat = 84
+
+            let centerY =
+                geometry.size.height * 0.52
+
+            let fabX =
+                geometry.size.width -
+                fabWidth
+
+            let panelX =
+                geometry.size.width -
+                fabWidth -
+                8 -
+                panelWidth
             
             ZStack(alignment: .topLeading) {
                 if isPresented {
                     BeltScreenQuickMenuPanel(
-                        title: isEnglish ? "Quick Menu" : "תפריט מהיר",
+                        title:
+                            isEnglish
+                            ? "Quick Menu"
+                            : "תפריט מהיר",
                         isEnglish: isEnglish,
                         accent: accent,
                         items: items,
@@ -2300,18 +2993,25 @@ private struct BeltScreenSideQuickMenuOverlay: View {
                     )
                     .frame(width: panelWidth)
                     .offset(
-                        x: fabWidth + 8,
-                        y: centerY - 86
+                        x: panelX,
+                        y: centerY - 104
                     )
                     .transition(
                         .scale(scale: 0.94)
-                        .combined(with: .opacity)
+                            .combined(
+                                with: .opacity
+                            )
                     )
                     .zIndex(51)
                 }
                 
                 Button {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                    withAnimation(
+                        .spring(
+                            response: 0.28,
+                            dampingFraction: 0.86
+                        )
+                    ) {
                         isPresented.toggle()
                     }
                 } label: {
@@ -2321,17 +3021,30 @@ private struct BeltScreenSideQuickMenuOverlay: View {
                     )
                 }
                 .buttonStyle(.plain)
-                .frame(width: fabWidth, height: fabHeight)
+                .frame(
+                    width: fabWidth,
+                    height: fabHeight
+                )
                 .offset(
-                    x: sidePadding,
+                    x: fabX,
                     y: centerY
                 )
                 .zIndex(52)
             }
-            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
-            .environment(\.layoutDirection, .leftToRight)
+            .frame(
+                width: geometry.size.width,
+                height: geometry.size.height,
+                alignment: .topLeading
+            )
+            .environment(
+                \.layoutDirection,
+                .leftToRight
+            )
         }
-        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .ignoresSafeArea(
+            .keyboard,
+            edges: .bottom
+        )
     }
 }
 
@@ -2342,19 +3055,19 @@ private struct BeltScreenSideQuickFab: View {
     var body: some View {
         ZStack {
             UnevenRoundedRectangle(
-                topLeadingRadius: 0,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: 18,
-                topTrailingRadius: 18,
+                topLeadingRadius: 18,
+                bottomLeadingRadius: 18,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: 0,
                 style: .continuous
             )
             .fill(fabGradient)
 
             UnevenRoundedRectangle(
-                topLeadingRadius: 0,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: 18,
-                topTrailingRadius: 18,
+                topLeadingRadius: 18,
+                bottomLeadingRadius: 18,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: 0,
                 style: .continuous
             )
             .stroke(Color.white.opacity(0.72), lineWidth: 1)
@@ -2363,8 +3076,13 @@ private struct BeltScreenSideQuickFab: View {
                 .font(.system(size: 23, weight: .heavy))
                 .foregroundStyle(Color.white)
         }
-        .frame(width: 38, height: 72)
-        .shadow(color: Color.black.opacity(0.24), radius: 9, x: 0, y: 5)
+        .frame(width: 46, height: 84)
+        .shadow(
+            color: Color.black.opacity(0.24),
+            radius: 9,
+            x: 0,
+            y: 5
+        )
     }
 
     private var fabGradient: LinearGradient {

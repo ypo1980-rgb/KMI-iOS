@@ -19,36 +19,52 @@ struct ExercisesHubView: View {
     @State private var belt: Belt = .orange
 
     var body: some View {
-        ZStack {
-            BeltTopicsGradientBackground()
+        NavigationStack {
+            ZStack {
+                BeltTopicsGradientBackground()
 
-            VStack(spacing: 12) {
+                VStack(spacing: 12) {
 
-                // "לפי חגורה | לפי נושא"
-                WhiteCard {
-                    Picker("", selection: $tab) {
-                        ForEach(Tab.allCases) { t in
-                            Text(t.rawValue).tag(t)
+                    // "לפי חגורה | לפי נושא"
+                    WhiteCard {
+                        Picker("", selection: $tab) {
+                            ForEach(Tab.allCases) { t in
+                                Text(t.rawValue).tag(t)
+                            }
                         }
+                        .pickerStyle(.segmented)
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 8)
                     }
-                    .pickerStyle(.segmented)
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 8)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
 
-                // תוכן
-                if tab == .byBelt {
-                    BeltQuestionsByBeltView(belt: belt)
-                } else {
-                    TopicsBySubjectListView()
-                }
+                    // תוכן
+                    if tab == .byBelt {
+                        BeltQuestionsByBeltView(belt: belt)
+                    } else {
+                        TopicsBySubjectListView()
+                    }
 
-                Spacer(minLength: 0)
+                    Spacer(minLength: 0)
+                }
             }
+            .toolbar(.hidden, for: .navigationBar)
         }
-        .navigationTitle("חגורה ירוקה")
-        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            updateGlobalTitle()
+        }
+        .onChange(of: tab) { _, _ in
+            updateGlobalTitle()
+        }
+    }
+
+    private func updateGlobalTitle() {
+        NotificationCenter.default.post(
+            name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
+            object: tab == .byBelt
+                ? "תרגילים לפי חגורה"
+                : "תרגילים לפי נושא"
+        )
     }
 }

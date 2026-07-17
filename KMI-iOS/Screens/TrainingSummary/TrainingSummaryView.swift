@@ -2,11 +2,79 @@ import SwiftUI
 import Shared
 
 struct TrainingSummaryView: View {
+    @EnvironmentObject private var nav: AppNavModel
+
     @StateObject private var vm: TrainingSummaryViewModel
     @State private var showAddExercisesSheet = false
     @State private var toastMessage: String?
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
+
+    @State private var exerciseNotesVisibility:
+        [String: Bool] = [:]
+
+    @AppStorage("kmi_app_language")
+    private var languageCode: String = "he"
+
+    private let summaryBgTop =
+        Color(red: 0.97, green: 0.98, blue: 1.00)
+
+    private let summaryBgMiddle =
+        Color(red: 0.72, green: 0.87, blue: 0.97)
+
+    private let summaryBgBottom =
+        Color(red: 0.02, green: 0.17, blue: 0.29)
+
+    private let summaryCard =
+        Color(red: 0.92, green: 0.95, blue: 1.00)
+
+    private let summaryCardInner =
+        Color(red: 0.87, green: 0.92, blue: 1.00)
+
+    private let summaryBorder =
+        Color(red: 0.85, green: 0.89, blue: 0.96)
+
+    private let summaryDivider =
+        Color(red: 0.78, green: 0.84, blue: 0.93)
+
+    private let summaryTextDark =
+        Color(red: 0.12, green: 0.16, blue: 0.24)
+
+    private let summaryTextMuted =
+        Color(red: 0.37, green: 0.42, blue: 0.50)
+
+    private let summaryPrimary =
+        Color(red: 0.05, green: 0.65, blue: 0.91)
+
+    private let summaryPurple =
+        Color(red: 0.48, green: 0.34, blue: 0.82)
+
+    private var isEnglish: Bool {
+        let clean =
+            languageCode
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
+
+        return clean == "en" ||
+            clean == "english"
+    }
+
+    private var screenDirection: LayoutDirection {
+        isEnglish ? .leftToRight : .rightToLeft
+    }
+
+    private var screenAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private func tr(
+        _ hebrew: String,
+        _ english: String
+    ) -> String {
+        isEnglish ? english : hebrew
+    }
 
     init(
         ownerUid: String,
@@ -33,18 +101,30 @@ struct TrainingSummaryView: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.03, green: 0.06, blue: 0.12),
-                    Color(red: 0.07, green: 0.13, blue: 0.24),
-                    Color(red: 0.10, green: 0.22, blue: 0.39)
+                    summaryBgTop,
+                    summaryBgMiddle,
+                    Color(red: 0.12, green: 0.47, blue: 0.71),
+                    summaryBgBottom
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
+            .overlay {
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.16),
+                        Color.clear,
+                        Color.white.opacity(0.08),
+                        Color.clear
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
             .ignoresSafeArea()
 
             ScrollView {
                 VStack(spacing: 14) {
-                    titleCard
                     trainingInfoCard
                     addExercisesCard
 
@@ -56,6 +136,7 @@ struct TrainingSummaryView: View {
                     actionsCard
                 }
                 .padding(12)
+                .padding(.top, 8)
                 .padding(.bottom, 20)
             }
 
@@ -73,8 +154,11 @@ struct TrainingSummaryView: View {
                 .transition(.opacity)
             }
         }
-        .navigationTitle("סיכום אימון")
-        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
+        .environment(
+            \.layoutDirection,
+            screenDirection
+        )
         .sheet(isPresented: $showAddExercisesSheet) {
             TrainingSummaryExercisePickerSheet(
                 vm: vm,
@@ -84,7 +168,9 @@ struct TrainingSummaryView: View {
             }
         }
         .sheet(isPresented: $showShareSheet) {
-            KmiSystemShareSheet(items: shareItems)
+            KmiSystemShareSheet(
+                items: shareItems
+            )
         }
         .onChange(of: vm.state.saveEventId) { _ in
             guard let msg = vm.state.lastSaveMsg else { return }
@@ -98,10 +184,34 @@ struct TrainingSummaryView: View {
             }
         }
         .onAppear {
-            let comps = dateComponents(from: vm.state.dateIso)
-            if let year = comps.year, let month = comps.month {
-                vm.loadSummaryDaysForMonth(year: year, month1to12: month)
+            let components =
+                dateComponents(
+                    from: vm.state.dateIso
+                )
+
+            if let year = components.year,
+               let month = components.month {
+                vm.loadSummaryDaysForMonth(
+                    year: year,
+                    month1to12: month
+                )
             }
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name(
+                    "KMI_GLOBAL_SHARE_REQUEST"
+                )
+            )
+        ) { notification in
+            guard let request =
+                    notification.object
+                        as? NSMutableDictionary else {
+                return
+            }
+
+            request["handled"] = true
+            shareSummary()
         }
     }
 
@@ -109,118 +219,264 @@ struct TrainingSummaryView: View {
         vm.state.selected.values.sorted { $0.name < $1.name }
     }
 
-    private var titleCard: some View {
+    private var trainingInfoCard: some View {
         card {
-            HStack {
+            HStack(spacing: 10) {
+                VStack(
+                    alignment:
+                        isEnglish
+                        ? .leading
+                        : .trailing,
+                    spacing: 3
+                ) {
+                    Text(
+                        tr(
+                            "פרטי האימון",
+                            "Training details"
+                        )
+                    )
+                    .font(.headline.weight(.heavy))
+                    .foregroundStyle(summaryTextDark)
+
+                    Text(
+                        formattedDate(
+                            vm.state.dateIso
+                        )
+                    )
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(summaryTextMuted)
+                }
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: screenAlignment
+                )
+
                 Circle()
-                    .fill(.cyan.opacity(0.9))
-                    .frame(width: 42, height: 42)
-                    .overlay(
-                        Image(systemName: "note.text")
-                            .foregroundStyle(.white)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(
+                                    red: 0.55,
+                                    green: 0.36,
+                                    blue: 0.96
+                                ),
+                                Color(
+                                    red: 0.19,
+                                    green: 0.18,
+                                    blue: 0.51
+                                )
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(width: 38, height: 38)
+                    .overlay {
+                        Image(
+                            systemName:
+                                "figure.martial.arts"
+                        )
+                        .font(.system(size: 16))
+                        .foregroundStyle(.white)
+                    }
+            }
+
+            Button {
+                nav.push(
+                    .monthlyTrainingBoard
+                )
+            } label: {
+                HStack(spacing: 7) {
+                    Image(
+                        systemName:
+                            "calendar"
                     )
 
-                Spacer()
+                    Text(
+                        tr(
+                            "שינוי תאריך האימון",
+                            "Change training date"
+                        )
+                    )
+                    .font(.subheadline.weight(.heavy))
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(summaryPurple)
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
 
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("סיכום אימון")
-                        .font(.title3.weight(.heavy))
-                        .foregroundStyle(.white)
+            VStack(spacing: 7) {
+                summaryInfoRow(
+                    label: tr("סניף", "Branch"),
+                    value:
+                        vm.state.branchName.isEmpty
+                        ? tr(
+                            "לא נמצא סניף",
+                            "Branch not found"
+                        )
+                        : vm.state.branchName
+                )
 
-                    Text(vm.state.isCoach ? "מצב מאמן" : "מצב מתאמן")
-                        .font(.footnote)
-                        .foregroundStyle(.white.opacity(0.75))
+                summaryInfoRow(
+                    label: tr("מאמן", "Coach"),
+                    value:
+                        vm.state.coachName.isEmpty
+                        ? tr(
+                            "מאמן לא ידוע",
+                            "Unknown coach"
+                        )
+                        : vm.state.coachName
+                )
+
+                if !vm.state.groupKey.isEmpty {
+                    summaryInfoRow(
+                        label: tr(
+                            "קבוצה",
+                            "Group"
+                        ),
+                        value: vm.state.groupKey
+                    )
                 }
             }
+            .padding(10)
+            .background(summaryCardInner)
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: 14,
+                    style: .continuous
+                )
+            )
         }
     }
 
-    private var trainingInfoCard: some View {
-        card {
-            sectionHeader("פרטי האימון", subtitle: formattedDate(vm.state.dateIso))
+    private func summaryInfoRow(
+        label: String,
+        value: String
+    ) -> some View {
+        HStack(spacing: 8) {
+            Text(value)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(summaryTextDark)
 
-            TextField("תאריך (yyyy-MM-dd)", text: Binding(
-                get: { vm.state.dateIso },
-                set: { vm.setDateIso($0) }
-            ))
-            .textFieldStyle(.roundedBorder)
-            .multilineTextAlignment(.trailing)
+            Spacer()
 
-            TextField("סניף", text: Binding(
-                get: { vm.state.branchName },
-                set: { vm.setBranchName($0) }
-            ))
-            .textFieldStyle(.roundedBorder)
-            .multilineTextAlignment(.trailing)
-
-            TextField("מאמן", text: Binding(
-                get: { vm.state.coachName },
-                set: { vm.setCoachName($0) }
-            ))
-            .textFieldStyle(.roundedBorder)
-            .multilineTextAlignment(.trailing)
-
-            TextField("קבוצה", text: Binding(
-                get: { vm.state.groupKey },
-                set: { vm.setGroupKey($0) }
-            ))
-            .textFieldStyle(.roundedBorder)
-            .multilineTextAlignment(.trailing)
-
-            if !vm.state.summaryDaysInCalendarMonth.isEmpty {
-                Text("בחודש הנוכחי קיימים \(vm.state.summaryDaysInCalendarMonth.count) ימים עם סיכום שמור")
-                    .font(.footnote)
-                    .foregroundStyle(.white.opacity(0.72))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
+            Text(label)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(summaryTextMuted)
         }
+        .frame(maxWidth: .infinity)
+        .environment(
+            \.layoutDirection,
+            isEnglish
+            ? .rightToLeft
+            : .leftToRight
+        )
     }
 
     private var addExercisesCard: some View {
         card {
-            sectionHeader("הוספת תרגילים", subtitle: "בחר תרגילים שבוצעו באימון")
+            sectionHeader(
+                tr("הוספת תרגילים", "Add exercises"),
+                subtitle: tr(
+                    "בחר תרגילים שבוצעו באימון",
+                    "Choose exercises performed in training"
+                )
+            )
 
-            HStack {
-                Text(vm.state.selectedBelt.heb)
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.white)
-
-                Spacer()
-
-                Text("חגורה")
-                    .foregroundStyle(.white.opacity(0.78))
-            }
+            summarySectionDivider
 
             Text(
                 vm.state.selected.isEmpty
-                ? "עדיין לא נוספו תרגילים לאימון הזה"
-                : "נוספו כבר \(vm.state.selected.count) תרגילים"
+                ? tr(
+                    "עדיין לא נוספו תרגילים לאימון הזה",
+                    "No exercises have been added to this training yet"
+                )
+                : tr(
+                    "נוספו כבר \(vm.state.selected.count) תרגילים לאימון הזה",
+                    "\(vm.state.selected.count) exercises have already been added"
+                )
             )
-            .font(.footnote)
-            .foregroundStyle(.white.opacity(0.78))
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(summaryTextMuted)
+            .frame(
+                maxWidth: .infinity,
+                alignment: screenAlignment
+            )
 
             Button {
                 showAddExercisesSheet = true
             } label: {
-                HStack {
-                    Image(systemName: "plus.circle.fill")
-                    Text("הוסף תרגילים")
+                HStack(spacing: 8) {
+                    Image(
+                        systemName:
+                            "checklist.checked"
+                    )
+
+                    Text(
+                        tr(
+                            "הוסף תרגילים",
+                            "Add exercises"
+                        )
+                    )
+                    .fontWeight(.semibold)
                 }
+                .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
+                .frame(height: 54)
+                .background(summaryPurple)
+                .clipShape(Capsule())
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.plain)
         }
     }
 
     private var selectedExercisesCard: some View {
         card {
-            sectionHeader("התרגילים שנוספו", subtitle: "ניהול, הערות ועבודה בבית")
+            sectionHeader(
+                tr(
+                    "התרגילים שנוספו לאימון",
+                    "Exercises added to training"
+                ),
+                subtitle: tr(
+                    "ניהול, עריכה והוספת דגשים לכל תרגיל",
+                    "Manage, edit and add notes to each exercise"
+                )
+            )
 
-            ForEach(selectedExercises) { item in
-                exerciseEditor(item)
-                if item.id != selectedExercises.last?.id {
-                    Divider().overlay(.white.opacity(0.15))
+            summarySectionDivider
+
+            HStack {
+                Spacer()
+
+                HStack(spacing: 6) {
+                    Image(
+                        systemName:
+                            "checkmark.circle.fill"
+                    )
+
+                    Text(
+                        tr(
+                            "סה״כ \(selectedExercises.count) תרגילים",
+                            "Total \(selectedExercises.count) exercises"
+                        )
+                    )
+                }
+                .font(.caption.weight(.bold))
+                .foregroundStyle(summaryTextDark)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(
+                    summaryPrimary.opacity(0.16)
+                )
+                .clipShape(Capsule())
+            }
+
+            VStack(spacing: 12) {
+                ForEach(selectedExercises) { item in
+                    exerciseEditor(item)
                 }
             }
         }
@@ -229,129 +485,340 @@ struct TrainingSummaryView: View {
     private var notesCard: some View {
         card {
             sectionHeader(
-                "סיכום כללי",
-                subtitle: vm.state.isCoach
-                    ? "דגשים מקצועיים, ביצוע ומה לשפר"
-                    : "איך היה האימון, תחושות ומה לשפר"
+                tr(
+                    "סיכום כללי",
+                    "General summary"
+                ),
+                subtitle: tr(
+                    "סיכום חופשי של האימון, תחושות, דגשים ומה לשפר",
+                    "Free summary, feelings, highlights and improvements"
+                )
             )
 
-            TextEditor(text: Binding(
-                get: { vm.state.notes },
-                set: { vm.setNotes($0) }
-            ))
+            summarySectionDivider
+
+            TextEditor(
+                text: Binding(
+                    get: {
+                        vm.state.notes
+                    },
+                    set: {
+                        vm.setNotes($0)
+                    }
+                )
+            )
+            .scrollContentBackground(.hidden)
             .frame(minHeight: 160)
-            .padding(8)
-            .background(Color.white.opacity(0.08))
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .foregroundStyle(.white)
+            .padding(10)
+            .foregroundStyle(summaryTextDark)
+            .background(
+                Color(
+                    red: 0.97,
+                    green: 0.98,
+                    blue: 1.00
+                )
+            )
+            .overlay(
+                RoundedRectangle(
+                    cornerRadius: 14,
+                    style: .continuous
+                )
+                .stroke(
+                    summaryDivider,
+                    lineWidth: 1
+                )
+            )
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: 14,
+                    style: .continuous
+                )
+            )
         }
     }
 
     private var actionsCard: some View {
         card {
-            sectionHeader("פעולות", subtitle: "שמירה ושיתוף של סיכום האימון")
+            sectionHeader(
+                tr("שמירה", "Save"),
+                subtitle: tr(
+                    "שמור את הסיכום והתרגילים שנוספו לאימון הזה",
+                    "Save the summary and exercises added to this training"
+                )
+            )
 
-            HStack(spacing: 10) {
-                Button {
-                    shareSummary()
-                } label: {
-                    HStack {
-                        Image(systemName: "square.and.arrow.up")
-                        Text("שתף")
+            summarySectionDivider
+
+            Button {
+                vm.save()
+            } label: {
+                HStack(spacing: 8) {
+                    if vm.state.isSaving {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Image(
+                            systemName:
+                                "checkmark.circle.fill"
+                        )
                     }
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
 
-                Button {
-                    vm.save()
-                } label: {
-                    Text(vm.state.isSaving ? "שומר..." : "שמירת סיכום האימון")
-                        .frame(maxWidth: .infinity)
+                    Text(
+                        vm.state.isSaving
+                        ? tr("שומר...", "Saving...")
+                        : tr(
+                            "שמירת סיכום האימון",
+                            "Save training summary"
+                        )
+                    )
+                    .font(.headline.weight(.bold))
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(vm.state.isSaving)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 58)
+                .background(summaryPrimary)
+                .clipShape(Capsule())
             }
+            .buttonStyle(.plain)
+            .disabled(vm.state.isSaving)
+            .opacity(
+                vm.state.isSaving ? 0.72 : 1
+            )
         }
     }
 
-    private func exerciseEditor(_ item: SelectedExerciseUi) -> some View {
-        VStack(alignment: .trailing, spacing: 10) {
-            HStack {
+    private func exerciseEditor(
+        _ item: SelectedExerciseUi
+    ) -> some View {
+        let notesOpen =
+            exerciseNotesVisibility[
+                item.exerciseId
+            ] ?? !item.highlight
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .isEmpty
+
+        return VStack(
+            alignment:
+                isEnglish ? .leading : .trailing,
+            spacing: 10
+        ) {
+            Text(item.name)
+                .font(.title3.weight(.heavy))
+                .foregroundStyle(summaryTextDark)
+                .multilineTextAlignment(
+                    isEnglish ? .leading : .trailing
+                )
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: screenAlignment
+                )
+
+            if !item.topic
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .isEmpty {
+                Text(item.topic)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(summaryTextMuted)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: screenAlignment
+                    )
+            }
+
+            HStack(spacing: 10) {
                 Button {
-                    vm.removeExercise(item.exerciseId)
+                    exerciseNotesVisibility[
+                        item.exerciseId
+                    ] = !notesOpen
+                } label: {
+                    Image(
+                        systemName:
+                            notesOpen
+                            ? "note.text.badge.minus"
+                            : "note.text.badge.plus"
+                    )
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(summaryTextDark)
+                    .frame(width: 42, height: 42)
+                    .background(
+                        summaryPrimary.opacity(0.18)
+                    )
+                    .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    notesOpen
+                    ? tr(
+                        "סגור הערות",
+                        "Close notes"
+                    )
+                    : tr(
+                        "פתח הערות",
+                        "Open notes"
+                    )
+                )
+
+                Button {
+                    exerciseNotesVisibility[
+                        item.exerciseId
+                    ] = nil
+
+                    vm.removeExercise(
+                        item.exerciseId
+                    )
                 } label: {
                     Image(systemName: "trash")
-                }
-                .buttonStyle(.bordered)
-
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(item.name)
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-
-                    Text(item.topic)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.75))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-            }
-
-            VStack(alignment: .trailing, spacing: 8) {
-                Text("רמת קושי")
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(0...10, id: \.self) { value in
-                            Button {
-                                vm.setDifficulty(
-                                    item.exerciseId,
-                                    difficulty: item.difficulty == value ? nil : value
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(Color.red)
+                        .frame(width: 42, height: 42)
+                        .background(
+                            Color.white.opacity(0.74)
+                        )
+                        .overlay {
+                            Circle()
+                                .stroke(
+                                    Color.red.opacity(0.55),
+                                    lineWidth: 1
                                 )
-                            } label: {
-                                Text("\(value)")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .frame(width: 34, height: 34)
-                                    .background(item.difficulty == value ? Color.cyan.opacity(0.9) : Color.white.opacity(0.12))
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                            }
-                            .buttonStyle(.plain)
                         }
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    tr(
+                        "מחק תרגיל",
+                        "Delete exercise"
+                    )
+                )
+
+                Spacer(minLength: 0)
+            }
+            .environment(
+                \.layoutDirection,
+                isEnglish
+                ? .leftToRight
+                : .rightToLeft
+            )
+
+            summarySectionDivider
+
+            if !notesOpen &&
+                !item.highlight
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                    .isEmpty {
+                Text(item.highlight)
+                    .font(.subheadline)
+                    .foregroundStyle(summaryTextDark)
+                    .multilineTextAlignment(
+                        isEnglish
+                        ? .leading
+                        : .trailing
+                    )
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: screenAlignment
+                    )
+                    .padding(12)
+                    .background(
+                        summaryCard
+                    )
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius: 14,
+                            style: .continuous
+                        )
+                    )
+            }
+
+            if notesOpen {
+                VStack(
+                    alignment:
+                        isEnglish
+                        ? .leading
+                        : .trailing,
+                    spacing: 6
+                ) {
+                    Text(
+                        tr(
+                            "דגשים והערות לתרגיל",
+                            "Exercise notes and highlights"
+                        )
+                    )
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(summaryTextMuted)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: screenAlignment
+                    )
+
+                    TextEditor(
+                        text: Binding(
+                            get: {
+                                item.highlight
+                            },
+                            set: {
+                                vm.setHighlight(
+                                    item.exerciseId,
+                                    highlight: $0
+                                )
+                            }
+                        )
+                    )
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 90)
+                    .padding(8)
+                    .foregroundStyle(summaryTextDark)
+                    .background(
+                        Color(
+                            red: 0.97,
+                            green: 0.98,
+                            blue: 1.00
+                        )
+                    )
+                    .overlay {
+                        RoundedRectangle(
+                            cornerRadius: 12,
+                            style: .continuous
+                        )
+                        .stroke(
+                            summaryDivider,
+                            lineWidth: 1
+                        )
                     }
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius: 12,
+                            style: .continuous
+                        )
+                    )
                 }
             }
-
-            Toggle(
-                isOn: Binding(
-                    get: { item.homePractice },
-                    set: { vm.setHomePractice(item.exerciseId, homePractice: $0) }
-                )
-            ) {
-                Text("סמן לעבודה בבית")
-                    .foregroundStyle(.white)
-            }
-            .tint(.cyan)
-
-            TextField(
-                "דגשים והערות לתרגיל",
-                text: Binding(
-                    get: { item.highlight },
-                    set: { vm.setHighlight(item.exerciseId, highlight: $0) }
-                ),
-                axis: .vertical
-            )
-            .textFieldStyle(.roundedBorder)
-            .multilineTextAlignment(.trailing)
         }
         .padding(12)
-        .background(Color.white.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .frame(maxWidth: .infinity)
+        .background(summaryCardInner)
+        .overlay {
+            RoundedRectangle(
+                cornerRadius: 20,
+                style: .continuous
+            )
+            .stroke(
+                summaryBorder,
+                lineWidth: 1
+            )
+        }
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 20,
+                style: .continuous
+            )
+        )
     }
 
     private func shareSummary() {
@@ -360,28 +827,73 @@ struct TrainingSummaryView: View {
         showShareSheet = true
     }
 
-    private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(spacing: 12, content: content)
-            .padding(14)
-            .background(Color.white.opacity(0.09))
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 20))
+    private var summarySectionDivider: some View {
+        Capsule()
+            .fill(summaryDivider)
+            .frame(height: 2)
+            .frame(maxWidth: .infinity)
     }
 
-    private func sectionHeader(_ title: String, subtitle: String) -> some View {
-        VStack(alignment: .trailing, spacing: 4) {
+    private func card<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(
+            alignment:
+                isEnglish ? .leading : .trailing,
+            spacing: 12,
+            content: content
+        )
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(summaryCard)
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: 20,
+                style: .continuous
+            )
+            .stroke(
+                summaryBorder,
+                lineWidth: 1
+            )
+        )
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 20,
+                style: .continuous
+            )
+        )
+        .shadow(
+            color: Color.black.opacity(0.08),
+            radius: 8,
+            x: 0,
+            y: 4
+        )
+    }
+
+    private func sectionHeader(
+        _ title: String,
+        subtitle: String
+    ) -> some View {
+        VStack(
+            alignment:
+                isEnglish ? .leading : .trailing,
+            spacing: 4
+        ) {
             Text(title)
                 .font(.headline.weight(.heavy))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .foregroundStyle(summaryTextDark)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: screenAlignment
+                )
 
             Text(subtitle)
                 .font(.footnote)
-                .foregroundStyle(.white.opacity(0.72))
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .foregroundStyle(summaryTextMuted)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: screenAlignment
+                )
         }
     }
 

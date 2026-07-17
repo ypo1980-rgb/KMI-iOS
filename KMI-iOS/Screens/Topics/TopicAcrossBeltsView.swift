@@ -201,8 +201,37 @@ struct TopicAcrossBeltsView: View {
                 .padding(.bottom, 22)
             }
         }
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
+        .onAppear {
+            let cleanSubTopic = subTopicTitle?
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+            let globalTitle: String
+
+            if let cleanSubTopic,
+               !cleanSubTopic.isEmpty {
+                globalTitle = cleanSubTopic
+            } else {
+                globalTitle = topicTitle
+            }
+
+            NotificationCenter.default.post(
+                name: Notification.Name(
+                    "KMI_TOP_TITLE_OVERRIDE"
+                ),
+                object: globalTitle
+            )
+        }
+        .onDisappear {
+            NotificationCenter.default.post(
+                name: Notification.Name(
+                    "KMI_TOP_TITLE_OVERRIDE"
+                ),
+                object: ""
+            )
+        }
     }
 }
 

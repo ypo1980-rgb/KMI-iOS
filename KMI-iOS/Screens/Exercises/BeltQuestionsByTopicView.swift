@@ -15,22 +15,64 @@ struct BeltQuestionsByTopicView: View {
     var onSwitchToByBelt: (() -> Void)? = nil
     var onActiveBeltChange: ((Belt) -> Void)? = nil
 
-    @EnvironmentObject private var nav: AppNavModel
-    // removed: CatalogData is no longer used.
-    // ContentRepo / TopicsEngine are the source of truth.
+    @EnvironmentObject private var nav:
+        AppNavModel
 
-    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
-    @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
-    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+    @Environment(\.scenePhase)
+    private var scenePhase
 
-    private var isEnglish: Bool {
-        let values = [
-            kmiAppLanguageCode.lowercased(),
-            appLanguageRaw.lowercased(),
-            initialLanguageCode.lowercased()
+    // ContentRepo / TopicsEngine הם מקור האמת.
+    @AppStorage("kmi_app_language")
+    private var kmiAppLanguageCode:
+        String = "he"
+
+    @AppStorage("app_language")
+    private var appLanguageRaw:
+        String = "HEBREW"
+
+    @AppStorage("initial_language_code")
+    private var initialLanguageCode:
+        String = "HEBREW"
+
+    @AppStorage("selected_language_code")
+    private var selectedLanguageCode:
+        String = "he"
+
+    private var effectiveLanguageCode:
+        String {
+        let orderedValues = [
+            kmiAppLanguageCode,
+            selectedLanguageCode,
+            appLanguageRaw,
+            initialLanguageCode
         ]
 
-        return values.contains("en") || values.contains("english")
+        for rawValue in orderedValues {
+            let cleanValue =
+                rawValue
+                    .trimmingCharacters(
+                        in:
+                            .whitespacesAndNewlines
+                    )
+                    .lowercased()
+
+            if cleanValue == "en" ||
+                cleanValue == "english" {
+                return "en"
+            }
+
+            if cleanValue == "he" ||
+                cleanValue == "hebrew" ||
+                cleanValue == "עברית" {
+                return "he"
+            }
+        }
+
+        return "he"
+    }
+
+    private var isEnglish: Bool {
+        effectiveLanguageCode == "en"
     }
 
     private var screenLayoutDirection: LayoutDirection {
@@ -49,12 +91,20 @@ struct BeltQuestionsByTopicView: View {
         isEnglish ? en : he
     }
 
-    private func exercisesCountText(_ count: Int) -> String {
-        if isEnglish {
-            return "exercises \(count)"
-        } else {
-            return "\(count) תרגילים"
-        }
+    private func exercisesCountText(
+        _ count: Int
+    ) -> String {
+        let stats =
+            KmiExerciseCountStats(
+                subTopicCount: 0,
+                exerciseCount: count
+            )
+
+        return KmiExerciseCountProvider
+            .countText(
+                stats: stats,
+                isEnglish: isEnglish
+            )
     }
         
     private var activeBeltFill: Color {
@@ -86,8 +136,14 @@ struct BeltQuestionsByTopicView: View {
     @State private var expandedMainTopicId: String? = nil
     @State private var pickedSectionedSubject: SubjectTopic? = nil
     @State private var pickedAcrossBeltsSubject: SubjectTopic? = nil
-    @State private var pickedAcrossBeltsSubTopicTitle: String? = nil
-    @State private var showQuickActionsDialog: Bool = false
+    @State private var pickedAcrossBeltsSubTopicTitle:
+        String? = nil
+
+    @State private var showQuickActionsDialog:
+        Bool = false
+
+    @State private var accessRefreshTick:
+        Int = 0
 
     private var mainTopics: [MainTopic] {
 
@@ -148,14 +204,31 @@ struct BeltQuestionsByTopicView: View {
                 MainTopic(
                     id: "releases",
                     titleHeb: "שחרורים",
-                    subjects: releaseSubjects
+                    subjects:
+                        releaseSubjects
+                )
+            )
+        } else if let releasesRoot =
+                    rootSubject(
+                        "releases"
+                    ) {
+            out.append(
+                MainTopic(
+                    id: "releases",
+                    titleHeb:
+                        releasesRoot.titleHeb,
+                    subjects: [
+                        releasesRoot
+                    ]
                 )
             )
         }
 
-        let visibleHandsSubjects = childSubjects(
-            parentId: "hands_all"
-        )
+        let visibleHandsSubjects =
+            childSubjects(
+                parentId:
+                    "hands_all"
+            )
 
         if !visibleHandsSubjects.isEmpty {
             out.append(
@@ -215,17 +288,204 @@ struct BeltQuestionsByTopicView: View {
             )
         }
 
-        if let kicksSubject = rootSubject("kicks") {
+        if let kicksSubject =
+            rootSubject(
+                "kicks"
+            ) {
             out.append(
                 MainTopic(
                     id: "kicks",
-                    titleHeb: kicksSubject.titleHeb,
-                    subjects: [kicksSubject]
+                    titleHeb:
+                        kicksSubject
+                            .titleHeb,
+                    subjects: [
+                        kicksSubject
+                    ]
                 )
             )
         }
 
-        return out
+        /*
+         * Android מציג גם נושאי Root נוספים שמגיעים
+         * מה-Registry ואינם חלק מהכרטיסים המאוחדים
+         * הגנות / שחרורים / עבודת ידיים.
+         *
+         * הרשימה הבאה אינה מקור תוכן נוסף. היא כוללת
+         * רק מזהי קבוצות שכבר נבנו למעלה, כדי למנוע
+         * הצגה כפולה של אותם נושאים.
+         */
+        let groupedRootIds:
+            Set<String> = [
+                "defense_root",
+                "defenses_root",
+                "defenses",
+                "releases",
+                "hands_all",
+                "hands_root",
+                "rolls_breakfalls",
+                "topic_breakfalls_rolls",
+                "topic_ready_stance",
+                "topic_ground_prep",
+                "topic_kavaler",
+                "kicks",
+                "topic_kicks"
+            ]
+
+        func normalizedSubjectId(
+            _ value: String
+        ) -> String {
+            value
+                .trimmingCharacters(
+                    in:
+                        .whitespacesAndNewlines
+                )
+                .replacingOccurrences(
+                    of: "\u{200F}",
+                    with: ""
+                )
+                .replacingOccurrences(
+                    of: "\u{200E}",
+                    with: ""
+                )
+                .replacingOccurrences(
+                    of: "\u{00A0}",
+                    with: " "
+                )
+                .lowercased()
+        }
+
+        var representedSubjectIds =
+            Set<String>()
+
+        for topic in out {
+            representedSubjectIds.insert(
+                normalizedSubjectId(
+                    topic.id
+                )
+            )
+
+            for subject
+                in topic.subjects {
+                representedSubjectIds.insert(
+                    normalizedSubjectId(
+                        subject.id
+                    )
+                )
+            }
+        }
+
+        let remainingRootSubjects =
+            visibleRootSubjects.filter {
+                subject in
+
+                let cleanId =
+                    normalizedSubjectId(
+                        subject.id
+                    )
+
+                guard !cleanId.isEmpty else {
+                    return false
+                }
+
+                guard !groupedRootIds
+                    .contains(
+                        cleanId
+                    ) else {
+                    return false
+                }
+
+                return !representedSubjectIds
+                    .contains(
+                        cleanId
+                    )
+            }
+
+        for subject
+            in remainingRootSubjects {
+            let cleanId =
+                normalizedSubjectId(
+                    subject.id
+                )
+
+            let cleanTitle =
+                subject.titleHeb
+                    .trimmingCharacters(
+                        in:
+                            .whitespacesAndNewlines
+                    )
+
+            guard !cleanId.isEmpty,
+                  !cleanTitle.isEmpty else {
+                continue
+            }
+
+            let visibleChildren =
+                childSubjects(
+                    parentId:
+                        cleanId
+                )
+
+            let cardSubjects:
+                [SubjectTopic]
+
+            if visibleChildren.isEmpty {
+                cardSubjects = [
+                    subject
+                ]
+            } else {
+                cardSubjects =
+                    visibleChildren
+            }
+
+            out.append(
+                MainTopic(
+                    id: cleanId,
+                    titleHeb:
+                        cleanTitle,
+                    subjects:
+                        cardSubjects
+                )
+            )
+
+            representedSubjectIds.insert(
+                cleanId
+            )
+
+            for child
+                in visibleChildren {
+                representedSubjectIds.insert(
+                    normalizedSubjectId(
+                        child.id
+                    )
+                )
+            }
+        }
+
+        /*
+         * הגנה נוספת מפני כפילות אם ה-Registry מחזיר
+         * בעתיד אותו Root יותר מפעם אחת.
+         */
+        var seenMainTopicIds =
+            Set<String>()
+
+        return out.filter {
+            topic in
+
+            let cleanId =
+                normalizedSubjectId(
+                    topic.id
+                )
+
+            guard !cleanId.isEmpty else {
+                return false
+            }
+
+            return seenMainTopicIds
+                .insert(
+                    cleanId
+                )
+                .inserted
+        }
     }
 
     private struct TopicRowCard: View {
@@ -821,10 +1081,19 @@ struct BeltQuestionsByTopicView: View {
         topic.id.lowercased().contains("release")
     }
 
-    private func isTopicLocked(_ topic: MainTopic) -> Bool {
-        let accessMode = LockedContentPolicy.currentAccessMode()
-        return LockedContentPolicy.shouldShowLock(
-            accessMode: accessMode,
+    private func isTopicLocked(
+        _ topic: MainTopic
+    ) -> Bool {
+        let _ = accessRefreshTick
+
+        let accessMode =
+            LockedContentPolicy
+                .currentAccessMode()
+
+        return LockedContentPolicy
+            .shouldShowLock(
+                accessMode:
+                    accessMode,
             title: topic.titleHeb
         ) || (
             accessMode == .locked &&
@@ -1593,128 +1862,299 @@ struct BeltQuestionsByTopicView: View {
     private func displayedExerciseCount(
         for subject: SubjectTopic
     ) -> Int {
-        let cleanSubjectId = subject.id
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanSubjectTitle =
+            subject.titleHeb
+                .trimmingCharacters(
+                    in:
+                        .whitespacesAndNewlines
+                )
 
-        let sections = resolvedSections(for: subject)
+        let directStats =
+            KmiExerciseCountProvider
+                .topicStats(
+                    belt: belt,
+                    topicTitle:
+                        cleanSubjectTitle
+                )
 
-        let defenseSubjectIds: Set<String> = [
-            "def_internal",
-            "def_internal_punch",
-            "def_external",
-            "def_external_punch",
-            "kicks_hard",
-            "knife_defense",
-            "knife_rifle_defense",
-            "gun_threat_defense",
-            "multiple_attackers_defense",
-            "stick_defense"
-        ]
+        if directStats.exerciseCount > 0 {
+            return directStats
+                .exerciseCount
+        }
 
-        if defenseSubjectIds.contains(cleanSubjectId) {
-            return uniqueExerciseCount(
-                in: sections
+        let sections =
+            resolvedSections(
+                for: subject
             )
+
+        if !sections.isEmpty {
+            let sectionCount =
+                uniqueExerciseCount(
+                    in: sections
+                )
+
+            if sectionCount > 0 {
+                return sectionCount
+            }
         }
 
-        let forcedSectionTitle: String?
-        if sections.count == 1 {
-            forcedSectionTitle = sections.first?.title
-        } else {
-            forcedSectionTitle = nil
+        let resolvedSections =
+            SubjectItemsResolver.shared
+                .resolveBySubject(
+                    belt: belt,
+                    subject:
+                        toSharedSubject(
+                            subject
+                        )
+                )
+
+        var uniqueKeys =
+            Set<String>()
+
+        for section
+            in resolvedSections {
+            for item in section.items {
+                let mirror =
+                    Mirror(
+                        reflecting: item
+                    )
+
+                let canonicalId =
+                    mirror.children.first {
+                        $0.label ==
+                            "canonicalId"
+                    }?.value as? String
+
+                let displayName =
+                    mirror.children.first {
+                        $0.label ==
+                            "displayName"
+                    }?.value as? String
+
+                let rawKey =
+                    canonicalId
+                    ?? displayName
+                    ?? String(
+                        describing: item
+                    )
+
+                let cleanKey =
+                    rawKey
+                        .replacingOccurrences(
+                            of: "\u{200F}",
+                            with: ""
+                        )
+                        .replacingOccurrences(
+                            of: "\u{200E}",
+                            with: ""
+                        )
+                        .replacingOccurrences(
+                            of: "\u{00A0}",
+                            with: " "
+                        )
+                        .replacingOccurrences(
+                            of: "–",
+                            with: "-"
+                        )
+                        .replacingOccurrences(
+                            of: "—",
+                            with: "-"
+                        )
+                        .replacingOccurrences(
+                            of: "\\s+",
+                            with: " ",
+                            options:
+                                .regularExpression
+                        )
+                        .trimmingCharacters(
+                            in:
+                                .whitespacesAndNewlines
+                        )
+                        .lowercased()
+
+                if !cleanKey.isEmpty {
+                    uniqueKeys.insert(
+                        cleanKey
+                    )
+                }
+            }
         }
 
-        return SubjectAcrossBeltsView.resolvedExerciseCount(
-            subject: subject,
-            forcedSectionTitle: forcedSectionTitle
-        )
+        return uniqueKeys.count
     }
 
-    private func subtitleLineTop(for topic: MainTopic) -> String? {
+    private func subtitleLineTop(
+        for topic: MainTopic
+    ) -> String? {
         nil
     }
 
-    private func totalExercisesCount(for topic: MainTopic) -> Int {
-        if topic.id == "releases" {
-            return [
-                "releases_hands_hair_shirt",
-                "releases_chokes",
-                "releases_hugs"
-            ].reduce(0) { partial, sectionId in
-                partial + releaseSectionCount(
-                    sectionId: sectionId,
-                    currentBelt: belt
+    private func totalExercisesCount(
+        for topic: MainTopic
+    ) -> Int {
+        let topicStats =
+            KmiExerciseCountProvider
+                .topicStats(
+                    belt: belt,
+                    topicTitle:
+                        topic.titleHeb
                 )
-            }
+
+        if topicStats.exerciseCount > 0 {
+            return topicStats
+                .exerciseCount
         }
 
-        if topic.id == "defense_root" {
-            return topic.subjects.reduce(0) { partial, subject in
-                partial + displayedExerciseCount(
-                    for: subject
-                )
-            }
-        }
-
-        if topic.id == "hands_root" {
-            return topic.subjects.reduce(0) { partial, subject in
-                partial + SubjectAcrossBeltsView.resolvedExerciseCount(
-                    subject: subject
-                )
-            }
-        }
-
-        if topic.id == "kicks",
-           let kicksSubject = topic.subjects.first {
-            return SubjectAcrossBeltsView.resolvedExerciseCount(
-                subject: kicksSubject
-            )
-        }
-
-        if topic.id == "rolls_breakfalls",
-           let rollsSubject = topic.subjects.first {
-            return SubjectAcrossBeltsView.resolvedExerciseCount(
-                subject: rollsSubject
-            )
-        }
-
-        var uniqueExerciseKeys = Set<String>()
+        var uniqueKeys =
+            Set<String>()
 
         for subject in topic.subjects {
-            uniqueExerciseKeys.formUnion(
-                exerciseKeys(for: subject)
-            )
-        }
+            let sections =
+                SubjectItemsResolver.shared
+                    .resolveBySubject(
+                        belt: belt,
+                        subject:
+                            toSharedSubject(
+                                subject
+                            )
+                    )
 
-        return uniqueExerciseKeys.count
-    }
+            for section in sections {
+                for item in section.items {
+                    let mirror =
+                        Mirror(
+                            reflecting: item
+                        )
 
-    private func subtitleLineBottom(for topic: MainTopic) -> String {
-        let total = totalExercisesCount(for: topic)
+                    let canonicalId =
+                        mirror.children.first {
+                            $0.label ==
+                                "canonicalId"
+                        }?.value as? String
 
-        let subTopicsCount: Int
-        if topic.id == "releases_root" {
-            subTopicsCount = max(
-                topic.subjects.count,
-                (HardSectionsCatalog.shared.sectionsForSubject(subjectId: "releases") ?? []).count
-            )
-        } else {
-            subTopicsCount = topic.subjects.count
-        }
+                    let displayName =
+                        mirror.children.first {
+                            $0.label ==
+                                "displayName"
+                        }?.value as? String
 
-        if subTopicsCount > 1 {
-            if isEnglish {
-                return "\(subTopicsCount) sub-topics · \(total) exercises"
-            } else {
-                return "\(subTopicsCount) תתי נושאים · \(total) תרגילים"
+                    let rawKey =
+                        canonicalId
+                        ?? displayName
+                        ?? String(
+                            describing:
+                                item
+                        )
+
+                    let cleanKey =
+                        rawKey
+                            .replacingOccurrences(
+                                of:
+                                    "\u{200F}",
+                                with:
+                                    ""
+                            )
+                            .replacingOccurrences(
+                                of:
+                                    "\u{200E}",
+                                with:
+                                    ""
+                            )
+                            .replacingOccurrences(
+                                of:
+                                    "\u{00A0}",
+                                with:
+                                    " "
+                            )
+                            .replacingOccurrences(
+                                of:
+                                    "–",
+                                with:
+                                    "-"
+                            )
+                            .replacingOccurrences(
+                                of:
+                                    "—",
+                                with:
+                                    "-"
+                            )
+                            .replacingOccurrences(
+                                of:
+                                    "\\s+",
+                                with:
+                                    " ",
+                                options:
+                                    .regularExpression
+                            )
+                            .trimmingCharacters(
+                                in:
+                                    .whitespacesAndNewlines
+                            )
+                            .lowercased()
+
+                    if !cleanKey.isEmpty {
+                        uniqueKeys.insert(
+                            cleanKey
+                        )
+                    }
+                }
             }
         }
 
-        if isEnglish {
-            return "\(total) exercises"
-        } else {
-            return "\(total) תרגילים"
+        if !uniqueKeys.isEmpty {
+            return uniqueKeys.count
         }
+
+        return topic.subjects.reduce(0) {
+            partial,
+            subject in
+
+            partial +
+                displayedExerciseCount(
+                    for: subject
+                )
+        }
+    }
+
+    private func subtitleLineBottom(
+        for topic: MainTopic
+    ) -> String {
+        let stats =
+            KmiExerciseCountProvider
+                .topicStats(
+                    belt: belt,
+                    topicTitle:
+                        topic.titleHeb
+                )
+
+        let total =
+            stats.exerciseCount > 0
+                ? stats.exerciseCount
+                : totalExercisesCount(
+                    for: topic
+                )
+
+        let resolvedSubTopicCount =
+            max(
+                stats.subTopicCount,
+                topic.subjects.count
+            )
+
+        let displayStats =
+            KmiExerciseCountStats(
+                subTopicCount:
+                    resolvedSubTopicCount > 1
+                        ? resolvedSubTopicCount
+                        : 0,
+                exerciseCount:
+                    total
+            )
+
+        return KmiExerciseCountProvider
+            .combinedCountText(
+                stats: displayStats,
+                isEnglish: isEnglish
+            )
     }
 
     private func triggerTapHaptic() {
@@ -2026,19 +2466,29 @@ struct BeltQuestionsByTopicView: View {
             triggerTapHaptic()
             showQuickActionsDialog = true
         } label: {
-            VStack(spacing: 7) {
+            VStack(spacing: 9) {
                 Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 14, weight: .black))
+                    .font(
+                        .system(
+                            size: 19,
+                            weight: .black
+                        )
+                    )
 
                 Text(tr("מהיר", "Quick"))
-                    .font(.system(size: 10, weight: .black))
+                    .font(
+                        .system(
+                            size: 13,
+                            weight: .black
+                        )
+                    )
                     .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-                    .rotationEffect(.degrees(-90))
-                    .frame(width: 44, height: 18)
+                    .minimumScaleFactor(0.78)
+                    .rotationEffect(.degrees(90))
+                    .frame(width: 54, height: 20)
             }
             .foregroundStyle(Color.white)
-            .frame(width: 34, height: 108)
+            .frame(width: 46, height: 126)
             .background(
                 RoundedRectangle(cornerRadius: 0, style: .continuous)
                     .fill(
@@ -2054,10 +2504,10 @@ struct BeltQuestionsByTopicView: View {
             )
             .clipShape(
                 UnevenRoundedRectangle(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: 0,
-                    bottomTrailingRadius: 16,
-                    topTrailingRadius: 16
+                    topLeadingRadius: 18,
+                    bottomLeadingRadius: 18,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 0
                 )
             )
             .overlay(
@@ -2069,13 +2519,23 @@ struct BeltQuestionsByTopicView: View {
                 )
                 .stroke(Color.white.opacity(0.35), lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.22), radius: 8, x: 2, y: 4)
+            .shadow(
+                color: Color.black.opacity(0.22),
+                radius: 8,
+                x: -2,
+                y: 4
+            )
         }
         .buttonStyle(.plain)
     }
    
-    private var isQuickActionLocked: Bool {
-        LockedContentPolicy.currentAccessMode() == .locked
+    private var isQuickActionLocked:
+        Bool {
+        let _ = accessRefreshTick
+
+        return LockedContentPolicy
+            .currentAccessMode() ==
+            .locked
     }
     
     private var quickActionsDialog: some View {
@@ -2092,17 +2552,37 @@ struct BeltQuestionsByTopicView: View {
                         showQuickActionsDialog = false
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(activeBeltFill.opacity(0.86))
-                            .frame(width: 32, height: 32)
+                            .font(
+                                .system(
+                                    size: 17,
+                                    weight: .bold
+                                )
+                            )
+                            .foregroundStyle(
+                                activeBeltFill.opacity(0.86)
+                            )
+                            .frame(width: 40, height: 40)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
 
                     Spacer()
 
-                    Text(tr("תפריט מהיר", "Quick menu"))
-                        .font(.system(size: 22, weight: .heavy))
-                        .foregroundStyle(activeBeltFill.opacity(0.94))
+                    Text(
+                        tr(
+                            "תפריט מהיר",
+                            "Quick menu"
+                        )
+                    )
+                    .font(
+                        .system(
+                            size: 25,
+                            weight: .heavy
+                        )
+                    )
+                    .foregroundStyle(
+                        activeBeltFill.opacity(0.94)
+                    )
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 12)
@@ -2132,8 +2612,9 @@ struct BeltQuestionsByTopicView: View {
                     nav.push(.voiceAssistant)
                 }
             }
-            .padding(.bottom, 10)
-            .frame(width: 270)
+            .padding(.bottom, 12)
+            .frame(maxWidth: 330)
+            .padding(.horizontal, 20)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .fill(
@@ -2175,12 +2656,21 @@ struct BeltQuestionsByTopicView: View {
 
             action()
         } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(activeBeltFill.opacity(0.84))
-                    .frame(width: 28, height: 28)
-                    .background(activeBeltFill.opacity(0.12))
+                    .font(
+                        .system(
+                            size: 17,
+                            weight: .bold
+                        )
+                    )
+                    .foregroundStyle(
+                        activeBeltFill.opacity(0.84)
+                    )
+                    .frame(width: 38, height: 38)
+                    .background(
+                        activeBeltFill.opacity(0.12)
+                    )
                     .clipShape(Circle())
 
                 if locked {
@@ -2190,13 +2680,32 @@ struct BeltQuestionsByTopicView: View {
                 }
 
                 Text(title)
-                    .font(.system(size: 17, weight: .heavy))
-                    .foregroundStyle(activeBeltFill.opacity(0.94))
-                    .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
-                    .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                    .font(
+                        .system(
+                            size: 19,
+                            weight: .heavy
+                        )
+                    )
+                    .foregroundStyle(
+                        activeBeltFill.opacity(0.94)
+                    )
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment:
+                            isEnglish
+                            ? .leading
+                            : .trailing
+                    )
+                    .multilineTextAlignment(
+                        isEnglish
+                        ? .leading
+                        : .trailing
+                    )
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 13)
             .background(Color.white.opacity(0.001))
         }
         .buttonStyle(.plain)
@@ -2207,103 +2716,200 @@ struct BeltQuestionsByTopicView: View {
             alignment: .bottom
         )
     }
-    
-    
+
+    private var topicsScreenContent: some View {
+        GeometryReader { geometry in
+            let availableHeight =
+                geometry.size.height - 10
+
+            let cardHeight =
+                max(
+                    CGFloat(360),
+                    availableHeight
+                )
+
+            WhiteCard {
+                topicsCardContent
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 8)
+            }
+            .frame(height: cardHeight)
+            .padding(.horizontal, 18)
+        }
+    }
+
+    private var topicsCardContent: some View {
+        VStack(
+            alignment:
+                isEnglish
+                ? .leading
+                : .trailing,
+            spacing: 14
+        ) {
+            Text(
+                tr(
+                    "נושאים (קטגוריות)",
+                    "Subjects (Categories)"
+                )
+            )
+            .font(
+                .system(
+                    size: 14,
+                    weight: .heavy
+                )
+            )
+            .foregroundStyle(
+                Color.black.opacity(0.84)
+            )
+            .frame(
+                maxWidth: .infinity,
+                alignment: .center
+            )
+            .multilineTextAlignment(.center)
+
+            topicsRowsContent
+        }
+    }
+
+    private var topicsRowsContent: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 6) {
+                ForEach(
+                    Array(
+                        mainTopics.enumerated()
+                    ),
+                    id: \.offset
+                ) { _, topic in
+                    topicRowContent(topic)
+                }
+
+                if mainTopics.isEmpty {
+                    emptyTopicsMessage
+                }
+            }
+            .padding(.bottom, 6)
+        }
+    }
+
+    private func topicRowContent(
+        _ topic: MainTopic
+    ) -> some View {
+        let hasSubTopics =
+            topic.subjects.count > 1
+
+        let isExpanded =
+            expandedMainTopicId == topic.id
+
+        let accent =
+            accentForTopic(topic)
+
+        return VStack(spacing: 0) {
+            Button {
+                openTopic(topic)
+            } label: {
+                TopicRowCard(
+                    title:
+                        displayTitle(
+                            for: topic
+                        ),
+                    accent: accent,
+                    subtitleTop:
+                        subtitleLineTop(
+                            for: topic
+                        ),
+                    subtitleBottom:
+                        subtitleLineBottom(
+                            for: topic
+                        ),
+                    isEnglish: isEnglish,
+                    symbolName:
+                        symbolForTopic(topic),
+                    imageName:
+                        imageNameForTopic(topic),
+                    isLocked:
+                        isTopicLocked(topic),
+                    hasSubTopics: hasSubTopics,
+                    isExpanded: isExpanded
+                )
+            }
+            .buttonStyle(.plain)
+
+            if hasSubTopics && isExpanded {
+                expandedSubTopicsBlock(
+                    for: topic,
+                    accent: accent
+                )
+            }
+        }
+    }
+
+    private var emptyTopicsMessage: some View {
+        Text(
+            tr(
+                "אין נושאים להצגה",
+                "No topics to display"
+            )
+        )
+        .font(
+            .system(
+                size: 16,
+                weight: .semibold
+            )
+        )
+        .foregroundStyle(
+            Color.black.opacity(0.55)
+        )
+        .frame(
+            maxWidth: .infinity,
+            alignment: .center
+        )
+        .multilineTextAlignment(.center)
+        .padding(.vertical, 14)
+    }
+
+    @ViewBuilder
+    private var quickRailLayer: some View {
+        if !embeddedMode {
+            GeometryReader { geometry in
+                quickViewSideRail
+                    .position(
+                        x:
+                            UIScreen.main.bounds.width -
+                            23,
+                        y:
+                            geometry.size.height / 2
+                    )
+            }
+            .environment(
+                \.layoutDirection,
+                .leftToRight
+            )
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity
+            )
+            .zIndex(40)
+        }
+    }
+
+    @ViewBuilder
+    private var quickDialogLayer: some View {
+        if !embeddedMode &&
+            showQuickActionsDialog {
+            quickActionsDialog
+        }
+    }
     var body: some View {
         ZStack {
             KmiAppBackground()
-
-            VStack(spacing: 0) {
-                GeometryReader { geo in
-                    let reservedBottomForQuickView: CGFloat = 10
-                    let availableHeight = geo.size.height - reservedBottomForQuickView
-                    let cardHeight = max(360, availableHeight)
-
-                    WhiteCard {
-                        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 14) {
-                            
-                            Text(tr("נושאים (קטגוריות)", "Subjects (Categories)"))
-                                .font(.system(size: 14, weight: .heavy))
-                                .foregroundStyle(Color.black.opacity(0.84))
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .multilineTextAlignment(.center)
-                            
-                            ScrollView(showsIndicators: false) {
-                                VStack(spacing: 6) {
-                                    ForEach(Array(mainTopics.enumerated()), id: \.offset) { _, topic in
-                                        let hasSubTopics = topic.subjects.count > 1
-                                        let isExpanded = expandedMainTopicId == topic.id
-                                        let accent = accentForTopic(topic)
-
-                                        VStack(spacing: 0) {
-                                            Button {
-                                                openTopic(topic)
-                                            } label: {
-                                                TopicRowCard(
-                                                    title: displayTitle(for: topic),
-                                                    accent: accent,
-                                                    subtitleTop: subtitleLineTop(for: topic),
-                                                    subtitleBottom: subtitleLineBottom(for: topic),
-                                                    isEnglish: isEnglish,
-                                                    symbolName: symbolForTopic(topic),
-                                                    imageName: imageNameForTopic(topic),
-                                                    isLocked: isTopicLocked(topic),
-                                                    hasSubTopics: hasSubTopics,
-                                                    isExpanded: isExpanded
-                                                )
-                                            }
-                                            .buttonStyle(.plain)
-
-                                            if hasSubTopics && isExpanded {
-                                                expandedSubTopicsBlock(
-                                                    for: topic,
-                                                    accent: accent
-                                                )
-                                            }
-                                        }
-                                    }
-                                    
-                                    if mainTopics.isEmpty {
-                                        Text(tr("אין נושאים להצגה", "No topics to display"))
-                                            .font(.system(size: 16, weight: .semibold))
-                                            .foregroundStyle(Color.black.opacity(0.55))
-                                            .frame(maxWidth: .infinity, alignment: .center)
-                                            .multilineTextAlignment(.center)
-                                            .padding(.vertical, 14)
-                                    }
-                                }
-                                .padding(.bottom, 6)
-                            }
-                        }
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 8)
-                    }
-                    .frame(height: cardHeight)
-                    .padding(.horizontal, 18)
-                    .padding(.top, 0)
-                }
-
-                // Android parity:
-                // אין כפתור תחתון של "מבט מהיר".
-                // התפריט המהיר נפתח ממלבן צדדי קבוע.
-            }
-
-            if !embeddedMode {
-                HStack(spacing: 0) {
-                    quickViewSideRail
-
-                    Spacer(minLength: 0)
-                }
-                .environment(\.layoutDirection, .leftToRight)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                .zIndex(40)
-            }
-            
-            if !embeddedMode && showQuickActionsDialog {
-                quickActionsDialog
-            }
+            topicsScreenContent
+            quickRailLayer
+            quickDialogLayer
         }
-        .environment(\.layoutDirection, screenLayoutDirection)
+        .environment(
+            \.layoutDirection,
+            screenLayoutDirection
+        )
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             onActiveBeltChange?(belt)
@@ -2314,12 +2920,18 @@ struct BeltQuestionsByTopicView: View {
                 postTopicTopTitleOverride()
             }
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + 0.12
+            ) {
                 postTopicTopTitleOverride()
             }
         }
-        .onChange(of: belt) { _, newValue in
-            onActiveBeltChange?(newValue)
+        .onChange(
+            of: belt
+        ) { _, newValue in
+            onActiveBeltChange?(
+                newValue
+            )
 
             postTopicTopTitleOverride()
 
@@ -2327,28 +2939,131 @@ struct BeltQuestionsByTopicView: View {
                 postTopicTopTitleOverride()
             }
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                postTopicTopTitleOverride()
+            DispatchQueue.main
+                .asyncAfter(
+                    deadline:
+                        .now() + 0.12
+                ) {
+                    postTopicTopTitleOverride()
+                }
+        }
+        .onChange(
+            of: scenePhase
+        ) { _, newPhase in
+            guard newPhase == .active else {
+                return
+            }
+
+            accessRefreshTick += 1
+        }
+        .onReceive(
+            NotificationCenter.default
+                .publisher(
+                    for:
+                        Notification.Name(
+                            "KMI_ACCESS_CHANGED"
+                        )
+                )
+        ) { _ in
+            accessRefreshTick += 1
+        }
+        .onReceive(
+            NotificationCenter.default
+                .publisher(
+                    for:
+                        UserDefaults
+                            .didChangeNotification
+                )
+        ) { _ in
+            accessRefreshTick += 1
+        }
+
+        // אין שימוש במסך הקטלוג הישן.
+
+        /*
+         * Android parity:
+         * מסכי העומק נשארים תחת המעטפת הגלובלית,
+         * כולל כותרת, סרגל אייקונים ופקודות קוליות.
+         */
+        .navigationDestination(
+            item: $pickedAcrossBeltsSubject
+        ) { subject in
+            let sectionTitle =
+                pickedAcrossBeltsSubTopicTitle?
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+            let subjectTitle =
+                uiSubjectTitleForInline(subject)
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+            let destinationTitle: String = {
+                if let sectionTitle,
+                   !sectionTitle.isEmpty {
+                    return sectionTitle
+                }
+
+                if !subjectTitle.isEmpty {
+                    return subjectTitle
+                }
+
+                return tr(
+                    "תרגילים לפי נושא",
+                    "Exercises by Topic"
+                )
+            }()
+
+            KmiRootLayout(
+                title: destinationTitle,
+                nav: nav,
+                selectedIcon: .home
+            ) {
+                SubjectAcrossBeltsView(
+                    subject: subject,
+                    forcedSectionTitle:
+                        pickedAcrossBeltsSubTopicTitle
+                )
+                .navigationBarBackButtonHidden(true)
             }
         }
-        
-        // navigation לקטלוג הוסר – אין שימוש במסך "כל התרגילים"
+        .navigationDestination(
+            item: $pickedSectionedSubject
+        ) { subject in
+            let subjectTitle =
+                uiSubjectTitleForInline(subject)
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
 
-        .navigationDestination(item: $pickedAcrossBeltsSubject) { subject in
-            SubjectAcrossBeltsView(
-                subject: subject,
-                forcedSectionTitle: pickedAcrossBeltsSubTopicTitle
-            )
-        }
-        .navigationDestination(item: $pickedSectionedSubject) { subject in
-            SubjectSectionsListView(
-                belt: belt,
-                subject: subject,
-                onPickSection: { section in
-                    pickedAcrossBeltsSubject = subject
-                    pickedAcrossBeltsSubTopicTitle = section
-                }
-            )
+            let destinationTitle =
+                subjectTitle.isEmpty
+                ? tr(
+                    "תרגילים לפי נושא",
+                    "Exercises by Topic"
+                )
+                : subjectTitle
+
+            KmiRootLayout(
+                title: destinationTitle,
+                nav: nav,
+                selectedIcon: .home
+            ) {
+                SubjectSectionsListView(
+                    belt: belt,
+                    subject: subject,
+                    onPickSection: { section in
+                        pickedAcrossBeltsSubject =
+                            subject
+
+                        pickedAcrossBeltsSubTopicTitle =
+                            section
+                    }
+                )
+                .navigationBarBackButtonHidden(true)
+            }
         }
     }
 }

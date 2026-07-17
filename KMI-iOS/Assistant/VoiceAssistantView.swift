@@ -14,11 +14,39 @@ struct VoiceAssistantView: View {
         trainingDataSource: EmptyAssistantTrainingDataSource()
     )
 
+    @StateObject private var speechRecognizer =
+        KmiSpeechRecognizer()
+
+    @AppStorage("kmi_app_language")
+    private var kmiAppLanguageCode: String = "he"
+
+    @AppStorage("selected_language_code")
+    private var selectedLanguageCode: String = "he"
+
     private let tts = AssistantTtsManager.shared
 
     @State private var inputText: String = ""
-    @State private var isListening: Bool = false
     @State private var didIntroSpeak: Bool = false
+
+    private var isEnglish: Bool {
+        let languageValues = [
+            kmiAppLanguageCode,
+            selectedLanguageCode
+        ]
+        .map {
+            $0.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased()
+        }
+
+        return languageValues.contains("en") ||
+            languageValues.contains("english")
+    }
+
+    private var speechLocaleIdentifier: String {
+        isEnglish ? "en-US" : "he-IL"
+    }
 
     var body: some View {
         ZStack {
@@ -43,8 +71,14 @@ struct VoiceAssistantView: View {
             didIntroSpeak = true
             tts.speak("שלום, כאן יובל העוזר האישי שלך. אנא בחר נושא מתוך הרשימה שלפניך כדי שנוכל להתחיל")
         }
+        .onChange(
+            of: speechRecognizer.transcript
+        ) { _, newTranscript in
+            inputText = newTranscript
+        }
         .onDisappear {
             tts.stop()
+            speechRecognizer.cancelListening()
         }
     }
 
@@ -229,17 +263,42 @@ struct VoiceAssistantView: View {
     private var inputBar: some View {
         HStack(spacing: 10) {
             Button {
-                isListening.toggle()
+                toggleSpeechRecognition()
             } label: {
-                Image(systemName: isListening ? "mic.circle.fill" : "mic.fill")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(
-                        Circle().fill(Color.white.opacity(isListening ? 0.30 : 0.18))
-                    )
+                Image(
+                    systemName:
+                        speechRecognizer.isListening
+                        ? "stop.fill"
+                        : "mic.fill"
+                )
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(
+                    Circle()
+                        .fill(
+                            Color.white.opacity(
+                                speechRecognizer.isListening
+                                ? 0.30
+                                : 0.18
+                            )
+                        )
+                )
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(
+                speechRecognizer.isListening
+                ? (
+                    isEnglish
+                    ? "Stop listening"
+                    : "הפסק האזנה"
+                )
+                : (
+                    isEnglish
+                    ? "Start listening"
+                    : "התחל האזנה"
+                )
+            )
 
             TextField("כתוב כאן שאלה…", text: $inputText, axis: .vertical)
                 .textFieldStyle(.plain)
@@ -273,6 +332,31 @@ struct VoiceAssistantView: View {
             .buttonStyle(.plain)
             .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .opacity(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.6 : 1)
+        }
+    }
+
+    private func toggleSpeechRecognition() {
+        if speechRecognizer.isListening {
+            speechRecognizer.stopListening()
+            return
+        }
+
+        tts.stop()
+
+        speechRecognizer.requestPermissions { granted in
+            guard granted else {
+                return
+            }
+
+            speechRecognizer.startListening(
+                localeIdentifier:
+                    speechLocaleIdentifier
+            ) { recognizedText in
+                inputText =
+                    recognizedText.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+            }
         }
     }
 

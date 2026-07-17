@@ -43,6 +43,119 @@ private enum HomePDFExportError: LocalizedError {
     }
 }
 
+private enum HomeHolidayCalendar {
+
+    private static let blockingKeywords = [
+        "ראש השנה",
+        "יום כיפור",
+        "כיפור",
+        "סוכות",
+        "שמחת תורה",
+        "פסח",
+        "חול המועד פסח",
+        "שבועות",
+        "תשעה באב"
+    ]
+
+    private static let nonBlockingKeywords = [
+        "ראש חודש",
+        "ספירת העומר",
+        "לג בעומר",
+        "ט״ו בשבט",
+        "טו בשבט",
+        "יום העצמאות",
+        "יום הזיכרון",
+        "יום השואה",
+        "פורים קטן",
+        "שושן פורים",
+        "חנוכה",
+        "צום",
+        "תענית",
+        "ערב"
+    ]
+
+    private static let blockedDateKeys: Set<String> = {
+        guard let url = Bundle.main.url(
+            forResource: "holidays_hebrew_2024_2026",
+            withExtension: "json"
+        ),
+        let data = try? Data(contentsOf: url),
+        let root = try? JSONSerialization.jsonObject(
+            with: data
+        ) as? [String: Any],
+        let items = root["items"] as? [[String: Any]] else {
+            return []
+        }
+
+        var result = Set<String>()
+
+        for item in items {
+            let titleKeys = [
+                "title",
+                "title_he",
+                "hebrew",
+                "name",
+                "category",
+                "subcat"
+            ]
+
+            let title = titleKeys
+                .compactMap { key in
+                    item[key] as? String
+                }
+                .joined(separator: " ")
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
+
+            guard !title.isEmpty else {
+                continue
+            }
+
+            let containsNonBlocking =
+                nonBlockingKeywords.contains { keyword in
+                    title.contains(keyword.lowercased())
+                }
+
+            if containsNonBlocking {
+                continue
+            }
+
+            let containsBlocking =
+                blockingKeywords.contains { keyword in
+                    title.contains(keyword.lowercased())
+                }
+
+            guard containsBlocking,
+                  let dateKey = item["date_iso"] as? String,
+                  !dateKey.isEmpty else {
+                continue
+            }
+
+            result.insert(dateKey)
+        }
+
+        return result
+    }()
+
+    static func isTrainingBlocked(
+        on date: Date
+    ) -> Bool {
+        let formatter = DateFormatter()
+        formatter.calendar =
+            Calendar(identifier: .gregorian)
+        formatter.locale =
+            Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+
+        return blockedDateKeys.contains(
+            formatter.string(from: date)
+        )
+    }
+}
+
 private struct CoachHomeMessage: Identifiable, Hashable {
     let id: String
     let text: String
@@ -95,6 +208,7 @@ struct HomeView: View {
 
     @State private var pdfShareItem: HomePDFShareItem? = nil
     @State private var pdfExportErrorMessage: String? = nil
+    @State private var freeSessionsErrorMessage: String? = nil
 
     // Android parity: quick menu icon must always be visible on Home
     @State private var showHomeQuickMenu: Bool = false
@@ -107,6 +221,15 @@ struct HomeView: View {
     @State private var recentCoachMessages: [CoachHomeMessage] = []
     @State private var showCoachMessagesSheet: Bool = false
     @State private var coachBroadcastListener: ListenerRegistration? = nil
+
+    @AppStorage("coach_broadcast_open_dialog")
+    private var openCoachMessagesFromPush: Bool = false
+
+    @AppStorage("coach_broadcast_open_from_push")
+    private var openCoachMessagesFromPushLegacy: Bool = false
+
+    @AppStorage("coach_broadcast_push_id")
+    private var pendingCoachBroadcastId: String = ""
     
     private let calendar = Calendar(identifier: .gregorian)
     
@@ -174,17 +297,187 @@ struct HomeView: View {
     private var resolvedBranch: String {
         let authValue = auth.userBranch.trimmingCharacters(in: .whitespacesAndNewlines)
         if !authValue.isEmpty { return authValue }
+
         let active = storedActiveBranch.trimmingCharacters(in: .whitespacesAndNewlines)
         if !active.isEmpty { return active }
+
         return storedBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var resolvedBranches: [String] {
+        let defaults = UserDefaults.standard
+
+        func splitBranches(_ raw: String) -> [String] {
+            raw
+                .replacingOccurrences(of: "[", with: "")
+                .replacingOccurrences(of: "]", with: "")
+                .split { character in
+                    character == "," ||
+                    character == ";" ||
+                    character == "|" ||
+                    character == "\n"
+                }
+                .map {
+                    String($0)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .trimmingCharacters(
+                            in: CharacterSet(charactersIn: "\"")
+                        )
+                }
+                .filter { !$0.isEmpty }
+        }
+
+        func values(for key: String) -> [String] {
+            if let array = defaults.array(forKey: key) {
+                return array
+                    .map {
+                        "\($0)".trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                    }
+                    .filter { !$0.isEmpty }
+            }
+
+            if let string = defaults.string(forKey: key) {
+                return splitBranches(string)
+            }
+
+            return []
+        }
+
+        var branches: [String] = [
+            auth.userBranch,
+            storedActiveBranch,
+            storedBranch
+        ]
+
+        branches += [
+            "active_branch",
+            "activeBranch",
+            "branch",
+            "branches",
+            "branches_json",
+            "selected_branches",
+            "branch2",
+            "branch3"
+        ]
+        .flatMap { key in
+            values(for: key)
+        }
+
+        var seen = Set<String>()
+
+        return branches
+            .map {
+                $0.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+            }
+            .filter { !$0.isEmpty }
+            .filter { branch in
+                let normalized =
+                    normalizeCoachBroadcastText(branch)
+
+                guard !seen.contains(normalized) else {
+                    return false
+                }
+
+                seen.insert(normalized)
+                return true
+            }
     }
     
     private var resolvedGroup: String {
         let authValue = auth.userGroup.trimmingCharacters(in: .whitespacesAndNewlines)
         if !authValue.isEmpty { return authValue }
+
         let active = storedActiveGroup.trimmingCharacters(in: .whitespacesAndNewlines)
         if !active.isEmpty { return active }
+
         return storedGroup.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var resolvedGroups: [String] {
+        let defaults = UserDefaults.standard
+
+        func splitGroups(_ raw: String) -> [String] {
+            raw
+                .replacingOccurrences(of: "[", with: "")
+                .replacingOccurrences(of: "]", with: "")
+                .split { character in
+                    character == "," ||
+                    character == ";" ||
+                    character == "|" ||
+                    character == "\n"
+                }
+                .map {
+                    String($0)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .trimmingCharacters(
+                            in: CharacterSet(charactersIn: "\"")
+                        )
+                }
+                .filter { !$0.isEmpty }
+        }
+
+        func values(for key: String) -> [String] {
+            if let array = defaults.array(forKey: key) {
+                return array
+                    .map {
+                        "\($0)".trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                    }
+                    .filter { !$0.isEmpty }
+            }
+
+            if let string = defaults.string(forKey: key) {
+                return splitGroups(string)
+            }
+
+            return []
+        }
+
+        var groups: [String] = [
+            auth.userGroup,
+            storedActiveGroup,
+            storedGroup
+        ]
+
+        groups += [
+            "groups_json",
+            "selected_groups",
+            "groups",
+            "age_groups",
+            "age_group",
+            "active_group",
+            "activeGroup",
+            "group"
+        ]
+        .flatMap { key in
+            values(for: key)
+        }
+
+        var seen = Set<String>()
+
+        return groups
+            .map {
+                $0.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+            }
+            .filter { !$0.isEmpty }
+            .filter { group in
+                let normalized =
+                    normalizeCoachBroadcastText(group)
+
+                guard !seen.contains(normalized) else {
+                    return false
+                }
+
+                seen.insert(normalized)
+                return true
+            }
     }
 
     private var isAbroadUser: Bool {
@@ -193,12 +486,24 @@ struct HomeView: View {
     }
     
     private var resolvedUserRole: String {
-        let value = storedUserRole.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let value =
+            storedUserRole
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
+
         return value.isEmpty ? "trainee" : value
     }
     
     private var isCoachUser: Bool {
-        resolvedUserRole == "coach"
+        switch resolvedUserRole {
+        case "coach", "trainer", "מאמן":
+            return true
+
+        default:
+            return false
+        }
     }
     
     private var hasFullAccess: Bool {
@@ -254,13 +559,28 @@ struct HomeView: View {
         subscriptionAccessUntil = 0
     }
 
-    private func runPremiumHomeAction(_ action: @escaping () -> Void) {
+    private func runPremiumHomeAction(
+        _ action: @escaping () -> Void
+    ) {
         clearExpiredSubscriptionFlagsIfNeeded()
 
-        if hasFullAccess {
-            action()
-        } else {
-            nav.push(.subscription)
+        withAnimation(
+            .spring(
+                response: 0.24,
+                dampingFraction: 0.88
+            )
+        ) {
+            showHomeQuickMenu = false
+        }
+
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + 0.12
+        ) {
+            if hasFullAccess {
+                action()
+            } else {
+                nav.push(.subscription)
+            }
         }
     }
     
@@ -270,30 +590,73 @@ struct HomeView: View {
     }
     
     private var freeSessionsName: String {
-        let rawDisplayName =
-        (Auth.auth().currentUser?.displayName ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        if !rawDisplayName.isEmpty { return rawDisplayName }
-        
-        let rawEmail =
-        (Auth.auth().currentUser?.email ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        if !rawEmail.isEmpty { return rawEmail }
-        
-        let fallbackName = storedFullName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !fallbackName.isEmpty { return fallbackName }
-        
+        let firebaseDisplayName =
+            (Auth.auth().currentUser?.displayName ?? "")
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        if !firebaseDisplayName.isEmpty {
+            return firebaseDisplayName
+        }
+
+        let localFullName =
+            storedFullName
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        if !localFullName.isEmpty {
+            return localFullName
+        }
+
+        let defaults = UserDefaults.standard
+
+        let additionalNameKeys = [
+            "full_name",
+            "name",
+            "user_name"
+        ]
+
+        for key in additionalNameKeys {
+            let value =
+                defaults.string(forKey: key)?
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    ) ?? ""
+
+            if !value.isEmpty {
+                return value
+            }
+        }
+
+        let email =
+            (Auth.auth().currentUser?.email ?? "")
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        if !email.isEmpty {
+            return email
+        }
+
         return fallbackUserName
     }
     
     private var freeSessionsBranch: String {
-        resolvedBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        resolvedBranches
+            .first?
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ) ?? ""
     }
     
     private var freeSessionsGroupKey: String {
-        resolvedGroup.trimmingCharacters(in: .whitespacesAndNewlines)
+        resolvedGroups
+            .first?
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ) ?? ""
     }
     
     private var resolvedBeltId: String {
@@ -331,11 +694,17 @@ struct HomeView: View {
     }
     
     private var effectiveUpcomingTrainings: [TrainingData] {
-        if isAbroadUser {
+        guard !isAbroadUser else {
             return []
         }
 
-        return trainingsVm.upcomingTrainings
+        return Array(
+            trainingsVm.upcomingTrainings
+                .sorted { left, right in
+                    left.date < right.date
+                }
+                .prefix(5)
+        )
     }
 
     private var effectiveStatusMessage: String? {
@@ -453,7 +822,14 @@ struct HomeView: View {
                         let uid = freeSessionsUid
                         let name = freeSessionsName
 
-                        guard !branch.isEmpty, !groupKey.isEmpty, !uid.isEmpty else {
+                        guard !branch.isEmpty,
+                              !groupKey.isEmpty,
+                              !uid.isEmpty else {
+                            freeSessionsErrorMessage =
+                                tr(
+                                    "חסרים סניף, קבוצה או פרטי משתמש לפתיחת אימונים חופשיים.",
+                                    "Branch, group or user details are missing."
+                                )
                             return
                         }
 
@@ -474,8 +850,9 @@ struct HomeView: View {
     }
     
     var body: some View {
-        ZStack {
-            LinearGradient(
+        let baseContent = AnyView(
+            ZStack {
+                LinearGradient(
                 colors: [
                     Color(hex: 0xFFF8FBFF),
                     Color(hex: 0xFFEAF4FF),
@@ -567,70 +944,139 @@ struct HomeView: View {
                 }
             }
         }
-        
         .safeAreaInset(edge: .bottom, spacing: 0) {
             bottomBeltSelectionButton
         }
-        .overlay {
-            quickMenuOverlay
-        }
-        .onReceive(
-            NotificationCenter.default.publisher(
-                for: Notification.Name("KMI_GLOBAL_SEARCH_PICK")
-            )
-        ) { notif in
-            guard let key = notif.object as? String else { return }
-            pickedExercise = ExerciseSelection.fromSearchKey(key)
-        }
-        .task {
+                .overlay(
+                    alignment: .topLeading
+                ) {
+                    quickMenuOverlay
+                }
+                )
+
+        let lifecycleContent = AnyView(
+            baseContent
+                .onReceive(
+                    NotificationCenter.default.publisher(
+                        for: Notification.Name(
+                            "KMI_GLOBAL_SEARCH_PICK"
+                        )
+                    )
+                ) { notification in
+                    guard let key = notification.object as? String else {
+                        return
+                    }
+
+                    pickedExercise =
+                        ExerciseSelection.fromSearchKey(key)
+                }
+                .onReceive(
+                    NotificationCenter.default.publisher(
+                        for: Notification.Name(
+                            "KMI_HOME_SHARE_PDF"
+                        )
+                    )
+                ) { _ in
+                    guard !isAbroadUser else {
+                        pdfExportErrorMessage =
+                            tr(
+                                "יצירת PDF אינה זמינה במצב חו״ל.",
+                                "PDF export is unavailable in abroad mode."
+                            )
+                        return
+                    }
+
+                    guard !effectiveUpcomingTrainings.isEmpty else {
+                        pdfExportErrorMessage =
+                            tr(
+                                "אין אימונים זמינים ליצירת PDF.",
+                                "There are no training sessions available for PDF export."
+                            )
+                        return
+                    }
+
+                    shareUpcomingTrainingsPDF()
+                }
+                .task {
             clearExpiredSubscriptionFlagsIfNeeded()
             reloadTrainingsIfNeeded()
         }
         .onAppear {
             clearExpiredSubscriptionFlagsIfNeeded()
             startCoachBroadcastListener()
+            openPendingCoachBroadcastIfNeeded()
         }
         .onDisappear {
             stopCoachBroadcastListener()
         }
-        .refreshable {
-            clearExpiredSubscriptionFlagsIfNeeded()
-            reloadTrainingsIfNeeded()
-        }
-        .onChange(of: auth.userRegion) { _, _ in
+                .refreshable {
+                    clearExpiredSubscriptionFlagsIfNeeded()
+                    reloadTrainingsIfNeeded()
+                }
+                )
+
+                let observedContent = AnyView(
+                    lifecycleContent
+                .onChange(of: auth.userRegion) { _, _ in
             reloadTrainingsIfNeeded()
         }
         .onChange(of: auth.userBranch) { _, _ in
             reloadTrainingsIfNeeded()
+            startCoachBroadcastListener()
         }
         .onChange(of: auth.userGroup) { _, _ in
             reloadTrainingsIfNeeded()
+            startCoachBroadcastListener()
         }
         .onChange(of: storedRegion) { _, _ in
             reloadTrainingsIfNeeded()
         }
         .onChange(of: storedActiveBranch) { _, _ in
             reloadTrainingsIfNeeded()
+            startCoachBroadcastListener()
         }
         .onChange(of: storedBranch) { _, _ in
             reloadTrainingsIfNeeded()
+            startCoachBroadcastListener()
         }
         .onChange(of: storedActiveGroup) { _, _ in
             reloadTrainingsIfNeeded()
+            startCoachBroadcastListener()
         }
         .onChange(of: storedGroup) { _, _ in
             reloadTrainingsIfNeeded()
+            startCoachBroadcastListener()
         }
-        .onReceive(
-            NotificationCenter.default.publisher(
-                for: UIApplication.willEnterForegroundNotification
-            )
-        ) { _ in
-            clearExpiredSubscriptionFlagsIfNeeded()
+        .onChange(of: Auth.auth().currentUser?.uid) { _, _ in
             reloadTrainingsIfNeeded()
             startCoachBroadcastListener()
         }
-        .navigationDestination(isPresented: $goVoiceAssistant) {
+        .onChange(of: pendingCoachBroadcastId) { _, _ in
+            openPendingCoachBroadcastIfNeeded()
+        }
+        .onChange(of: recentCoachMessages.count) { _, newCount in
+            if newCount > 0 &&
+                (openCoachMessagesFromPush ||
+                 openCoachMessagesFromPushLegacy) {
+                showCoachMessagesSheet = true
+                clearPendingCoachBroadcast()
+            }
+        }
+                        .onReceive(
+                            NotificationCenter.default.publisher(
+                                for: UIApplication.willEnterForegroundNotification
+                            )
+                        ) { _ in
+                            clearExpiredSubscriptionFlagsIfNeeded()
+                            reloadTrainingsIfNeeded()
+                            startCoachBroadcastListener()
+                            openPendingCoachBroadcastIfNeeded()
+                        }
+                        )
+
+                        let navigationContent = AnyView(
+                            observedContent
+                        .navigationDestination(isPresented: $goVoiceAssistant) {
             VoiceAssistantView()
                 .navigationBarBackButtonHidden(true)
         }
@@ -642,14 +1088,18 @@ struct HomeView: View {
             MyProfileView()
                 .navigationBarBackButtonHidden(true)
         }
-        .navigationDestination(item: $pickedExercise) { selection in
-            ExerciseDetailView(
-                belt: selection.belt,
-                topicTitle: selection.topicTitle,
-                item: selection.item
-            )
-        }
-        .sheet(isPresented: $showNavigationSheet, onDismiss: {
+                                .navigationDestination(item: $pickedExercise) { selection in
+                                    ExerciseDetailView(
+                                        belt: selection.belt,
+                                        topicTitle: selection.topicTitle,
+                                        item: selection.item
+                                    )
+                                }
+                                )
+
+                                let presentationContent = AnyView(
+                                    navigationContent
+                                .sheet(isPresented: $showNavigationSheet, onDismiss: {
             selectedTraining = nil
         }) {
             if let training = selectedTraining {
@@ -670,13 +1120,16 @@ struct HomeView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
-        .sheet(item: $pdfShareItem) { shareItem in
-            HomePDFShareSheet(
-                items: [shareItem.url]
-            )
-        }
-        .alert(
-            tr("לא ניתן לשתף", "Unable to Share"),
+                                        .sheet(item: $pdfShareItem) { shareItem in
+                                            HomePDFShareSheet(
+                                                items: [shareItem.url]
+                                            )
+                                        }
+                                        )
+
+                                        return presentationContent
+                                        .alert(
+                                            tr("לא ניתן לשתף", "Unable to Share"),
             isPresented: Binding(
                 get: {
                     pdfExportErrorMessage != nil
@@ -694,31 +1147,35 @@ struct HomeView: View {
         } message: {
             Text(pdfExportErrorMessage ?? "")
         }
-        .toolbar {
-            ToolbarItem(
-                placement: isEnglish
-                ? .topBarTrailing
-                : .topBarLeading
-            ) {
-                Button {
-                    shareUpcomingTrainingsPDF()
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 17, weight: .bold))
+        .alert(
+            tr(
+                "לא ניתן לפתוח אימונים חופשיים",
+                "Unable to Open Free Trainings"
+            ),
+            isPresented: Binding(
+                get: {
+                    freeSessionsErrorMessage != nil
+                },
+                set: { isPresented in
+                    if !isPresented {
+                        freeSessionsErrorMessage = nil
+                    }
                 }
-                .disabled(
-                    isAbroadUser ||
-                    effectiveUpcomingTrainings.isEmpty
-                )
-                .accessibilityLabel(
-                    tr(
-                        "שתף את לוח האימונים כקובץ PDF",
-                        "Share training schedule as PDF"
-                    )
-                )
+            )
+        ) {
+            Button(
+                tr("אישור", "OK"),
+                role: .cancel
+            ) {
+                freeSessionsErrorMessage = nil
             }
+        } message: {
+            Text(freeSessionsErrorMessage ?? "")
         }
-        .environment(\.layoutDirection, screenLayoutDirection)
+        .environment(
+            \.layoutDirection,
+            screenLayoutDirection
+        )
     }
     
     private var bottomBeltSelectionButton: some View {
@@ -744,8 +1201,8 @@ struct HomeView: View {
 
     private var quickMenuOverlay: some View {
         GeometryReader { geo in
-            let fabWidth: CGFloat = 38
-            let panelWidth: CGFloat = 190
+            let fabWidth: CGFloat = 46
+            let panelWidth: CGFloat = 248
 
             // Android parity:
             // הטאב נמצא בצד שמאל פיזי של המסך גם בעברית וגם באנגלית.
@@ -797,8 +1254,15 @@ struct HomeView: View {
             .frame(width: geo.size.width, height: geo.size.height)
         }
         .allowsHitTesting(true)
-        .ignoresSafeArea(.keyboard, edges: .bottom)
-        .zIndex(50)
+        .ignoresSafeArea(
+            .keyboard,
+            edges: .bottom
+        )
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: .infinity,
+            alignment: .topLeading
+        )
     }
     
     // MARK: - User Header Card
@@ -1075,17 +1539,62 @@ struct HomeView: View {
     
     // MARK: - Helpers
 
+    private func isTrainingCancelledByHoliday(
+        _ training: TrainingData
+    ) -> Bool {
+        HomeHolidayCalendar
+            .isTrainingBlocked(on: training.date)
+    }
+
     @MainActor
     private func shareUpcomingTrainingsPDF() {
+        guard !isAbroadUser else {
+            pdfExportErrorMessage =
+                tr(
+                    "לסניפי חו״ל אין כרגע לוח אימונים זמין ליצירת PDF.",
+                    "A PDF training schedule is not currently available for international branches."
+                )
+            return
+        }
+
+        guard !effectiveUpcomingTrainings.isEmpty else {
+            pdfExportErrorMessage =
+                tr(
+                    "אין אימונים קרובים ליצירת PDF.",
+                    "There are no upcoming trainings available for PDF export."
+                )
+            return
+        }
+
         do {
-            let url = try createUpcomingTrainingsPDF()
+            let url =
+                try createUpcomingTrainingsPDF()
 
             pdfShareItem = HomePDFShareItem(
                 url: url
             )
+        } catch let exportError as HomePDFExportError {
+            switch exportError {
+            case .noTrainings:
+                pdfExportErrorMessage =
+                    tr(
+                        "אין אימונים זמינים ליצירת PDF.",
+                        "No trainings are available for PDF export."
+                    )
+
+            case .writeFailed:
+                pdfExportErrorMessage =
+                    tr(
+                        "לא ניתן היה ליצור את קובץ ה־PDF.",
+                        "The PDF file could not be created."
+                    )
+            }
         } catch {
             pdfExportErrorMessage =
-                error.localizedDescription
+                tr(
+                    "אירעה שגיאה בעת יצירת קובץ ה־PDF.",
+                    "An error occurred while creating the PDF file."
+                )
         }
     }
 
@@ -1530,7 +2039,12 @@ struct HomeView: View {
             currentY += 32
 
             for (index, training) in displayedTrainings.enumerated() {
-                let cardHeight: CGFloat = 92
+                let isCancelled =
+                    isTrainingCancelledByHoliday(training)
+
+                let cardHeight: CGFloat =
+                    isCancelled ? 116 : 92
+
                 let cardSpacing: CGFloat = 6
 
                 if currentY + cardHeight > 792 {
@@ -1819,8 +2333,72 @@ struct HomeView: View {
                     )
                 )
 
-                currentY = cardRect.maxY + cardSpacing
+                if isCancelled {
+                    let cancellationRect = CGRect(
+                        x: cardRect.minX + 18,
+                        y: cardRect.maxY - 25,
+                        width: cardRect.width - 36,
+                        height: 18
+                    )
+
+                    drawRoundedRectangle(
+                        cancellationRect,
+                        fillColor: UIColor(
+                            red: 255/255,
+                            green: 247/255,
+                            blue: 237/255,
+                            alpha: 1
+                        ),
+                        strokeColor: UIColor(
+                            red: 249/255,
+                            green: 115/255,
+                            blue: 22/255,
+                            alpha: 0.35
+                        )
+                    )
+
+                    let cancellationStyle =
+                        NSMutableParagraphStyle()
+
+                    cancellationStyle.alignment = .center
+                    cancellationStyle.baseWritingDirection =
+                        isEnglish
+                        ? .leftToRight
+                        : .rightToLeft
+
+                    let cancellationAttributes:
+                        [NSAttributedString.Key: Any] = [
+                            .font: UIFont.boldSystemFont(
+                                ofSize: 10.5
+                            ),
+                            .foregroundColor: UIColor(
+                                red: 154/255,
+                                green: 52/255,
+                                blue: 18/255,
+                                alpha: 1
+                            ),
+                            .paragraphStyle:
+                                cancellationStyle
+                        ]
+
+                    NSAttributedString(
+                        string: tr(
+                            "האימון מבוטל עקב חג",
+                            "Training cancelled due to holiday"
+                        ),
+                        attributes: cancellationAttributes
+                    )
+                    .draw(
+                        in: cancellationRect.insetBy(
+                            dx: 5,
+                            dy: 2
+                        )
+                    )
                 }
+
+                currentY =
+                    cardRect.maxY + cardSpacing
+            }
 
                 // MARK: - PDF Footer
 
@@ -2089,22 +2667,41 @@ struct HomeView: View {
         .map { normalizePhone($0) }
         .filter { !$0.isEmpty }
 
-        let currentBranch = normalizeCoachBroadcastText(resolvedBranch)
+        let currentBranches = resolvedBranches
+            .map {
+                normalizeCoachBroadcastText($0)
+            }
+            .filter { !$0.isEmpty }
 
-        let currentGroup = normalizeCoachBroadcastText(
-            TrainingCatalogIOS.displayGroup(
-                resolvedGroup,
-                isEnglish: false
-            )
-        )
+        let uniqueCurrentBranches =
+            Array(Set(currentBranches))
+
+        let currentGroups = resolvedGroups
+            .flatMap { group -> [String] in
+                let original =
+                    normalizeCoachBroadcastText(group)
+
+                let displayed =
+                    normalizeCoachBroadcastText(
+                        TrainingCatalogIOS.displayGroup(
+                            group,
+                            isEnglish: false
+                        )
+                    )
+
+                return [original, displayed]
+            }
+            .filter { !$0.isEmpty }
+
+        let uniqueCurrentGroups =
+            Array(Set(currentGroups))
 
         coachBroadcastListener = Firestore.firestore()
             .collection("coachBroadcasts")
-            .whereField("targetUids", arrayContains: currentUid)
+            .order(by: "createdAt", descending: true)
             .limit(to: 40)
             .addSnapshotListener { snapshot, error in
                 if error != nil {
-                    recentCoachMessages = []
                     return
                 }
 
@@ -2116,8 +2713,8 @@ struct HomeView: View {
                     currentEmail: currentEmail,
                     currentPhones: currentPhones,
                     currentName: currentName,
-                    currentBranch: currentBranch,
-                    currentGroup: currentGroup
+                    currentBranches: uniqueCurrentBranches,
+                    currentGroups: uniqueCurrentGroups
                 )
                 .sorted { left, right in
                     let leftDate = left.sentAt ?? .distantPast
@@ -2135,8 +2732,8 @@ struct HomeView: View {
         currentEmail: String,
         currentPhones: [String],
         currentName: String,
-        currentBranch: String,
-        currentGroup: String
+        currentBranches: [String],
+        currentGroups: [String]
     ) -> [CoachHomeMessage] {
         docs
             .filter { doc in
@@ -2146,8 +2743,8 @@ struct HomeView: View {
                     currentEmail: currentEmail,
                     currentPhones: currentPhones,
                     currentName: currentName,
-                    currentBranch: currentBranch,
-                    currentGroup: currentGroup
+                    currentBranches: currentBranches,
+                    currentGroups: currentGroups
                 )
             }
             .compactMap { doc in
@@ -2252,8 +2849,8 @@ struct HomeView: View {
         currentEmail: String,
         currentPhones: [String],
         currentName: String,
-        currentBranch: String,
-        currentGroup: String
+        currentBranches: [String],
+        currentGroups: [String]
     ) -> Bool {
         let authorUid = firstString(
             doc,
@@ -2382,16 +2979,197 @@ struct HomeView: View {
         .map { normalizeCoachBroadcastText($0) }
         
         let branchMatches =
-        !currentBranch.isEmpty &&
-        docBranches.contains(currentBranch)
-        
+            !currentBranches.isEmpty &&
+            currentBranches.contains { currentBranch in
+                docBranches.contains(currentBranch)
+            }
+
         let groupMatches =
-        !currentGroup.isEmpty &&
-        docGroups.contains(currentGroup)
-        
+            !currentGroups.isEmpty &&
+            currentGroups.contains { currentGroup in
+                docGroups.contains(currentGroup)
+            }
+
         return branchMatches && groupMatches
     }
     
+    private func openPendingCoachBroadcastIfNeeded() {
+        let shouldOpen =
+            openCoachMessagesFromPush ||
+            openCoachMessagesFromPushLegacy
+
+        guard shouldOpen else {
+            return
+        }
+
+        let broadcastId =
+            pendingCoachBroadcastId
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        if broadcastId.isEmpty {
+            if !recentCoachMessages.isEmpty {
+                showCoachMessagesSheet = true
+                clearPendingCoachBroadcast()
+            }
+
+            return
+        }
+
+        let collection =
+            Firestore.firestore()
+                .collection("coachBroadcasts")
+
+        collection
+            .document(broadcastId)
+            .getDocument { document, _ in
+                if let document,
+                   document.exists,
+                   let message = coachMessage(
+                       from: document
+                   ) {
+                    presentCoachBroadcastMessage(message)
+                    return
+                }
+
+                collection
+                    .whereField(
+                        "broadcastId",
+                        isEqualTo: broadcastId
+                    )
+                    .limit(to: 1)
+                    .getDocuments { snapshot, _ in
+                        if let document =
+                            snapshot?.documents.first,
+                           let message = coachMessage(
+                               from: document
+                           ) {
+                            presentCoachBroadcastMessage(message)
+                            return
+                        }
+
+                        collection
+                            .whereField(
+                                "broadcast_id",
+                                isEqualTo: broadcastId
+                            )
+                            .limit(to: 1)
+                            .getDocuments { secondSnapshot, _ in
+                                if let document =
+                                    secondSnapshot?.documents.first,
+                                   let message = coachMessage(
+                                       from: document
+                                   ) {
+                                    presentCoachBroadcastMessage(
+                                        message
+                                    )
+                                }
+                            }
+                    }
+            }
+    }
+
+    private func coachMessage(
+        from document: DocumentSnapshot
+    ) -> CoachHomeMessage? {
+        let data = document.data() ?? [:]
+
+        func firstText(
+            _ keys: [String]
+        ) -> String {
+            for key in keys {
+                if let value = data[key] as? String {
+                    let clean =
+                        value.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+
+                    if !clean.isEmpty {
+                        return clean
+                    }
+                }
+            }
+
+            return ""
+        }
+
+        let text = firstText(
+            ["text", "message", "body", "content"]
+        )
+
+        guard !text.isEmpty else {
+            return nil
+        }
+
+        let coachName = firstText(
+            [
+                "coachName",
+                "coach_name",
+                "senderName",
+                "fromName"
+            ]
+        )
+
+        let sentAt =
+            (data["createdAt"] as? Timestamp)?.dateValue() ??
+            (data["sentAt"] as? Timestamp)?.dateValue() ??
+            (data["timestamp"] as? Timestamp)?.dateValue()
+
+        return CoachHomeMessage(
+            id: document.documentID,
+            text: text,
+            coachName: coachName.isEmpty
+                ? (isEnglish ? "Coach" : "המאמן")
+                : coachName,
+            sentAt: sentAt,
+            branch: firstText(
+                [
+                    "branch",
+                    "branchName",
+                    "branch_name",
+                    "targetBranch",
+                    "selectedBranch"
+                ]
+            ),
+            group: firstText(
+                [
+                    "group",
+                    "groupKey",
+                    "group_key",
+                    "targetGroup",
+                    "selectedGroup"
+                ]
+            )
+        )
+    }
+
+    private func presentCoachBroadcastMessage(
+        _ message: CoachHomeMessage
+    ) {
+        var messages = [message]
+
+        messages += recentCoachMessages.filter {
+            $0.id != message.id
+        }
+
+        recentCoachMessages =
+            Array(messages.prefix(5))
+
+        showCoachMessagesSheet = true
+        clearPendingCoachBroadcast()
+    }
+
+    private func clearPendingCoachBroadcast() {
+        openCoachMessagesFromPush = false
+        openCoachMessagesFromPushLegacy = false
+        pendingCoachBroadcastId = ""
+
+        UserDefaults.standard.removeObject(
+            forKey: "coach_broadcast_push_received_at"
+        )
+    }
+
     private func stopCoachBroadcastListener() {
         coachBroadcastListener?.remove()
         coachBroadcastListener = nil
@@ -2525,7 +3303,15 @@ private struct HomeTrainingCardAndroidStyle: View {
 
         for child in mirror.children {
             guard let label = child.label else { continue }
-            guard ["date", "startDate", "startTime", "cal", "time"].contains(label) else { continue }
+            guard [
+                "date",
+                "startDate",
+                "startTime",
+                "cal",
+                "time"
+            ].contains(label) else {
+                continue
+            }
 
             let unwrapped = unwrapOptional(child.value)
 
@@ -2535,37 +3321,156 @@ private struct HomeTrainingCardAndroidStyle: View {
 
             if let timeInterval = unwrapped as? TimeInterval {
                 if timeInterval > 1_000_000_000_000 {
-                    return Date(timeIntervalSince1970: timeInterval / 1000)
+                    return Date(
+                        timeIntervalSince1970:
+                            timeInterval / 1000
+                    )
                 }
 
                 if timeInterval > 1_000_000_000 {
-                    return Date(timeIntervalSince1970: timeInterval)
+                    return Date(
+                        timeIntervalSince1970:
+                            timeInterval
+                    )
                 }
             }
 
             if let millis = unwrapped as? Int64 {
-                return Date(timeIntervalSince1970: Double(millis) / 1000)
+                return Date(
+                    timeIntervalSince1970:
+                        Double(millis) / 1000
+                )
             }
 
             if let millis = unwrapped as? Int {
-                return Date(timeIntervalSince1970: Double(millis) / 1000)
+                return Date(
+                    timeIntervalSince1970:
+                        Double(millis) / 1000
+                )
             }
         }
 
         return nil
     }
 
+    private func reflectedDurationMinutes() -> Int {
+        let acceptedLabels = [
+            "durationMinutes",
+            "durationMinuets",
+            "duration",
+            "dur"
+        ]
+
+        let mirror = Mirror(reflecting: training)
+
+        for child in mirror.children {
+            guard let label = child.label,
+                  acceptedLabels.contains(label) else {
+                continue
+            }
+
+            let unwrapped = unwrapOptional(child.value)
+
+            if let value = unwrapped as? Int,
+               value > 0 {
+                return value
+            }
+
+            if let value = unwrapped as? Int32,
+               value > 0 {
+                return Int(value)
+            }
+
+            if let value = unwrapped as? Int64,
+               value > 0 {
+                return Int(value)
+            }
+
+            if let value = unwrapped as? Double,
+               value > 0 {
+                return Int(value.rounded())
+            }
+
+            if let value = unwrapped as? String,
+               let minutes = Int(
+                   value.trimmingCharacters(
+                       in: .whitespacesAndNewlines
+                   )
+               ),
+               minutes > 0 {
+                return minutes
+            }
+        }
+
+        return 90
+    }
+
     private var branchTitle: String {
-        let value = reflectedString(["place", "branch", "branchName", "title", "name"])
-        return value.isEmpty ? (isEnglish ? "Training center" : "מרכז קהילתי אופק") : value
+        let rawValue =
+            reflectedString(
+                [
+                    "place",
+                    "branch",
+                    "branchName",
+                    "title",
+                    "name"
+                ]
+            )
+
+        let displayedValue =
+            TrainingCatalogIOS.displayPlace(
+                rawValue,
+                isEnglish: isEnglish
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        if !displayedValue.isEmpty {
+            return displayedValue
+        }
+
+        return isEnglish
+            ? "Training center"
+            : "מרכז אימונים"
     }
 
     private var addressText: String {
-        reflectedString(["address", "location", "street"])
+        let rawValue =
+            reflectedString(
+                [
+                    "address",
+                    "location",
+                    "street"
+                ]
+            )
+
+        return TrainingCatalogIOS.displayAddress(
+            rawValue,
+            isEnglish: isEnglish
+        )
+        .trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
     }
 
     private var coachText: String {
-        reflectedString(["coach", "coachName", "trainer"])
+        let rawValue =
+            reflectedString(
+                [
+                    "coach",
+                    "coachName",
+                    "trainer"
+                ]
+            )
+
+        return TrainingCatalogIOS.displayCoach(
+            rawValue,
+            isEnglish: isEnglish
+        )
+        .trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
     }
 
     private var dateLine: String {
@@ -2588,9 +3493,83 @@ private struct HomeTrainingCardAndroidStyle: View {
         timeFormatter.calendar = Calendar(identifier: .gregorian)
         timeFormatter.dateFormat = "HH:mm"
 
-        let endDate = Calendar.current.date(byAdding: .minute, value: 90, to: date) ?? date
+        let durationMinutes =
+            reflectedDurationMinutes()
 
-        return "\(dayFormatter.string(from: date)) \(dateFormatter.string(from: date)) · \(timeFormatter.string(from: date)) – \(timeFormatter.string(from: endDate))"
+        let endDate =
+            Calendar.current.date(
+                byAdding: .minute,
+                value: durationMinutes,
+                to: date
+            ) ?? date
+
+        let dayText =
+            dayFormatter.string(from: date)
+
+        let shortDateText =
+            dateFormatter.string(from: date)
+
+        let startTimeText =
+            timeFormatter.string(from: date)
+
+        let endTimeText =
+            timeFormatter.string(from: endDate)
+
+        return """
+        \(dayText) \(shortDateText) · \(startTimeText) – \(endTimeText)
+        """
+        .replacingOccurrences(of: "\n", with: "")
+    }
+
+    private var isCancelledByHoliday: Bool {
+        guard let date = reflectedDate() else {
+            return false
+        }
+
+        return HomeHolidayCalendar
+            .isTrainingBlocked(on: date)
+    }
+
+    private var holidayCancellationBanner: some View {
+        Text(
+            isEnglish
+            ? "Training cancelled due to holiday"
+            : "האימון מבוטל עקב חג"
+        )
+        .font(
+            .system(
+                size: 12,
+                weight: .bold
+            )
+        )
+        .foregroundStyle(
+            Color(hex: 0xFF9A3412)
+        )
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(
+                cornerRadius: 14,
+                style: .continuous
+            )
+            .fill(
+                Color(hex: 0xFFFFF7ED)
+            )
+        )
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: 14,
+                style: .continuous
+            )
+            .stroke(
+                Color(hex: 0xFFF97316)
+                    .opacity(0.35),
+                lineWidth: 1
+            )
+        )
+        .padding(.top, 2)
     }
 
     var body: some View {
@@ -2613,9 +3592,19 @@ private struct HomeTrainingCardAndroidStyle: View {
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
                 }
+
+                if isCancelledByHoliday {
+                    holidayCancellationBanner
+                }
             }
 
-            Button(action: onNavigateTap) {
+            Button {
+                guard !addressText.isEmpty else {
+                    return
+                }
+
+                onNavigateTap()
+            } label: {
                 HStack(spacing: 10) {
                     if isEnglish {
                         navigationIcon
@@ -2641,6 +3630,8 @@ private struct HomeTrainingCardAndroidStyle: View {
                 .shadow(color: Color.black.opacity(0.10), radius: 5, x: 0, y: 3)
             }
             .buttonStyle(.plain)
+            .disabled(addressText.isEmpty)
+            .opacity(addressText.isEmpty ? 0.72 : 1)
 
             if !coachText.isEmpty {
                 Text(isEnglish ? "Coach: \(coachText)" : "מאמן: \(coachText)")
@@ -3317,7 +4308,7 @@ private struct HomePremiumQuickMenuPanel: View {
             HStack(spacing: 8) {
                 if isEnglish {
                     Text(title)
-                        .font(.system(size: 15, weight: .heavy))
+                        .font(.system(size: 18, weight: .heavy))
                         .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.29))
                         .lineLimit(1)
                     
@@ -3325,7 +4316,9 @@ private struct HomePremiumQuickMenuPanel: View {
                     
                     Button(action: onClose) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 11, weight: .heavy))
+                            .font(.system(size: 15, weight: .heavy))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
                             .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.29))
                     }
                     .buttonStyle(.plain)
@@ -3366,8 +4359,8 @@ private struct HomePremiumQuickMenuPanel: View {
                 }
             }
         }
-        .padding(.bottom, 7)
-        .frame(width: 196)
+        .padding(.bottom, 10)
+        .frame(width: 248)
         .compositingGroup()
         .background(
             ZStack {
@@ -3416,22 +4409,53 @@ private struct HomePremiumQuickMenuRow: View {
     
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 7) {
+            HStack(spacing: 10) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.29))
-                    .frame(width: 19, height: 19)
+                    .font(
+                        .system(
+                            size: 16,
+                            weight: .bold
+                        )
+                    )
+                    .foregroundStyle(
+                        Color(
+                            red: 0.09,
+                            green: 0.64,
+                            blue: 0.29
+                        )
+                    )
+                    .frame(width: 26, height: 26)
                 
                 Text(title)
-                    .font(.system(size: 11.5, weight: .heavy))
-                    .foregroundStyle(Color(red: 0.04, green: 0.19, blue: 0.12))
+                    .font(
+                        .system(
+                            size: 14,
+                            weight: .heavy
+                        )
+                    )
+                    .foregroundStyle(
+                        Color(
+                            red: 0.04,
+                            green: 0.19,
+                            blue: 0.12
+                        )
+                    )
                     .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .multilineTextAlignment(textAlignment)
+                    .minimumScaleFactor(0.82)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: frameAlignment
+                    )
+                    .multilineTextAlignment(
+                        textAlignment
+                    )
             }
-            .environment(\.layoutDirection, rowDirection)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .environment(
+                \.layoutDirection,
+                rowDirection
+            )
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -3466,8 +4490,13 @@ private struct ModernHomeQuickFab: View {
                 .font(.system(size: 23, weight: .heavy))
                 .foregroundStyle(Color.white)
         }
-        .frame(width: 38, height: 72)
-        .shadow(color: Color.black.opacity(0.24), radius: 9, x: 0, y: 5)
+        .frame(width: 46, height: 84)
+        .shadow(
+            color: Color.black.opacity(0.24),
+            radius: 9,
+            x: 0,
+            y: 5
+        )
     }
 
     private var fabGradient: LinearGradient {

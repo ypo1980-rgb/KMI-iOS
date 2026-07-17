@@ -210,42 +210,90 @@ struct RandomPracticeView: View {
         }
     }
 
-    private func itemTitleForUi(_ item: String) -> String {
-        item.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func itemTitleForUi(
+        _ item: String
+    ) -> String {
+        let cleanItem =
+            item
+                .replacingOccurrences(
+                    of: "\u{200F}",
+                    with: ""
+                )
+                .replacingOccurrences(
+                    of: "\u{200E}",
+                    with: ""
+                )
+                .replacingOccurrences(
+                    of: "\u{00A0}",
+                    with: " "
+                )
+                .replacingOccurrences(
+                    of: "\\s+",
+                    with: " ",
+                    options:
+                        .regularExpression
+                )
+                .trimmingCharacters(
+                    in:
+                        .whitespacesAndNewlines
+                )
+
+        guard !cleanItem.isEmpty else {
+            return ""
+        }
+
+        return KmiEnglishTitleResolver
+            .title(
+                for: cleanItem,
+                isEnglish: isEnglish
+            )
     }
 
-    private func topicTitleForUi(_ title: String) -> String {
-        let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isEnglish else { return clean }
+    private func topicTitleForUi(
+        _ title: String
+    ) -> String {
+        let cleanTitle =
+            title
+                .replacingOccurrences(
+                    of: "\u{200F}",
+                    with: ""
+                )
+                .replacingOccurrences(
+                    of: "\u{200E}",
+                    with: ""
+                )
+                .replacingOccurrences(
+                    of: "\u{00A0}",
+                    with: " "
+                )
+                .replacingOccurrences(
+                    of: "\\s+",
+                    with: " ",
+                    options:
+                        .regularExpression
+                )
+                .trimmingCharacters(
+                    in:
+                        .whitespacesAndNewlines
+                )
 
-        switch clean {
-        case "כללי":
-            return "General"
-        case "עמידות מוצא":
-            return "Starting Positions"
-        case "תנועה":
-            return "Movement"
-        case "מכות ידיים":
-            return "Hand Strikes"
-        case "בעיטות":
-            return "Kicks"
-        case "הגנות":
-            return "Defenses"
-        case "שחרורים":
-            return "Releases"
-        case "עבודת קרקע":
-            return "Ground Work"
-        case "סכין":
-            return "Knife"
-        case "מקל":
-            return "Stick"
-        case "אקדח":
-            return "Gun"
-        case "רובה":
-            return "Rifle"
-        default:
-            return clean
+        guard !cleanTitle.isEmpty else {
+            return isEnglish
+                ? "All Topics"
+                : "כל הנושאים"
         }
+
+        if cleanTitle == "__ALL__" {
+            return isEnglish
+                ? "All Topics"
+                : "כל הנושאים"
+        }
+
+        return KmiEnglishTitleResolver
+            .title(
+                for: cleanTitle,
+                isEnglish: isEnglish
+            )
     }
 
     private var currentItem: String? {

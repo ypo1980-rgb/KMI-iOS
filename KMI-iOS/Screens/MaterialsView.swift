@@ -461,7 +461,9 @@ struct MaterialsView: View {
                                     hasNote: !(notes[row.canonicalId]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
                                     isEnglish: isEnglish,
                                     onToggleFavorite: {
-                                        toggleFavorite(row.canonicalId)
+                                        toggleFavorite(
+                                            row
+                                        )
                                     },
                                     onToggleExcluded: {
                                         toggleExcluded(row.canonicalId)
@@ -474,7 +476,7 @@ struct MaterialsView: View {
                                         selectedNoteRow = row
                                     },
                                     onCycleMark: {
-                                        cycleMark(for: row.statusId)
+                                        cycleMark(for: row)
                                     }
                                 )
 
@@ -584,7 +586,7 @@ struct MaterialsView: View {
                     selectedInfoRow = nil
                 },
                 onToggleFavorite: {
-                    toggleFavorite(row.canonicalId)
+                    toggleFavorite(row)
                 },
                 onSpeak: {
                     toggleSpeak(explanationText(for: row))
@@ -757,28 +759,398 @@ struct MaterialsView: View {
         return clean
     }
     
-    private func favoriteKey(for id: String) -> String { "favorite.\(id)" }
-    private func excludedKey(for id: String) -> String { "excluded.\(id)" }
-    private func markKey(for id: String) -> String { "mark.\(id)" }
-    private func noteKey(for id: String) -> String { "note.\(id)" }
+    private let practiceFavoritesKey =
+        "practice_favorites"
+
+    private func normalizedFavoriteValue(
+        _ value: String
+    ) -> String {
+        value
+            .replacingOccurrences(
+                of: "\u{200F}",
+                with: ""
+            )
+            .replacingOccurrences(
+                of: "\u{200E}",
+                with: ""
+            )
+            .replacingOccurrences(
+                of: "\u{00A0}",
+                with: " "
+            )
+            .replacingOccurrences(
+                of: "–",
+                with: "-"
+            )
+            .replacingOccurrences(
+                of: "—",
+                with: "-"
+            )
+            .replacingOccurrences(
+                of: "\\s+",
+                with: " ",
+                options: .regularExpression
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased()
+    }
+
+    private func practiceFavoriteAliases(
+        for row: ExerciseRow
+    ) -> Set<String> {
+        [
+            row.rawItem,
+            row.displayName,
+            row.canonicalId
+        ]
+        .map(
+            normalizedFavoriteValue
+        )
+        .filter {
+            !$0.isEmpty
+        }
+        .reduce(
+            into: Set<String>()
+        ) { result, value in
+            result.insert(value)
+        }
+    }
+
+    private func updatePracticeFavorites(
+        for row: ExerciseRow,
+        isFavorite: Bool
+    ) {
+        let defaults =
+            UserDefaults.standard
+
+        var storedValues =
+            defaults.stringArray(
+                forKey:
+                    practiceFavoritesKey
+            ) ?? []
+
+        let aliases =
+            practiceFavoriteAliases(
+                for: row
+            )
+
+        storedValues.removeAll {
+            storedValue in
+
+            aliases.contains(
+                normalizedFavoriteValue(
+                    storedValue
+                )
+            )
+        }
+
+        if isFavorite {
+            let cleanItem =
+                row.rawItem
+                    .trimmingCharacters(
+                        in:
+                            .whitespacesAndNewlines
+                    )
+
+            if !cleanItem.isEmpty {
+                storedValues.append(
+                    cleanItem
+                )
+            }
+        }
+
+        var seen =
+            Set<String>()
+
+        let uniqueValues =
+            storedValues.filter {
+                value in
+
+                let key =
+                    normalizedFavoriteValue(
+                        value
+                    )
+
+                guard !key.isEmpty else {
+                    return false
+                }
+
+                return seen
+                    .insert(key)
+                    .inserted
+            }
+
+        defaults.set(
+            uniqueValues,
+            forKey:
+                practiceFavoritesKey
+        )
+    }
+    
+    private func favoriteKey(for id: String) -> String {
+        "favorite.\(id)"
+    }
+
+    private func excludedKey(for id: String) -> String {
+        "excluded.\(id)"
+    }
+
+    private func markKey(for id: String) -> String {
+        "mark.\(id)"
+    }
+
+    private func noteKey(for id: String) -> String {
+        "note.\(id)"
+    }
+
+    // MARK: - Random Practice Status Bridge
+
+    /// משתמש בדיוק באותה נורמליזציה שבה משתמש
+    /// RandomPracticeView עבור מזהה תרגיל.
+    private func normalizedPracticeId(
+        _ item: String
+    ) -> String {
+        item
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .replacingOccurrences(
+                of: "\u{200F}",
+                with: ""
+            )
+            .replacingOccurrences(
+                of: "\u{200E}",
+                with: ""
+            )
+            .replacingOccurrences(
+                of: "\u{00A0}",
+                with: " "
+            )
+            .replacingOccurrences(
+                of: " ",
+                with: "_"
+            )
+            .lowercased()
+    }
+
+    /// משתמש בדיוק באותה נורמליזציה שבה משתמש
+    /// RandomPracticeView עבור שם הנושא.
+    private var practiceTopicStorageId: String {
+        materialRootTopic
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .replacingOccurrences(
+                of: " ",
+                with: "_"
+            )
+    }
+
+    private var practiceStatusStoragePrefix: String {
+        "random_practice_status_\(belt.id)_\(practiceTopicStorageId)"
+    }
+
+    private var practiceWrongStorageKey: String {
+        "random_practice_wrong_\(belt.id)_\(practiceTopicStorageId)"
+    }
+
+    private func practiceStatusKey(
+        for rawItem: String
+    ) -> String {
+        "\(practiceStatusStoragePrefix)_\(normalizedPracticeId(rawItem))"
+    }
+
+    private func practiceMark(
+        for row: ExerciseRow
+    ) -> RowMark? {
+        let raw = UserDefaults.standard
+            .string(
+                forKey: practiceStatusKey(
+                    for: row.rawItem
+                )
+            )?
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased()
+
+        switch raw {
+        case "known":
+            return .mastered
+
+        case "unknown":
+            return .unknown
+
+        default:
+            return nil
+        }
+    }
+
+    /// מעדכן גם את סטטוס התרגיל הבודד וגם את
+    /// רשימת התרגילים שמקבלים משקל גבוה בתרגול.
+    private func savePracticeMark(
+        _ mark: RowMark?,
+        for row: ExerciseRow
+    ) {
+        let defaults = UserDefaults.standard
+        let statusKey = practiceStatusKey(
+            for: row.rawItem
+        )
+
+        var wrongItems = Set(
+            defaults.stringArray(
+                forKey: practiceWrongStorageKey
+            ) ?? []
+        )
+
+        switch mark {
+        case .mastered:
+            defaults.set(
+                "known",
+                forKey: statusKey
+            )
+            wrongItems.remove(row.rawItem)
+
+        case .unknown:
+            defaults.set(
+                "unknown",
+                forKey: statusKey
+            )
+            wrongItems.insert(row.rawItem)
+
+        case nil:
+            defaults.removeObject(
+                forKey: statusKey
+            )
+            wrongItems.remove(row.rawItem)
+        }
+
+        defaults.set(
+            Array(wrongItems).sorted(),
+            forKey: practiceWrongStorageKey
+        )
+    }
 
     private func loadState() {
-        var loadedFavorites = Set<String>()
-        var loadedExcluded = Set<String>()
-        var loadedMarks: [String: RowMark?] = [:]
-        var loadedNotes: [String: String] = [:]
+        var loadedFavorites =
+            Set<String>()
+
+        var loadedExcluded =
+            Set<String>()
+
+        var loadedMarks:
+            [String: RowMark?] = [:]
+
+        var loadedNotes:
+            [String: String] = [:]
+
+        let storedPracticeFavorites =
+            Set(
+                (
+                    UserDefaults.standard
+                        .stringArray(
+                            forKey:
+                                practiceFavoritesKey
+                        ) ?? []
+                )
+                .map(
+                    normalizedFavoriteValue
+                )
+                .filter {
+                    !$0.isEmpty
+                }
+            )
 
         for row in rows {
-            if UserDefaults.standard.bool(forKey: favoriteKey(for: row.canonicalId)) {
-                loadedFavorites.insert(row.canonicalId)
+            let isCanonicalFavorite =
+                UserDefaults.standard
+                    .bool(
+                        forKey:
+                            favoriteKey(
+                                for:
+                                    row.canonicalId
+                            )
+                    )
+
+            let isPracticeFavorite =
+                !practiceFavoriteAliases(
+                    for: row
+                )
+                .isDisjoint(
+                    with:
+                        storedPracticeFavorites
+                )
+
+            if isCanonicalFavorite ||
+                isPracticeFavorite {
+                loadedFavorites.insert(
+                    row.canonicalId
+                )
+
+                /*
+                 * מבצעים migration שקט לפורמט
+                 * הקנוני של MaterialsView.
+                 */
+                UserDefaults.standard.set(
+                    true,
+                    forKey:
+                        favoriteKey(
+                            for:
+                                row.canonicalId
+                        )
+                )
             }
 
             if UserDefaults.standard.bool(forKey: excludedKey(for: row.canonicalId)) {
                 loadedExcluded.insert(row.canonicalId)
             }
 
-            if let raw = UserDefaults.standard.string(forKey: markKey(for: row.statusId)) {
-                loadedMarks[row.statusId] = RowMark(rawValue: raw)
+            if let raw = UserDefaults.standard.string(
+                forKey: markKey(
+                    for: row.statusId
+                )
+            ),
+               let storedMark = RowMark(
+                    rawValue: raw
+               ) {
+                /*
+                 * חומרי החגורה הם המקור הראשון כאשר
+                 * כבר קיים בהם סימון.
+                 */
+                loadedMarks[row.statusId] =
+                    storedMark
+
+                /*
+                 * מעבירים את המצב גם לתרגול האקראי,
+                 * כדי ליישר נתונים ישנים שנשמרו רק
+                 * בפורמט של MaterialsView.
+                 */
+                savePracticeMark(
+                    storedMark,
+                    for: row
+                )
+            } else if let storedPracticeMark =
+                        practiceMark(for: row) {
+                /*
+                 * אם התרגיל סומן מתוך התרגול האקראי,
+                 * מציגים את אותו סימון בחומרי החגורה.
+                 */
+                loadedMarks[row.statusId] =
+                    storedPracticeMark
+
+                /*
+                 * מבצעים מיגרציה לפורמט הקבוע של
+                 * MaterialsView בלי למחוק את הפורמט
+                 * שנדרש לתרגול האקראי.
+                 */
+                UserDefaults.standard.set(
+                    storedPracticeMark.rawValue,
+                    forKey: markKey(
+                        for: row.statusId
+                    )
+                )
             } else {
                 loadedMarks[row.statusId] = nil
             }
@@ -808,16 +1180,59 @@ struct MaterialsView: View {
         }
     }
 
-    private func toggleFavorite(_ id: String) {
+    private func toggleFavorite(
+        _ row: ExerciseRow
+    ) {
+        let id =
+            row.canonicalId
+
         if favorites.contains(id) {
             favorites.remove(id)
-            UserDefaults.standard.set(false, forKey: favoriteKey(for: id))
-            showToast(tr("הוסר מהמועדפים.", "Removed from favorites."))
+
+            UserDefaults.standard.set(
+                false,
+                forKey:
+                    favoriteKey(
+                        for: id
+                    )
+            )
+
+            updatePracticeFavorites(
+                for: row,
+                isFavorite: false
+            )
+
+            showToast(
+                tr(
+                    "הוסר מהמועדפים.",
+                    "Removed from favorites."
+                )
+            )
         } else {
             favorites.insert(id)
-            UserDefaults.standard.set(true, forKey: favoriteKey(for: id))
-            showToast(tr("נוסף למועדפים.", "Added to favorites."))
+
+            UserDefaults.standard.set(
+                true,
+                forKey:
+                    favoriteKey(
+                        for: id
+                    )
+            )
+
+            updatePracticeFavorites(
+                for: row,
+                isFavorite: true
+            )
+
+            showToast(
+                tr(
+                    "נוסף למועדפים.",
+                    "Added to favorites."
+                )
+            )
         }
+
+        refreshToken = UUID()
     }
 
     private func toggleExcluded(_ id: String) {
@@ -839,33 +1254,74 @@ struct MaterialsView: View {
         return nil
     }
 
-    private func cycleMark(for id: String) {
+    private func cycleMark(
+        for row: ExerciseRow
+    ) {
         let next: RowMark?
 
-        switch currentMark(for: id) {
+        switch currentMark(
+            for: row.statusId
+        ) {
         case nil:
             next = .mastered
+
         case .mastered:
             next = .unknown
+
         case .unknown:
             next = nil
         }
 
-        marks[id] = next
+        marks[row.statusId] = next
 
-        let key = markKey(for: id)
+        let materialsKey = markKey(
+            for: row.statusId
+        )
+
         if let next {
-            UserDefaults.standard.set(next.rawValue, forKey: key)
+            UserDefaults.standard.set(
+                next.rawValue,
+                forKey: materialsKey
+            )
+
+            savePracticeMark(
+                next,
+                for: row
+            )
 
             switch next {
             case .mastered:
-                showToast(tr("סומן כיודע.", "Marked as known."))
+                showToast(
+                    tr(
+                        "סומן כיודע.",
+                        "Marked as known."
+                    )
+                )
+
             case .unknown:
-                showToast(tr("סומן לחזרה.", "Marked for review."))
+                showToast(
+                    tr(
+                        "סומן לחזרה.",
+                        "Marked for review."
+                    )
+                )
             }
         } else {
-            UserDefaults.standard.removeObject(forKey: key)
-            showToast(tr("הסימון הוסר.", "Mark removed."))
+            UserDefaults.standard.removeObject(
+                forKey: materialsKey
+            )
+
+            savePracticeMark(
+                nil,
+                for: row
+            )
+
+            showToast(
+                tr(
+                    "הסימון הוסר.",
+                    "Mark removed."
+                )
+            )
         }
 
         refreshToken = UUID()
@@ -2290,16 +2746,33 @@ private enum BeltPaletteByMaterials {
     }
 }
 
-private struct MaterialsPdfItemIOS {
+struct MaterialsPdfItemIOS:
+    Hashable {
     let number: Int
     let title: String
     let status: String
     let isFavorite: Bool
     let isExcluded: Bool
     let hasNote: Bool
+
+    init(
+        number: Int,
+        title: String,
+        status: String,
+        isFavorite: Bool,
+        isExcluded: Bool,
+        hasNote: Bool
+    ) {
+        self.number = number
+        self.title = title
+        self.status = status
+        self.isFavorite = isFavorite
+        self.isExcluded = isExcluded
+        self.hasNote = hasNote
+    }
 }
 
-private enum MaterialsPdfGeneratorIOS {
+enum MaterialsPdfGeneratorIOS {
 
     static func create(
         belt: Belt,

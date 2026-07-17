@@ -157,13 +157,23 @@ enum AppRoute: Hashable {
     case beltQuestionsByBelt(belt: Belt)
     case beltQuestionsByTopic(belt: Belt)
     case beltTopics(belt: Belt)
-    case topicAcrossBelts(topicTitle: String, subTopicTitle: String?)
+
+    case subjectAcrossBelts(
+        subjectId: String,
+        subjectTitle: String
+    )
+
+    case topicAcrossBelts(
+        topicTitle: String,
+        subTopicTitle: String?
+    )
 
     case weakPoints(belt: Belt)
     case allLists(belt: Belt)
     case practice(belt: Belt, topicTitle: String)
     case summary(belt: Belt)
     case voiceAssistant
+    case onboarding(manual: Bool)
 
     case internalExam(belt: Belt)
     case beltFinalExam(belt: Belt)
@@ -172,9 +182,17 @@ enum AppRoute: Hashable {
     case coachBroadcast
     case progress
     case trainingHistory
-    case freeSessions(branch: String, groupKey: String, uid: String, name: String)
+    case freeSessions(
+        branch: String,
+        groupKey: String,
+        uid: String,
+        name: String
+    )
 
-    case trainingSummary(pickedDateIso: String?)
+    case monthlyTrainingBoard
+    case trainingSummary(
+        pickedDateIso: String?
+    )
     
     case aboutNetwork
     case aboutMethod
@@ -237,7 +255,15 @@ final class AppNavModel: ObservableObject {
 struct ContentView: View {
 
     @EnvironmentObject private var auth: AuthViewModel
-    @StateObject private var nav = AppNavModel()
+
+    @StateObject private var nav =
+        AppNavModel()
+
+    @StateObject private var voiceCommands =
+        VoiceCommandsCoordinator.shared
+
+    @State private var didEvaluateOnboarding =
+        false
 
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
@@ -332,36 +358,6 @@ struct ContentView: View {
     private var isAdminUser: Bool {
         let email = Auth.auth().currentUser?.email?.lowercased() ?? ""
         return email == "ypo1980@gmail.com"
-    }
-    
-    private var freeSessionsUid: String {
-        Auth.auth().currentUser?.uid ?? "demo_ios"
-    }
-
-    private var freeSessionsName: String {
-        let rawDisplayName =
-            (Auth.auth().currentUser?.displayName ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if !rawDisplayName.isEmpty { return rawDisplayName }
-
-        let rawEmail =
-            (Auth.auth().currentUser?.email ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if !rawEmail.isEmpty { return rawEmail }
-
-        return "משתמש"
-    }
-
-    private var freeSessionsBranch: String {
-        let clean = auth.userBranch.trimmingCharacters(in: .whitespacesAndNewlines)
-        return clean.isEmpty ? "default_branch" : clean
-    }
-
-    private var freeSessionsGroupKey: String {
-        let clean = auth.userGroup.trimmingCharacters(in: .whitespacesAndNewlines)
-        return clean.isEmpty ? "default_group" : clean
     }
 
     private var membershipPaymentPrefill: MembershipPaymentPrefill {
@@ -477,6 +473,495 @@ struct ContentView: View {
         return (firstName, lastName)
     }
 
+    private func beltFromVoiceQuery(
+        _ query: String
+    ) -> Belt? {
+        let clean =
+            query
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
+                .replacingOccurrences(
+                    of: "חגורה",
+                    with: ""
+                )
+                .replacingOccurrences(
+                    of: "belt",
+                    with: ""
+                )
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        switch clean {
+        case "לבנה", "לבן", "white":
+            return .white
+
+        case "צהובה", "צהוב", "yellow":
+            return .yellow
+
+        case "כתומה", "כתום", "orange":
+            return .orange
+
+        case "ירוקה", "ירוק", "green":
+            return .green
+
+        case "כחולה", "כחול", "blue":
+            return .blue
+
+        case "חומה", "חום", "brown":
+            return .brown
+
+        case "שחורה", "שחור", "black":
+            return .black
+
+        default:
+            return nil
+        }
+    }
+
+    private func normalizedVoiceTopic(
+        _ value: String
+    ) -> String {
+        var clean =
+            value
+                .replacingOccurrences(of: "\u{200F}", with: "")
+                .replacingOccurrences(of: "\u{200E}", with: "")
+                .replacingOccurrences(of: "\u{00A0}", with: " ")
+                .lowercased()
+
+        let commandWords = [
+            "תפתח לי",
+            "פתח לי",
+            "תראה לי",
+            "הראה לי",
+            "הצג לי",
+            "תפתח",
+            "פתח",
+            "תראה",
+            "הראה",
+            "הצג",
+            "עבור אל",
+            "עבור ל",
+            "לך אל",
+            "לך ל",
+            "נושא",
+            "תרגילים בנושא",
+            "תרגילים של",
+            "open",
+            "show me",
+            "show",
+            "go to",
+            "topic",
+            "exercises"
+        ]
+
+        for commandWord in commandWords {
+            clean = clean.replacingOccurrences(
+                of: commandWord,
+                with: " "
+            )
+        }
+
+        clean = clean.replacingOccurrences(
+            of: #"[\u{0591}-\u{05C7}]"#,
+            with: "",
+            options: .regularExpression
+        )
+
+        clean = clean.replacingOccurrences(
+            of: #"[^a-z0-9\u{05D0}-\u{05EA}\s]"#,
+            with: " ",
+            options: .regularExpression
+        )
+
+        clean = clean.replacingOccurrences(
+            of: #"\s+"#,
+            with: " ",
+            options: .regularExpression
+        )
+
+        return clean.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+    }
+
+    private func subjectFromVoiceQuery(
+        _ query: String
+    ) -> SubjectTopic? {
+        let normalizedQuery =
+            normalizedVoiceTopic(query)
+
+        guard !normalizedQuery.isEmpty else {
+            return nil
+        }
+
+        let subjects =
+            TopicsBySubjectRegistry.allSubjects()
+
+        // קודם כול מחפשים התאמה מלאה.
+        if let exactMatch = subjects.first(
+            where: { subject in
+                let hebrewTitle =
+                    normalizedVoiceTopic(
+                        subject.titleHeb
+                    )
+
+                if normalizedQuery == hebrewTitle {
+                    return true
+                }
+
+                let identifier =
+                    normalizedVoiceTopic(
+                        subject.id.replacingOccurrences(
+                            of: "_",
+                            with: " "
+                        )
+                    )
+
+                if normalizedQuery == identifier {
+                    return true
+                }
+
+                if let englishTitle =
+                        KmiEnglishTitleResolver
+                            .englishTitle(
+                                for: subject.id
+                            ) {
+                    return normalizedQuery ==
+                        normalizedVoiceTopic(
+                            englishTitle
+                        )
+                }
+
+                return false
+            }
+        ) {
+            return exactMatch
+        }
+
+        // אם המשתמש אמר משפט ארוך יותר, בוחרים את
+        // ההתאמה הספציפית והארוכה ביותר.
+        return subjects
+            .compactMap { subject -> (SubjectTopic, Int)? in
+                var candidates = [
+                    normalizedVoiceTopic(
+                        subject.titleHeb
+                    ),
+                    normalizedVoiceTopic(
+                        subject.id.replacingOccurrences(
+                            of: "_",
+                            with: " "
+                        )
+                    )
+                ]
+
+                if let englishTitle =
+                        KmiEnglishTitleResolver
+                            .englishTitle(
+                                for: subject.id
+                            ) {
+                    candidates.append(
+                        normalizedVoiceTopic(
+                            englishTitle
+                        )
+                    )
+                }
+
+                let matchedLength =
+                    candidates
+                        .filter { !$0.isEmpty }
+                        .filter {
+                            normalizedQuery.contains($0) ||
+                            $0.contains(normalizedQuery)
+                        }
+                        .map(\.count)
+                        .max()
+
+                guard let matchedLength else {
+                    return nil
+                }
+
+                return (
+                    subject,
+                    matchedLength
+                )
+            }
+            .sorted {
+                $0.1 > $1.1
+            }
+            .first?
+            .0
+    }
+
+    private func openGlobalSearch(
+        query: String
+    ) {
+        let cleanQuery =
+            query.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        NotificationCenter.default.post(
+            name: Notification.Name(
+                "KMI_OPEN_GLOBAL_SEARCH"
+            ),
+            object:
+                cleanQuery.isEmpty
+                    ? nil
+                    : cleanQuery
+        )
+    }
+
+    private func openOnboardingIfNeeded() {
+        guard !didEvaluateOnboarding else {
+            return
+        }
+
+        didEvaluateOnboarding = true
+
+        guard !OnboardingPreferences.hasCompleted else {
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + 0.35
+        ) {
+            guard nav.path.isEmpty else {
+                return
+            }
+
+            nav.push(
+                .onboarding(
+                    manual: false
+                )
+            )
+        }
+    }
+
+    private func bindVoiceCommandActions() {
+        voiceCommands.bind(
+            actions: VoiceCommandActions(
+                openHome: {
+                    nav.popToRoot()
+                },
+                openSettings: {
+                    nav.push(.settings)
+                },
+                openProgress: {
+                    nav.push(.progress)
+                },
+                openTrainings: {
+                    nav.push(
+                        .trainingHistory
+                    )
+                },
+                openTopics: {
+                    nav.push(
+                        .beltQuestionsByTopic(
+                            belt:
+                                auth.registeredBelt ??
+                                .orange
+                        )
+                    )
+                },
+                openBelts: {
+                    nav.push(
+                        .beltQuestionsByBelt(
+                            belt:
+                                auth.registeredBelt ??
+                                .orange
+                        )
+                    )
+                },
+                openSearch: {
+                    openGlobalSearch(
+                        query: ""
+                    )
+                },
+                goBack: {
+                    nav.pop()
+                },
+                openBelt: {
+                    beltQuery in
+
+                    guard let belt =
+                            beltFromVoiceQuery(
+                                beltQuery
+                            ) else {
+                        openGlobalSearch(
+                            query: beltQuery
+                        )
+                        return
+                    }
+
+                    nav.push(
+                        .beltQuestionsByBelt(
+                            belt: belt
+                        )
+                    )
+                },
+                openTopic: {
+                    topicQuery in
+
+                    let cleanTopic =
+                        topicQuery.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+
+                    guard !cleanTopic.isEmpty else {
+                        openGlobalSearch(
+                            query: ""
+                        )
+                        return
+                    }
+
+                    if let subject =
+                            subjectFromVoiceQuery(
+                                cleanTopic
+                            ) {
+                        nav.push(
+                            .subjectAcrossBelts(
+                                subjectId: subject.id,
+                                subjectTitle:
+                                    subject.titleHeb
+                            )
+                        )
+                        return
+                    }
+
+                    // נושא קטלוג רגיל שאינו רשום
+                    // כנושא חוצה־חגורות.
+                    nav.push(
+                        .topicAcrossBelts(
+                            topicTitle: cleanTopic,
+                            subTopicTitle: nil
+                        )
+                    )
+                },
+                findAndOpen: {
+                    query in
+
+                    let cleanQuery =
+                        query.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+
+                    NotificationCenter.default.post(
+                        name: Notification.Name(
+                            "KMI_FIND_AND_OPEN_EXERCISE"
+                        ),
+                        object: cleanQuery
+                    )
+                },
+                explainExercise: {
+                    query in
+
+                    let cleanQuery =
+                        query.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+
+                    NotificationCenter.default.post(
+                        name: Notification.Name(
+                            "KMI_FIND_AND_OPEN_EXERCISE"
+                        ),
+                        object: cleanQuery
+                    )
+                },
+                search: {
+                    query in
+
+                    openGlobalSearch(
+                        query: query
+                    )
+                },
+                openDrawerDestination: {
+                    destination in
+
+                    openVoiceDrawerDestination(
+                        destination
+                    )
+                },
+                handleUnknown: {
+                    originalText in
+
+                    NotificationCenter.default.post(
+                        name: Notification.Name(
+                            "KMI_VOICE_COMMAND_UNKNOWN"
+                        ),
+                        object: originalText
+                    )
+                }
+            )
+        )
+    }
+
+    private func openVoiceDrawerDestination(
+        _ destination: VoiceDrawerDestination
+    ) {
+        switch destination {
+        case .myProfile:
+            nav.push(.myProfile)
+
+        case .coachAttendance:
+            nav.push(.attendance)
+
+        case .coachBroadcast:
+            nav.push(.coachBroadcast)
+
+        case .coachTrainees:
+            nav.push(.coachTrainees)
+
+        case .coachPaymentsReport:
+            nav.push(.paymentsReport)
+
+        case .coachInternalExam:
+            nav.push(
+                .internalExam(
+                    belt:
+                        auth.registeredBelt ??
+                        .orange
+                )
+            )
+
+        case .aboutAvi:
+            nav.push(.aboutAvi)
+
+        case .networkCoaches:
+            nav.push(.aboutNetworkCoaches)
+
+        case .aboutMethod:
+            nav.push(.aboutMethod)
+
+        case .contactUs:
+            nav.push(.contactUs)
+
+        case .branchForum:
+            nav.push(.forum)
+
+        case .manageSubscription:
+            nav.push(.subscription)
+
+        case .formsAndPayments:
+            nav.push(.membershipPayment)
+
+        case .logout:
+            nav.popToRoot()
+            auth.signOut()
+
+        case .exercisesDemo,
+             .language,
+             .rateUs:
+            /*
+             * היעדים האלה אינם AppRoute רגיל כרגע.
+             * נחבר אותם לפעולות הקיימות בסבב הבא.
+             */
+            break
+        }
+    }
+
     var body: some View {
         DeviceGateRootView {
             NavigationStack(path: $nav.path) {
@@ -487,8 +972,18 @@ struct ContentView: View {
                     selectedIcon: .home,
                     onPickSearchResult: { key in
                         NotificationCenter.default.post(
-                            name: Notification.Name("KMI_GLOBAL_SEARCH_PICK"),
+                            name: Notification.Name(
+                                "KMI_GLOBAL_SEARCH_PICK"
+                            ),
                             object: key
+                        )
+                    },
+                    onShare: {
+                        NotificationCenter.default.post(
+                            name: Notification.Name(
+                                "KMI_HOME_SHARE_PDF"
+                            ),
+                            object: nil
                         )
                     }
                 ) {
@@ -503,15 +998,53 @@ struct ContentView: View {
                             .navigationBarBackButtonHidden(true)
                             .toolbar(.hidden, for: .navigationBar)
 
-                    case .trainingSummary(let pickedDateIso):
-                        KmiRootLayout(title: "סיכום אימון", nav: nav, selectedIcon: .home) {
+                    case .monthlyTrainingBoard:
+                        KmiRootLayout(
+                            title: tr(
+                                "לוח אימונים חודשי",
+                                "Monthly Training Board"
+                            ),
+                            nav: nav,
+                            selectedIcon: .home
+                        ) {
+                            MonthlyTrainingBoardView()
+                                .navigationBarBackButtonHidden(
+                                    true
+                                )
+                                .toolbar(
+                                    .hidden,
+                                    for: .navigationBar
+                                )
+                        }
+
+                    case .trainingSummary(
+                        let pickedDateIso
+                    ):
+                        KmiRootLayout(
+                            title: tr(
+                                "סיכום אימון",
+                                "Training Summary"
+                            ),
+                            nav: nav,
+                            selectedIcon: .home
+                        ) {
                             TrainingSummaryView(
-                                ownerUid: Auth.auth().currentUser?.uid ?? "demo_ios",
+                                ownerUid:
+                                    Auth.auth().currentUser?.uid ?? "",
                                 isCoach: isCoachUser,
-                                initialBelt: .green,
+                                initialBelt:
+                                    auth.registeredBelt ?? .white,
                                 pickedDateIso: pickedDateIso,
-                                initialBranchName: "",
-                                initialCoachName: ""
+                                initialBranchName:
+                                    auth.userBranch
+                                        .trimmingCharacters(
+                                            in: .whitespacesAndNewlines
+                                        ),
+                                initialCoachName:
+                                    auth.userFullName
+                                        .trimmingCharacters(
+                                            in: .whitespacesAndNewlines
+                                        )
                             )
                             .navigationBarBackButtonHidden(true)
                         }
@@ -523,7 +1056,14 @@ struct ContentView: View {
                         }
                         
                     case .coachBroadcast:
-                        KmiRootLayout(title: "שליחת הודעה לקבוצה", nav: nav, selectedIcon: .home) {
+                        KmiRootLayout(
+                            title: tr(
+                                "שליחת הודעה לקבוצה",
+                                "Send Group Message"
+                            ),
+                            nav: nav,
+                            selectedIcon: .home
+                        ) {
                             CoachBroadcastView()
                                 .navigationBarBackButtonHidden(true)
                         }
@@ -566,9 +1106,19 @@ struct ContentView: View {
                         }
 
                     case .myProfile:
-                        MyProfileView()
-                            .navigationBarBackButtonHidden(true)
-                            .toolbar(.hidden, for: .navigationBar)
+                        KmiRootLayout(
+                            title: tr(
+                                "הפרופיל שלי",
+                                "My Profile"
+                            ),
+                            nav: nav,
+                            selectedIcon: nil
+                        ) {
+                            MyProfileView()
+                                .navigationBarBackButtonHidden(
+                                    true
+                                )
+                        }
 
                     case .editProfile:
                         KmiRootLayout(
@@ -649,9 +1199,25 @@ struct ContentView: View {
 
                         // ✅ תרגילים לפי חגורה
                         case .beltQuestionsByBelt(let belt):
-                            KmiRootLayout(title: beltTitleForUi(belt), nav: nav, selectedIcon: .home) {
-                                BeltQuestionsByBeltView(belt: belt)
-                                    .navigationBarBackButtonHidden(true)
+                            KmiRootLayout(
+                                title: beltTitleForUi(belt),
+                                nav: nav,
+                                selectedIcon: .home,
+                                onShare: {
+                                    NotificationCenter.default.post(
+                                        name: Notification.Name(
+                                            "KMI_BELT_MATERIALS_SHARE_PDF"
+                                        ),
+                                        object: nil
+                                    )
+                                }
+                            ) {
+                                BeltQuestionsByBeltView(
+                                    belt: belt
+                                )
+                                .navigationBarBackButtonHidden(
+                                    true
+                                )
                             }
                         
                         // ✅ תרגילים לפי נושא
@@ -661,17 +1227,68 @@ struct ContentView: View {
                                     .navigationBarBackButtonHidden(true)
                             }
                         
-                    // ✅ נושא חוצה חגורות
-                    case .topicAcrossBelts(let topicTitle, let subTopicTitle):
-                        KmiRootLayout(title: topicTitle, nav: nav, selectedIcon: .home) {
-                            TopicAcrossBeltsView(
-                                topicTitle: topicTitle,
-                                subTopicTitle: subTopicTitle
-                            )
-                            .navigationBarBackButtonHidden(true)
-                        }
+                        // ✅ נושא אמיתי לפי TopicsBySubjectRegistry
+                        case .subjectAcrossBelts(
+                            let subjectId,
+                            let subjectTitle
+                        ):
+                            if let subject =
+                                    TopicsBySubjectRegistry
+                                        .allSubjects()
+                                        .first(
+                                            where: {
+                                                $0.id == subjectId
+                                            }
+                                        ) {
+                                KmiRootLayout(
+                                    title: subjectTitle,
+                                    nav: nav,
+                                    selectedIcon: .home
+                                ) {
+                                    SubjectAcrossBeltsView(
+                                        subject: subject
+                                    )
+                                    .navigationBarBackButtonHidden(
+                                        true
+                                    )
+                                }
+                            } else {
+                                KmiRootLayout(
+                                    title: subjectTitle,
+                                    nav: nav,
+                                    selectedIcon: .home
+                                ) {
+                                    TopicAcrossBeltsView(
+                                        topicTitle: subjectTitle
+                                    )
+                                    .navigationBarBackButtonHidden(
+                                        true
+                                    )
+                                }
+                            }
 
-                    case .progress:
+                        // ✅ קטגוריית קטלוג חוצת חגורות
+                        case .topicAcrossBelts(
+                            let topicTitle,
+                            let subTopicTitle
+                        ):
+                            KmiRootLayout(
+                                title:
+                                    subTopicTitle ??
+                                    topicTitle,
+                                nav: nav,
+                                selectedIcon: .home
+                            ) {
+                                TopicAcrossBeltsView(
+                                    topicTitle: topicTitle,
+                                    subTopicTitle: subTopicTitle
+                                )
+                                .navigationBarBackButtonHidden(
+                                    true
+                                )
+                            }
+
+                        case .progress:
                         KmiRootLayout(title: "מד התקדמות", nav: nav, selectedIcon: .stats) {
                             ProgressScreenIOS(
                                 onOpenCarousel: {
@@ -823,58 +1440,190 @@ struct ContentView: View {
                             .navigationBarBackButtonHidden(true)
                         }
 
-                    case .practice(let belt, let topicTitle):
-                        KmiRootLayout(title: "תרגול", nav: nav, selectedIcon: .home) {
+                    case .practice(
+                        let belt,
+                        let topicTitle
+                    ):
+                        KmiRootLayout(
+                            title:
+                                tr(
+                                    "תרגול",
+                                    "Practice"
+                                ),
+                            nav: nav,
+                            selectedIcon: .home
+                        ) {
                             RandomPracticeView(
                                 nav: nav,
                                 belt: belt,
-                                topicTitle: topicTitle,
+                                topicTitle:
+                                    topicTitle,
                                 items: {
-                                    let cleanToken = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-
-                                    if cleanToken.isEmpty || cleanToken == "__ALL__" {
-                                        let topicTitles = TopicsEngine.shared.topicTitlesFor(belt: belt)
-
-                                        var result: [String] = []
-
-                                        for title in topicTitles {
-                                            let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-
-                                            result.append(
-                                                contentsOf: ContentRepo.shared.getAllItemsFor(
-                                                    belt: belt,
-                                                    topicTitle: cleanTitle,
-                                                    subTopicTitle: nil
-                                                )
+                                    let cleanToken =
+                                        topicTitle
+                                            .trimmingCharacters(
+                                                in:
+                                                    .whitespacesAndNewlines
                                             )
 
-                                            let details = TopicsEngine.shared.topicDetailsFor(
-                                                belt: belt,
-                                                topicTitle: cleanTitle
-                                            )
-
-                                            for subTitle in details.subTitles {
-                                                result.append(
-                                                    contentsOf: ContentRepo.shared.getAllItemsFor(
-                                                        belt: belt,
-                                                        topicTitle: cleanTitle,
-                                                        subTopicTitle: subTitle
-                                                    )
+                                    func itemsForTopic(
+                                        _ rawTopicTitle:
+                                            String
+                                    ) -> [String] {
+                                        let cleanTitle =
+                                            rawTopicTitle
+                                                .trimmingCharacters(
+                                                    in:
+                                                        .whitespacesAndNewlines
                                                 )
-                                            }
+
+                                        guard !cleanTitle
+                                            .isEmpty else {
+                                            return []
                                         }
 
-                                        return result
+                                        var topicItems =
+                                            ContentRepo
+                                                .shared
+                                                .getAllItemsFor(
+                                                    belt:
+                                                        belt,
+                                                    topicTitle:
+                                                        cleanTitle,
+                                                    subTopicTitle:
+                                                        nil
+                                                )
+
+                                        let details =
+                                            TopicsEngine
+                                                .shared
+                                                .topicDetailsFor(
+                                                    belt:
+                                                        belt,
+                                                    topicTitle:
+                                                        cleanTitle
+                                                )
+
+                                        for rawSubTitle
+                                            in details
+                                                .subTitles {
+                                            let cleanSubTitle =
+                                                rawSubTitle
+                                                    .trimmingCharacters(
+                                                        in:
+                                                            .whitespacesAndNewlines
+                                                    )
+
+                                            guard !cleanSubTitle
+                                                .isEmpty,
+                                                  cleanSubTitle !=
+                                                    cleanTitle else {
+                                                continue
+                                            }
+
+                                            topicItems.append(
+                                                contentsOf:
+                                                    ContentRepo
+                                                        .shared
+                                                        .getAllItemsFor(
+                                                            belt:
+                                                                belt,
+                                                            topicTitle:
+                                                                cleanTitle,
+                                                            subTopicTitle:
+                                                                cleanSubTitle
+                                                        )
+                                            )
+                                        }
+
+                                        return topicItems
                                     }
 
-                                    return ContentRepo.shared.getAllItemsFor(
-                                        belt: belt,
-                                        topicTitle: cleanToken,
-                                        subTopicTitle: nil
-                                    )
+                                    let requestedTopics:
+                                        [String]
+
+                                    if cleanToken.isEmpty ||
+                                        cleanToken ==
+                                        "__ALL__" {
+                                        requestedTopics =
+                                            TopicsEngine
+                                                .shared
+                                                .topicTitlesFor(
+                                                    belt:
+                                                        belt
+                                                )
+                                    } else {
+                                        requestedTopics = [
+                                            cleanToken
+                                        ]
+                                    }
+
+                                    var seen =
+                                        Set<String>()
+
+                                    var result:
+                                        [String] = []
+
+                                    for requestedTopic
+                                        in requestedTopics {
+                                        for rawItem
+                                            in itemsForTopic(
+                                                requestedTopic
+                                            ) {
+                                            let cleanItem =
+                                                rawItem
+                                                    .trimmingCharacters(
+                                                        in:
+                                                            .whitespacesAndNewlines
+                                                    )
+
+                                            guard !cleanItem
+                                                .isEmpty else {
+                                                continue
+                                            }
+
+                                            let normalizedKey =
+                                                cleanItem
+                                                    .replacingOccurrences(
+                                                        of:
+                                                            "\u{200F}",
+                                                        with:
+                                                            ""
+                                                    )
+                                                    .replacingOccurrences(
+                                                        of:
+                                                            "\u{200E}",
+                                                        with:
+                                                            ""
+                                                    )
+                                                    .replacingOccurrences(
+                                                        of:
+                                                            "\u{00A0}",
+                                                        with:
+                                                            " "
+                                                    )
+                                                    .lowercased()
+
+                                            guard seen
+                                                .insert(
+                                                    normalizedKey
+                                                )
+                                                .inserted else {
+                                                continue
+                                            }
+
+                                            result.append(
+                                                cleanItem
+                                            )
+                                        }
+                                    }
+
+                                    return result
                                 }()
                             )
-                            .navigationBarBackButtonHidden(true)
+                            .navigationBarBackButtonHidden(
+                                true
+                            )
                         }
 
                     case .summary(let belt):
@@ -884,9 +1633,47 @@ struct ContentView: View {
                         }
 
                     case .voiceAssistant:
-                        KmiRootLayout(title: "עוזר קולי", nav: nav, selectedIcon: .home) {
+                        KmiRootLayout(
+                            title: tr(
+                                "עוזר קולי",
+                                "Voice Assistant"
+                            ),
+                            nav: nav,
+                            selectedIcon: .assistant
+                        ) {
                             VoiceAssistantView()
                                 .navigationBarBackButtonHidden(true)
+                        }
+
+                    case .onboarding(let manual):
+                        KmiRootLayout(
+                            title: tr(
+                                "הדרכת האפליקציה",
+                                "App Guide"
+                            ),
+                            nav: nav,
+                            selectedIcon: .guide
+                        ) {
+                            OnboardingView(
+                                allowSkip: true,
+                                onFinish: {
+                                    if !manual {
+                                        OnboardingPreferences
+                                            .markCompleted()
+                                    }
+
+                                    nav.pop()
+                                },
+                                onSkip: {
+                                    if !manual {
+                                        OnboardingPreferences
+                                            .markCompleted()
+                                    }
+
+                                    nav.pop()
+                                }
+                            )
+                            .navigationBarBackButtonHidden(true)
                         }
                         
                     case .beltFinalExam(let belt):
@@ -963,7 +1750,8 @@ struct ContentView: View {
 
                         KmiRootLayout(title: "נוכחות", nav: nav, selectedIcon: .home) {
                             AttendanceView(
-                                ownerUid: Auth.auth().currentUser?.uid ?? "demo_ios",
+                                ownerUid:
+                                    Auth.auth().currentUser?.uid ?? "",
                                 initialDateIso: nil,
                                 initialBranchName: resolvedAttendanceBranch,
                                 initialGroupKey: resolvedAttendanceGroup,
@@ -1047,8 +1835,36 @@ struct ContentView: View {
                 }
             }
             .environmentObject(nav)
+            .fullScreenCover(
+                isPresented: Binding(
+                    get: {
+                        voiceCommands.isPresented
+                    },
+                    set: { isPresented in
+                        if !isPresented {
+                            voiceCommands.dismiss()
+                        }
+                    }
+                )
+            ) {
+                PushToTalkVoiceDialogIOS {
+                    command,
+                    spokenText in
+
+                    voiceCommands.handle(
+                        command: command,
+                        spokenText: spokenText
+                    )
+                }
+                .presentationBackground(.clear)
+            }
             .onAppear {
                 auth.reloadProfileIfSignedIn()
+                bindVoiceCommandActions()
+                openOnboardingIfNeeded()
+            }
+            .onDisappear {
+                voiceCommands.unbind()
             }
         }
     }

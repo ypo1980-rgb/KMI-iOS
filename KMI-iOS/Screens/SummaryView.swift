@@ -1,5 +1,7 @@
 import SwiftUI
 import Shared
+import FirebaseAuth
+import FirebaseFirestore
 
 // MARK: - Summary models (file-scope)
 
@@ -23,6 +25,8 @@ enum SummaryMark: String {
 struct SummaryRowItem: Identifiable {
     let id: String
     let title: String
+    let subTopicTitle: String?
+    let indexInStatusGroup: Int
     let mark: SummaryMark?
 }
 
@@ -49,6 +53,11 @@ struct SummaryView: View {
     @ObservedObject var nav: AppNavModel
     @State private var showProgressCard: Bool = false
     @State private var showComparisonCard: Bool = false
+    @State private var marksRevision: Int = 0
+    @State private var comparisonTraineesCount: Int = 0
+    @State private var comparisonAveragePercent: Int = 0
+    @State private var comparisonBetterThanPercent: Int = 0
+    @State private var isComparisonLoading: Bool = false
     
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
@@ -201,25 +210,69 @@ struct SummaryView: View {
     
     // MARK: - Model for UI
     
+    private struct SummaryRawItem {
+        let title: String
+        let subTopicTitle: String?
+        let indexInStatusGroup: Int
+    }
+
     private struct SummaryRawTopic {
         let title: String
-        let items: [String]
+        let items: [SummaryRawItem]
     }
 
     private var catalogTopics: [SummaryRawTopic] {
-        TopicsEngine.shared.topicTitlesFor(belt: belt)
+        // Reading this value makes the computed model refresh whenever
+        // UserDefaults posts a change notification.
+        _ = marksRevision
+
+        return TopicsEngine.shared.topicTitlesFor(belt: belt)
             .map { title in
                 let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
 
-                var allItems: [String] = []
+                var allItems: [SummaryRawItem] = []
 
-                allItems.append(
-                    contentsOf: ContentRepo.shared.getAllItemsFor(
+                let requestedTopic = topic?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let requestedSubTopic = subTopic?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let isRequestedTopic = !requestedTopic.isEmpty &&
+                    normalizedSummaryText(cleanTitle) == normalizedSummaryText(requestedTopic)
+
+                // When a sub-topic was selected, include only that sub-topic.
+                // The previous implementation appended the whole topic and merely
+                // changed the status key, which produced incorrect rows and marks.
+                if isRequestedTopic && !requestedSubTopic.isEmpty {
+                    let selectedItems = ContentRepo.shared.getAllItemsFor(
                         belt: belt,
                         topicTitle: cleanTitle,
-                        subTopicTitle: nil
+                        subTopicTitle: requestedSubTopic
                     )
+
+                    allItems.append(contentsOf: selectedItems.enumerated().map { index, item in
+                        SummaryRawItem(
+                            title: item,
+                            subTopicTitle: requestedSubTopic,
+                            indexInStatusGroup: index
+                        )
+                    })
+
+                    return SummaryRawTopic(title: cleanTitle, items: allItems)
+                }
+
+                let directItems = ContentRepo.shared.getAllItemsFor(
+                    belt: belt,
+                    topicTitle: cleanTitle,
+                    subTopicTitle: nil
                 )
+
+                allItems.append(contentsOf: directItems.enumerated().map { index, item in
+                    SummaryRawItem(
+                        title: item,
+                        subTopicTitle: nil,
+                        indexInStatusGroup: index
+                    )
+                })
 
                 let subTopicTitles = ContentRepo.shared.getSubTopicsFor(
                     belt: belt,
@@ -229,13 +282,19 @@ struct SummaryView: View {
                 .filter { !$0.isEmpty }
 
                 for subTopicTitle in subTopicTitles {
-                    allItems.append(
-                        contentsOf: ContentRepo.shared.getAllItemsFor(
-                            belt: belt,
-                            topicTitle: cleanTitle,
-                            subTopicTitle: subTopicTitle
-                        )
+                    let subItems = ContentRepo.shared.getAllItemsFor(
+                        belt: belt,
+                        topicTitle: cleanTitle,
+                        subTopicTitle: subTopicTitle
                     )
+
+                    allItems.append(contentsOf: subItems.enumerated().map { index, item in
+                        SummaryRawItem(
+                            title: item,
+                            subTopicTitle: subTopicTitle,
+                            indexInStatusGroup: index
+                        )
+                    })
                 }
 
                 return SummaryRawTopic(
@@ -258,26 +317,37 @@ struct SummaryView: View {
         }
 
         return filteredTopics.compactMap { t in
-            var out: [String] = []
+            var out: [SummaryRawItem] = []
             out.append(contentsOf: t.items)
             
             var seen = Set<String>()
             let uniq = out
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .filter { seen.insert($0).inserted }
+                .map { raw in
+                    SummaryRawItem(
+                        title: raw.title.trimmingCharacters(in: .whitespacesAndNewlines),
+                        subTopicTitle: raw.subTopicTitle,
+                        indexInStatusGroup: raw.indexInStatusGroup
+                    )
+                }
+                .filter { !$0.title.isEmpty }
+                .filter { raw in
+                    let uniqueKey = "\(raw.subTopicTitle ?? "")||\(raw.title)"
+                    return seen.insert(uniqueKey).inserted
+                }
 
-            let rows: [SummaryRowItem] = uniq.enumerated().map { index, item in
+            let rows: [SummaryRowItem] = uniq.map { raw in
                 let m = loadMark(
                     topicTitle: t.title,
-                    subTopicTitle: subTopic,
-                    item: item,
-                    index: index
+                    subTopicTitle: raw.subTopicTitle,
+                    item: raw.title,
+                    index: raw.indexInStatusGroup
                 )
 
                 return SummaryRowItem(
-                    id: "\(t.title)||\(subTopic ?? "")||\(item)",
-                    title: item,
+                    id: "\(t.title)||\(raw.subTopicTitle ?? "")||\(raw.title)",
+                    title: raw.title,
+                    subTopicTitle: raw.subTopicTitle,
+                    indexInStatusGroup: raw.indexInStatusGroup,
                     mark: m
                 )
             }
@@ -306,36 +376,15 @@ struct SummaryView: View {
         return Int(round((Double(markedCount) / Double(totalCount)) * 100.0))
     }
     
-    private var comparisonTraineesCount: Int {
-        // אין להציג נתונים זמניים.
-        // עד חיבור iOS לנתוני ההשוואה האמיתיים מהשרת, מציגים מצב "אין מספיק נתונים".
-        return 0
-    }
-
-    private var comparisonAveragePercent: Int {
-        return 0
-    }
-
     private var comparisonHasEnoughData: Bool {
         comparisonTraineesCount >= 2
     }
 
-    private var comparisonBetterThanPercent: Int {
-        guard comparisonHasEnoughData, comparisonAveragePercent > 0 else {
-            return 0
-        }
-
-        if percentAll >= comparisonAveragePercent {
-            return 100
-        }
-
-        return max(
-            0,
-            Int(round((Double(percentAll) / Double(comparisonAveragePercent)) * 100.0))
-        )
-    }
-
     private var comparisonStatusText: String {
+        if isComparisonLoading {
+            return tr("טוען נתוני השוואה...", "Loading comparison data...")
+        }
+
         guard comparisonHasEnoughData else {
             return tr(
                 "אין עדיין מספיק נתונים להשוואה מול מתאמנים אחרים.",
@@ -354,6 +403,75 @@ struct SummaryView: View {
             "אתה מתחת לממוצע המתאמנים בחגורה שלך.",
             "You are below the average for trainees in your belt."
         )
+    }
+
+    private func saveProgressAndLoadComparison() {
+        guard totalCount > 0,
+              let uid = Auth.auth().currentUser?.uid,
+              !uid.isEmpty else {
+            comparisonTraineesCount = 0
+            comparisonAveragePercent = 0
+            comparisonBetterThanPercent = 0
+            isComparisonLoading = false
+            return
+        }
+
+        isComparisonLoading = true
+
+        let db = Firestore.firestore()
+        let beltId = belt.id
+        let progressData: [String: Any] = [
+            "uid": uid,
+            "userId": uid,
+            "beltId": beltId,
+            "knownPercent": percentAll,
+            "knownCount": doneCount,
+            "totalCount": totalCount,
+            "updatedAt": FieldValue.serverTimestamp()
+        ]
+
+        db.collection("userProgress")
+            .document("\(uid)_\(beltId)")
+            .setData(progressData, merge: true) { _ in
+                db.collection("userProgress")
+                    .whereField("beltId", isEqualTo: beltId)
+                    .getDocuments { snapshot, _ in
+                        var percentByUser: [String: Int] = [:]
+
+                        for document in snapshot?.documents ?? [] {
+                            let data = document.data()
+                            let total = (data["totalCount"] as? NSNumber)?.intValue ?? 0
+                            let known = (data["knownPercent"] as? NSNumber)?.intValue ?? -1
+                            let userKey = (data["uid"] as? String)
+                                ?? (data["userId"] as? String)
+                                ?? (data["userUid"] as? String)
+                                ?? document.documentID
+
+                            if total > 0, (0...100).contains(known) {
+                                percentByUser[userKey] = known
+                            }
+                        }
+
+                        let percentages = Array(percentByUser.values)
+
+                        DispatchQueue.main.async {
+                            comparisonTraineesCount = percentages.count
+
+                            if percentages.isEmpty {
+                                comparisonAveragePercent = 0
+                                comparisonBetterThanPercent = 0
+                            } else {
+                                comparisonAveragePercent = percentages.reduce(0, +) / percentages.count
+                                let belowOrEqual = percentages.filter { $0 <= percentAll }.count
+                                comparisonBetterThanPercent = Int(
+                                    Double(belowOrEqual) / Double(percentages.count) * 100.0
+                                )
+                            }
+
+                            isComparisonLoading = false
+                        }
+                    }
+            }
     }
     
     private var summaryTitle: String {
@@ -563,6 +681,11 @@ struct SummaryView: View {
                 postSummaryTopTitleOverride()
             }
         }
+        .onReceive(
+            NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+        ) { _ in
+            marksRevision &+= 1
+        }
     }
     
     private var summaryTopControls: some View {
@@ -585,7 +708,12 @@ struct SummaryView: View {
             ) {
                 withAnimation(.easeOut(duration: 0.15)) {
                     showProgressCard = false
-                    showComparisonCard.toggle()
+                    let willOpen = !showComparisonCard
+                    showComparisonCard = willOpen
+
+                    if willOpen {
+                        saveProgressAndLoadComparison()
+                    }
                 }
             }
         }

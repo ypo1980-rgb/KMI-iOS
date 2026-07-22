@@ -705,6 +705,59 @@ private func ensureUserProfileDocumentExists(
         #endif
     }
 
+    private func activePresentingViewController() -> UIViewController? {
+        guard let windowScene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive })
+        else {
+            return nil
+        }
+
+        let window =
+            windowScene.windows.first(where: { $0.isKeyWindow }) ??
+            windowScene.windows.first(where: { !$0.isHidden })
+
+        guard let rootViewController = window?.rootViewController else {
+            return nil
+        }
+
+        func topViewController(
+            from viewController: UIViewController
+        ) -> UIViewController {
+            if let presented = viewController.presentedViewController {
+                return topViewController(from: presented)
+            }
+
+            if let navigationController =
+                viewController as? UINavigationController,
+               let visible = navigationController.visibleViewController {
+                return topViewController(from: visible)
+            }
+
+            if let tabController =
+                viewController as? UITabBarController,
+               let selected = tabController.selectedViewController {
+                return topViewController(from: selected)
+            }
+
+            if let splitController =
+                viewController as? UISplitViewController,
+               let last = splitController.viewControllers.last {
+                return topViewController(from: last)
+            }
+
+            for child in viewController.children.reversed() {
+                if child.viewIfLoaded?.window != nil {
+                    return topViewController(from: child)
+                }
+            }
+
+            return viewController
+        }
+
+        return topViewController(from: rootViewController)
+    }
+    
     func signInWithGoogle(
         expectedRole: String,
         coachCode: String?
@@ -728,19 +781,16 @@ private func ensureUserProfileDocumentExists(
                 return false
             }
 
-            guard let rootViewController = UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .flatMap({ $0.windows })
-                .first(where: { $0.isKeyWindow })?
-                .rootViewController
+            guard let presentingViewController =
+                activePresentingViewController()
             else {
                 errorText = "לא נמצא מסך פעיל להצגת התחברות Google"
                 return false
             }
 
-            var presentingViewController = rootViewController
-            while let presented = presentingViewController.presentedViewController {
-                presentingViewController = presented
+            guard presentingViewController.viewIfLoaded?.window != nil else {
+                errorText = "מסך ההתחברות עדיין אינו מוכן להצגת Google"
+                return false
             }
 
             GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)

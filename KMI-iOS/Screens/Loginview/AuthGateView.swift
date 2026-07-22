@@ -15,6 +15,7 @@ struct AuthGateView: View {
     @State private var didFinishPostLoginLoading: Bool = true
     @State private var didRequestEnterApp: Bool = false
     @State private var isCheckingServerUser: Bool = false
+    @State private var canContinueExistingUser: Bool = false
 
     private enum AuthEntryStep {
         case intro
@@ -74,11 +75,12 @@ struct AuthGateView: View {
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 auth.start()
+                prepareSignedInUserForIntro()
             }
         }
         .onChange(of: auth.isSignedIn) { _, isSignedIn in
             if isSignedIn {
-                routeSignedInUserByServerDocument()
+                prepareSignedInUserForIntro()
             } else {
                 resetToIntro()
             }
@@ -93,7 +95,98 @@ struct AuthGateView: View {
         didRequestEnterApp = false
         didFinishPostLoginLoading = true
         didCompleteAuthScreen = false
+        canContinueExistingUser = false
         step = .intro
+    }
+
+    private func prepareSignedInUserForIntro() {
+        guard FirebaseApp.app() != nil,
+              let firebaseUser = Auth.auth().currentUser,
+              !firebaseUser.isAnonymous else {
+            canContinueExistingUser = false
+            return
+        }
+
+        let uid = firebaseUser.uid
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !uid.isEmpty else {
+            canContinueExistingUser = false
+            return
+        }
+
+        Task {
+            do {
+                let snapshot = try await Firestore.firestore()
+                    .collection("users")
+                    .document(uid)
+                    .getDocument()
+
+                let data = snapshot.data() ?? [:]
+                let isComplete = snapshot.exists &&
+                    persistAndCheckRequiredProfile(
+                        data: data,
+                        firebaseUser: firebaseUser
+                    )
+
+                await MainActor.run {
+                    canContinueExistingUser = isComplete
+                    step = .intro
+                }
+            } catch {
+                await MainActor.run {
+                    canContinueExistingUser = false
+                    step = .intro
+                }
+            }
+        }
+    }
+
+    private func firstNonEmptyString(
+        in data: [String: Any],
+        keys: [String]
+    ) -> String? {
+        keys.compactMap { key in
+            (data[key] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        .first { !$0.isEmpty }
+    }
+
+    private func persistAndCheckRequiredProfile(
+        data: [String: Any],
+        firebaseUser: User
+    ) -> Bool {
+        let defaults = UserDefaults.standard
+
+        let fullName = firstNonEmptyString(
+            in: data,
+            keys: [
+                "fullName", "full_name", "displayName",
+                "display_name", "name", "user_name"
+            ]
+        ) ?? firebaseUser.displayName?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let beltId = firstNonEmptyString(
+            in: data,
+            keys: [
+                "current_belt", "belt_current", "currentBelt",
+                "beltId", "belt_id", "belt", "belt_id_str",
+                "registeredBelt", "registered_belt", "rank"
+            ]
+        )
+
+        if let fullName, !fullName.isEmpty {
+            defaults.set(fullName, forKey: "fullName")
+        }
+
+        if let beltId, !beltId.isEmpty {
+            defaults.set(beltId, forKey: "current_belt")
+        }
+
+        return fullName?.isEmpty == false &&
+            beltId?.isEmpty == false
     }
 
     private func routeSignedInUserByServerDocument() {
@@ -133,12 +226,20 @@ struct AuthGateView: View {
                 await MainActor.run {
                     isCheckingServerUser = false
 
-                    guard snapshot.exists, snapshot.data() != nil else {
-                        try? Auth.auth().signOut()
-                        resetToIntro()
+                    guard snapshot.exists,
+                          let data = snapshot.data(),
+                          persistAndCheckRequiredProfile(
+                            data: data,
+                            firebaseUser: firebaseUser
+                          ) else {
+                        canContinueExistingUser = false
+                        didRequestEnterApp = false
+                        didFinishPostLoginLoading = true
+                        step = .registerNewTrainee
                         return
                     }
 
+                    canContinueExistingUser = true
                     didCompleteAuthScreen = true
                     didFinishPostLoginLoading = false
                     didRequestEnterApp = true
@@ -162,6 +263,10 @@ struct AuthGateView: View {
 
                 case .intro:
                     KmiIntroGateScreen(
+                        canContinueExistingUser: canContinueExistingUser,
+                        onExistingUserContinue: {
+                            routeSignedInUserByServerDocument()
+                        },
                         onGoogleLogin: {
                             if auth.isSignedIn {
                                 routeSignedInUserByServerDocument()
@@ -279,6 +384,8 @@ struct AuthGateView: View {
 
 private struct KmiIntroGateScreen: View {
 
+    let canContinueExistingUser: Bool
+    let onExistingUserContinue: () -> Void
     let onGoogleLogin: () async -> Bool
     let onRegularLogin: () -> Void
 
@@ -642,9 +749,11 @@ private struct KmiIntroGateScreen: View {
                     Spacer(minLength: 0)
 
                     VStack(spacing: 8) {
-                        googleButton
+                        primaryButton
 
-                        regularLoginButton
+                        if !canContinueExistingUser {
+                            regularLoginButton
+                        }
                     }
                     .padding(.horizontal, horizontalPadding + 8)
 
@@ -691,9 +800,14 @@ private struct KmiIntroGateScreen: View {
         .disabled(isGoogleLoading)
     }
 
-    private var googleButton: some View {
+    private var primaryButton: some View {
         Button {
             guard !isGoogleLoading else { return }
+
+            if canContinueExistingUser {
+                onExistingUserContinue()
+                return
+            }
 
             isGoogleLoading = true
 
@@ -743,7 +857,11 @@ private struct KmiIntroGateScreen: View {
                         Image(systemName: "star.fill")
                             .font(.system(size: 16, weight: .bold))
 
-                        Text(isEnglish ? "Continue with Google" : "התחברות עם Google")
+                        Text(
+                            canContinueExistingUser
+                            ? (isEnglish ? "Continue" : "המשך")
+                            : (isEnglish ? "Continue with Google" : "התחברות עם Google")
+                        )
                             .font(.system(size: 18, weight: .bold, design: .rounded))
                     }
                     .foregroundStyle(.white)

@@ -115,18 +115,7 @@ struct SubscriptionScreen: View {
                     onTap: onOpenPlans
                 )
 
-                Button {
-                    Task {
-                        await restorePurchasesFromStore()
-                    }
-                } label: {
-                    Text(repo.state.isLoading ? tr("טוען...", "Loading...") : tr("שחזור רכישות", "Restore purchases"))
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                }
-                .buttonStyle(.bordered)
-                .disabled(repo.state.isLoading)
+                moreActionsCard
 
                 if let restoreMessage, !restoreMessage.isEmpty {
                     Text(restoreMessage)
@@ -141,39 +130,26 @@ struct SubscriptionScreen: View {
                         )
                 }
 
-                Button(action: {
-                    showDevDialog = true
-                }) {
-                    Text(tr("כניסת מנהל / קוד מפתח", "Admin / tester access code"))
-                        .font(.subheadline.weight(.semibold))
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 4)
-
                 Spacer(minLength: 8)
-
-                Button(action: onOpenHome) {
-                Text(tr("חזרה למסך הבית", "Back to home"))
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-            }
-            .buttonStyle(.bordered)
-
-                Button(action: onBack) {
-                    Text(tr("סגור", "Close"))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                }
-                .buttonStyle(.plain)
             }
             .padding(16)
         }
+        .background(
+            LinearGradient(
+                colors: [
+                    Color(red: 0.97, green: 0.95, blue: 1.0),
+                    Color(red: 0.95, green: 0.97, blue: 1.0),
+                    Color(red: 1.0, green: 0.98, blue: 1.0)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        )
         .environment(\.layoutDirection, screenLayoutDirection)
         .task {
             isAdmin = KmiAccess.isAdmin()
             KmiAccess.ensureTrialStarted()
-            repo.start()
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("KMI_ACCESS_CHANGED"))) { _ in
             uiRefreshTick += 1
@@ -226,7 +202,7 @@ struct SubscriptionScreen: View {
     
     private var subscriptionHeroCard: some View {
         VStack(spacing: 8) {
-            Text(tr("מנוי KMI", "KMI Subscription"))
+            Text(tr("ניהול מנוי KMI", "KMI Subscription"))
                 .font(.title2.weight(.heavy))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity, alignment: .center)
@@ -290,6 +266,30 @@ struct SubscriptionScreen: View {
         default:
             return "-"
         }
+    }
+
+    private var monthlyPriceLabel: String {
+        let isMemberPlan =
+            savedProductId == BillingRepository.ProductId.memberMonthly.rawValue ||
+            savedProductId == BillingRepository.ProductId.memberYearly.rawValue
+
+        let productId: BillingRepository.ProductId =
+            isMemberPlan ? .memberMonthly : .regularMonthly
+
+        return repo.getPriceForProduct(productId.rawValue) ??
+            tr("טרם נטען", "Not loaded yet")
+    }
+
+    private var yearlyPriceLabel: String {
+        let isMemberPlan =
+            savedProductId == BillingRepository.ProductId.memberMonthly.rawValue ||
+            savedProductId == BillingRepository.ProductId.memberYearly.rawValue
+
+        let productId: BillingRepository.ProductId =
+            isMemberPlan ? .memberYearly : .regularYearly
+
+        return repo.getPriceForProduct(productId.rawValue) ??
+            tr("טרם נטען", "Not loaded yet")
     }
 
     private func premiumSubscriptionButton(
@@ -460,36 +460,34 @@ struct SubscriptionScreen: View {
                     .multilineTextAlignment(primaryTextAlignment)
 
                 detailsRow(
-                    label: tr("סטטוס", "Status"),
-                    value: active ? tr("פעיל", "Active") : tr("לא פעיל", "Inactive"),
-                    valueColor: active ? Color.green : Color.red
+                    label: tr("תאריך חידוש:", "Renewal date:"),
+                    value: accessUntil > 0 ? formatDateMillis(accessUntil) : "-",
+                    valueColor: Color.black.opacity(0.66)
                 )
 
                 detailsRow(
-                    label: tr("מסלול", "Plan"),
+                    label: tr("מסלול:", "Plan:"),
                     value: planDisplayName(productId),
                     valueColor: Color.black.opacity(0.82)
                 )
 
                 detailsRow(
-                    label: tr("מזהה מוצר", "Product ID"),
-                    value: productId ?? "-",
-                    valueColor: Color.black.opacity(0.66)
+                    label: tr("מחיר חודשי:", "Monthly price:"),
+                    value: monthlyPriceLabel,
+                    valueColor: Color.black.opacity(0.82)
                 )
 
                 detailsRow(
-                    label: tr("תוקף עד", "Valid until"),
-                    value: accessUntil > 0 ? formatDateMillis(accessUntil) : "-",
-                    valueColor: Color.black.opacity(0.66)
+                    label: tr("מחיר שנתי:", "Yearly price:"),
+                    value: yearlyPriceLabel,
+                    valueColor: Color.black.opacity(0.82)
                 )
 
-                if let token = repo.state.purchaseToken, !token.isEmpty {
-                    detailsRow(
-                        label: tr("מזהה רכישה", "Purchase ID"),
-                        value: token,
-                        valueColor: Color.black.opacity(0.55)
-                    )
-                }
+                detailsRow(
+                    label: tr("מזהה מוצר:", "Product ID:"),
+                    value: productId ?? "-",
+                    valueColor: Color.black.opacity(0.66)
+                )
             }
             .padding(12)
             .background(
@@ -497,19 +495,18 @@ struct SubscriptionScreen: View {
                     .fill(Color.white.opacity(0.62))
             )
 
-            if KmiAccess.hasDevUnlock() {
-                Button(action: {
-                    KmiAccess.clearDevUnlock()
-                    uiRefreshTick += 1
-                    repo.start()
-                }) {
-                    Text(tr("בטל גישת בודק", "Disable tester access"))
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                }
-                .buttonStyle(.bordered)
+            Link(
+                destination: URL(string: "https://apps.apple.com/account/subscriptions")!
+            ) {
+                Text(tr(
+                    "ניהול המנוי ב־App Store",
+                    "Manage subscription in the App Store"
+                ))
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 11)
             }
+            .buttonStyle(.bordered)
 
             if let error = repo.state.error, !error.isEmpty {
                 Text("\(tr("שגיאה", "Error")): \(error)")
@@ -564,6 +561,75 @@ struct SubscriptionScreen: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
+    }
+
+    private var moreActionsCard: some View {
+        VStack(spacing: 14) {
+            Text(tr("פעולות נוספות", "More actions"))
+                .font(.headline.weight(.heavy))
+                .foregroundStyle(Color(red: 0.22, green: 0.25, blue: 0.32))
+
+            Button {
+                guard !repo.state.isLoading else { return }
+
+                Task {
+                    await restorePurchasesFromStore()
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    if isEnglish {
+                        restoreIcon
+                        restoreTitle
+                        restoreChevron
+                    } else {
+                        restoreChevron
+                        restoreTitle
+                        restoreIcon
+                    }
+                }
+                .environment(\.layoutDirection, .leftToRight)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(Color(red: 0.97, green: 0.98, blue: 0.99))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .shadow(color: Color.black.opacity(0.07), radius: 2, x: 0, y: 1)
+            }
+            .buttonStyle(.plain)
+            .disabled(repo.state.isLoading)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 5)
+    }
+
+    private var restoreIcon: some View {
+        Text(repo.state.isLoading ? "⏳" : "🔄")
+            .font(.system(size: 18))
+            .frame(width: 34, height: 34)
+            .background(Color(red: 0.88, green: 0.91, blue: 1.0))
+            .clipShape(Circle())
+    }
+
+    private var restoreTitle: some View {
+        Text(
+            repo.state.isLoading
+            ? tr("משחזר רכישות...", "Restoring purchases...")
+            : tr("שחזור רכישות", "Restore purchases")
+        )
+        .font(.body.weight(.semibold))
+        .foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.24))
+        .frame(
+            maxWidth: .infinity,
+            alignment: isEnglish ? .leading : .trailing
+        )
+    }
+
+    private var restoreChevron: some View {
+        Image(systemName: isEnglish ? "chevron.right" : "chevron.left")
+            .font(.system(size: 14, weight: .bold))
+            .foregroundStyle(Color(red: 0.39, green: 0.45, blue: 0.55))
     }
     
     private var adminCard: some View {

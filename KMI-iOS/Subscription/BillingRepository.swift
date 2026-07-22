@@ -257,7 +257,8 @@ final class BillingRepository: ObservableObject {
             enabled: true,
             productId: transaction.productID,
             purchaseToken: token,
-            purchaseDate: transaction.purchaseDate
+            purchaseDate: transaction.purchaseDate,
+            expirationDate: transaction.expirationDate
         )
 
         let active = accessUntil > currentTimeMillis()
@@ -277,7 +278,8 @@ final class BillingRepository: ObservableObject {
         enabled: Bool,
         productId: String?,
         purchaseToken: String?,
-        purchaseDate: Date?
+        purchaseDate: Date?,
+        expirationDate: Date? = nil
     ) -> Int64 {
         let nowMillis = currentTimeMillis()
         let currentToken = purchaseToken ?? ""
@@ -317,7 +319,8 @@ final class BillingRepository: ObservableObject {
             } else {
                 accessUntil = calculateAccessUntilForSubscription(
                     productId: productId ?? "",
-                    purchaseDate: purchaseDate ?? Date()
+                    purchaseDate: purchaseDate ?? Date(),
+                    expirationDate: expirationDate
                 )
             }
         } else {
@@ -402,26 +405,14 @@ final class BillingRepository: ObservableObject {
     
     private func calculateAccessUntilForSubscription(
         productId: String,
-        purchaseDate: Date
+        purchaseDate: Date,
+        expirationDate: Date?
     ) -> Int64 {
-        let purchaseMillis = purchaseDateMillis(purchaseDate)
-
-        // בדיקות פנימיות: חודשי = 5 דקות, שנתי = 30 דקות.
-        // לפני הפצה אמיתית אפשר לשנות ל-false.
-        let forceShortTestExpiry = true
-
-        if forceShortTestExpiry {
-            let testDurationMillis: Int64
-
-            if ProductId.regularYearly.rawValue == productId ||
-                ProductId.memberYearly.rawValue == productId {
-                testDurationMillis = 30 * 60 * 1000
-            } else {
-                testDurationMillis = 5 * 60 * 1000
-            }
-
-            return purchaseMillis + testDurationMillis
+        if let expirationDate {
+            return purchaseDateMillis(expirationDate)
         }
+
+        let purchaseMillis = purchaseDateMillis(purchaseDate)
 
         let productionDurationMillis: Int64
 

@@ -7,6 +7,7 @@ enum ExamDataSource {
 
     struct CategorizedExamItem: Hashable {
         let topic: String
+        let subTopic: String?
         let name: String
     }
 
@@ -55,12 +56,15 @@ enum ExamDataSource {
                 out.append(
                     CategorizedExamItem(
                         topic: topicTitle.isEmpty ? "כללי" : topicTitle,
+                        subTopic: nil,
                         name: cleaned
                     )
                 )
             }
 
             for subTopic in topic.subTopics {
+                let subTopicTitle = subTopic.title
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
 
                 for item in subTopic.items {
                     let cleaned = item.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -72,9 +76,30 @@ enum ExamDataSource {
                     out.append(
                         CategorizedExamItem(
                             topic: topicTitle.isEmpty ? "כללי" : topicTitle,
+                            subTopic: subTopicTitle.isEmpty ? nil : subTopicTitle,
                             name: cleaned
                         )
                     )
+                }
+
+                for nestedSubTopic in subTopic.subTopics {
+                    for item in nestedSubTopic.items {
+                        let cleaned = item
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                        guard !cleaned.isEmpty else { continue }
+
+                        let uniqueKey = "\(topicTitle)||\(cleaned)"
+                        guard seen.insert(uniqueKey).inserted else { continue }
+
+                        out.append(
+                            CategorizedExamItem(
+                                topic: topicTitle.isEmpty ? "כללי" : topicTitle,
+                                subTopic: subTopicTitle.isEmpty ? nil : subTopicTitle,
+                                name: cleaned
+                            )
+                        )
+                    }
                 }
             }
         }

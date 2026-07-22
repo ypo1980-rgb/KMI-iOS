@@ -3,6 +3,7 @@ import Foundation
 enum OnboardingContent {
 
     static let steps: [OnboardingStep] = [
+
         OnboardingStep(
             id: "welcome",
             titleHe: "מסך הבית",
@@ -13,14 +14,14 @@ enum OnboardingContent {
             descriptionEn: """
             Your upcoming training sessions, coach messages, progress summary and monthly schedule — all in one place.
             """,
-            imageName: "onboarding_welcome",
+            imageName: "onboarding_home",
             accentHex: 0xFF6D4ED8
         ),
 
         OnboardingStep(
-            id: "belts",
-            titleHe: "תפריט צד",
-            titleEn: "Side menu",
+            id: "roles",
+            titleHe: "אזור המאמן ואזור המתאמן",
+            titleEn: "Coach and trainee areas",
             descriptionHe: """
             תפריט הצד מרכז במקום אחד את כל האזורים החשובים באפליקציה.
 
@@ -31,12 +32,12 @@ enum OnboardingContent {
 
             From here you can open your profile, trainee list, exams, exercises, payments, contact options, the forum, language settings and additional management tools.
             """,
-            imageName: "onboarding_belts",
+            imageName: "onboarding_roles",
             accentHex: 0xFFF59E0B
         ),
 
         OnboardingStep(
-            id: "subjects",
+            id: "belts",
             titleHe: "תרגילים לפי חגורה",
             titleEn: "Exercises by Belt",
             descriptionHe: """
@@ -49,7 +50,7 @@ enum OnboardingContent {
 
             The exercises are organized by topics and subtopics, making it easy to find the learning material relevant to your level.
             """,
-            imageName: "onboarding_subjects",
+            imageName: "onboarding_belts",
             accentHex: 0xFF0EA5E9
         ),
 
@@ -75,12 +76,12 @@ enum OnboardingContent {
 
             These classifications are saved and used for summaries, focused practice sessions and PDF reports.
             """,
-            imageName: "onboarding_progress",
+            imageName: "onboarding_exercises",
             accentHex: 0xFF16A34A
         ),
 
         OnboardingStep(
-            id: "exercise_cards",
+            id: "topics",
             titleHe: "תרגילים לפי נושא",
             titleEn: "Exercises by Topic",
             descriptionHe: """
@@ -93,7 +94,7 @@ enum OnboardingContent {
 
             You can open a detailed explanation, save a personal note and start a practice session from the active list.
             """,
-            imageName: "onboarding_categories",
+            imageName: "onboarding_topics",
             accentHex: 0xFF7C3AED
         ),
 
@@ -111,8 +112,26 @@ enum OnboardingContent {
 
             At the end, you can create a PDF report containing the exam details and scores.
             """,
-            imageName: "onboarding_exam",
+            imageName: "onboarding_internal_exam",
             accentHex: 0xFFDB2777
+        ),
+
+        OnboardingStep(
+            id: "payments_report",
+            titleHe: "דוח תשלומים",
+            titleEn: "Payments report",
+            descriptionHe: """
+            דוח התשלומים מרכז את מצב הגבייה של המתאמנים ומציג מי שילם ומי עדיין לא שילם.
+
+            ניתן לסנן לפי סניף, לחפש מתאמן ולצפות באחוז הגבייה העדכני.
+            """,
+            descriptionEn: """
+            The payments report summarizes trainee payments and shows who has paid and who has not.
+
+            You can filter by branch, search for a trainee and view the current collection rate.
+            """,
+            imageName: "onboarding_payments_report",
+            accentHex: 0xFF10B981
         ),
 
         OnboardingStep(
@@ -134,21 +153,39 @@ enum OnboardingContent {
         ),
 
         OnboardingStep(
-            id: "tools",
+            id: "summary",
             titleHe: "סרגל האייקונים וכלי האפליקציה",
             titleEn: "Icon rail and app tools",
             descriptionHe: """
             סרגל האייקונים מרכז פעולות שימושיות כמו בית, חיפוש, הגדרות, סטטיסטיקה, העוזר החכם ושיתוף.
 
-            תמיד ניתן לחזור לסיור הזה דרך אייקון ההדרכה שבסרגל.
+            תמיד ניתן לחזור לסיור הזה דרך אייקון ההסברים שבסרגל.
             """,
             descriptionEn: """
             The icon rail provides quick access to Home, Search, Settings, Statistics, the smart assistant and Share.
 
             You can always reopen this tour using the Guide action in the rail.
             """,
-            imageName: "onboarding_toolbar",
+            imageName: "onboarding_summary",
             accentHex: 0xFF2563EB
+        ),
+
+        OnboardingStep(
+            id: "ai",
+            titleHe: "יובל – העוזר האישי",
+            titleEn: "Yuval – Personal Assistant",
+            descriptionHe: """
+            העוזר האישי מאפשר לקבל מידע על תרגילים, אימונים וחומר ק.מ.י.
+
+            ניתן לבחור נושא מתוך האפשרויות המוצגות ולהפעיל פקודות קוליות בלחיצה על אייקון המיקרופון.
+            """,
+            descriptionEn: """
+            The personal assistant provides information about exercises, training sessions and K.M.I. material.
+
+            Select one of the displayed topics or activate voice commands by tapping the microphone icon.
+            """,
+            imageName: "onboarding_personal_assistant",
+            accentHex: 0xFF7C3AED
         )
     ]
 }

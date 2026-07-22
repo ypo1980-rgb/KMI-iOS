@@ -338,68 +338,29 @@ struct OnboardingView: View {
         for step: OnboardingStep
     ) -> some View {
         if let imageName = step.imageName,
-           let uiImage =
-                UIImage(named: imageName) {
-            ZStack {
-                RoundedRectangle(
-                    cornerRadius: 30,
-                    style: .continuous
-                )
-                .fill(
-                    Color(hex: 0xFF090D18)
-                )
+           let uiImage = UIImage(named: imageName) {
+            Image(uiImage: uiImage)
+                .resizable()
+                .scaledToFit()
                 .frame(
-                    width: 188,
-                    height: 316
+                    maxWidth: .infinity,
+                    maxHeight: 316
                 )
                 .shadow(
-                    color:
-                        step.accentColor
-                            .opacity(0.25),
-                    radius: 18,
+                    color: step.accentColor.opacity(0.18),
+                    radius: 12,
                     x: 0,
-                    y: 9
+                    y: 7
                 )
-
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(
-                        width: 176,
-                        height: 304
-                    )
-                    .background(Color.white)
-                    .clipShape(
-                        RoundedRectangle(
-                            cornerRadius: 25,
-                            style: .continuous
-                        )
-                    )
-
-                Capsule()
-                    .fill(
-                        Color(hex: 0xFF070A12)
-                    )
-                    .frame(
-                        width: 58,
-                        height: 16
-                    )
-                    .frame(
-                        maxHeight: .infinity,
-                        alignment: .top
-                    )
-                    .padding(.top, 6)
-            }
-            .frame(
-                maxWidth: .infinity,
-                minHeight: 322
-            )
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: 322
+                )
         } else {
             Image(
-                systemName:
-                    systemImageName(
-                        for: step.id
-                    )
+                systemName: systemImageName(
+                    for: step.id
+                )
             )
             .font(
                 .system(

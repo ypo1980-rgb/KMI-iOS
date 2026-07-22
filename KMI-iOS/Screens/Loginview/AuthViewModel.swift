@@ -1469,12 +1469,34 @@ private func loadUserProfileFromFirestore(uid: String) async {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased() ?? ""
 
+            let serverPhoneRaw =
+                (data["phone"] as? String) ??
+                (data["phoneNumber"] as? String) ??
+                (data["mobile"] as? String) ??
+                ""
+
+            let serverPhoneNormalized = serverPhoneRaw.filter { $0.isNumber }
+
+            let isWhitelistedCoach = CoachWhitelist.isWhitelisted(
+                phone: serverPhoneNormalized,
+                email: fallbackEmail
+            )
+
             let resolvedRole: String = {
-                if normalizedRole == "coach" || normalizedRole == "trainer" || normalizedRole == "מאמן" {
+                if normalizedRole == "coach" ||
+                    normalizedRole == "trainer" ||
+                    normalizedRole == "instructor" ||
+                    normalizedRole == "coach_user" ||
+                    normalizedRole == "kmi_coach" ||
+                    normalizedRole == "מאמן" {
                     return "coach"
                 }
 
                 if (data["coachApproved"] as? Bool) == true {
+                    return "coach"
+                }
+
+                if isWhitelistedCoach {
                     return "coach"
                 }
 

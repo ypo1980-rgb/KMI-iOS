@@ -223,7 +223,55 @@ enum TrainingCatalogIOS {
         "הוד השרון – מרכז ספורט עירוני": "הוד השרון – מרכז ספורט עירוני"
     ]
 
-    static let ageGroupsByBranch: [String: [String]] = [:]
+    static let ageGroupsByBranch: [String: [String]] = {
+        var result: [String: Set<String>] = [:]
+
+        // מקור ראשי: branches.json
+        if let catalog = branchesCatalog {
+            for branch in catalog.branches where branch.active {
+                let branchName = branch.nameHe
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                guard !branchName.isEmpty else { continue }
+
+                let groups = branch.trainingDays
+                    .map {
+                        $0.groupHe.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                    }
+                    .filter { !$0.isEmpty }
+
+                if !groups.isEmpty {
+                    result[branchName, default: []]
+                        .formUnion(groups)
+                }
+            }
+        }
+
+        // גיבוי: רשימת האימונים המקומית
+        for slot in slots {
+            let branchName = slot.branch
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let groups = slot.groups
+                .map {
+                    $0.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                }
+                .filter { !$0.isEmpty }
+
+            guard !branchName.isEmpty else { continue }
+
+            result[branchName, default: []]
+                .formUnion(groups)
+        }
+
+        return result.mapValues {
+            Array($0).sorted()
+        }
+    }()
 
     static let slots: [TrainingSlot] = [
         TrainingSlot(
@@ -594,6 +642,67 @@ enum TrainingCatalogIOS {
             .lowercased()
     }
 
+    private static func catalogComparableText(
+        _ value: String
+    ) -> String {
+        normalizedCatalogText(value)
+            .replacingOccurrences(of: "\"", with: "")
+            .replacingOccurrences(of: "'", with: "")
+            .replacingOccurrences(of: "׳", with: "")
+            .replacingOccurrences(of: "״", with: "")
+    }
+
+    private static func matchingCatalogBranchName(
+        for selectedBranch: String
+    ) -> String? {
+        let wanted = catalogComparableText(selectedBranch)
+
+        return ageGroupsByBranch.keys.first { branchName in
+            catalogComparableText(branchName) == wanted
+        }
+    }
+
+    static func groupsFor(
+        branch: String
+    ) -> [String] {
+        let clean = branch.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        guard !clean.isEmpty else {
+            return []
+        }
+
+        if isAbroadBranch(clean) {
+            return ["בוגרים"]
+        }
+
+        if let exactGroups = ageGroupsByBranch[clean],
+           !exactGroups.isEmpty {
+            return exactGroups
+        }
+
+        guard let matchingName = matchingCatalogBranchName(
+            for: clean
+        ) else {
+            return []
+        }
+
+        return ageGroupsByBranch[matchingName] ?? []
+    }
+
+    static func groupsFor(
+        branches: [String]
+    ) -> [String] {
+        let allGroups = branches.flatMap { branch in
+            groupsFor(branch: branch)
+        }
+
+        return Array(Set(allGroups))
+            .filter { !$0.isEmpty }
+            .sorted()
+    }
+    
     private static func branchFromCatalog(
         matching branchName: String
     ) -> BranchRecord? {

@@ -372,7 +372,11 @@ struct InternalExamView: View {
 
     private var examContent: some View {
         ZStack {
-            androidExamBackground
+            if hasStartedExam {
+                examBeltBackground
+            } else {
+                androidExamBackground
+            }
 
             VStack(spacing: 10) {
                 if hasStartedExam {
@@ -452,7 +456,7 @@ struct InternalExamView: View {
                     Button {
                         startNewExamFromSavedPrompt()
                     } label: {
-                        Text(tr("בחן חדש ✨", "New Exam ✨"))
+                        Text(tr("מבחן חדש ✨", "New Exam ✨"))
                             .font(.system(size: 18, weight: .black, design: .rounded))
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
@@ -976,7 +980,7 @@ struct InternalExamView: View {
                         }
                     }
 
-                    Spacer(minLength: 72)
+                    Spacer(minLength: 12)
                 }
                 .padding(.horizontal, 10)
                 .padding(.bottom, 8)
@@ -986,7 +990,6 @@ struct InternalExamView: View {
                 session: session,
                 isEnglish: isEnglish,
                 onSave: saveCurrentExam,
-                onShare: shareSummaryText,
                 onChangeBelt: {
                     withAnimation(.easeInOut(duration: 0.22)) {
                         hasStartedExam = false
@@ -2324,90 +2327,70 @@ private struct TopicHeaderView: View {
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 if isEnglish {
-                    iconBubble
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(title)
-                            .font(.system(size: 17, weight: .heavy))
-                            .foregroundStyle(Color.black.opacity(0.86))
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.82)
-                            .frame(maxWidth: .infinity, alignment: frameAlignment)
-                            .multilineTextAlignment(textAlignment)
-
-                        Text(countText)
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(beltDarkColor(for: belt).opacity(0.78))
-                            .frame(maxWidth: .infinity, alignment: frameAlignment)
-                            .multilineTextAlignment(textAlignment)
-                    }
-
                     chevron
+                    topicLabels
                 } else {
+                    topicLabels
                     chevron
-
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text(title)
-                            .font(.system(size: 17, weight: .heavy))
-                            .foregroundStyle(Color.black.opacity(0.86))
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.82)
-                            .frame(maxWidth: .infinity, alignment: frameAlignment)
-                            .multilineTextAlignment(textAlignment)
-
-                        Text(countText)
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(beltDarkColor(for: belt).opacity(0.78))
-                            .frame(maxWidth: .infinity, alignment: frameAlignment)
-                            .multilineTextAlignment(textAlignment)
-                    }
-
-                    iconBubble
                 }
             }
             .environment(\.layoutDirection, .leftToRight)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.98),
-                        beltSoftColor(for: belt).opacity(0.96),
-                        Color.white.opacity(0.94)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
+            .padding(.horizontal, 9)
+            .frame(height: 42)
+            .background(Color(red: 0.92, green: 0.95, blue: 1.00))
             .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(beltAccentColor(for: belt).opacity(0.32), lineWidth: 1.2)
+                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                    .stroke(
+                        expanded
+                        ? Color(red: 0.75, green: 0.82, blue: 0.91)
+                        : Color(red: 0.85, green: 0.89, blue: 0.96),
+                        lineWidth: 1
+                    )
             )
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .shadow(color: Color.black.opacity(0.10), radius: 6, x: 0, y: 3)
+            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+            .shadow(color: Color.black.opacity(0.08), radius: 2, x: 0, y: 1)
         }
         .buttonStyle(.plain)
-        .padding(.top, 6)
     }
 
-    private var iconBubble: some View {
-        ZStack {
-            Circle()
-                .fill(beltAccentColor(for: belt).opacity(0.18))
-                .frame(width: 38, height: 38)
+    private var topicLabels: some View {
+        VStack(
+            alignment: isEnglish ? .leading : .trailing,
+            spacing: 1
+        ) {
+            Text(title)
+                .font(.system(size: 15, weight: .black))
+                .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.15))
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .multilineTextAlignment(textAlignment)
 
-            Image(systemName: "list.bullet.rectangle.fill")
-                .font(.system(size: 15, weight: .heavy))
-                .foregroundStyle(beltDarkColor(for: belt).opacity(0.88))
+            Text(countText)
+                .font(.system(size: 9.5, weight: .semibold))
+                .foregroundStyle(Color(red: 0.37, green: 0.42, blue: 0.50))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .multilineTextAlignment(textAlignment)
         }
     }
 
     private var chevron: some View {
-        Image(systemName: expanded ? "chevron.up.circle.fill" : "chevron.down.circle.fill")
-            .font(.system(size: 22, weight: .heavy))
-            .foregroundStyle(beltDarkColor(for: belt).opacity(0.80))
+        ZStack {
+            Circle()
+                .fill(
+                    expanded
+                    ? Color(red: 0.06, green: 0.37, blue: 0.61)
+                    : Color(red: 0.42, green: 0.47, blue: 0.55)
+                )
+                .frame(width: 23, height: 23)
+
+            Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                .font(.system(size: 9, weight: .black))
+                .foregroundStyle(.white)
+        }
     }
 }
 
@@ -2515,65 +2498,47 @@ private struct BottomActionBarView: View {
     let session: InternalExamSession
     let isEnglish: Bool
     let onSave: () -> Void
-    let onShare: () -> Void
     let onChangeBelt: () -> Void
 
     var body: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 10) {
-                Button(action: onShare) {
-                    Text(examTr(isEnglish, "שתף", "Share"))
-                        .font(.system(size: 19, weight: .black, design: .rounded))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .background(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.04, green: 0.70, blue: 0.94),
-                                    Color(red: 0.19, green: 0.40, blue: 0.95)
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
+        VStack(spacing: 0) {
+            Button(action: onSave) {
+                Text(examTr(isEnglish, "סיום מבחן", "Finish exam"))
+                    .font(.system(size: 18, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 46)
+                    .background(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.36, green: 0.21, blue: 0.84),
+                                Color(red: 0.49, green: 0.23, blue: 0.93),
+                                Color(red: 0.55, green: 0.36, blue: 0.96)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
                         )
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-                .buttonStyle(.plain)
-
-                Button(action: onSave) {
-                    Text(examTr(isEnglish, "סיום מבחן", "Finish Exam"))
-                        .font(.system(size: 19, weight: .black, design: .rounded))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .background(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.42, green: 0.22, blue: 0.92),
-                                    Color(red: 0.68, green: 0.15, blue: 0.86)
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-                .buttonStyle(.plain)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 4)
             }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 4)
+            .padding(.top, 2)
+            .padding(.bottom, 4)
 
             Button(action: onChangeBelt) {
                 HStack(spacing: 10) {
                     Text(examTr(isEnglish, "מעבר לחגורה אחרת", "Change Belt"))
-                        .font(.system(size: 19, weight: .black, design: .rounded))
+                        .font(.system(size: 15, weight: .black, design: .rounded))
                         .foregroundStyle(.white)
 
                     Image(systemName: "rosette")
-                        .font(.system(size: 20, weight: .black))
+                        .font(.system(size: 16, weight: .black))
                         .foregroundStyle(.white.opacity(0.92))
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: 48)
+                .frame(height: 40)
                 .background(
                     LinearGradient(
                         colors: [
@@ -2585,15 +2550,14 @@ private struct BottomActionBarView: View {
                         endPoint: .trailing
                     )
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                 .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 3)
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
-        .background(Color(red: 0.02, green: 0.16, blue: 0.26).opacity(0.96))
+        .padding(.horizontal, 18)
+        .padding(.bottom, 5)
+        .background(beltSoftColor(for: session.belt).opacity(0.58))
     }
 }
 

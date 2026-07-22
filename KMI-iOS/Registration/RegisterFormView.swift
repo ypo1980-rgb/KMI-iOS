@@ -42,13 +42,13 @@ struct RegisterFormView: View {
             return ["בוגרים"]
         }
 
-        let selectedBranches = s.branches.isEmpty ? branchesOptions : Array(s.branches)
+        let selectedBranches = s.branches.isEmpty
+            ? branchesOptions
+            : Array(s.branches)
 
-        let all = selectedBranches.flatMap { branch in
-            TrainingCatalogIOS.ageGroupsByBranch[branch] ?? []
-        }
-
-        return Array(Set(all)).sorted()
+        return TrainingCatalogIOS.groupsFor(
+            branches: selectedBranches
+        )
     }
 
     private let belts = [
@@ -650,9 +650,9 @@ struct RegisterFormView: View {
         }
 
         let validGroups = Set(
-            Array(newBranches).flatMap { branch in
-                TrainingCatalogIOS.ageGroupsByBranch[branch] ?? []
-            }
+            TrainingCatalogIOS.groupsFor(
+                branches: Array(newBranches)
+            )
         )
 
         s.groups = s.groups.filter { validGroups.contains($0) }
@@ -987,36 +987,82 @@ struct RegisterFormView: View {
     }
     
     private var dobRow: some View {
-        HStack(spacing: 10) {
-            dobField(tr("יום", "Day"), $s.birthDay, maxLen: 2)
-            dobField(tr("חודש", "Month"), $s.birthMonth, maxLen: 2)
-            dobField(tr("שנה", "Year"), $s.birthYear, maxLen: 4)
+        HStack(spacing: 8) {
+            dobField(
+                tr("יום", "Day"),
+                $s.birthDay,
+                maxLength: 2
+            )
+
+            dobField(
+                tr("חודש", "Month"),
+                $s.birthMonth,
+                maxLength: 2
+            )
+
+            dobField(
+                tr("שנה", "Year"),
+                $s.birthYear,
+                maxLength: 4
+            )
         }
+        .frame(maxWidth: .infinity)
         .frame(minHeight: 56)
-        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+        .environment(\.layoutDirection, .leftToRight)
     }
 
-    private func dobField(_ title: String, _ binding: Binding<String>, maxLen: Int) -> some View {
-        TextField(title, text: Binding(
-            get: { binding.wrappedValue },
+    private func dobField(
+        _ title: String,
+        _ binding: Binding<String>,
+        maxLength: Int
+    ) -> some View {
+        let cleanBinding = Binding<String>(
+            get: {
+                String(
+                    binding.wrappedValue
+                        .filter { $0.isNumber }
+                        .prefix(maxLength)
+                )
+            },
             set: { newValue in
                 let digits = newValue.filter { $0.isNumber }
-                binding.wrappedValue = String(digits.prefix(maxLen))
+
+                binding.wrappedValue = String(
+                    digits.prefix(maxLength)
+                )
             }
-        ))
+        )
+
+        return TextField(
+            title,
+            text: cleanBinding
+        )
         .keyboardType(.numberPad)
+        .textContentType(.none)
         .multilineTextAlignment(.center)
+        .environment(\.layoutDirection, .leftToRight)
         .font(.system(size: 17, weight: .bold))
         .foregroundStyle(.black)
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 6)
         .frame(maxWidth: .infinity)
         .frame(height: 52)
         .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(registrationFieldBorder, lineWidth: 1)
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 14,
+                style: .continuous
+            )
         )
+        .overlay {
+            RoundedRectangle(
+                cornerRadius: 14,
+                style: .continuous
+            )
+            .stroke(
+                registrationFieldBorder,
+                lineWidth: 1
+            )
+        }
     }
 
     private var passwordField: some View {

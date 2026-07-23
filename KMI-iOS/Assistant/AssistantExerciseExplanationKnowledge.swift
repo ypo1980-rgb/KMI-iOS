@@ -40,39 +40,168 @@ enum AssistantExerciseExplanationKnowledge {
         preferredBelt: Belt? = nil,
         searchEngine: AssistantSearchEngine
     ) -> String? {
-        guard let req = tryParse(question: question, preferredBelt: preferredBelt) else { return nil }
-        return answer(req: req, searchEngine: searchEngine)
+        let cleanQuestion = question.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        guard !cleanQuestion.isEmpty else {
+            return nil
+        }
+
+        if let parsedRequest = tryParse(
+            question: cleanQuestion,
+            preferredBelt: preferredBelt
+        ) {
+            return answer(
+                req: parsedRequest,
+                searchEngine: searchEngine
+            )
+        }
+
+        /*
+         * במצב תרגילים המשתמש יכול לומר רק את שם התרגיל,
+         * למשל: "הגנה מאיום סכין חוד לבטן התחתונה".
+         */
+        let plainExerciseName = cleanName(cleanQuestion)
+
+        guard plainExerciseName.count >= 2 else {
+            return nil
+        }
+
+        return answer(
+            req: ExplainRequest(
+                rawQuestion: cleanQuestion,
+                exerciseName: plainExerciseName,
+                belt: preferredBelt
+            ),
+            searchEngine: searchEngine
+        )
     }
 
     static func answer(
         req: ExplainRequest,
         searchEngine: AssistantSearchEngine
     ) -> String? {
-        let primaryBelt = req.belt ?? .yellow
+        /*
+         * קודם מחפשים את התרגיל המדויק בקטלוג.
+         * כאשר לא צוינה חגורה מעבירים nil, כדי שהחיפוש
+         * יעבור על כל החגורות ולא יוגבל לצהובה.
+         */
+        let hits = searchEngine.search(
+            query: req.exerciseName,
+            belt: req.belt
+        )
 
-        if let direct = findExplanationAcrossBelts(
-            primaryBelt: primaryBelt,
-            exerciseName: req.exerciseName,
-            allowAllBelts: req.belt == nil
-        ) {
-            let cleaned = cleanExplanation(direct.1)
-            return "ההסבר לתרגיל \"\(req.exerciseName)\":\n\n\(cleaned)\n\nהאם אני יכול לעזור לך בעוד משהו?"
+        for hit in hits.prefix(6) {
+            guard let rawItem = hit.item else {
+                continue
+            }
+
+            let explanationKey = canonToExplanationKey(rawItem)
+
+            guard let found = findExplanationAcrossBelts(
+                primaryBelt: hit.belt,
+                exerciseName: explanationKey,
+                allowAllBelts: false
+            ) else {
+                continue
+            }
+
+            let cleaned = cleanExplanation(found.1)
+
+            guard !cleaned.isEmpty,
+                  !looksLikeNoData(cleaned) else {
+                continue
+            }
+
+            return responseText(
+                exerciseName: explanationKey,
+                explanation: cleaned
+            )
         }
 
-        let best = searchEngine.search(query: req.rawQuestion, belt: primaryBelt).first
-        if let best, let rawItem = best.item {
-            let displayKey = canonToExplanationKey(rawItem)
-            if let exp = findExplanationAcrossBelts(
-                primaryBelt: best.belt,
-                exerciseName: displayKey,
+        /*
+         * רק אם הקטלוג לא החזיר התאמה שימושית,
+         * מנסים שליפה ישירה בשם שהמשתמש אמר.
+         */
+        if let requestedBelt = req.belt {
+            if let direct = findExplanationAcrossBelts(
+                primaryBelt: requestedBelt,
+                exerciseName: req.exerciseName,
                 allowAllBelts: false
-            )?.1 {
-                let cleaned = cleanExplanation(exp)
-                return "ההסבר לתרגיל \"\(displayKey)\":\n\n\(cleaned)\n\nהאם אני יכול לעזור לך בעוד משהו?"
+            ) {
+                let cleaned = cleanExplanation(direct.1)
+
+                if !cleaned.isEmpty,
+                   !looksLikeNoData(cleaned) {
+                    return responseText(
+                        exerciseName: req.exerciseName,
+                        explanation: cleaned
+                    )
+                }
+            }
+        } else {
+            for belt in allSearchableBelts {
+                if let direct = findExplanationAcrossBelts(
+                    primaryBelt: belt,
+                    exerciseName: req.exerciseName,
+                    allowAllBelts: false
+                ) {
+                    let cleaned = cleanExplanation(direct.1)
+
+                    if !cleaned.isEmpty,
+                       !looksLikeNoData(cleaned) {
+                        return responseText(
+                            exerciseName: req.exerciseName,
+                            explanation: cleaned
+                        )
+                    }
+                }
             }
         }
 
         return nil
+    }
+
+    private static var isEnglish: Bool {
+        let defaults = UserDefaults.standard
+
+        let values = [
+            defaults.string(forKey: "kmi_app_language") ?? "",
+            defaults.string(forKey: "selected_language_code") ?? "",
+            defaults.string(forKey: "app_language") ?? "",
+            defaults.string(forKey: "initial_language_code") ?? ""
+        ]
+        .map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+        }
+
+        return values.contains("en") ||
+            values.contains("english")
+    }
+
+    private static func responseText(
+        exerciseName: String,
+        explanation: String
+    ) -> String {
+        if isEnglish {
+            return """
+            Explanation for "\(exerciseName)":
+
+            \(explanation)
+
+            Can I help you with anything else?
+            """
+        }
+
+        return """
+        ההסבר לתרגיל "\(exerciseName)":
+
+        \(explanation)
+
+        האם אני יכול לעזור לך בעוד משהו?
+        """
     }
 
     static func tryParse(question: String, preferredBelt: Belt? = nil) -> ExplainRequest? {
@@ -121,12 +250,16 @@ enum AssistantExerciseExplanationKnowledge {
             }
         }
 
-        guard allowAllBelts else { return nil }
+        guard allowAllBelts else {
+            return nil
+        }
 
-        let beltsToTry: [Belt] = [.green, .orange, .yellow, .blue, .brown, .black]
-        for belt in beltsToTry where belt != primaryBelt {
+        for belt in allSearchableBelts where belt != primaryBelt {
             for candidate in candidates {
-                if let value = tryGet(belt: belt, name: candidate) {
+                if let value = tryGet(
+                    belt: belt,
+                    name: candidate
+                ) {
                     return (belt, value)
                 }
             }
@@ -134,6 +267,16 @@ enum AssistantExerciseExplanationKnowledge {
 
         return nil
     }
+
+    private static let allSearchableBelts: [Belt] = [
+        .white,
+        .yellow,
+        .orange,
+        .green,
+        .blue,
+        .brown,
+        .black
+    ]
 
     private static func canonToExplanationKey(_ rawItem: String) -> String {
         let value = rawItem.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -206,8 +349,19 @@ enum AssistantExerciseExplanationKnowledge {
             .replacingOccurrences(of: ".", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        for prefix in ["את", "על", "של"] where text.hasPrefix(prefix) {
-            text = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["את", "על", "של"] {
+            let prefixWithSpace = "\(prefix) "
+
+            guard text.hasPrefix(prefixWithSpace) else {
+                continue
+            }
+
+            text = String(
+                text.dropFirst(prefixWithSpace.count)
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
         }
 
         for tail in tailNoise {

@@ -15,28 +15,192 @@ struct AssistantMaterialAnswer: Hashable {
 }
 
 enum AssistantKmiMaterialKnowledge {
+
+    private static var isEnglish: Bool {
+        let defaults = UserDefaults.standard
+
+        let values = [
+            defaults.string(
+                forKey: "kmi_app_language"
+            ) ?? "",
+            defaults.string(
+                forKey: "selected_language_code"
+            ) ?? "",
+            defaults.string(
+                forKey: "app_language"
+            ) ?? "",
+            defaults.string(
+                forKey: "initial_language_code"
+            ) ?? ""
+        ]
+        .map {
+            $0.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased()
+        }
+
+        return values.contains("en") ||
+            values.contains("english")
+    }
+
     static func searchHits(
         query: String,
         preferredBelt: Belt?,
         searchEngine: AssistantSearchEngine
     ) -> [AssistantSearchHit] {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return [] }
-        return searchEngine.search(query: q, belt: preferredBelt)
+        let cleanQuery = cleanMaterialQuery(query)
+
+        guard !cleanQuery.isEmpty else {
+            return []
+        }
+
+        return searchEngine.search(
+            query: cleanQuery,
+            belt: preferredBelt
+        )
+    }
+
+    private static func cleanMaterialQuery(
+        _ value: String
+    ) -> String {
+        var result = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        let requestPhrases = [
+            "תן לי רשימה של",
+            "תני לי רשימה של",
+            "תן רשימה של",
+            "תני רשימה של",
+            "תראה לי את",
+            "תראי לי את",
+            "תמצא לי את",
+            "תחפש לי את",
+            "חפש בחומר",
+            "חפש את",
+            "רשימה של",
+            "כל התרגילים של",
+            "כל התרגילים בנושא",
+            "תרגילים בנושא",
+            "תרגיל בנושא",
+            "בחומר ק.מ.י",
+            "בחומר קמי",
+            "show me",
+            "find",
+            "search for",
+            "list all",
+            "give me a list of",
+            "exercises about"
+        ]
+
+        for phrase in requestPhrases.sorted(
+            by: { $0.count > $1.count }
+        ) {
+            result = result.replacingOccurrences(
+                of: phrase,
+                with: " ",
+                options: .caseInsensitive
+            )
+        }
+
+        result = result
+            .replacingOccurrences(of: "\"", with: " ")
+            .replacingOccurrences(of: "״", with: " ")
+            .replacingOccurrences(of: "?", with: " ")
+            .replacingOccurrences(of: "!", with: " ")
+            .replacingOccurrences(of: ":", with: " ")
+            .replacingOccurrences(
+                of: #"\s+"#,
+                with: " ",
+                options: .regularExpression
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        return result
     }
 
     static func formatHitsAsExerciseList(
         _ hits: [AssistantSearchHit],
         maxItems: Int = 8
     ) -> String {
-        guard !hits.isEmpty else { return "" }
+        guard !hits.isEmpty,
+              maxItems > 0 else {
+            return ""
+        }
 
-        return hits.prefix(maxItems).map { hit in
-            let topicTitle = hit.topic
+        var seen = Set<String>()
+        var lines: [String] = []
+
+        for hit in hits {
+            let topicTitle = hit.topic.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
             let rawItem = hit.item ?? ""
-            let displayName = displayName(for: rawItem).isEmpty ? topicTitle : displayName(for: rawItem)
-            return "• \(displayName) (\(topicTitle) – חגורה \(hit.belt.heb))"
-        }.joined(separator: "\n")
+            let formattedName = displayName(for: rawItem)
+
+            let exerciseName = formattedName.isEmpty
+                ? topicTitle
+                : formattedName
+
+            guard !exerciseName.isEmpty else {
+                continue
+            }
+
+            let dedupeKey = [
+                hit.belt.id,
+                normalizedText(topicTitle),
+                normalizedText(exerciseName)
+            ]
+            .joined(separator: "|")
+
+            guard seen.insert(dedupeKey).inserted else {
+                continue
+            }
+
+            let beltName =
+                AssistantBeltDetector.localizedName(
+                    hit.belt,
+                    isEnglish: isEnglish
+                )
+
+            if isEnglish {
+                lines.append(
+                    "• \(exerciseName) " +
+                    "(\(topicTitle) – \(beltName) belt)"
+                )
+            } else {
+                lines.append(
+                    "• \(exerciseName) " +
+                    "(\(topicTitle) – חגורה \(beltName))"
+                )
+            }
+
+            if lines.count >= maxItems {
+                break
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private static func normalizedText(
+        _ value: String
+    ) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "־", with: "-")
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: "—", with: "-")
+            .replacingOccurrences(
+                of: #"\s+"#,
+                with: " ",
+                options: .regularExpression
+            )
     }
 
     static func answer(

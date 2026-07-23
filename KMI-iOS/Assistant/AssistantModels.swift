@@ -103,28 +103,175 @@ protocol AssistantTrainingDataSource {
 }
 
 enum AssistantBeltDetector {
-    static func detect(_ text: String) -> Belt? {
-        if text.contains("לבן") || text.contains("לבנה") { return .white }
-        if text.contains("צהוב") || text.contains("צהובה") { return .yellow }
-        if text.contains("כתום") || text.contains("כתומה") { return .orange }
-        if text.contains("ירוק") || text.contains("ירוקה") { return .green }
-        if text.contains("כחול") || text.contains("כחולה") { return .blue }
-        if text.contains("חום") || text.contains("חומה") { return .brown }
-        if text.contains("שחור") || text.contains("שחורה") { return .black }
+
+    nonisolated static func detect(
+        _ text: String
+    ) -> Belt? {
+        let normalized = text
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased()
+            .replacingOccurrences(of: "־", with: "-")
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: "—", with: "-")
+            .replacingOccurrences(
+                of: #"\s+"#,
+                with: " ",
+                options: .regularExpression
+            )
+
+        let beltTerms: [(belt: Belt, terms: [String])] = [
+            (
+                .white,
+                [
+                    "חגורה לבנה",
+                    "לבן",
+                    "לבנה",
+                    "white belt",
+                    "belt white"
+                ]
+            ),
+            (
+                .yellow,
+                [
+                    "חגורה צהובה",
+                    "צהוב",
+                    "צהובה",
+                    "yellow belt",
+                    "belt yellow"
+                ]
+            ),
+            (
+                .orange,
+                [
+                    "חגורה כתומה",
+                    "כתום",
+                    "כתומה",
+                    "orange belt",
+                    "belt orange"
+                ]
+            ),
+            (
+                .green,
+                [
+                    "חגורה ירוקה",
+                    "ירוק",
+                    "ירוקה",
+                    "green belt",
+                    "belt green"
+                ]
+            ),
+            (
+                .blue,
+                [
+                    "חגורה כחולה",
+                    "כחול",
+                    "כחולה",
+                    "blue belt",
+                    "belt blue"
+                ]
+            ),
+            (
+                .brown,
+                [
+                    "חגורה חומה",
+                    "חום",
+                    "חומה",
+                    "brown belt",
+                    "belt brown"
+                ]
+            ),
+            (
+                .black,
+                [
+                    "חגורה שחורה",
+                    "שחור",
+                    "שחורה",
+                    "black belt",
+                    "belt black"
+                ]
+            )
+        ]
+
+        for entry in beltTerms {
+            if entry.terms.contains(
+                where: { normalized.contains($0) }
+            ) {
+                return entry.belt
+            }
+        }
+
         return nil
     }
 
-    static func hebrewName(_ belt: Belt) -> String {
+    nonisolated static func hebrewName(
+        _ belt: Belt
+    ) -> String {
         switch belt {
-        case .white: return "לבנה"
-        case .yellow: return "צהובה"
-        case .orange: return "כתומה"
-        case .green: return "ירוקה"
-        case .blue: return "כחולה"
-        case .brown: return "חומה"
-        case .black: return "שחורה"
-        default: return belt.heb
+        case .white:
+            return "לבנה"
+
+        case .yellow:
+            return "צהובה"
+
+        case .orange:
+            return "כתומה"
+
+        case .green:
+            return "ירוקה"
+
+        case .blue:
+            return "כחולה"
+
+        case .brown:
+            return "חומה"
+
+        case .black:
+            return "שחורה"
+
+        default:
+            return ""
         }
+    }
+
+    nonisolated static func englishName(
+        _ belt: Belt
+    ) -> String {
+        switch belt {
+        case .white:
+            return "White"
+
+        case .yellow:
+            return "Yellow"
+
+        case .orange:
+            return "Orange"
+
+        case .green:
+            return "Green"
+
+        case .blue:
+            return "Blue"
+
+        case .brown:
+            return "Brown"
+
+        case .black:
+            return "Black"
+
+        default:
+            return ""
+        }
+    }
+
+    nonisolated static func localizedName(
+        _ belt: Belt,
+        isEnglish: Bool
+    ) -> String {
+        isEnglish
+            ? englishName(belt)
+            : hebrewName(belt)
     }
 }
 

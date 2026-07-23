@@ -1635,8 +1635,8 @@ struct ContentView: View {
                     case .voiceAssistant:
                         KmiRootLayout(
                             title: tr(
-                                "עוזר קולי",
-                                "Voice Assistant"
+                                "יובל – העוזר האישי",
+                                "Yuval – Personal Assistant"
                             ),
                             nav: nav,
                             selectedIcon: .assistant

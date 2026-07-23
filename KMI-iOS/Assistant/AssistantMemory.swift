@@ -56,6 +56,34 @@ final class AssistantMemory {
         defaults.string(forKey: key("assistant_last_answer"))
     }
 
+    func setTrainingContext(
+        branch: String?,
+        group: String?,
+        day: String?,
+        intent: String?,
+        answer: String?
+    ) {
+        setLastBranch(cleanMemoryValue(branch))
+        setLastGroup(cleanMemoryValue(group))
+        setLastDay(cleanMemoryValue(day))
+        setLastIntent(cleanMemoryValue(intent))
+        setLastAnswerContext(cleanMemoryValue(answer))
+    }
+
+    private func cleanMemoryValue(
+        _ value: String?
+    ) -> String? {
+        guard let value else {
+            return nil
+        }
+
+        let clean = value.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        return clean.isEmpty ? nil : clean
+    }
+
     func clearMemory() {
         defaults.removeObject(forKey: key("branch"))
         defaults.removeObject(forKey: key("group"))

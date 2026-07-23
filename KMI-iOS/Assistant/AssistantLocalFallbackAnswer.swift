@@ -2,6 +2,17 @@ import Foundation
 import Shared
 
 enum AssistantLocalFallbackAnswer {
+
+    private struct ClosureTrainingDataSource:
+        AssistantTrainingDataSource {
+
+        let provider: () -> [TrainingRow]
+
+        func allTrainings() -> [TrainingRow] {
+            provider()
+        }
+    }
+
     struct Params {
         let question: String
         let contextLabel: String?
@@ -9,13 +20,41 @@ enum AssistantLocalFallbackAnswer {
         let getExerciseExplanation: ((String) -> String?)?
         let getUpcomingTrainings: (() -> [TrainingRow])?
         let searchEngine: AssistantSearchEngine
+        let memory: AssistantMemory
+
+        init(
+            question: String,
+            contextLabel: String?,
+            getExternalDefenses: ((Belt) -> [String])?,
+            getExerciseExplanation: ((String) -> String?)?,
+            getUpcomingTrainings: (() -> [TrainingRow])?,
+            searchEngine: AssistantSearchEngine,
+            memory: AssistantMemory = AssistantMemory()
+        ) {
+            self.question = question
+            self.contextLabel = contextLabel
+            self.getExternalDefenses = getExternalDefenses
+            self.getExerciseExplanation = getExerciseExplanation
+            self.getUpcomingTrainings = getUpcomingTrainings
+            self.searchEngine = searchEngine
+            self.memory = memory
+        }
     }
 
     static func answer(_ p: Params) -> String {
         let question = p.question
         let text = question.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        let beltEnum = AssistantBeltDetector.detect(question)
-        let beltHeb = beltEnum.map(AssistantBeltDetector.hebrewName)
+        let beltEnum =
+            AssistantBeltDetector.detect(question)
+
+        let isEnglish = currentLanguageIsEnglish()
+
+        let beltDisplayName = beltEnum.map {
+            AssistantBeltDetector.localizedName(
+                $0,
+                isEnglish: isEnglish
+            )
+        }
 
         let looksLikeExplanationQuestion =
             (text.contains("הסבר") || text.contains("תסביר") || text.contains("פירוט") || text.contains("איך עושים") || text.contains("איך מבצעים")) &&
@@ -24,70 +63,142 @@ enum AssistantLocalFallbackAnswer {
               text.contains("לו\"ז") || text.contains("לוז"))
 
         let trainingKeywords = [
-            "אימון", "אימונים", "אימון הקרוב", "האימון הקרוב", "אימון הבא", "האימון הבא",
-            "האימונים הקרובים", "האימונים הבאים", "לוח אימונים", "לו\"ז", "לוז",
-            "שעות אימון", "שעת אימון", "קבוצת אימון", "קבוצה שלי"
+            "אימון",
+            "אימונים",
+            "אימון הקרוב",
+            "האימון הקרוב",
+            "אימון הבא",
+            "האימון הבא",
+            "האימונים הקרובים",
+            "האימונים הבאים",
+            "לוח אימונים",
+            "לו\"ז",
+            "לוז",
+            "שעות אימון",
+            "שעת אימון",
+            "קבוצת אימון",
+            "קבוצה שלי",
+            "next training",
+            "next session",
+            "training schedule",
+            "training time"
         ]
 
-        let looksLikeTrainingQuestion = trainingKeywords.contains(where: { text.contains($0) })
+        let trainingFollowUpKeywords = [
+            "מי המאמן",
+            "מי המדריך",
+            "מי מלמד",
+            "איפה זה",
+            "איפה האימון",
+            "מה הכתובת",
+            "מה המיקום",
+            "כמה זמן",
+            "כמה נמשך",
+            "מה משך האימון",
+            "who is the coach",
+            "who teaches",
+            "where is it",
+            "where is the training",
+            "what is the address",
+            "how long",
+            "duration"
+        ]
 
-        if let getUpcomingTrainings = p.getUpcomingTrainings,
-           looksLikeTrainingQuestion && !looksLikeExplanationQuestion {
-            let upcoming = getUpcomingTrainings()
-            if !upcoming.isEmpty {
-                let listText = upcoming.map(formatUpcomingTraining).joined(separator: "\n\n")
-                return """
-                הנה האימונים הקרובים שלך לפי הסניף והקבוצה שנבחרו באפליקציה:
+        let hasTrainingMemory =
+            p.memory.getLastIntent() != nil &&
+            (
+                p.memory.getLastBranch() != nil ||
+                p.memory.getLastGroup() != nil ||
+                p.memory.getLastDay() != nil
+            )
 
-                \(listText)
-
-                אם תרצה לראות אימונים מסניף אחר – שנה סניף וקבוצה במסך הרישום ואז שאל שוב.
-                """
+        let isDirectTrainingQuestion =
+            trainingKeywords.contains {
+                text.contains($0)
             }
 
-            return """
-            לא מצאתי אצלך כרגע אימונים קרובים לפי הסניף והקבוצה שנבחרו.
+        let isTrainingFollowUp =
+            hasTrainingMemory &&
+            trainingFollowUpKeywords.contains {
+                text.contains($0)
+            }
 
-            בדוק במסך הרישום שבחרת סניף וקבוצת אימון, ואז נסה לשאול שוב "מה האימון הקרוב שלי?"
-            """
+        let looksLikeTrainingQuestion =
+            isDirectTrainingQuestion ||
+            isTrainingFollowUp
+
+        if let getUpcomingTrainings = p.getUpcomingTrainings,
+           looksLikeTrainingQuestion,
+           !looksLikeExplanationQuestion {
+
+            let dataSource =
+                ClosureTrainingDataSource(
+                    provider: getUpcomingTrainings
+                )
+
+            return AssistantTrainingKnowledge.generateAnswer(
+                question: question,
+                memory: p.memory,
+                dataSource: dataSource
+            )
         }
 
         if text.contains("הגנות חיצוניות") {
             if let beltEnum, let getExternalDefenses = p.getExternalDefenses {
                 let list = getExternalDefenses(beltEnum)
                 if !list.isEmpty {
-                    let titleBelt = beltHeb ?? AssistantBeltDetector.hebrewName(beltEnum)
+                    let titleBelt = beltDisplayName ?? AssistantBeltDetector.hebrewName(beltEnum)
                     let listText = list.map { "• \($0)" }.joined(separator: "\n")
                     return "הגנות חיצוניות בחגורה \(titleBelt):\n\n\(listText)\n"
                 }
             }
 
-            let beltLine = beltHeb.map { "בחגורה \($0)" } ?? "לרמה שלך"
+            let beltLine = beltDisplayName.map { "בחגורה \($0)" } ?? "לרמה שלך"
             return "כרגע לא מצאתי רשימה מדויקת של הגנות חיצוניות \(beltLine), אבל במסכי הנושאים תמצא את כל ההגנות בחלוקה לפי נושאים ותתי נושאים.\n"
         }
 
-        if (text.contains("הסבר") || text.contains("תסביר")) && text.contains("תרגיל") {
-            let exName = extractExerciseNameFromText(text)
+        if looksLikeExplanationQuestion {
+            if let officialAnswer =
+                AssistantExerciseExplanationKnowledge.answer(
+                    question: question,
+                    preferredBelt: beltEnum,
+                    searchEngine: p.searchEngine
+                ),
+               !officialAnswer.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+               ).isEmpty {
 
-            if !exName.isEmpty, let getExerciseExplanation = p.getExerciseExplanation, let real = getExerciseExplanation(exName), !real.isEmpty {
-                return "ההסבר לתרגיל \"\(exName)\":\n\n\(real)\n"
+                return officialAnswer
             }
 
-            let hits = p.searchEngine.search(query: question, belt: beltEnum)
-            if let best = AssistantExerciseSearchFallback.buildBestHitExplanation(hits: hits, preferredBelt: beltEnum) {
-                return best
+            let exerciseName = extractExerciseNameFromText(
+                question
+            )
+
+            if !exerciseName.isEmpty,
+               let getExerciseExplanation =
+                    p.getExerciseExplanation,
+               let directExplanation =
+                    getExerciseExplanation(exerciseName)?
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ),
+               !directExplanation.isEmpty,
+               !looksLikeMissingExplanation(
+                    directExplanation
+               ) {
+
+                return """
+                ההסבר לתרגיל "\(exerciseName)":
+
+                \(directExplanation)
+                """
             }
 
-            let header = exName.isEmpty
-                ? "הנה עקרונות כלליים לביצוע תרגיל:\n\n"
-                : "לא מצאתי הסבר מדויק לתרגיל \"\(exName)\".\nהנה עקרונות כלליים לביצוע תרגיל:\n\n"
+            return """
+            לא מצאתי הסבר רשמי מדויק לתרגיל הזה.
 
-            return header + """
-            1. עמידת מוצא: עמוד יציב, ברכיים מעט כפופות, גב ישר ומבט קדימה.
-            2. בצע את התנועה לאט כמה פעמים, בלי כוח, כדי להבין את המסלול והכיוון.
-            3. יד השמירה נשארת גבוהה ולא נופלת בזמן הביצוע.
-            4. לא לנעול מרפקים או ברכיים – התנועה זורמת ורכה.
-            5. אחרי שהטכניקה נקייה, אפשר להוסיף מהירות ועוצמה בהדרגה.
+            נסה לומר את שם התרגיל המדויק כפי שהוא מופיע במסכי התרגילים, ובמידת האפשר ציין גם חגורה.
             """
         }
 
@@ -95,7 +206,7 @@ enum AssistantLocalFallbackAnswer {
             (text.contains("תרגיל") || text.contains("תרגילים") || text.contains("חימום")) {
             let hits = p.searchEngine.search(query: question, belt: beltEnum)
             if !hits.isEmpty {
-                let beltStr = beltHeb.map { " לחגורה \($0)" } ?? ""
+                let beltStr = beltDisplayName.map { " לחגורה \($0)" } ?? ""
                 let listText = AssistantKmiMaterialKnowledge.formatHitsAsExerciseList(hits)
                 return """
                 מצאתי עבורך תרגילים\(beltStr) שקשורים לשאלה שלך:
@@ -106,7 +217,7 @@ enum AssistantLocalFallbackAnswer {
                 """
             }
 
-            let beltStr = beltHeb.map { " לחגורה \($0)" } ?? ""
+            let beltStr = beltDisplayName.map { " לחגורה \($0)" } ?? ""
             return """
             לא הצלחתי למצוא תרגילים מדויקים\(beltStr) לשאלה הזאת.
             נסה לנסח מחדש עם שם נושא (למשל "בעיטות", "הגנות חיצוניות") או שם תרגיל מדויק.
@@ -117,7 +228,7 @@ enum AssistantLocalFallbackAnswer {
             let hits = p.searchEngine.search(query: question, belt: beltEnum)
 
             if !hits.isEmpty {
-                let beltLine = beltHeb.map { "לחגורה \($0) " } ?? ""
+                let beltLine = beltDisplayName.map { "לחגורה \($0) " } ?? ""
                 let listText = AssistantKmiMaterialKnowledge.formatHitsAsExerciseList(hits, maxItems: 5)
                 return """
                 כדי להתקדם \(beltLine)מומלץ לעבוד באופן עקבי על התרגילים הבאים מתוך החומר הרשמי:
@@ -131,52 +242,30 @@ enum AssistantLocalFallbackAnswer {
             return "לא מצאתי תרגילים מדויקים לשאלה הזאת, אבל כללית כדאי לבחור 3–5 תרגילים בסיסיים מהחגורה שלך ולתרגל אותם כמעט בכל אימון.\n"
         }
 
-        if text.contains("הסבר") || text.contains("מה זה") || text.contains("תסביר") {
-            let hits = p.searchEngine.search(query: question, belt: beltEnum)
-            if let best = AssistantExerciseSearchFallback.buildBestHitExplanation(hits: hits, preferredBelt: beltEnum) {
-                return best
+        if text.contains("הסבר") ||
+            text.contains("מה זה") ||
+            text.contains("תסביר") {
+
+            if let officialAnswer =
+                AssistantExerciseExplanationKnowledge.answer(
+                    question: question,
+                    preferredBelt: beltEnum,
+                    searchEngine: p.searchEngine
+                ) {
+                return officialAnswer
             }
 
             return """
-            כדי לקבל הסבר מדויק לתרגיל ספציפי, חפש אותו במסכי התרגילים ולחץ על אייקון ה־ℹ️ ליד השם.
-            באופן כללי חשוב לשים לב ל:
-            • עמידת מוצא יציבה ונוחה.
-            • נשימה רגועה לאורך כל התרגיל.
-            • תנועה זורמת בלי לנעול מפרקים.
-            • חזרה מהירה לעמדת הגנה בסיום כל תנועה.
-            """
-        }
+            לא מצאתי הסבר רשמי מדויק לשאלה הזאת.
 
-        if text.contains("אימון הקרוב") ||
-            text.contains("האימון הקרוב") ||
-            text.contains("האימון הבא") ||
-            text.contains("האימונים הקרובים") ||
-            text.contains("האימונים הבאים") ||
-            text.contains("אימונים קרובים") {
-            if let getUpcomingTrainings = p.getUpcomingTrainings {
-                let upcoming = getUpcomingTrainings()
-                if !upcoming.isEmpty {
-                    let listText = upcoming.map(formatUpcomingTraining).joined(separator: "\n\n")
-                    return """
-                    האימונים הקרובים שלך לפי הסניף והקבוצה שנבחרו:
-
-                    \(listText)
-
-                    אם תרצה לבדוק מרכז אחר – שנה סניף/קבוצה במסך הרישום.
-                    """
-                }
-            }
-
-            return """
-            כרגע לא מצאתי אימונים קרובים בפרטי המשתמש שלך.
-            ודא שבחרת סניף וקבוצת אימון במסך הרישום, ואז נסה שוב לשאול "מה האימון הקרוב שלי?"
+            נסה לציין את שם התרגיל כפי שהוא מופיע בחומר הרשמי.
             """
         }
 
         let defaultHits = p.searchEngine.search(query: question, belt: beltEnum)
         if !defaultHits.isEmpty {
             let listText = AssistantKmiMaterialKnowledge.formatHitsAsExerciseList(defaultHits)
-            let beltLine = beltHeb.map { " לחגורה \($0) " } ?? ""
+            let beltLine = beltDisplayName.map { " לחגורה \($0) " } ?? ""
             return """
             כשמחפשים מתוך חומר התרגילים שלך\(beltLine)מצאתי כמה תרגילים:
 
@@ -197,30 +286,133 @@ enum AssistantLocalFallbackAnswer {
         """
     }
 
-    private static func extractExerciseNameFromText(_ t: String) -> String {
-        let cleaned = t
-            .replacingOccurrences(of: "על תרגיל", with: "תרגיל")
-            .replacingOccurrences(of: "על", with: "")
+    private static func looksLikeMissingExplanation(
+        _ value: String
+    ) -> Bool {
+        let clean = value.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
 
-        guard let range = cleaned.range(of: "תרגיל") else { return "" }
-
-        return String(cleaned[range.upperBound...])
-            .replacingOccurrences(of: "הזה", with: "")
-            .replacingOccurrences(of: "הזאת", with: "")
-            .replacingOccurrences(of: ":", with: "")
-            .replacingOccurrences(of: "?", with: "")
-            .replacingOccurrences(of: "\"", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ||
+            clean.hasPrefix("הסבר מפורט על") ||
+            clean.hasPrefix("אין כרגע") ||
+            clean.hasPrefix("Detailed explanation for:") ||
+            clean.hasPrefix(
+                "There is currently no explanation"
+            )
     }
+    
+    private static func extractExerciseNameFromText(
+        _ value: String
+    ) -> String {
+        var text = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
 
-    private static func formatUpcomingTraining(_ row: TrainingRow) -> String {
-        """
-        סניף: \(row.branchName)
-        קבוצה: \(row.groupName)
-        יום: \(row.dayName)
-        שעה: \(row.timeRange)
-        מקום: \(row.location)
-        מאמן: \(row.coachName)
-        """
+        let requestPrefixes = [
+            "תתן בבקשה את ההסבר על",
+            "תן בבקשה הסבר על",
+            "תן לי בבקשה הסבר על",
+            "תסביר בבקשה על",
+            "תן לי הסבר על",
+            "תני לי הסבר על",
+            "אפשר הסבר על",
+            "תסביר לי על",
+            "תסביר על",
+            "הסבר על תרגיל",
+            "הסבר לתרגיל",
+            "הסבר תרגיל",
+            "הסבר על",
+            "איך מבצעים את",
+            "איך מבצעים",
+            "איך עושים את",
+            "איך עושים"
+        ]
+
+        for prefix in requestPrefixes.sorted(
+            by: { $0.count > $1.count }
+        ) {
+            guard text.hasPrefix(prefix) else {
+                continue
+            }
+
+            text = String(
+                text.dropFirst(prefix.count)
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+            break
+        }
+
+        if text.hasPrefix("תרגיל ") {
+            text = String(
+                text.dropFirst("תרגיל ".count)
+            )
+        }
+
+        text = text
+            .replacingOccurrences(of: "\"", with: " ")
+            .replacingOccurrences(of: "״", with: " ")
+            .replacingOccurrences(of: "?", with: " ")
+            .replacingOccurrences(of: "!", with: " ")
+            .replacingOccurrences(of: ":", with: " ")
+            .replacingOccurrences(
+                of: #"\s+"#,
+                with: " ",
+                options: .regularExpression
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let trailingWords = [
+            "הזה",
+            "הזאת",
+            "בבקשה",
+            "תודה"
+        ]
+
+        for word in trailingWords {
+            if text.hasSuffix(" \(word)") {
+                text = String(
+                    text.dropLast(word.count + 1)
+                )
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+            }
+        }
+
+        return text
+    }
+    
+    private static func currentLanguageIsEnglish() -> Bool {
+        let defaults = UserDefaults.standard
+
+        let values = [
+            defaults.string(
+                forKey: "kmi_app_language"
+            ) ?? "",
+            defaults.string(
+                forKey: "selected_language_code"
+            ) ?? "",
+            defaults.string(
+                forKey: "app_language"
+            ) ?? "",
+            defaults.string(
+                forKey: "initial_language_code"
+            ) ?? ""
+        ]
+        .map {
+            $0.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased()
+        }
+
+        return values.contains("en") ||
+            values.contains("english")
     }
 }

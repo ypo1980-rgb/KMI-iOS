@@ -8,6 +8,7 @@ struct BeltFinalExamView: View {
 
     var body: some View {
         KmiExamRunnerView(
+            belt: belt,
             title: "מבחן מסכם",
             subtitle: "חגורה \(belt.heb)",
             items: ExamDataSource.itemsForBelt(belt),
@@ -17,7 +18,10 @@ struct BeltFinalExamView: View {
             }
         )
         .navigationBarBackButtonHidden(true)
-        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(
+            .hidden,
+            for: .navigationBar
+        )
     }
 }
 

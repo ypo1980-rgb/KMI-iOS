@@ -63,12 +63,23 @@ struct VoiceAssistantView: View {
                 headerCard
                     .padding(.top, 4)
 
-                modePickerCard
+                if logic.selectedMode == nil {
+                    modePickerCard
+                }
 
                 messagesCard
+
+                if logic.selectedMode != nil {
+                    inputBar
+                        .padding(.bottom, 4)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 4)
+            .animation(
+                .easeInOut(duration: 0.25),
+                value: logic.selectedMode
+            )
         }
         .onAppear {
             guard !didIntroSpeak else { return }
@@ -93,9 +104,37 @@ struct VoiceAssistantView: View {
 
     private var headerCard: some View {
         HStack(spacing: 12) {
-            Image(systemName: "arrow.left.arrow.right")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(.white)
+            if logic.selectedMode != nil {
+                Button {
+                    returnToAssistantHome()
+                } label: {
+                    Image(systemName: "arrow.left.arrow.right")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 42, height: 42)
+                        .background(
+                            Circle()
+                                .fill(Color.white.opacity(0.16))
+                        )
+                        .overlay(
+                            Circle()
+                                .stroke(
+                                    Color.white.opacity(0.30),
+                                    lineWidth: 1
+                                )
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    tr(
+                        "החלף נושא",
+                        "Change topic"
+                    )
+                )
+            } else {
+                Color.clear
+                    .frame(width: 42, height: 42)
+            }
 
             Spacer(minLength: 4)
 
@@ -826,7 +865,9 @@ struct VoiceAssistantView: View {
 
     private var inputBar: some View {
         VStack(spacing: 8) {
-            if speechRecognizer.errorMessage != nil {
+            if speechRecognizer.isListening ||
+                speechRecognizer.isProcessing ||
+                speechRecognizer.errorMessage != nil {
                 recognitionStatus
             }
 
@@ -834,9 +875,9 @@ struct VoiceAssistantView: View {
                 alternativesRow
             }
 
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Image(systemName: "waveform")
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: 21, weight: .bold))
                     .foregroundStyle(
                         Color(red: 0.43, green: 0.25, blue: 0.95)
                     )
@@ -845,15 +886,51 @@ struct VoiceAssistantView: View {
                         isActive: speechRecognizer.isListening
                     )
 
-                Text(voiceInputStatusText)
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(
-                        Color(red: 0.34, green: 0.25, blue: 0.62)
+                TextField(
+                    tr(
+                        "כתוב שאלה…",
+                        "Type a question…"
+                    ),
+                    text: $inputText
+                )
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(
+                    Color(red: 0.15, green: 0.14, blue: 0.24)
+                )
+                .textInputAutocapitalization(.sentences)
+                .autocorrectionDisabled(false)
+                .submitLabel(.send)
+                .disabled(
+                    speechRecognizer.isListening ||
+                    speechRecognizer.isProcessing
+                )
+                .onSubmit {
+                    send()
+                }
+
+                if !inputText
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
                     )
-                    .frame(maxWidth: .infinity)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.82)
+                    .isEmpty {
+                    Button {
+                        send()
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 31, weight: .bold))
+                            .foregroundStyle(
+                                Color(
+                                    red: 0.43,
+                                    green: 0.25,
+                                    blue: 0.95
+                                )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        tr("שלח שאלה", "Send question")
+                    )
+                }
 
                 Button {
                     toggleSpeechRecognition()
@@ -868,32 +945,71 @@ struct VoiceAssistantView: View {
                     .foregroundStyle(
                         speechRecognizer.isListening
                         ? .white
-                        : Color(red: 0.43, green: 0.25, blue: 0.95)
+                        : Color(
+                            red: 0.43,
+                            green: 0.25,
+                            blue: 0.95
+                        )
                     )
-                    .frame(width: 48, height: 48)
+                    .frame(width: 46, height: 46)
                     .background(
                         Circle()
                             .fill(
                                 speechRecognizer.isListening
                                 ? Color.red.opacity(0.84)
-                                : Color(red: 0.95, green: 0.93, blue: 1.0)
+                                : Color(
+                                    red: 0.95,
+                                    green: 0.93,
+                                    blue: 1.0
+                                )
                             )
                     )
                     .overlay(
                         Circle()
                             .stroke(
-                                Color(red: 0.76, green: 0.70, blue: 0.94),
+                                Color(
+                                    red: 0.76,
+                                    green: 0.70,
+                                    blue: 0.94
+                                ),
                                 lineWidth: 1
                             )
                     )
                 }
                 .buttonStyle(.plain)
+                .disabled(speechRecognizer.isProcessing)
                 .accessibilityLabel(
                     speechRecognizer.isListening
                     ? tr("הפסק האזנה", "Stop listening")
                     : tr("התחל האזנה", "Start listening")
                 )
             }
+            .padding(.leading, 12)
+            .padding(.trailing, 6)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(
+                    cornerRadius: 27,
+                    style: .continuous
+                )
+                .fill(Color.white.opacity(0.98))
+            )
+            .overlay(
+                RoundedRectangle(
+                    cornerRadius: 27,
+                    style: .continuous
+                )
+                .stroke(
+                    Color.purple.opacity(0.20),
+                    lineWidth: 1
+                )
+            )
+            .shadow(
+                color: Color.black.opacity(0.10),
+                radius: 8,
+                x: 0,
+                y: 3
+            )
         }
         .padding(.horizontal, 2)
         .padding(.vertical, 6)
@@ -1110,6 +1226,23 @@ struct VoiceAssistantView: View {
         if !cleanAnswer.isEmpty {
             tts.speak(cleanAnswer)
         }
+    }
+
+    private func returnToAssistantHome() {
+        speechRecognizer.cancelListening()
+        tts.stop()
+
+        inputText = ""
+        lastAutomaticallySubmittedText = ""
+
+        logic.resetToModeSelection()
+
+        tts.speak(
+            tr(
+                "בחר נושא חדש כדי להמשיך.",
+                "Choose a new topic to continue."
+            )
+        )
     }
 
     private func tr(_ he: String, _ en: String) -> String {

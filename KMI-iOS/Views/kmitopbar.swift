@@ -288,7 +288,46 @@ struct KmiTopBar: View {
     
     var body: some View {
         HStack(spacing: 10) {
-            Group {
+            VStack(spacing: 23) {
+                if let onBack {
+                    Button {
+                        onBack()
+                    } label: {
+                        Image(systemName: "chevron.backward")
+                            .font(
+                                .system(
+                                    size: 14,
+                                    weight: .black
+                                )
+                            )
+                            .foregroundStyle(
+                                Color(hex: 0xFF4B478F)
+                            )
+                            .frame(width: 30, height: 24)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(
+                                        Color(hex: 0xFFF0EEFF)
+                                    )
+                            )
+                            .overlay(
+                                Capsule(style: .continuous)
+                                    .stroke(
+                                        Color(hex: 0xFFB7AEF5)
+                                            .opacity(0.72),
+                                        lineWidth: 1
+                                    )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        isEnglish ? "Back" : "חזור"
+                    )
+                } else {
+                    Color.clear
+                        .frame(width: 30, height: 24)
+                }
+
                 if !localizedRoleLabel
                     .trimmingCharacters(
                         in: .whitespacesAndNewlines
@@ -336,10 +375,14 @@ struct KmiTopBar: View {
                         )
                 } else {
                     Color.clear
-                        .frame(width: 74, height: 34)
+                        .frame(width: 66, height: 17)
                 }
             }
-            .frame(width: 82, alignment: .leading)
+            .frame(
+                width: 82,
+                height: 54,
+                alignment: .leading
+            )
 
             Spacer(minLength: 4)
 
@@ -438,9 +481,9 @@ struct KmiTopBar: View {
             .frame(width: 82, alignment: .trailing)
         }
         .padding(.horizontal, 10)
-        .padding(.top, 10)
+        .padding(.top, 6)
         .padding(.bottom, 2)
-        .frame(height: 68)
+        .frame(height: 84)
         .environment(
             \.layoutDirection,
             isEnglish ? .rightToLeft : .leftToRight
@@ -904,7 +947,22 @@ struct KmiRootLayout<Content: View>: View {
                         title: effectiveTopBarTitle,
                         rightText: rightText,
                         titleColor: titleColor,
-                        onBack: nil,
+                        onBack:
+                            nav.path.isEmpty
+                            ? nil
+                            : {
+                                showGlobalIconMenu = false
+                                drawerOpen = false
+                                showGlobalSearch = false
+                                showShareSheet = false
+                                selectedGlobalSearchHit = nil
+
+                                withAnimation(
+                                    .easeInOut(duration: 0.20)
+                                ) {
+                                    nav.pop()
+                                }
+                            },
                         onMenu: {
                             showGlobalIconMenu = false
                             drawerOpen = true
@@ -1098,7 +1156,7 @@ struct KmiRootLayout<Content: View>: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: 28)
-        .offset(y: 67)
+        .offset(y: 84)
         .environment(
             \.layoutDirection,
             .leftToRight
@@ -1191,7 +1249,7 @@ struct KmiRootLayout<Content: View>: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: 28)
-        .offset(y: 67)
+        .offset(y: 84)
         .environment(
             \.layoutDirection,
             .leftToRight
@@ -1332,7 +1390,7 @@ struct KmiRootLayout<Content: View>: View {
                         maxHeight: .infinity,
                         alignment: .topTrailing
                     )
-                    .padding(.top, 104)
+                    .padding(.top, 130)
                     .padding(.trailing, 2)
                     .environment(
                         \.layoutDirection,

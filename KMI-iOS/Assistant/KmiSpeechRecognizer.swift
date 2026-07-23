@@ -173,14 +173,21 @@ final class KmiSpeechRecognizer: NSObject, ObservableObject {
             return
         }
 
+        /*
+         * טוען מחדש את נתיב הקלט לאחר הפעלת AVAudioSession.
+         * נדרש במיוחד בסימולטור, שבו outputFormat עלול
+         * לחזור זמנית ללא ערוץ קלט תקין.
+         */
+        audioEngine.reset()
+
         let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        let recordingFormat = inputNode.inputFormat(forBus: 0)
 
         guard recordingFormat.sampleRate > 0,
               recordingFormat.channelCount > 0 else {
             errorMessage = localizedMessage(
-                he: "לא התקבל קלט מהמיקרופון",
-                en: "No microphone input was detected",
+                he: "לא נמצא מיקרופון פעיל. בדוק את מקור הקלט ונסה שוב",
+                en: "No active microphone was found. Check the input source and try again",
                 localeIdentifier: localeIdentifier
             )
             cleanupAudio()

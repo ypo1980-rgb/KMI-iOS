@@ -106,6 +106,13 @@ final class AiAssistantLogic: ObservableObject {
         )
     }
 
+    func resetToModeSelection() {
+        selectedMode = nil
+        messages = []
+        lastAiAnswer = nil
+        isThinking = false
+    }
+
     func setMode(_ mode: AssistantMode?) {
         selectedMode = mode
         messages = []

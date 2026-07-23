@@ -24,6 +24,7 @@ struct RandomPracticeView: View {
     @State private var isRunning: Bool = false
     @State private var sessionStarted: Bool = false
     @State private var halfAnnounced: Bool = false
+    @State private var isExiting: Bool = false
 
     // MARK: - Current item / weighted order
     @State private var weightedItems: [String] = []
@@ -45,6 +46,47 @@ struct RandomPracticeView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: " ", with: "_")
         return "random_practice_status_\(belt.id)_\(cleanTopic)"
+    }
+
+    private func loadPracticeSettings() {
+        let defaults = UserDefaults.standard
+
+        let savedMinutes = defaults.integer(
+            forKey: "timer_minutes"
+        )
+
+        durationMinutes = savedMinutes > 0
+            ? savedMinutes
+            : 1
+
+        if defaults.object(forKey: "beep_half") != nil {
+            alertHalfTime = defaults.bool(
+                forKey: "beep_half"
+            )
+        }
+
+        if defaults.object(forKey: "beep_last10") != nil {
+            beepLast10 = defaults.bool(
+                forKey: "beep_last10"
+            )
+        }
+    }
+
+    private func savePracticeSettings() {
+        UserDefaults.standard.set(
+            max(1, durationMinutes),
+            forKey: "timer_minutes"
+        )
+
+        UserDefaults.standard.set(
+            alertHalfTime,
+            forKey: "beep_half"
+        )
+
+        UserDefaults.standard.set(
+            beepLast10,
+            forKey: "beep_last10"
+        )
     }
 
     private func normalizedPracticeId(_ item: String) -> String {
@@ -101,7 +143,7 @@ struct RandomPracticeView: View {
 
     // MARK: - Audio
     @State private var isMuted: Bool = false
-    private let speaker = AVSpeechSynthesizer()
+    @State private var speaker = AVSpeechSynthesizer()
 
     // MARK: - Sheets
     @State private var showDurationSheet: Bool = true
@@ -422,9 +464,17 @@ struct RandomPracticeView: View {
             nextStatus = nil
         }
 
-        savePracticeStatus(nextStatus, for: currentItem)
+        savePracticeStatus(
+            nextStatus,
+            for: currentItem
+        )
+
         currentPracticeStatus = nextStatus
-        rebuildWeightedItems(resetIndex: false)
+
+        /*
+         * לא מערבבים את הרשימה בזמן שהמשתמש נמצא באמצע תרגול.
+         * המשקל החדש ישפיע על הסבב הבא.
+         */
     }
 
     private func weightedPool() -> [String] {
@@ -459,18 +509,27 @@ struct RandomPracticeView: View {
     }
 
     private func advanceToNextItem() {
-        guard !weightedItems.isEmpty else { return }
-
-        if currentIndex < weightedItems.count - 1 {
-            currentIndex += 1
-        } else {
-            rebuildWeightedItems(resetIndex: true)
+        guard !isExiting,
+              !weightedItems.isEmpty else {
+            return
         }
 
+        guard currentIndex < weightedItems.count - 1 else {
+            isRunning = false
+            sessionStarted = false
+            timeLeft = 0
+            speaker.stopSpeaking(at: .immediate)
+            return
+        }
+
+        currentIndex += 1
         refreshCurrentPracticeStatus()
 
-        if let currentItem {
-            speak(itemTitleForUi(currentItem))
+        if isRunning,
+           let currentItem {
+            speak(
+                itemTitleForUi(currentItem)
+            )
         }
     }
 
@@ -481,22 +540,42 @@ struct RandomPracticeView: View {
     }
 
     private func startSession() {
+        isExiting = false
         sessionStarted = true
         isRunning = false
+
+        savePracticeSettings()
         resetTimer()
         rebuildWeightedItems(resetIndex: true)
         refreshCurrentPracticeStatus()
 
-        if let currentItem {
-            speak(itemTitleForUi(currentItem))
-        }
-
         isRunning = true
+
+        if let currentItem {
+            speak(
+                itemTitleForUi(currentItem)
+            )
+        }
     }
-    
+
     private func stopSession() {
         isRunning = false
+        sessionStarted = false
         speaker.stopSpeaking(at: .immediate)
+    }
+
+    private func finishAndDismiss() {
+        guard !isExiting else { return }
+
+        isExiting = true
+        stopSession()
+
+        showDurationSheet = false
+        showExplanationSheet = false
+        showSearchSheet = false
+        pickedSearchItem = nil
+
+        dismiss()
     }
 
     private func togglePause() {
@@ -504,16 +583,24 @@ struct RandomPracticeView: View {
             startSession()
             return
         }
+
         isRunning.toggle()
+
         if !isRunning {
             speaker.stopSpeaking(at: .immediate)
         } else if let currentItem {
-            speak(currentItem)
+            speak(
+                itemTitleForUi(currentItem)
+            )
         }
     }
 
     private func tick() {
-        guard isRunning, sessionStarted else { return }
+        guard !isExiting,
+              isRunning,
+              sessionStarted else {
+            return
+        }
 
         if timeLeft > 0 {
             timeLeft -= 1
@@ -558,12 +645,37 @@ struct RandomPracticeView: View {
         return tr("מצב\nמתאמן", "Trainee\nMode")
     }
 
+    private var isAllTopicsPractice: Bool {
+        let cleanTopic = topicTitle
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        return cleanTopic.isEmpty ||
+            cleanTopic == "__ALL__" ||
+            cleanTopic.caseInsensitiveCompare("all") == .orderedSame ||
+            cleanTopic.caseInsensitiveCompare("random") == .orderedSame ||
+            cleanTopic.caseInsensitiveCompare("אקראי") == .orderedSame ||
+            cleanTopic.caseInsensitiveCompare(belt.id) == .orderedSame ||
+            cleanTopic.caseInsensitiveCompare(belt.heb) == .orderedSame
+    }
+
     private var screenTitle: String {
-        tr("תרגול", "Practice")
+        if isAllTopicsPractice {
+            return tr(
+                "תרגול אקראי – \(beltNameForUi(belt))",
+                "Random Practice – \(beltNameForUi(belt))"
+            )
+        }
+
+        return tr(
+            "תרגול לפי נושא – \(beltNameForUi(belt))",
+            "Practice by Topic – \(beltNameForUi(belt))"
+        )
     }
 
     private var screenRightText: String {
-        "\(beltNameForUi(belt)) • \(topicTitleForUi(topicTitle))"
+        topicTitleForUi(topicTitle)
     }
 
     private var statusCircleIcon: String {
@@ -577,53 +689,81 @@ struct RandomPracticeView: View {
         }
     }
 
+    private var statusLabel: String {
+        switch currentPracticeStatus {
+        case true:
+            return tr("יודע", "Known")
+        case false:
+            return tr("לא יודע", "Don't know")
+        case nil:
+            return tr("לא סומן", "Not marked")
+        }
+    }
+
+    private var statusLabelColor: Color {
+        switch currentPracticeStatus {
+        case true:
+            return Color.green.opacity(0.92)
+        case false:
+            return Color.red.opacity(0.90)
+        case nil:
+            return Color(red: 0.20, green: 0.27, blue: 0.36)
+        }
+    }
+
     private var statusCircleFill: Color {
         switch currentPracticeStatus {
         case true:
-            return Color.green.opacity(0.16)
+            return Color(
+                red: 0.13,
+                green: 0.77,
+                blue: 0.37
+            )
         case false:
-            return Color.red.opacity(0.14)
+            return Color(
+                red: 0.86,
+                green: 0.15,
+                blue: 0.15
+            )
         case nil:
-            return Color.white.opacity(0.94)
+            return Color.white
         }
     }
 
     private var statusCircleBorder: Color {
         switch currentPracticeStatus {
         case true:
-            return Color.green.opacity(0.82)
+            return Color(
+                red: 0.09,
+                green: 0.64,
+                blue: 0.29
+            )
         case false:
-            return Color.red.opacity(0.78)
+            return Color(
+                red: 0.72,
+                green: 0.11,
+                blue: 0.11
+            )
         case nil:
-            return beltColor.opacity(0.55)
+            return beltColor.opacity(0.42)
         }
     }
 
     private var statusCircleIconColor: Color {
         switch currentPracticeStatus {
-        case true:
-            return Color.green.opacity(0.92)
-        case false:
-            return Color.red.opacity(0.86)
+        case true, false:
+            return Color.white
         case nil:
             return beltColor.opacity(0.72)
         }
     }
     
     var body: some View {
-        KmiRootLayout(
-            title: screenTitle,
-            nav: nav,
-            roleLabel: dynamicRoleLabel,
-            selectedIcon: nil,
-            rightText: screenRightText,
-            titleColor: beltColor
-        ) {
-            ZStack {
-                practiceBackgroundColor
-                    .ignoresSafeArea()
+        ZStack {
+            practiceBackgroundColor
+                .ignoresSafeArea()
 
-                LinearGradient(
+            LinearGradient(
                     colors: [
                         Color.white.opacity(belt.id.lowercased() == "black" ? 0.04 : 0.24),
                         practiceBackgroundColor,
@@ -636,21 +776,17 @@ struct RandomPracticeView: View {
 
                 VStack(spacing: 14) {
 
-                    // Timer row
-                    WhiteCard {
-                        HStack(spacing: 10) {
-                            Text("⏳")
-                                .font(.system(size: 30, weight: .heavy))
+                    // Timer row — נקי כמו Android, ללא כרטיס חיצוני
+                    HStack(spacing: 10) {
+                        Text("⏳")
+                            .font(.system(size: 30, weight: .heavy))
 
-                            Text(formatTime(timeLeft))
-                                .font(.system(size: 34, weight: .black))
-                                .monospacedDigit()
-                                .foregroundStyle(timerAccentColor)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
+                        Text(formatTime(timeLeft))
+                            .font(.system(size: 34, weight: .black))
+                            .monospacedDigit()
+                            .foregroundStyle(timerAccentColor)
                     }
+                    .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
 
@@ -664,46 +800,21 @@ struct RandomPracticeView: View {
                             )
                             .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 7)
 
-                        VStack(spacing: 12) {
-                            HStack {
-                                Button {
-                                    if let currentItem {
-                                        toggleFavorite(currentItem)
-                                    }
-                                } label: {
-                                    Image(systemName:
-                                        (currentItem != nil && favoriteIds.contains(currentItem!))
-                                        ? "star.fill" : "star"
-                                    )
-                                    .font(.system(size: 20, weight: .heavy))
-                                    .foregroundStyle(
-                                        (currentItem != nil && favoriteIds.contains(currentItem!))
-                                        ? Color.yellow.opacity(0.98)
-                                        : Color.black.opacity(0.55)
-                                    )
-                                    .frame(width: 42, height: 42)
-                                    .background(Circle().fill(Color.white.opacity(0.72)))
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(currentItem == nil)
-
-                                Spacer()
-                            }
-
-                            Text(currentItem.map { itemTitleForUi($0) } ?? tr("בחר זמן והתחל", "Choose duration and start"))
-                                .font(.system(size: 28, weight: .black))
-                                .foregroundStyle(Color.black.opacity(0.90))
-                                .multilineTextAlignment(.center)
-                                .minimumScaleFactor(0.72)
-                                .frame(maxWidth: .infinity)
-
-                            Text(tr("לחץ כדי לראות הסבר", "Tap to view explanation"))
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundStyle(Color.black.opacity(0.55))
-                                .multilineTextAlignment(.center)
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 28)
+                        Text(
+                            currentItem.map {
+                                itemTitleForUi($0)
+                            } ?? tr(
+                                "בחר זמן והתחל",
+                                "Choose duration and start"
+                            )
+                        )
+                        .font(.system(size: 28, weight: .black))
+                        .foregroundStyle(Color.black.opacity(0.90))
+                        .multilineTextAlignment(.center)
+                        .minimumScaleFactor(0.72)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 22)
+                        .padding(.vertical, 30)
                     }
                     .padding(.horizontal, 16)
                     .onTapGesture {
@@ -735,23 +846,64 @@ struct RandomPracticeView: View {
                         Button {
                             toggleCurrentPracticeStatus()
                         } label: {
-                            ZStack {
-                                Circle()
-                                    .fill(statusCircleFill)
-                                    .frame(width: 62, height: 62)
-                                    .overlay(
-                                        Circle()
-                                            .stroke(statusCircleBorder, lineWidth: 3)
-                                    )
-                                    .shadow(color: statusCircleBorder.opacity(0.22), radius: 8, x: 0, y: 5)
+                            HStack(spacing: 10) {
+                                ZStack {
+                                    Circle()
+                                        .fill(statusCircleFill)
+                                        .frame(width: 34, height: 34)
+                                        .overlay(
+                                            Circle()
+                                                .stroke(
+                                                    statusCircleBorder,
+                                                    lineWidth: 2
+                                                )
+                                        )
 
-                                Image(systemName: statusCircleIcon)
-                                    .font(.system(size: 26, weight: .black))
-                                    .foregroundStyle(statusCircleIconColor)
+                                    Image(systemName: statusCircleIcon)
+                                        .font(
+                                            .system(
+                                                size: 18,
+                                                weight: .black
+                                            )
+                                        )
+                                        .foregroundStyle(
+                                            statusCircleIconColor
+                                        )
+                                }
+
+                                Text(statusLabel)
+                                    .font(
+                                        .system(
+                                            size: 14,
+                                            weight: .heavy
+                                        )
+                                    )
+                                    .foregroundStyle(statusLabelColor)
+                                    .lineLimit(1)
                             }
+                            .padding(.horizontal, 14)
+                            .frame(height: 52)
+                            .background(
+                                Capsule()
+                                    .fill(Color.white.opacity(0.90))
+                            )
+                            .overlay(
+                                Capsule()
+                                    .stroke(
+                                        beltColor.opacity(0.18),
+                                        lineWidth: 1
+                                    )
+                            )
+                            .shadow(
+                                color: Color.black.opacity(0.10),
+                                radius: 8,
+                                x: 0,
+                                y: 5
+                            )
                         }
                         .buttonStyle(.plain)
                         .disabled(currentItem == nil)
+                        .opacity(currentItem == nil ? 0.45 : 1.0)
 
                         Button(action: togglePause) {
                             Image(systemName: isRunning ? "pause.fill" : "play.fill")
@@ -781,8 +933,7 @@ struct RandomPracticeView: View {
                             advanceToNextItem()
                         },
                         onFinish: {
-                            stopSession()
-                            dismiss()
+                            finishAndDismiss()
                         }
                     )
                     .padding(.horizontal, 16)
@@ -800,9 +951,12 @@ struct RandomPracticeView: View {
                 refreshCurrentPracticeStatus()
             }
             .onAppear {
+                isExiting = false
+
                 loadDontKnow()
                 loadFavorites()
                 loadFavoritesOnlyMode()
+                loadPracticeSettings()
 
                 sessionStarted = false
                 isRunning = false
@@ -831,14 +985,15 @@ struct RandomPracticeView: View {
                     alertHalfTime: $alertHalfTime,
                     beepLast10: $beepLast10,
                     onStart: {
+                        savePracticeSettings()
                         showDurationSheet = false
+
                         DispatchQueue.main.async {
                             startSession()
                         }
                     },
                     onCancel: {
-                        showDurationSheet = false
-                        dismiss()
+                        finishAndDismiss()
                     }
                 )
                 .environment(\.layoutDirection, screenLayoutDirection)
@@ -848,11 +1003,11 @@ struct RandomPracticeView: View {
             .sheet(isPresented: $showExplanationSheet) {
                 PracticeExplanationSheet(
                     belt: belt,
+                    topicTitle: topicTitle,
                     isEnglish: isEnglish,
                     itemTitle: pickedSearchItem ?? currentItem ?? "",
                     onClose: {
                         loadFavorites()
-                        rebuildWeightedItems(resetIndex: true)
                         showExplanationSheet = false
                         pickedSearchItem = nil
                     }
@@ -862,7 +1017,6 @@ struct RandomPracticeView: View {
                 .presentationDragIndicator(.visible)
                 .onDisappear {
                     loadFavorites()
-                    rebuildWeightedItems(resetIndex: true)
                 }
             }
             .sheet(isPresented: $showSearchSheet) {
@@ -888,16 +1042,18 @@ struct RandomPracticeView: View {
                 .presentationDragIndicator(.visible)
             }
             .onDisappear {
+                isExiting = true
                 stopSession()
+
                 showDurationSheet = false
                 showExplanationSheet = false
                 showSearchSheet = false
+                pickedSearchItem = nil
             }
         }
     }
-}
 
-// MARK: - Bottom Action Card
+    // MARK: - Bottom Action Card
 
 private struct RandomPracticeBottomActionCard: View {
 
@@ -1129,6 +1285,7 @@ private struct PracticeDurationPickerSheet: View {
 private struct PracticeExplanationSheet: View {
 
     let belt: Belt
+    let topicTitle: String
     let isEnglish: Bool
     let itemTitle: String
     let onClose: () -> Void
@@ -1245,11 +1402,21 @@ private struct PracticeExplanationSheet: View {
                         .foregroundStyle(Color.black.opacity(0.85))
                         .multilineTextAlignment(textAlignment)
 
-                    Text(explanationText(for: belt, itemTitle: itemTitle, isEnglish: isEnglish))
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color.black.opacity(0.65))
-                        .multilineTextAlignment(textAlignment)
-                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    Text(
+                        explanationText(
+                            for: belt,
+                            topicTitle: topicTitle,
+                            itemTitle: itemTitle,
+                            isEnglish: isEnglish
+                        )
+                    )
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.65))
+                    .multilineTextAlignment(textAlignment)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: frameAlignment
+                    )
                 }
                 .padding(.vertical, 14)
                 .padding(.horizontal, 14)
@@ -1380,33 +1547,62 @@ private struct PracticeSearchSheet: View {
 
 private func explanationText(
     for belt: Belt,
+    topicTitle: String,
     itemTitle: String,
     isEnglish: Bool
 ) -> String {
-    let clean = itemTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    let cleanItem = itemTitle
+        .trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
 
-    guard !clean.isEmpty else {
+    guard !cleanItem.isEmpty else {
         return isEnglish
             ? "No exercise selected to display."
             : "לא נבחר תרגיל להצגה."
     }
 
-    let explanations = Explanations()
+    let cleanTopic = topicTitle
+        .trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
 
-    let direct = explanations.get(belt: belt, item: clean).trimmed()
+    let resolved = KmiExerciseExplanationResolverIOS
+        .shared
+        .get(
+            belt: belt,
+            topic: cleanTopic,
+            item: cleanItem,
+            isEnglish: isEnglish
+        )
+        .trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
 
-    if !direct.isEmpty {
-        return direct
+    if !resolved.isEmpty {
+        return resolved
     }
 
-    let alt = clean
+    let alternativeItem = cleanItem
         .components(separatedBy: "::")
         .last?
         .components(separatedBy: ":")
         .last?
-        .trimmingCharacters(in: .whitespacesAndNewlines) ?? clean
+        .trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ) ?? cleanItem
 
-    let fallback = explanations.get(belt: belt, item: alt).trimmed()
+    let fallback = KmiExerciseExplanationResolverIOS
+        .shared
+        .get(
+            belt: belt,
+            topic: cleanTopic,
+            item: alternativeItem,
+            isEnglish: isEnglish
+        )
+        .trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
 
     if !fallback.isEmpty {
         return fallback

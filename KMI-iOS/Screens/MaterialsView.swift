@@ -82,9 +82,54 @@ struct MaterialsView: View {
         !hasFullAccessForPractice
     }
 
+    /*
+     * מקור האמת לתפקיד הפעיל נשמר ב־user_role.
+     *
+     * נשמר fallback גם למפתח role, לצורך תאימות
+     * למשתמשים שנרשמו בגרסאות קודמות.
+     */
+    private var effectiveIsCoach: Bool {
+        let defaults = UserDefaults.standard
+
+        let rawRole =
+            defaults.string(forKey: "user_role")
+            ?? defaults.string(forKey: "role")
+            ?? ""
+
+        switch rawRole
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() {
+
+        case "coach", "trainer", "מאמן":
+            return true
+
+        case "trainee", "student", "מתאמן":
+            return false
+
+        default:
+            return false
+        }
+    }
+
     fileprivate enum RowMark: String {
         case mastered
         case unknown
+    }
+
+    /*
+     * סטטוסי המאמן נשמרים בנפרד לחלוטין
+     * מסימוני יודע / לא יודע של המתאמן.
+     */
+    fileprivate enum CoachMaterialStatus: String, CaseIterable {
+        case notTaught = "not_taught"
+        case taught = "taught"
+        case practiced = "practiced"
+        case needsReinforcement = "needs_reinforcement"
+    }
+
+    fileprivate struct CoachMaterialProgress: Equatable {
+        let status: CoachMaterialStatus
+        let updatedAt: Int64
     }
 
     private struct ExerciseRow: Identifiable, Hashable {
@@ -98,6 +143,15 @@ struct MaterialsView: View {
     @State private var favorites: Set<String> = []
     @State private var excluded: Set<String> = []
     @State private var marks: [String: RowMark?] = [:]
+
+    /*
+     * מפת סטטוסים נפרדת למצב מאמן.
+     *
+     * המפתח הוא statusId הקנוני של התרגיל.
+     */
+    @State private var coachProgressStates:
+        [String: CoachMaterialProgress] = [:]
+
     @State private var notes: [String: String] = [:]
 
     @State private var selectedInfoRow: ExerciseRow? = nil
@@ -108,6 +162,12 @@ struct MaterialsView: View {
 
     @State private var toastMessage: String? = nil
     @State private var showResetConfirmation: Bool = false
+
+    /*
+     * פתיחת כרטיס ההערה הכללית של
+     * הנושא או תת־הנושא הנוכחי.
+     */
+    @State private var showGeneralNote: Bool = false
 
     @State private var generatedPdfURL: URL? = nil
     @State private var showPdfShareSheet: Bool = false
@@ -210,6 +270,64 @@ struct MaterialsView: View {
 
     private var scopeKey: String {
         "\(belt.id)||\(materialRootTopic)||\(materialParentSubTopic ?? "")||\(openedNestedSubTopic ?? "")"
+    }
+
+    /*
+     * ההערה הכללית של הנושא שמוצג כרגע.
+     *
+     * סדר העדיפויות:
+     * 1. תת־נושא פנימי.
+     * 2. תת־נושא רגיל.
+     * 3. נושא ראשי.
+     *
+     * תוכן ההערה מגיע מ־ContentRepo המשותף,
+     * שהוא מקור האמת גם ל־Android וגם ל־iOS.
+     */
+    private var currentGeneralNote: String? {
+        let repository = ContentRepo.shared
+        let note: String?
+
+        if let openedNestedSubTopic {
+            let cleanNestedSubTopic = openedNestedSubTopic
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !cleanNestedSubTopic.isEmpty,
+               let materialParentSubTopic {
+                note = repository.getNestedSubTopicGeneralNote(
+                    belt: belt,
+                    topicTitle: materialRootTopic
+                        .trimmingCharacters(in: .whitespacesAndNewlines),
+                    subTopicTitle: materialParentSubTopic
+                        .trimmingCharacters(in: .whitespacesAndNewlines),
+                    nestedSubTopicTitle: cleanNestedSubTopic
+                )
+            } else {
+                note = nil
+            }
+        } else if let materialParentSubTopic {
+            note = repository.getSubTopicGeneralNote(
+                belt: belt,
+                topicTitle: materialRootTopic
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                subTopicTitle: materialParentSubTopic
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        } else {
+            note = repository.getTopicGeneralNote(
+                belt: belt,
+                topicTitle: materialRootTopic
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+
+        let cleanNote = note?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let cleanNote, !cleanNote.isEmpty else {
+            return nil
+        }
+
+        return cleanNote
     }
 
     private func normalizeStatusPart(_ value: String) -> String {
@@ -401,15 +519,57 @@ struct MaterialsView: View {
     }
 
     private var masteredCount: Int {
-        rows.filter { currentMark(for: $0.statusId) == .mastered }.count
+        rows.filter {
+            currentMark(for: $0.statusId) == .mastered
+        }.count
     }
 
     private var unknownCount: Int {
-        rows.filter { currentMark(for: $0.statusId) == .unknown }.count
+        rows.filter {
+            currentMark(for: $0.statusId) == .unknown
+        }.count
+    }
+
+    /*
+     * תרגיל שלא נשמר עבורו סטטוס מאמן
+     * נחשב כברירת מחדל "לא נלמד".
+     */
+    private var coachNotTaughtCount: Int {
+        rows.filter { row in
+            currentCoachProgress(
+                for: row.statusId
+            ).status == .notTaught
+        }.count
+    }
+
+    private var coachTaughtCount: Int {
+        rows.filter { row in
+            currentCoachProgress(
+                for: row.statusId
+            ).status == .taught
+        }.count
+    }
+
+    private var coachPracticedCount: Int {
+        rows.filter { row in
+            currentCoachProgress(
+                for: row.statusId
+            ).status == .practiced
+        }.count
+    }
+
+    private var coachNeedsReinforcementCount: Int {
+        rows.filter { row in
+            currentCoachProgress(
+                for: row.statusId
+            ).status == .needsReinforcement
+        }.count
     }
 
     private var favoritesCount: Int {
-        rows.filter { favorites.contains($0.canonicalId) }.count
+        rows.filter {
+            favorites.contains($0.canonicalId)
+        }.count
     }
 
     private var excludedCount: Int {
@@ -427,14 +587,104 @@ struct MaterialsView: View {
             MaterialsScreenSoftBackground(belt: belt)
 
             VStack(spacing: 0) {
+                /*
+                 * מציגים את האייקון רק כאשר קיימת
+                 * הערה אמיתית במאגר המשותף.
+                 */
+                if currentGeneralNote != nil {
+                    HStack {
+                        if !isEnglish {
+                            Spacer(minLength: 0)
+                        }
+
+                        Button {
+                            showGeneralNote = true
+                        } label: {
+                            HStack(spacing: 7) {
+                                Image(systemName: "info.circle.fill")
+                                    .font(.system(size: 18, weight: .bold))
+
+                                Text(
+                                    tr(
+                                        "דגשים כלליים",
+                                        "General notes"
+                                    )
+                                )
+                                .font(.system(size: 13.5, weight: .bold))
+                            }
+                            .foregroundStyle(
+                                Color(
+                                    red: 0.10,
+                                    green: 0.42,
+                                    blue: 0.92
+                                )
+                            )
+                            .padding(.horizontal, 13)
+                            .frame(height: 36)
+                            .background(
+                                Capsule()
+                                    .fill(
+                                        Color(
+                                            red: 0.10,
+                                            green: 0.42,
+                                            blue: 0.92
+                                        )
+                                        .opacity(0.09)
+                                    )
+                            )
+                            .overlay(
+                                Capsule()
+                                    .stroke(
+                                        Color(
+                                            red: 0.10,
+                                            green: 0.42,
+                                            blue: 0.92
+                                        )
+                                        .opacity(0.22),
+                                        lineWidth: 1
+                                    )
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(
+                            tr(
+                                "הצג דגשים כלליים",
+                                "Show general notes"
+                            )
+                        )
+
+                        if isEnglish {
+                            Spacer(minLength: 0)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 7)
+                    .padding(.bottom, 3)
+                    .environment(
+                        \.layoutDirection,
+                        isEnglish ? .leftToRight : .rightToLeft
+                    )
+                    .background(
+                        MaterialsBeltLightBackground(
+                            belt: belt
+                        )
+                    )
+                }
+
                 MaterialsStatsHeader(
                     belt: belt,
                     count: rows.count,
                     masteredCount: masteredCount,
                     unknownCount: unknownCount,
+                    coachNotTaughtCount: coachNotTaughtCount,
+                    coachTaughtCount: coachTaughtCount,
+                    coachPracticedCount: coachPracticedCount,
+                    coachNeedsReinforcementCount:
+                        coachNeedsReinforcementCount,
                     favoritesCount: favoritesCount,
                     excludedCount: excludedCount,
                     notesCount: notesCount,
+                    isCoach: effectiveIsCoach,
                     isEnglish: isEnglish
                 )
 
@@ -454,29 +704,65 @@ struct MaterialsView: View {
                                 MaterialsExerciseRow(
                                     rowNumber: idx + 1,
                                     title: row.displayName,
-                                    beltColor: BeltPaletteByMaterials.color(for: belt),
-                                    isFavorite: favorites.contains(row.canonicalId),
-                                    isExcluded: excluded.contains(row.canonicalId),
-                                    mark: currentMark(for: row.statusId),
-                                    hasNote: !(notes[row.canonicalId]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                                    beltColor:
+                                        BeltPaletteByMaterials.color(
+                                            for: belt
+                                        ),
+                                    isFavorite:
+                                        favorites.contains(
+                                            row.canonicalId
+                                        ),
+                                    isExcluded:
+                                        excluded.contains(
+                                            row.canonicalId
+                                        ),
+                                    mark:
+                                        currentMark(
+                                            for: row.statusId
+                                        ),
+                                    coachProgress:
+                                        currentCoachProgress(
+                                            for: row.statusId
+                                        ),
+                                    hasNote:
+                                        !(
+                                            notes[row.canonicalId]?
+                                                .trimmingCharacters(
+                                                    in: .whitespacesAndNewlines
+                                                )
+                                                .isEmpty
+                                            ?? true
+                                        ),
+                                    isCoach: effectiveIsCoach,
                                     isEnglish: isEnglish,
                                     onToggleFavorite: {
-                                        toggleFavorite(
-                                            row
-                                        )
+                                        toggleFavorite(row)
                                     },
                                     onToggleExcluded: {
-                                        toggleExcluded(row.canonicalId)
+                                        toggleExcluded(
+                                            row.canonicalId
+                                        )
                                     },
                                     onShowInfo: {
                                         selectedInfoRow = row
                                     },
                                     onEditNote: {
-                                        noteDraft = notes[row.canonicalId] ?? ""
+                                        noteDraft =
+                                            notes[row.canonicalId]
+                                            ?? ""
+
                                         selectedNoteRow = row
                                     },
                                     onCycleMark: {
                                         cycleMark(for: row)
+                                    },
+                                    onSelectCoachStatus: {
+                                        selectedStatus in
+
+                                        saveCoachProgress(
+                                            selectedStatus,
+                                            for: row.statusId
+                                        )
                                     }
                                 )
 
@@ -538,7 +824,20 @@ struct MaterialsView: View {
         }
         .onReceive(
             NotificationCenter.default.publisher(
-                for: Notification.Name("KMI_GLOBAL_SHARE_REQUEST")
+                for: UserDefaults.didChangeNotification
+            )
+        ) { _ in
+            /*
+             * רענון מיידי לאחר מעבר בין
+             * מצב מתאמן למצב מאמן.
+             */
+            loadState()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name(
+                    "KMI_GLOBAL_SHARE_REQUEST"
+                )
             )
         ) { notification in
             guard let shareRequest = notification.object as? NSMutableDictionary else {
@@ -548,13 +847,51 @@ struct MaterialsView: View {
             shareRequest["handled"] = true
             createAndShareMaterialsPdf()
         }
+        .sheet(isPresented: $showGeneralNote) {
+            if let currentGeneralNote {
+                MaterialsGeneralNoteSheet(
+                    title: headerTitle,
+                    note: currentGeneralNote,
+                    isEnglish: isEnglish,
+                    accentColor: BeltPaletteByMaterials.color(
+                        for: belt
+                    ),
+                    onClose: {
+                        showGeneralNote = false
+                    }
+                )
+                .presentationDetents([
+                    PresentationDetent.fraction(0.62),
+                    PresentationDetent.large
+                ])
+                .presentationDragIndicator(
+                    Visibility.visible
+                )
+            }
+        }
         .confirmationDialog(
-            tr("לאפס את כל הסימונים בנושא הזה?", "Reset all marks for this topic?"),
+            effectiveIsCoach
+                ? tr(
+                    "לאפס את כל סטטוסי המאמן בנושא הזה?",
+                    "Reset all coach statuses for this topic?"
+                )
+                : tr(
+                    "לאפס את כל הסימונים בנושא הזה?",
+                    "Reset all marks for this topic?"
+                ),
             isPresented: $showResetConfirmation,
             titleVisibility: .visible
         ) {
             Button(
-                tr("אפס סימונים, מועדפים, החרגות והערות", "Reset marks, favorites, exclusions and notes"),
+                effectiveIsCoach
+                    ? tr(
+                        "אפס סטטוסים, מועדפים, החרגות והערות",
+                        "Reset statuses, favorites, exclusions and notes"
+                    )
+                    : tr(
+                        "אפס סימונים, מועדפים, החרגות והערות",
+                        "Reset marks, favorites, exclusions and notes"
+                    ),
                 role: .destructive
             ) {
                 resetCurrentScope()
@@ -962,6 +1299,91 @@ struct MaterialsView: View {
         "\(practiceStatusStoragePrefix)_\(normalizedPracticeId(rawItem))"
     }
 
+    /*
+     * מפתח נפרד לסטטוס המאמן.
+     *
+     * המבנה זהה למבנה שנקבע באנדרואיד:
+     * coach_material_progress_<belt>_<topic>_<statusId>
+     */
+    private func coachProgressKey(
+        for statusId: String
+    ) -> String {
+        [
+            "coach_material_progress",
+            belt.id,
+            topicKey,
+            statusId
+        ]
+        .joined(separator: "_")
+    }
+
+    private func loadCoachProgress(
+        for statusId: String
+    ) -> CoachMaterialProgress {
+        let defaults = UserDefaults.standard
+        let key = coachProgressKey(for: statusId)
+
+        let rawStatus = defaults.string(
+            forKey: "\(key)_status"
+        )
+
+        let status = rawStatus
+            .flatMap(CoachMaterialStatus.init(rawValue:))
+            ?? .notTaught
+
+        let updatedAt = Int64(
+            defaults.double(
+                forKey: "\(key)_updated_at"
+            )
+        )
+
+        return CoachMaterialProgress(
+            status: status,
+            updatedAt: updatedAt
+        )
+    }
+
+    private func currentCoachProgress(
+        for statusId: String
+    ) -> CoachMaterialProgress {
+        coachProgressStates[statusId]
+        ?? CoachMaterialProgress(
+            status: .notTaught,
+            updatedAt: 0
+        )
+    }
+
+    private func saveCoachProgress(
+        _ status: CoachMaterialStatus,
+        for statusId: String
+    ) {
+        let defaults = UserDefaults.standard
+        let updatedAt = Int64(
+            Date().timeIntervalSince1970 * 1000
+        )
+
+        let progress = CoachMaterialProgress(
+            status: status,
+            updatedAt: updatedAt
+        )
+
+        coachProgressStates[statusId] = progress
+
+        let key = coachProgressKey(for: statusId)
+
+        defaults.set(
+            status.rawValue,
+            forKey: "\(key)_status"
+        )
+
+        defaults.set(
+            Double(updatedAt),
+            forKey: "\(key)_updated_at"
+        )
+
+        refreshToken = UUID()
+    }
+
     private func practiceMark(
         for row: ExerciseRow
     ) -> RowMark? {
@@ -1042,6 +1464,9 @@ struct MaterialsView: View {
 
         var loadedMarks:
             [String: RowMark?] = [:]
+
+        var loadedCoachProgress:
+            [String: CoachMaterialProgress] = [:]
 
         var loadedNotes:
             [String: String] = [:]
@@ -1155,12 +1580,23 @@ struct MaterialsView: View {
                 loadedMarks[row.statusId] = nil
             }
 
-            loadedNotes[row.canonicalId] = UserDefaults.standard.string(forKey: noteKey(for: row.canonicalId)) ?? ""
+            loadedCoachProgress[row.statusId] =
+                loadCoachProgress(
+                    for: row.statusId
+                )
+
+            loadedNotes[row.canonicalId] =
+                UserDefaults.standard.string(
+                    forKey: noteKey(
+                        for: row.canonicalId
+                    )
+                ) ?? ""
         }
 
         favorites = loadedFavorites
         excluded = loadedExcluded
         marks = loadedMarks
+        coachProgressStates = loadedCoachProgress
         notes = loadedNotes
     }
 
@@ -1343,14 +1779,59 @@ struct MaterialsView: View {
         refreshToken = UUID()
     }
 
-    private func pdfStatusText(for row: ExerciseRow) -> String {
-        switch currentMark(for: row.statusId) {
+    private func pdfStatusText(
+        for row: ExerciseRow
+    ) -> String {
+        if effectiveIsCoach {
+            switch currentCoachProgress(
+                for: row.statusId
+            ).status {
+            case .notTaught:
+                return tr(
+                    "לא נלמד",
+                    "Not taught"
+                )
+
+            case .taught:
+                return tr(
+                    "נלמד",
+                    "Taught"
+                )
+
+            case .practiced:
+                return tr(
+                    "תורגל",
+                    "Practiced"
+                )
+
+            case .needsReinforcement:
+                return tr(
+                    "נדרש חיזוק",
+                    "Needs reinforcement"
+                )
+            }
+        }
+
+        switch currentMark(
+            for: row.statusId
+        ) {
         case .mastered:
-            return tr("יודע", "Known")
+            return tr(
+                "יודע",
+                "Known"
+            )
+
         case .unknown:
-            return tr("לא יודע", "Unknown")
+            return tr(
+                "לא יודע",
+                "Unknown"
+            )
+
         case nil:
-            return tr("לא סומן", "Not marked")
+            return tr(
+                "לא סומן",
+                "Not marked"
+            )
         }
     }
 
@@ -1391,31 +1872,81 @@ struct MaterialsView: View {
 
     private func resetCurrentScope() {
         speechSynth.stopSpeaking(at: .immediate)
+        isSpeakingExplanation = false
 
-        selectedInfoRow = nil
-        selectedNoteRow = nil
-        noteDraft = ""
+        let keysToRemove = rows.flatMap { row -> [String] in
+            let progressKey =
+                coachProgressKey(
+                    for: row.statusId
+                )
 
-        for row in rows {
-            UserDefaults.standard.removeObject(forKey: favoriteKey(for: row.canonicalId))
-            UserDefaults.standard.removeObject(forKey: excludedKey(for: row.canonicalId))
-            UserDefaults.standard.removeObject(forKey: markKey(for: row.statusId))
-            UserDefaults.standard.removeObject(forKey: noteKey(for: row.canonicalId))
+            return [
+                favoriteKey(
+                    for: row.canonicalId
+                ),
+                excludedKey(
+                    for: row.canonicalId
+                ),
+                markKey(
+                    for: row.statusId
+                ),
+                noteKey(
+                    for: row.canonicalId
+                ),
+                "\(progressKey)_status",
+                "\(progressKey)_updated_at"
+            ]
         }
 
-        favorites.removeAll()
-        excluded.removeAll()
-        marks.removeAll()
-        notes.removeAll()
+        /*
+         * קודם מעדכנים את ממשק המשתמש.
+         * כך כל הסימונים והסטטוסים נעלמים מיד.
+         */
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
 
-        refreshToken = UUID()
+        withTransaction(transaction) {
+            selectedInfoRow = nil
+            selectedNoteRow = nil
+            noteDraft = ""
+
+            favorites.removeAll()
+            excluded.removeAll()
+            marks.removeAll()
+            coachProgressStates.removeAll()
+            notes.removeAll()
+
+            refreshToken = UUID()
+        }
 
         showToast(
-            tr(
-                "הנושא אופס בהצלחה.",
-                "Topic reset successfully."
-            )
+            effectiveIsCoach
+                ? tr(
+                    "סטטוסי המאמן בנושא אופסו בהצלחה.",
+                    "Coach statuses reset successfully."
+                )
+                : tr(
+                    "הנושא אופס בהצלחה.",
+                    "Topic reset successfully."
+                )
         )
+
+        /*
+         * המחיקה מהאחסון מתבצעת לאחר
+         * שממשק המשתמש כבר התאפס.
+         */
+        DispatchQueue.global(
+            qos: .utility
+        ).async {
+            let defaults =
+                UserDefaults.standard
+
+            keysToRemove.forEach { key in
+                defaults.removeObject(
+                    forKey: key
+                )
+            }
+        }
     }
 
     private func toggleSpeak(_ text: String) {
@@ -1615,9 +2146,17 @@ private struct MaterialsStatsHeader: View {
     let count: Int
     let masteredCount: Int
     let unknownCount: Int
+
+    let coachNotTaughtCount: Int
+    let coachTaughtCount: Int
+    let coachPracticedCount: Int
+    let coachNeedsReinforcementCount: Int
+
     let favoritesCount: Int
     let excludedCount: Int
     let notesCount: Int
+
+    let isCoach: Bool
     let isEnglish: Bool
 
     var body: some View {
@@ -1637,20 +2176,179 @@ private struct MaterialsStatsHeader: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    if isEnglish {
-                        statChip(title: "Exercises", value: count, color: Color(red: 0.60, green: 0.64, blue: 0.70))
-                        statChip(title: "Known", value: masteredCount, color: Color(red: 0.48, green: 0.80, blue: 0.53))
-                        statChip(title: "Unknown", value: unknownCount, color: Color(red: 0.95, green: 0.66, blue: 0.48))
-                        statChip(title: "Favorites", value: favoritesCount, color: Color(red: 0.91, green: 0.64, blue: 0.71))
-                        statChip(title: "Excluded", value: excludedCount, color: Color(red: 0.58, green: 0.84, blue: 0.60))
-                        statChip(title: "Notes", value: notesCount, color: Color(red: 0.52, green: 0.59, blue: 0.79))
+                    if isCoach {
+                        statChip(
+                            title:
+                                isEnglish
+                                ? "Practiced"
+                                : "תורגל",
+                            value: coachPracticedCount,
+                            color: Color(
+                                red: 0.44,
+                                green: 0.77,
+                                blue: 0.49
+                            )
+                        )
+
+                        statChip(
+                            title:
+                                isEnglish
+                                ? "Reinforce"
+                                : "נדרש חיזוק",
+                            value:
+                                coachNeedsReinforcementCount,
+                            color: Color(
+                                red: 0.21,
+                                green: 0.47,
+                                blue: 0.87
+                            )
+                        )
+
+                        statChip(
+                            title:
+                                isEnglish
+                                ? "Taught"
+                                : "נלמד",
+                            value: coachTaughtCount,
+                            color: Color(
+                                red: 0.95,
+                                green: 0.63,
+                                blue: 0.38
+                            )
+                        )
+
+                        statChip(
+                            title:
+                                isEnglish
+                                ? "Not taught"
+                                : "לא נלמד",
+                            value: coachNotTaughtCount,
+                            color: Color(
+                                red: 0.90,
+                                green: 0.60,
+                                blue: 0.69
+                            )
+                        )
+                    } else if isEnglish {
+                        statChip(
+                            title: "Exercises",
+                            value: count,
+                            color: Color(
+                                red: 0.60,
+                                green: 0.64,
+                                blue: 0.70
+                            )
+                        )
+
+                        statChip(
+                            title: "Known",
+                            value: masteredCount,
+                            color: Color(
+                                red: 0.48,
+                                green: 0.80,
+                                blue: 0.53
+                            )
+                        )
+
+                        statChip(
+                            title: "Unknown",
+                            value: unknownCount,
+                            color: Color(
+                                red: 0.95,
+                                green: 0.66,
+                                blue: 0.48
+                            )
+                        )
+
+                        statChip(
+                            title: "Favorites",
+                            value: favoritesCount,
+                            color: Color(
+                                red: 0.91,
+                                green: 0.64,
+                                blue: 0.71
+                            )
+                        )
+
+                        statChip(
+                            title: "Excluded",
+                            value: excludedCount,
+                            color: Color(
+                                red: 0.58,
+                                green: 0.84,
+                                blue: 0.60
+                            )
+                        )
+
+                        statChip(
+                            title: "Notes",
+                            value: notesCount,
+                            color: Color(
+                                red: 0.52,
+                                green: 0.59,
+                                blue: 0.79
+                            )
+                        )
                     } else {
-                        statChip(title: "תרגילים", value: count, color: Color(red: 0.60, green: 0.64, blue: 0.70))
-                        statChip(title: "יודע", value: masteredCount, color: Color(red: 0.48, green: 0.80, blue: 0.53))
-                        statChip(title: "לא יודע", value: unknownCount, color: Color(red: 0.95, green: 0.66, blue: 0.48))
-                        statChip(title: "מועדפים", value: favoritesCount, color: Color(red: 0.91, green: 0.64, blue: 0.71))
-                        statChip(title: "מוחרגים", value: excludedCount, color: Color(red: 0.58, green: 0.84, blue: 0.60))
-                        statChip(title: "הערות", value: notesCount, color: Color(red: 0.52, green: 0.59, blue: 0.79))
+                        statChip(
+                            title: "תרגילים",
+                            value: count,
+                            color: Color(
+                                red: 0.60,
+                                green: 0.64,
+                                blue: 0.70
+                            )
+                        )
+
+                        statChip(
+                            title: "יודע",
+                            value: masteredCount,
+                            color: Color(
+                                red: 0.48,
+                                green: 0.80,
+                                blue: 0.53
+                            )
+                        )
+
+                        statChip(
+                            title: "לא יודע",
+                            value: unknownCount,
+                            color: Color(
+                                red: 0.95,
+                                green: 0.66,
+                                blue: 0.48
+                            )
+                        )
+
+                        statChip(
+                            title: "מועדפים",
+                            value: favoritesCount,
+                            color: Color(
+                                red: 0.91,
+                                green: 0.64,
+                                blue: 0.71
+                            )
+                        )
+
+                        statChip(
+                            title: "מוחרגים",
+                            value: excludedCount,
+                            color: Color(
+                                red: 0.58,
+                                green: 0.84,
+                                blue: 0.60
+                            )
+                        )
+
+                        statChip(
+                            title: "הערות",
+                            value: notesCount,
+                            color: Color(
+                                red: 0.52,
+                                green: 0.59,
+                                blue: 0.79
+                            )
+                        )
                     }
                 }
                 .padding(.horizontal, 20)
@@ -1845,16 +2543,24 @@ private struct MaterialsExerciseRow: View {
     let beltColor: Color
     let isFavorite: Bool
     let isExcluded: Bool
+
     let mark: MaterialsView.RowMark?
+    let coachProgress:
+        MaterialsView.CoachMaterialProgress
+
     let hasNote: Bool
+    let isCoach: Bool
     let isEnglish: Bool
-    
+
     let onToggleFavorite: () -> Void
     let onToggleExcluded: () -> Void
     let onShowInfo: () -> Void
     let onEditNote: () -> Void
     let onCycleMark: () -> Void
-    
+
+    let onSelectCoachStatus:
+        (MaterialsView.CoachMaterialStatus) -> Void
+
     private var textAlignment: TextAlignment {
         isEnglish ? .leading : .trailing
     }
@@ -2099,12 +2805,239 @@ private struct MaterialsExerciseRow: View {
         return Color.clear
     }
     
+    @ViewBuilder
     private var markButtons: some View {
-        MaterialsSingleMarkCircleButton(
-            mark: mark,
-            onTap: onCycleMark
+        if isCoach {
+            MaterialsCoachStatusSelector(
+                progress: coachProgress,
+                isEnglish: isEnglish,
+                onSelect: onSelectCoachStatus
+            )
+            .frame(width: 96)
+        } else {
+            MaterialsSingleMarkCircleButton(
+                mark: mark,
+                onTap: onCycleMark
+            )
+            .frame(width: 38)
+        }
+    }
+}
+
+private struct MaterialsCoachStatusSelector: View {
+    let progress:
+        MaterialsView.CoachMaterialProgress
+
+    let isEnglish: Bool
+
+    let onSelect:
+        (MaterialsView.CoachMaterialStatus) -> Void
+
+    private var statusColor: Color {
+        switch progress.status {
+        case .notTaught:
+            return Color(
+                red: 0.54,
+                green: 0.58,
+                blue: 0.62
+            )
+
+        case .taught:
+            return Color(
+                red: 0.18,
+                green: 0.61,
+                blue: 0.31
+            )
+
+        case .practiced:
+            return Color(
+                red: 0.20,
+                green: 0.47,
+                blue: 0.83
+            )
+
+        case .needsReinforcement:
+            return Color(
+                red: 0.95,
+                green: 0.55,
+                blue: 0.16
+            )
+        }
+    }
+
+    private var statusSymbol: String {
+        switch progress.status {
+        case .notTaught:
+            return "—"
+
+        case .taught:
+            return "✓"
+
+        case .practiced:
+            return "↻"
+
+        case .needsReinforcement:
+            return "!"
+        }
+    }
+
+    private var statusLabel: String {
+        switch progress.status {
+        case .notTaught:
+            return isEnglish
+                ? "Not taught"
+                : "לא נלמד"
+
+        case .taught:
+            return isEnglish
+                ? "Taught"
+                : "נלמד"
+
+        case .practiced:
+            return isEnglish
+                ? "Practiced"
+                : "תורגל"
+
+        case .needsReinforcement:
+            return isEnglish
+                ? "Reinforce"
+                : "נדרש חיזוק"
+        }
+    }
+
+    private var dateText: String {
+        guard progress.updatedAt > 0 else {
+            return isEnglish
+                ? "Not updated"
+                : "טרם עודכן"
+        }
+
+        let date = Date(
+            timeIntervalSince1970:
+                Double(progress.updatedAt) / 1000
         )
-        .frame(width: 38)
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd/MM/yyyy"
+        formatter.locale = Locale.current
+
+        return formatter.string(from: date)
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(
+                MaterialsView.CoachMaterialStatus.allCases,
+                id: \.rawValue
+            ) { status in
+                Button {
+                    onSelect(status)
+                } label: {
+                    Text(
+                        optionLabel(
+                            for: status
+                        )
+                    )
+                }
+            }
+        } label: {
+            VStack(spacing: 2) {
+                ZStack {
+                    Circle()
+                        .fill(statusColor)
+                        .frame(
+                            width: 38,
+                            height: 38
+                        )
+                        .overlay(
+                            Circle()
+                                .stroke(
+                                    Color.white.opacity(0.35),
+                                    lineWidth: 1
+                                )
+                        )
+                        .shadow(
+                            color:
+                                statusColor.opacity(0.22),
+                            radius: 3,
+                            x: 0,
+                            y: 2
+                        )
+
+                    Text(statusSymbol)
+                        .font(
+                            .system(
+                                size: 18,
+                                weight: .heavy
+                            )
+                        )
+                        .foregroundStyle(Color.white)
+                }
+
+                Text(statusLabel)
+                    .font(
+                        .system(
+                            size: 10,
+                            weight: .heavy
+                        )
+                    )
+                    .foregroundStyle(statusColor)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.72)
+
+                Text(dateText)
+                    .font(
+                        .system(
+                            size: 8.5,
+                            weight: .medium
+                        )
+                    )
+                    .foregroundStyle(
+                        Color(
+                            red: 0.40,
+                            green: 0.44,
+                            blue: 0.50
+                        )
+                    )
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+            }
+            .frame(
+                minWidth: 84,
+                maxWidth: 96
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(statusLabel)
+    }
+
+    private func optionLabel(
+        for status:
+            MaterialsView.CoachMaterialStatus
+    ) -> String {
+        switch status {
+        case .notTaught:
+            return isEnglish
+                ? "Not taught"
+                : "לא נלמד"
+
+        case .taught:
+            return isEnglish
+                ? "Taught"
+                : "נלמד"
+
+        case .practiced:
+            return isEnglish
+                ? "Practiced"
+                : "תורגל"
+
+        case .needsReinforcement:
+            return isEnglish
+                ? "Needs reinforcement"
+                : "נדרש חיזוק"
+        }
     }
 }
 
@@ -2349,7 +3282,202 @@ private struct MaterialsPremiumNoteSheet: View {
             .padding(.top, 22)
             .padding(.bottom, 16)
         }
-        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+        .environment(
+            \.layoutDirection,
+            isEnglish ? .leftToRight : .rightToLeft
+        )
+    }
+}
+
+// MARK: - General note sheet
+
+private struct MaterialsGeneralNoteSheet: View {
+    let title: String
+    let note: String
+    let isEnglish: Bool
+    let accentColor: Color
+    let onClose: () -> Void
+
+    private var textAlignment: TextAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color.white,
+                    accentColor.opacity(0.07),
+                    Color.white
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 12) {
+                Capsule()
+                    .fill(Color.black.opacity(0.18))
+                    .frame(width: 42, height: 5)
+                    .padding(.top, 7)
+
+                ZStack {
+                    Circle()
+                        .fill(
+                            Color(
+                                red: 0.10,
+                                green: 0.42,
+                                blue: 0.92
+                            )
+                            .opacity(0.10)
+                        )
+                        .frame(width: 46, height: 46)
+
+                    Circle()
+                        .stroke(
+                            Color(
+                                red: 0.10,
+                                green: 0.42,
+                                blue: 0.92
+                            )
+                            .opacity(0.30),
+                            lineWidth: 1
+                        )
+                        .frame(width: 46, height: 46)
+
+                    Image(systemName: "info.circle.fill")
+                        .font(.system(size: 23, weight: .bold))
+                        .foregroundStyle(
+                            Color(
+                                red: 0.10,
+                                green: 0.42,
+                                blue: 0.92
+                            )
+                        )
+                }
+
+                VStack(spacing: 5) {
+                    Text(
+                        isEnglish
+                            ? "PROFESSIONAL NOTES"
+                            : "דגשים מקצועיים"
+                    )
+                    .font(.system(size: 12.5, weight: .black))
+                    .foregroundStyle(
+                        Color(
+                            red: 0.10,
+                            green: 0.42,
+                            blue: 0.92
+                        )
+                    )
+
+                    Text(title)
+                        .font(.system(size: 21, weight: .black))
+                        .foregroundStyle(
+                            Color(
+                                red: 0.10,
+                                green: 0.14,
+                                blue: 0.21
+                            )
+                        )
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
+                        .minimumScaleFactor(0.78)
+                        .frame(maxWidth: .infinity)
+                }
+
+                Divider()
+                    .overlay(accentColor.opacity(0.18))
+                    .padding(.horizontal, 4)
+
+                ScrollView {
+                    Text(note)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(
+                            Color(
+                                red: 0.14,
+                                green: 0.18,
+                                blue: 0.25
+                            )
+                        )
+                        .lineSpacing(4)
+                        .multilineTextAlignment(textAlignment)
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: frameAlignment
+                        )
+                        .padding(.horizontal, 17)
+                        .padding(.vertical, 15)
+                }
+                .background(
+                    RoundedRectangle(
+                        cornerRadius: 22,
+                        style: .continuous
+                    )
+                    .fill(Color.white.opacity(0.94))
+                )
+                .overlay(
+                    RoundedRectangle(
+                        cornerRadius: 22,
+                        style: .continuous
+                    )
+                    .stroke(
+                        accentColor.opacity(0.17),
+                        lineWidth: 1
+                    )
+                )
+                .shadow(
+                    color: Color.black.opacity(0.06),
+                    radius: 8,
+                    x: 0,
+                    y: 4
+                )
+
+                Button {
+                    onClose()
+                } label: {
+                    Text(
+                        isEnglish
+                            ? "Close"
+                            : "סגור"
+                    )
+                    .font(.system(size: 16, weight: .black))
+                    .foregroundStyle(Color.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .background(
+                        RoundedRectangle(
+                            cornerRadius: 18,
+                            style: .continuous
+                        )
+                        .fill(
+                            Color(
+                                red: 0.16,
+                                green: 0.40,
+                                blue: 0.88
+                            )
+                        )
+                    )
+                    .shadow(
+                        color: Color.blue.opacity(0.20),
+                        radius: 7,
+                        x: 0,
+                        y: 4
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 12)
+        }
+        .environment(
+            \.layoutDirection,
+            isEnglish ? .leftToRight : .rightToLeft
+        )
     }
 }
 
@@ -2494,6 +3622,83 @@ private struct MaterialsActionButton: View {
     }
 }
 
+private func materialsFormattedExplanation(
+    _ source: String
+) -> AttributedString {
+    var result = AttributedString()
+    var remaining = source[...]
+
+    let redStart = "[[RED_BOLD]]"
+    let redEnd = "[[/RED_BOLD]]"
+    let blueStart = "[[BLUE_BOLD]]"
+    let blueEnd = "[[/BLUE_BOLD]]"
+
+    while !remaining.isEmpty {
+        let redRange = remaining.range(of: redStart)
+        let blueRange = remaining.range(of: blueStart)
+
+        let nextRange: Range<String.Index>?
+        let color: Color
+        let closingTag: String
+
+        switch (redRange, blueRange) {
+        case let (.some(red), .some(blue)):
+            if red.lowerBound < blue.lowerBound {
+                nextRange = red
+                color = .red
+                closingTag = redEnd
+            } else {
+                nextRange = blue
+                color = Color(red: 0.10, green: 0.42, blue: 0.92)
+                closingTag = blueEnd
+            }
+
+        case let (.some(red), .none):
+            nextRange = red
+            color = .red
+            closingTag = redEnd
+
+        case let (.none, .some(blue)):
+            nextRange = blue
+            color = Color(red: 0.10, green: 0.42, blue: 0.92)
+            closingTag = blueEnd
+
+        case (.none, .none):
+            result.append(AttributedString(String(remaining)))
+            remaining = remaining[remaining.endIndex...]
+            continue
+        }
+
+        guard let nextRange else { break }
+
+        let plainText = remaining[..<nextRange.lowerBound]
+        result.append(AttributedString(String(plainText)))
+
+        let markedStart = nextRange.upperBound
+        let markedRemainder = remaining[markedStart...]
+
+        guard let closingRange = markedRemainder.range(of: closingTag) else {
+            result.append(AttributedString(String(remaining[nextRange.lowerBound...])))
+            break
+        }
+
+        var highlighted = AttributedString(
+            String(markedRemainder[..<closingRange.lowerBound])
+        )
+
+        highlighted.foregroundColor = color
+        highlighted.font = .system(
+            size: 16.2,
+            weight: .bold
+        )
+
+        result.append(highlighted)
+        remaining = markedRemainder[closingRange.upperBound...]
+    }
+
+    return result
+}
+
 // MARK: - Info sheet
 
 private struct MaterialsInfoSheet: View {
@@ -2548,7 +3753,7 @@ private struct MaterialsInfoSheet: View {
                 .environment(\.layoutDirection, .leftToRight)
 
                 ScrollView {
-                    Text(text)
+                    Text(materialsFormattedExplanation(text))
                         .font(.system(size: 16.2, weight: .semibold))
                         .foregroundStyle(Color(red: 0.10, green: 0.12, blue: 0.17))
                         .lineSpacing(5)
@@ -2990,17 +4195,166 @@ enum MaterialsPdfGeneratorIOS {
         items: [MaterialsPdfItemIOS],
         isEnglish: Bool
     ) -> CGFloat {
-        let knownTitle = isEnglish ? "Known" : "יודע"
-        let unknownTitle = isEnglish ? "Unknown" : "לא יודע"
+        let knownTitle =
+            isEnglish ? "Known" : "יודע"
 
-        let stats: [(String, String)] = [
-            ("\(items.count)", isEnglish ? "Exercises" : "תרגילים"),
-            ("\(items.filter { $0.status == knownTitle }.count)", knownTitle),
-            ("\(items.filter { $0.status == unknownTitle }.count)", unknownTitle),
-            ("\(items.filter(\.isExcluded).count)", isEnglish ? "Excluded" : "מוחרגים"),
-            ("\(items.filter(\.isFavorite).count)", isEnglish ? "Favorites" : "מועדפים"),
-            ("\(items.filter(\.hasNote).count)", isEnglish ? "Notes" : "הערות")
+        let unknownTitle =
+            isEnglish ? "Unknown" : "לא יודע"
+
+        let notTaughtTitle =
+            isEnglish ? "Not taught" : "לא נלמד"
+
+        let taughtTitle =
+            isEnglish ? "Taught" : "נלמד"
+
+        let practicedTitle =
+            isEnglish ? "Practiced" : "תורגל"
+
+        let reinforcementTitle =
+            isEnglish
+            ? "Needs reinforcement"
+            : "נדרש חיזוק"
+
+        /*
+         * מזהים את סוג הדוח לפי הסטטוסים
+         * שכבר הוכנסו לפריטי ה־PDF.
+         */
+        let coachStatusTitles: Set<String> = [
+            notTaughtTitle,
+            taughtTitle,
+            practicedTitle,
+            reinforcementTitle
         ]
+
+        let isCoachReport =
+            items.contains { item in
+                coachStatusTitles.contains(
+                    item.status
+                )
+            }
+
+        /*
+         * מחשבים את כל הספירות לפני יצירת המחרוזות.
+         *
+         * כך אין ביטויי filter שנשברים על כמה
+         * שורות בתוך String interpolation.
+         */
+        let knownCount =
+            items.filter { item in
+                item.status == knownTitle
+            }.count
+
+        let unknownCount =
+            items.filter { item in
+                item.status == unknownTitle
+            }.count
+
+        let notTaughtCount =
+            items.filter { item in
+                item.status == notTaughtTitle
+            }.count
+
+        let taughtCount =
+            items.filter { item in
+                item.status == taughtTitle
+            }.count
+
+        let practicedCount =
+            items.filter { item in
+                item.status == practicedTitle
+            }.count
+
+        let reinforcementCount =
+            items.filter { item in
+                item.status == reinforcementTitle
+            }.count
+
+        let favoritesCount =
+            items.filter { item in
+                item.isFavorite
+            }.count
+
+        let excludedCount =
+            items.filter { item in
+                item.isExcluded
+            }.count
+
+        let notesCount =
+            items.filter { item in
+                item.hasNote
+            }.count
+
+        let stats: [(String, String)]
+
+        if isCoachReport {
+            stats = [
+                (
+                    String(practicedCount),
+                    practicedTitle
+                ),
+                (
+                    String(reinforcementCount),
+                    isEnglish
+                        ? "Reinforce"
+                        : "נדרש חיזוק"
+                ),
+                (
+                    String(taughtCount),
+                    taughtTitle
+                ),
+                (
+                    String(notTaughtCount),
+                    notTaughtTitle
+                ),
+                (
+                    String(favoritesCount),
+                    isEnglish
+                        ? "Favorites"
+                        : "מועדפים"
+                ),
+                (
+                    String(excludedCount),
+                    isEnglish
+                        ? "Excluded"
+                        : "מוחרגים"
+                )
+            ]
+        } else {
+            stats = [
+                (
+                    String(items.count),
+                    isEnglish
+                        ? "Exercises"
+                        : "תרגילים"
+                ),
+                (
+                    String(knownCount),
+                    knownTitle
+                ),
+                (
+                    String(unknownCount),
+                    unknownTitle
+                ),
+                (
+                    String(excludedCount),
+                    isEnglish
+                        ? "Excluded"
+                        : "מוחרגים"
+                ),
+                (
+                    String(favoritesCount),
+                    isEnglish
+                        ? "Favorites"
+                        : "מועדפים"
+                ),
+                (
+                    String(notesCount),
+                    isEnglish
+                        ? "Notes"
+                        : "הערות"
+                )
+            ]
+        }
 
         let container = CGRect(
             x: 24,
@@ -3144,15 +4498,51 @@ enum MaterialsPdfGeneratorIOS {
         )
 
         let statusColor: UIColor = {
-            if item.status == (isEnglish ? "Known" : "יודע") {
-                return UIColor(red: 22 / 255, green: 163 / 255, blue: 74 / 255, alpha: 1)
+            if item.status == (
+                isEnglish ? "Known" : "יודע"
+            ) || item.status == (
+                isEnglish ? "Taught" : "נלמד"
+            ) {
+                return UIColor(
+                    red: 47 / 255,
+                    green: 155 / 255,
+                    blue: 78 / 255,
+                    alpha: 1
+                )
             }
 
-            if item.status == (isEnglish ? "Unknown" : "לא יודע") {
-                return UIColor(red: 217 / 255, green: 119 / 255, blue: 6 / 255, alpha: 1)
+            if item.status == (
+                isEnglish ? "Practiced" : "תורגל"
+            ) {
+                return UIColor(
+                    red: 52 / 255,
+                    green: 120 / 255,
+                    blue: 212 / 255,
+                    alpha: 1
+                )
             }
 
-            return UIColor(red: 80 / 255, green: 100 / 255, blue: 120 / 255, alpha: 1)
+            if item.status == (
+                isEnglish
+                    ? "Needs reinforcement"
+                    : "נדרש חיזוק"
+            ) || item.status == (
+                isEnglish ? "Unknown" : "לא יודע"
+            ) {
+                return UIColor(
+                    red: 242 / 255,
+                    green: 140 / 255,
+                    blue: 40 / 255,
+                    alpha: 1
+                )
+            }
+
+            return UIColor(
+                red: 80 / 255,
+                green: 100 / 255,
+                blue: 120 / 255,
+                alpha: 1
+            )
         }()
 
         drawText(

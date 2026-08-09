@@ -206,9 +206,36 @@ struct HomeView: View {
     @State private var selectedTraining: TrainingData? = nil
     @State private var showNavigationSheet: Bool = false
 
+    /*
+     * שינויי אימונים שמגיעים בזמן אמת מ־Firestore.
+     *
+     * המפתח הוא occurrenceKey של האימון המקורי.
+     */
+    @State private var activeTrainingOverrides:
+        [String: TrainingOverride] = [:]
+
+    @State private var trainingOverrideListener:
+        TrainingOverrideListenerHandle?
+
+    /*
+     * בקשת ניהול האימון שנפתחה על ידי מאמן.
+     */
+    @State private var selectedTrainingManagementRequest:
+        TrainingManagementRequest?
+
+    @State private var showTrainingManagementSheet:
+        Bool = false
+
     @State private var pdfShareItem: HomePDFShareItem? = nil
     @State private var pdfExportErrorMessage: String? = nil
     @State private var freeSessionsErrorMessage: String? = nil
+
+    /*
+     * מאפשר בדיקה מיידית של תוקף המנוי
+     * כאשר האפליקציה חוזרת מה־background.
+     */
+    @Environment(\.scenePhase)
+    private var scenePhase
 
     // Android parity: quick menu icon must always be visible on Home
     @State private var showHomeQuickMenu: Bool = false
@@ -498,14 +525,17 @@ struct HomeView: View {
     
     private var isCoachUser: Bool {
         switch resolvedUserRole {
-        case "coach", "trainer", "מאמן":
+        case "coach",
+             "trainer",
+             "מאמן",
+             "מדריך":
             return true
 
         default:
             return false
         }
     }
-    
+
     private var hasFullAccess: Bool {
         let nowMillis = Date().timeIntervalSince1970 * 1000
 
@@ -536,20 +566,92 @@ struct HomeView: View {
     }
     
     private func clearExpiredSubscriptionFlagsIfNeeded() {
-        let nowMillis = Date().timeIntervalSince1970 * 1000
+        let nowMillis =
+            Date().timeIntervalSince1970 * 1000
+
+        let cleanProduct =
+            subscriptionProduct
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
 
         let hasSubscriptionFlags =
-            googleSubscriptionVerifiedFlag ||
-            hasFullAccessFlag ||
-            fullAccessFlag ||
-            subscriptionActiveFlag ||
-            isSubscribedFlag ||
-            !subscriptionProduct.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            googleSubscriptionVerifiedFlag
+            || hasFullAccessFlag
+            || fullAccessFlag
+            || subscriptionActiveFlag
+            || isSubscribedFlag
+            || !cleanProduct.isEmpty
 
-        guard hasSubscriptionFlags else { return }
-        guard subscriptionAccessUntil > 0 else { return }
-        guard subscriptionAccessUntil <= nowMillis else { return }
+        guard hasSubscriptionFlags else {
+            return
+        }
 
+        /*
+         * אם אין בכלל תאריך תפוגה, אין גישה פעילה,
+         * אבל גם לא מוחקים כאן נתוני רכישה שעדיין
+         * עשויים להמתין לאימות.
+         */
+        guard subscriptionAccessUntil > 0 else {
+            return
+        }
+
+        guard subscriptionAccessUntil
+                <= nowMillis else {
+            return
+        }
+
+        let defaults =
+            UserDefaults.standard
+
+        /*
+         * מנקים את כל הדגלים ומפתחות הרכישה
+         * שהיו עשויים להשאיר מסכים אחרים פתוחים.
+         */
+        defaults.set(
+            false,
+            forKey: "has_full_access"
+        )
+        defaults.set(
+            false,
+            forKey: "full_access"
+        )
+        defaults.set(
+            false,
+            forKey: "subscription_active"
+        )
+        defaults.set(
+            false,
+            forKey: "is_subscribed"
+        )
+        defaults.set(
+            false,
+            forKey:
+                "google_subscription_verified"
+        )
+
+        defaults.removeObject(
+            forKey: "sub_product"
+        )
+        defaults.removeObject(
+            forKey: "sub_token"
+        )
+        defaults.removeObject(
+            forKey: "sub_purchase_time"
+        )
+        defaults.removeObject(
+            forKey: "sub_access_until"
+        )
+
+        defaults.set(
+            Date().timeIntervalSince1970 * 1000,
+            forKey: "access_changed_at"
+        )
+
+        /*
+         * עדכון גם של משתני AppStorage
+         * כדי שהממשק יתרענן מיד.
+         */
         hasFullAccessFlag = false
         fullAccessFlag = false
         subscriptionActiveFlag = false
@@ -557,6 +659,13 @@ struct HomeView: View {
         googleSubscriptionVerifiedFlag = false
         subscriptionProduct = ""
         subscriptionAccessUntil = 0
+
+        NotificationCenter.default.post(
+            name: Notification.Name(
+                "KMI_ACCESS_CHANGED"
+            ),
+            object: nil
+        )
     }
 
     private func runPremiumHomeAction(
@@ -683,38 +792,458 @@ struct HomeView: View {
     
     private var resolvedBelt: Belt {
         switch resolvedBeltId {
-        case "yellow", "צהוב", "צהובה": return .yellow
-        case "orange", "כתום", "כתומה": return .orange
-        case "green", "ירוק", "ירוקה": return .green
-        case "blue", "כחול", "כחולה": return .blue
-        case "brown", "חום", "חומה": return .brown
-        case "black", "שחור", "שחורה": return .black
-        default: return .white
+        case "yellow",
+             "צהוב",
+             "צהובה":
+            return .yellow
+
+        case "orange",
+             "כתום",
+             "כתומה":
+            return .orange
+
+        case "green",
+             "ירוק",
+             "ירוקה":
+            return .green
+
+        case "blue",
+             "כחול",
+             "כחולה":
+            return .blue
+
+        case "brown",
+             "חום",
+             "חומה":
+            return .brown
+
+        case "black",
+             "שחור",
+             "שחורה":
+            return .black
+
+        default:
+            return .white
         }
     }
-    
+
+    /*
+     * נרמול חלקי טקסט לצורך זיהוי
+     * אותו אימון פיזי מכמה מקורות.
+     */
+    private func normalizedTrainingIdentityPart(
+        _ value: String
+    ) -> String {
+        value
+            .replacingOccurrences(
+                of: "\u{200F}",
+                with: ""
+            )
+            .replacingOccurrences(
+                of: "\u{200E}",
+                with: ""
+            )
+            .replacingOccurrences(
+                of: "\u{00A0}",
+                with: " "
+            )
+            .replacingOccurrences(
+                of: "־",
+                with: "-"
+            )
+            .replacingOccurrences(
+                of: "–",
+                with: "-"
+            )
+            .replacingOccurrences(
+                of: "—",
+                with: "-"
+            )
+            .replacingOccurrences(
+                of: "\\s+",
+                with: " ",
+                options: .regularExpression
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased()
+    }
+
+    /*
+     * הקבוצה אינה חלק מהמפתח בכוונה.
+     *
+     * אותו אימון עשוי להתאים לכמה קבוצות,
+     * אך במסך הבית הוא צריך להופיע פעם אחת.
+     */
+    private func physicalTrainingKey(
+        for training: TrainingData
+    ) -> String {
+        let startMinute =
+            Int(
+                training.date
+                    .timeIntervalSince1970
+                / 60
+            )
+
+        let normalizedEnd =
+            normalizedTrainingIdentityPart(
+                training.endText
+            )
+
+        let normalizedPlace =
+            normalizedTrainingIdentityPart(
+                training.place
+            )
+
+        let normalizedAddress =
+            normalizedTrainingIdentityPart(
+                training.address
+            )
+
+        return [
+            String(startMinute),
+            normalizedEnd,
+            normalizedPlace,
+            normalizedAddress
+        ]
+        .joined(separator: "|")
+    }
+
+    private func trainingCompletenessScore(
+        _ training: TrainingData
+    ) -> Int {
+        [
+            training.place,
+            training.address,
+            training.coach,
+            training.endText
+        ]
+        .map {
+            $0.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+        }
+        .filter {
+            !$0.isEmpty
+        }
+        .count
+    }
+
+    private func trainingOccurrenceKey(
+        for training: TrainingData
+    ) -> String {
+        TrainingOverrideRepository
+            .buildOccurrenceKey(
+                training: training,
+                branch: resolvedBranch,
+                group: resolvedGroup
+            )
+    }
+
     private var effectiveUpcomingTrainings: [TrainingData] {
         guard !isAbroadUser else {
             return []
         }
 
+        let grouped =
+            Dictionary(
+                grouping:
+                    trainingsVm
+                        .upcomingTrainings,
+                by: {
+                    physicalTrainingKey(
+                        for: $0
+                    )
+                }
+            )
+
+        /*
+         * אם אותו אימון הגיע מכמה מקורות,
+         * בוחרים את הרשומה המלאה ביותר.
+         */
+        let uniqueTrainings =
+            grouped.values.compactMap {
+                duplicateTrainings in
+
+                duplicateTrainings.max {
+                    left,
+                    right in
+
+                    trainingCompletenessScore(
+                        left
+                    )
+                    < trainingCompletenessScore(
+                        right
+                    )
+                }
+            }
+
         return Array(
-            trainingsVm.upcomingTrainings
-                .sorted { left, right in
+            uniqueTrainings
+                .sorted {
+                    left,
+                    right in
+
                     left.date < right.date
                 }
                 .prefix(5)
         )
     }
 
-    private var effectiveStatusMessage: String? {
+    private var trainingOccurrenceKeys: Set<String> {
+        Set(
+            effectiveUpcomingTrainings.map {
+                trainingOccurrenceKey(
+                    for: $0
+                )
+            }
+        )
+    }
+
+    private func activeOverride(
+        for training: TrainingData
+    ) -> TrainingOverride? {
+        let occurrenceKey =
+            trainingOccurrenceKey(
+                for: training
+            )
+
+        return activeTrainingOverrides[
+            occurrenceKey
+        ]
+    }
+
+    private func originalTrainingEndDate(
+        for training: TrainingData
+    ) -> Date {
+        let startDate = training.date
+
+        let rawEndTime =
+            training.endText
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        let normalizedEndTime =
+            rawEndTime.replacingOccurrences(
+                of: #"[^0-9:]"#,
+                with: "",
+                options: .regularExpression
+            )
+
+        let timeParts =
+            normalizedEndTime
+                .split(
+                    separator: ":",
+                    omittingEmptySubsequences: true
+                )
+
+        let parsedHour: Int? =
+            timeParts.indices.contains(0)
+            ? Int(String(timeParts[0]))
+            : nil
+
+        let parsedMinute: Int? =
+            timeParts.indices.contains(1)
+            ? Int(String(timeParts[1]))
+            : nil
+
+        guard let hour = parsedHour,
+              let minute = parsedMinute,
+              (0...23).contains(hour),
+              (0...59).contains(minute) else {
+            return Calendar.current.date(
+                byAdding: .minute,
+                value: 90,
+                to: startDate
+            ) ?? startDate
+        }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale =
+            Locale(identifier: "en_US_POSIX")
+
+        var endComponents =
+            calendar.dateComponents(
+                [
+                    .year,
+                    .month,
+                    .day
+                ],
+                from: startDate
+            )
+
+        endComponents.hour = hour
+        endComponents.minute = minute
+        endComponents.second = 0
+
+        guard var endDate =
+            calendar.date(
+                from: endComponents
+            ) else {
+            return calendar.date(
+                byAdding: .minute,
+                value: 90,
+                to: startDate
+            ) ?? startDate
+        }
+
+        /*
+         * אם שעת הסיום קטנה משעת ההתחלה או שווה לה,
+         * האימון מסתיים ביום הבא.
+         */
+        if endDate <= startDate {
+            endDate =
+                calendar.date(
+                    byAdding: .day,
+                    value: 1,
+                    to: endDate
+                ) ?? endDate
+        }
+
+        return endDate
+    }
+
+    private func makeTrainingManagementRequest(
+        for training: TrainingData,
+        activeOverride: TrainingOverride?
+    ) -> TrainingManagementRequest {
+        let effectiveStartDate: Date
+        let effectiveEndDate: Date
+
+        if let activeOverride,
+           activeOverride.hasChangedTime {
+            effectiveStartDate =
+                activeOverride.effectiveStartDate
+
+            effectiveEndDate =
+                activeOverride.effectiveEndDate
+        } else {
+            effectiveStartDate =
+                training.date
+
+            effectiveEndDate =
+                originalTrainingEndDate(
+                    for: training
+                )
+        }
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale =
+            Locale(
+                identifier:
+                    isEnglish
+                    ? "en_US_POSIX"
+                    : "he_IL"
+            )
+        dateFormatter.calendar =
+            Calendar(identifier: .gregorian)
+        dateFormatter.dateFormat = "dd/MM/yyyy"
+
+        let timeFormatter = DateFormatter()
+        timeFormatter.locale =
+            Locale(identifier: "en_US_POSIX")
+        timeFormatter.calendar =
+            Calendar(identifier: .gregorian)
+        timeFormatter.dateFormat = "HH:mm"
+
+        let changedByName =
+            freeSessionsName
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        return TrainingManagementRequest(
+            uiData: TrainingManagementUiData(
+                occurrenceKey:
+                    trainingOccurrenceKey(
+                        for: training
+                    ),
+                place: training.place,
+                branch: resolvedBranch,
+                group: resolvedGroup,
+                dateText:
+                    dateFormatter.string(
+                        from: effectiveStartDate
+                    ),
+                startTime:
+                    timeFormatter.string(
+                        from: effectiveStartDate
+                    ),
+                endTime:
+                    timeFormatter.string(
+                        from: effectiveEndDate
+                    )
+            ),
+            training: training,
+            branch: resolvedBranch,
+            group: resolvedGroup,
+            changedByName:
+                changedByName.isEmpty
+                ? tr("מאמן", "Coach")
+                : changedByName,
+            activeOverride: activeOverride
+            )
+            }
+
+            private var effectiveStatusMessage: String? {
         if isAbroadUser {
             return nil
         }
 
         return trainingsVm.statusMessage
     }
-    
+
+    private func stopTrainingOverrideListener() {
+        trainingOverrideListener?
+            .remove()
+
+        trainingOverrideListener = nil
+    }
+
+    private func startTrainingOverrideListener() {
+        stopTrainingOverrideListener()
+
+        guard !isAbroadUser else {
+            activeTrainingOverrides = [:]
+            return
+        }
+
+        let occurrenceKeys =
+            trainingOccurrenceKeys
+
+        guard !occurrenceKeys.isEmpty else {
+            activeTrainingOverrides = [:]
+            return
+        }
+
+        trainingOverrideListener =
+            TrainingOverrideRepository
+                .listenForOccurrenceKeys(
+                    occurrenceKeys:
+                        occurrenceKeys,
+                    onChanged: {
+                        overrides in
+
+                        activeTrainingOverrides =
+                            overrides
+                    },
+                    onError: {
+                        error in
+
+                        /*
+                         * שגיאת המאזין אינה מוחקת את
+                         * לוח האימונים הרגיל.
+                         */
+                        print(
+                            "Training override listener error:",
+                            error.localizedDescription
+                        )
+                    }
+                )
+    }
+
     private var latestCoachMessage: CoachHomeMessage? {
         recentCoachMessages.first
     }
@@ -898,12 +1427,25 @@ struct HomeView: View {
                     } else {
                         VStack(spacing: 12) {
                             ForEach(effectiveUpcomingTrainings) { training in
+                                let trainingOverride = activeOverride(for: training)
+
                                 HomeTrainingCardAndroidStyle(
                                     training: training,
                                     isEnglish: isEnglish,
+                                    isCoach: isCoachUser,
+                                    activeOverride: trainingOverride,
                                     onNavigateTap: {
                                         selectedTraining = training
                                         showNavigationSheet = true
+                                    },
+                                    onManageTap: {
+                                        selectedTrainingManagementRequest =
+                                            makeTrainingManagementRequest(
+                                                for: training,
+                                                activeOverride: trainingOverride
+                                            )
+
+                                        showTrainingManagementSheet = true
                                     }
                                 )
                                 .padding(.horizontal, 18)
@@ -1001,14 +1543,26 @@ struct HomeView: View {
             clearExpiredSubscriptionFlagsIfNeeded()
             reloadTrainingsIfNeeded()
         }
-        .onAppear {
-            clearExpiredSubscriptionFlagsIfNeeded()
-            startCoachBroadcastListener()
-            openPendingCoachBroadcastIfNeeded()
-        }
-        .onDisappear {
-            stopCoachBroadcastListener()
-        }
+                .onAppear {
+                    clearExpiredSubscriptionFlagsIfNeeded()
+                    startCoachBroadcastListener()
+                    startTrainingOverrideListener()
+                    openPendingCoachBroadcastIfNeeded()
+                }
+                .onDisappear {
+                    stopCoachBroadcastListener()
+                    stopTrainingOverrideListener()
+                }
+                .onChange(of: scenePhase) {
+                    _, newPhase in
+
+                    guard newPhase == .active else {
+                        return
+                    }
+
+                    clearExpiredSubscriptionFlagsIfNeeded()
+                    reloadTrainingsIfNeeded()
+                }
                 .refreshable {
                     clearExpiredSubscriptionFlagsIfNeeded()
                     reloadTrainingsIfNeeded()
@@ -1017,41 +1571,55 @@ struct HomeView: View {
 
                 let observedContent = AnyView(
                     lifecycleContent
-                .onChange(of: auth.userRegion) { _, _ in
-            reloadTrainingsIfNeeded()
-        }
-        .onChange(of: auth.userBranch) { _, _ in
-            reloadTrainingsIfNeeded()
-            startCoachBroadcastListener()
-        }
-        .onChange(of: auth.userGroup) { _, _ in
-            reloadTrainingsIfNeeded()
-            startCoachBroadcastListener()
-        }
-        .onChange(of: storedRegion) { _, _ in
-            reloadTrainingsIfNeeded()
-        }
-        .onChange(of: storedActiveBranch) { _, _ in
-            reloadTrainingsIfNeeded()
-            startCoachBroadcastListener()
-        }
-        .onChange(of: storedBranch) { _, _ in
-            reloadTrainingsIfNeeded()
-            startCoachBroadcastListener()
-        }
-        .onChange(of: storedActiveGroup) { _, _ in
-            reloadTrainingsIfNeeded()
-            startCoachBroadcastListener()
-        }
-        .onChange(of: storedGroup) { _, _ in
-            reloadTrainingsIfNeeded()
-            startCoachBroadcastListener()
-        }
-        .onChange(of: Auth.auth().currentUser?.uid) { _, _ in
-            reloadTrainingsIfNeeded()
-            startCoachBroadcastListener()
-        }
-        .onChange(of: pendingCoachBroadcastId) { _, _ in
+                        .onChange(
+                            of: effectiveUpcomingTrainings
+                        ) { _, _ in
+                            startTrainingOverrideListener()
+                        }
+                        .onChange(of: auth.userRegion) { _, _ in
+                            reloadTrainingsIfNeeded()
+                            startTrainingOverrideListener()
+                        }
+                        .onChange(of: auth.userBranch) { _, _ in
+                            reloadTrainingsIfNeeded()
+                            startCoachBroadcastListener()
+                            startTrainingOverrideListener()
+                        }
+                        .onChange(of: auth.userGroup) { _, _ in
+                            reloadTrainingsIfNeeded()
+                            startCoachBroadcastListener()
+                            startTrainingOverrideListener()
+                        }
+                        .onChange(of: storedRegion) { _, _ in
+                            reloadTrainingsIfNeeded()
+                            startTrainingOverrideListener()
+                        }
+                        .onChange(of: storedActiveBranch) { _, _ in
+                            reloadTrainingsIfNeeded()
+                            startCoachBroadcastListener()
+                            startTrainingOverrideListener()
+                        }
+                        .onChange(of: storedBranch) { _, _ in
+                            reloadTrainingsIfNeeded()
+                            startCoachBroadcastListener()
+                            startTrainingOverrideListener()
+                        }
+                        .onChange(of: storedActiveGroup) { _, _ in
+                            reloadTrainingsIfNeeded()
+                            startCoachBroadcastListener()
+                            startTrainingOverrideListener()
+                        }
+                        .onChange(of: storedGroup) { _, _ in
+                            reloadTrainingsIfNeeded()
+                            startCoachBroadcastListener()
+                            startTrainingOverrideListener()
+                        }
+                        .onChange(of: Auth.auth().currentUser?.uid) { _, _ in
+                            reloadTrainingsIfNeeded()
+                            startCoachBroadcastListener()
+                            startTrainingOverrideListener()
+                        }
+                        .onChange(of: pendingCoachBroadcastId) { _, _ in
             openPendingCoachBroadcastIfNeeded()
         }
         .onChange(of: recentCoachMessages.count) { _, newCount in
@@ -1070,6 +1638,7 @@ struct HomeView: View {
                             clearExpiredSubscriptionFlagsIfNeeded()
                             reloadTrainingsIfNeeded()
                             startCoachBroadcastListener()
+                            startTrainingOverrideListener()
                             openPendingCoachBroadcastIfNeeded()
                         }
                         )
@@ -1099,14 +1668,33 @@ struct HomeView: View {
 
                                 let presentationContent = AnyView(
                                     navigationContent
-                                .sheet(isPresented: $showNavigationSheet, onDismiss: {
-            selectedTraining = nil
-        }) {
-            if let training = selectedTraining {
-                NavigationSheet(training: training)
-            }
-        }
-        .sheet(isPresented: $showCoachMessagesSheet) {
+                                        .sheet(isPresented: $showNavigationSheet, onDismiss: {
+                                            selectedTraining = nil
+                                        }) {
+                                            if let training = selectedTraining {
+                                                NavigationSheet(training: training)
+                                            }
+                                        }
+                                        .sheet(
+                                            isPresented: $showTrainingManagementSheet,
+                                            onDismiss: {
+                                                selectedTrainingManagementRequest = nil
+                                            }
+                                        ) {
+                                            if let request = selectedTrainingManagementRequest {
+                                                CoachTrainingOverrideSheet(
+                                                    request: request,
+                                                    isEnglish: isEnglish,
+                                                    onClose: {
+                                                        showTrainingManagementSheet = false
+                                                        selectedTrainingManagementRequest = nil
+                                                    }
+                                                )
+                                                .presentationDetents([.large])
+                                                .presentationDragIndicator(.visible)
+                                            }
+                                        }
+                                        .sheet(isPresented: $showCoachMessagesSheet) {
             CoachMessagesHistorySheet(
                 messages: recentCoachMessages,
                 isEnglish: isEnglish,
@@ -3251,7 +3839,10 @@ private struct HomeAbroadBranchNotice: View {
 private struct HomeTrainingCardAndroidStyle: View {
     let training: TrainingData
     let isEnglish: Bool
+    let isCoach: Bool
+    let activeOverride: TrainingOverride?
     let onNavigateTap: () -> Void
+    let onManageTap: () -> Void
 
     private var rowDirection: LayoutDirection {
         isEnglish ? .leftToRight : .rightToLeft
@@ -3474,9 +4065,19 @@ private struct HomeTrainingCardAndroidStyle: View {
     }
 
     private var dateLine: String {
-        guard let date = reflectedDate() else {
+        guard let originalDate = reflectedDate() else {
             return ""
         }
+
+        let date =
+            activeOverride?.hasChangedTime == true
+            ? activeOverride?.effectiveStartDate ?? originalDate
+            : originalDate
+
+        let overriddenEndDate =
+            activeOverride?.hasChangedTime == true
+            ? activeOverride?.effectiveEndDate
+            : nil
 
         let dayFormatter = DateFormatter()
         dayFormatter.locale = Locale(identifier: isEnglish ? "en_US_POSIX" : "he_IL")
@@ -3497,11 +4098,13 @@ private struct HomeTrainingCardAndroidStyle: View {
             reflectedDurationMinutes()
 
         let endDate =
+            overriddenEndDate ??
             Calendar.current.date(
                 byAdding: .minute,
                 value: durationMinutes,
                 to: date
-            ) ?? date
+            ) ??
+            date
 
         let dayText =
             dayFormatter.string(from: date)
@@ -3528,6 +4131,106 @@ private struct HomeTrainingCardAndroidStyle: View {
 
         return HomeHolidayCalendar
             .isTrainingBlocked(on: date)
+    }
+
+    private var isCancelledByCoach: Bool {
+        activeOverride?.isCancelled == true
+    }
+
+    private var wasChangedByCoach: Bool {
+        activeOverride?.hasChangedTime == true &&
+        !isCancelledByCoach
+    }
+
+    private var overrideMessage: String {
+        guard let activeOverride else {
+            return ""
+        }
+
+        let reason =
+            activeOverride.reason
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        let coachName =
+            activeOverride.changedByName
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        var parts: [String] = []
+
+        if !reason.isEmpty {
+            parts.append(reason)
+        }
+
+        if !coachName.isEmpty {
+            parts.append(
+                isEnglish
+                ? "Updated by \(coachName)"
+                : "עודכן על ידי \(coachName)"
+            )
+        }
+
+        return parts.joined(separator: " · ")
+    }
+
+    private var trainingOverrideBanner: some View {
+        VStack(spacing: 3) {
+            Text(
+                isCancelledByCoach
+                ? (
+                    isEnglish
+                    ? "Training cancelled"
+                    : "האימון בוטל"
+                )
+                : (
+                    isEnglish
+                    ? "Training time changed"
+                    : "שעת האימון שונתה"
+                )
+            )
+            .font(.system(size: 12, weight: .black))
+
+            if !overrideMessage.isEmpty {
+                Text(overrideMessage)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .foregroundStyle(
+            isCancelledByCoach
+            ? Color(hex: 0xFFB91C1C)
+            : Color(hex: 0xFF1D4ED8)
+        )
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(
+                cornerRadius: 14,
+                style: .continuous
+            )
+            .fill(
+                isCancelledByCoach
+                ? Color(hex: 0xFFFEF2F2)
+                : Color(hex: 0xFFEFF6FF)
+            )
+        )
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: 14,
+                style: .continuous
+            )
+            .stroke(
+                isCancelledByCoach
+                ? Color(hex: 0xFFEF4444).opacity(0.35)
+                : Color(hex: 0xFF3B82F6).opacity(0.35),
+                lineWidth: 1
+            )
+        )
+        .padding(.top, 2)
     }
 
     private var holidayCancellationBanner: some View {
@@ -3593,8 +4296,47 @@ private struct HomeTrainingCardAndroidStyle: View {
                         .frame(maxWidth: .infinity)
                 }
 
-                if isCancelledByHoliday {
+                if isCancelledByCoach || wasChangedByCoach {
+                    trainingOverrideBanner
+                } else if isCancelledByHoliday {
                     holidayCancellationBanner
+                }
+
+                if isCoach {
+                    Button {
+                        onManageTap()
+                    } label: {
+                        Label(
+                            isEnglish
+                            ? "Change or cancel training"
+                            : "שינוי או ביטול אימון",
+                            systemImage: "calendar.badge.clock"
+                        )
+                        .font(.system(size: 12, weight: .black))
+                        .foregroundStyle(Color(hex: 0xFF1D4ED8))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(
+                                cornerRadius: 12,
+                                style: .continuous
+                            )
+                            .fill(Color(hex: 0xFFEFF6FF))
+                        )
+                        .overlay(
+                            RoundedRectangle(
+                                cornerRadius: 12,
+                                style: .continuous
+                            )
+                            .stroke(
+                                Color(hex: 0xFF3B82F6)
+                                    .opacity(0.28),
+                                lineWidth: 1
+                            )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 3)
                 }
             }
 

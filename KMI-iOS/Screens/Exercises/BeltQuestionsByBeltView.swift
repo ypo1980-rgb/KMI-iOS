@@ -126,14 +126,15 @@ struct BeltQuestionsByBeltView: View {
     @State private var pdfShareItems: [Any] = []
     @State private var pdfErrorMessage: String? = nil
     
-    // ✅ Android parity:
-    // באנדרואיד מצב הגישה מתרענן גם בלי שינוי SharedPreferences,
-    // כדי שמנוי שפג יחזיר מנעולים כשהמשתמש נשאר במסך.
-    private let accessRefreshTimer = Timer
-        .publish(every: 30, on: .main, in: .common)
-        .autoconnect()
-    
-    private struct BeltTopicExerciseRoute: Identifiable, Hashable {
+    /*
+     * מצב הגישה מתרענן באמצעות
+     * KMI_ACCESS_CHANGED ו־UserDefaults.
+     *
+     * אין צורך בטיימר קבוע בזמן שהמסך פתוח.
+     */
+    private struct BeltTopicExerciseRoute:
+        Identifiable,
+        Hashable {
         let id: String
         let belt: Belt
         let topicTitle: String
@@ -535,7 +536,11 @@ struct BeltQuestionsByBeltView: View {
                         nav.push(
                             .summary(
                                 belt:
-                                    quickMenuBelt
+                                    quickMenuBelt,
+                                topic:
+                                    nil,
+                                subTopic:
+                                    nil
                             )
                         )
                     }
@@ -610,40 +615,83 @@ struct BeltQuestionsByBeltView: View {
         }
     }
     
-    private func nextBelt(after registered: Belt) -> Belt {
-        guard let currentIndex = belts.firstIndex(of: registered) else {
+    private func nextBelt(
+        after registered: Belt
+    ) -> Belt {
+        guard let currentIndex =
+            belts.firstIndex(
+                of: registered
+            ) else {
             return Belt.orange
         }
-        
-        if currentIndex >= belts.count - 1 {
-            return belts.first ?? Belt.orange
+
+        /*
+         * חגורה שחורה היא החגורה האחרונה.
+         * לא חוזרים ממנה לחגורה הצהובה.
+         */
+        if currentIndex >=
+            belts.count - 1 {
+            return registered
         }
-        
-        return belts[currentIndex + 1]
+
+        return belts[
+            currentIndex + 1
+        ]
     }
-    
-    private func initialBeltLikeAndroid(defaults: UserDefaults = .standard) -> Belt {
+
+    private func initialBeltLikeAndroid(
+        defaults: UserDefaults = .standard
+    ) -> Belt {
+        /*
+         * חגורה שהועברה במפורש למסך מקבלת
+         * קדימות, למשל מפקודה קולית או מקישור ישיר.
+         *
+         * חגורה לבנה אינה מוצגת בגלגל ולכן
+         * אינה נחשבת בחירה מפורשת תקינה כאן.
+         */
+        if belt != .white,
+           belts.contains(belt) {
+            return belt
+        }
+
         let storedRaw =
-            defaults.string(forKey: "current_belt") ??
-            defaults.string(forKey: "belt_current") ??
-            defaults.string(forKey: "currentBelt") ??
-            defaults.string(forKey: "belt")
-        
-        let clean = (storedRaw ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        guard !clean.isEmpty, let registeredBelt = beltFromStoredId(clean) else {
+            defaults.string(
+                forKey: "current_belt"
+            )
+            ?? defaults.string(
+                forKey: "belt_current"
+            )
+            ?? defaults.string(
+                forKey: "currentBelt"
+            )
+            ?? defaults.string(
+                forKey: "belt"
+            )
+
+        let clean =
+            (storedRaw ?? "")
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        guard !clean.isEmpty,
+              let registeredBelt =
+                beltFromStoredId(clean) else {
             return Belt.orange
         }
-        
-        if registeredBelt == Belt.white {
+
+        if registeredBelt == .white {
             return Belt.yellow
         }
-        
-        return nextBelt(after: registeredBelt)
+
+        return nextBelt(
+            after: registeredBelt
+        )
     }
-    
-    private func toSharedSubject(_ local: SubjectTopic) -> Shared.SubjectTopic {
+
+    private func toSharedSubject(
+        _ local: SubjectTopic
+    ) -> Shared.SubjectTopic {
         Shared.SubjectTopic(
             id: local.id,
             titleHeb: local.titleHeb,
@@ -1537,11 +1585,19 @@ struct BeltQuestionsByBeltView: View {
             tab = .byBelt
             expandedTopic = nil
 
-            // Android parity:
-            // אם אין חגורה רשומה / המשתמש לבנה — מתחילים מכתומה.
-            // אחרת מתחילים מהחגורה הבאה אחרי החגורה הרשומה.
-            selectedBelt = initialBeltLikeAndroid()
-            byTopicActiveBelt = selectedBelt
+            /*
+             * התאמה לאנדרואיד:
+             *
+             * אין חגורה רשומה -> כתומה.
+             * חגורה לבנה      -> צהובה.
+             * חגורה רגילה     -> החגורה הבאה.
+             * חגורה שחורה     -> נשארים בשחורה.
+             */
+            selectedBelt =
+                initialBeltLikeAndroid()
+
+            byTopicActiveBelt =
+                selectedBelt
 
             didInitializeSelectedBelt = true
 
@@ -1550,13 +1606,46 @@ struct BeltQuestionsByBeltView: View {
                 object: screenTitleForMode
             )
         }
+        .onChange(of: belt) { _, newBelt in
+            /*
+             * המסך עשוי להישאר בזיכרון בזמן
+             * שפקודה קולית בוחרת חגורה אחרת.
+             */
+            guard newBelt != .white,
+                  belts.contains(newBelt),
+                  selectedBelt != newBelt else {
+                return
+            }
+
+            selectedBelt = newBelt
+            byTopicActiveBelt = newBelt
+            expandedTopic = nil
+            quickMenuOpen = false
+            tab = .byBelt
+        }
         .onChange(of: selectedBelt) { _, newValue in
             expandedTopic = nil
-            
+
+            /*
+             * מסנכרנים את החגורה הפעילה עם
+             * שאר מסכי האפליקציה.
+             */
+            UserDefaults.standard.set(
+                newValue.id,
+                forKey: "selected_belt"
+            )
+
+            NotificationCenter.default.post(
+                name: Notification.Name(
+                    "KMI_SELECTED_BELT_CHANGED"
+                ),
+                object: newValue.id
+            )
+
             if tab == .byBelt {
                 byTopicActiveBelt = newValue
             }
-            
+
             if quickMenuOpen {
                 withAnimation(.spring(response: 0.24, dampingFraction: 0.92)) {
                     quickMenuOpen = false
@@ -1584,12 +1673,22 @@ struct BeltQuestionsByBeltView: View {
         }
         .onReceive(
             NotificationCenter.default.publisher(
-                for: Notification.Name("KMI_ACCESS_CHANGED")
+                for: Notification.Name(
+                    "KMI_ACCESS_CHANGED"
+                )
             )
         ) { _ in
             accessRefreshTick += 1
         }
-        .onReceive(accessRefreshTimer) { _ in
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: UserDefaults.didChangeNotification
+            )
+        ) { _ in
+            /*
+             * מרענן את אייקוני הנעילה כאשר
+             * נתוני המנוי משתנים מקומית.
+             */
             accessRefreshTick += 1
         }
         .onReceive(
@@ -1649,11 +1748,43 @@ struct BeltQuestionsByBeltView: View {
                     belt: route.belt,
                     topicTitle: route.topicTitle,
                     subTopicTitle: route.forcedSubTopicTitle,
-                    onSummary: { belt, topicTitle, subTopicTitle in
+                    onSummary: {
+                        belt,
+                        topicTitle,
+                        subTopicTitle in
+
                         selectedBelt = belt
-                        nav.push(.summary(belt: belt))
+
+                        let cleanTopic =
+                            topicTitle
+                                .trimmingCharacters(
+                                    in: .whitespacesAndNewlines
+                                )
+
+                        let cleanSubTopic =
+                            subTopicTitle?
+                                .trimmingCharacters(
+                                    in: .whitespacesAndNewlines
+                                )
+
+                        nav.push(
+                            .summary(
+                                belt: belt,
+                                topic:
+                                    cleanTopic.isEmpty
+                                    ? nil
+                                    : cleanTopic,
+                                subTopic:
+                                    cleanSubTopic?
+                                        .isEmpty == false
+                                    ? cleanSubTopic
+                                    : nil
+                            )
+                        )
                     },
-                    onPractice: { belt, topicTitle in
+                    onPractice: {
+                        belt,
+                        topicTitle in
                         selectedBelt = belt
                         practiceTokenFromLists = topicTitle
                         nav.push(.practice(belt: belt, topicTitle: topicTitle))

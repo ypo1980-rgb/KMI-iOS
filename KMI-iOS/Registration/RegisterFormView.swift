@@ -346,6 +346,15 @@ struct RegisterFormView: View {
         firebaseUid == "DBoyoVVpsrVUX0ukhKwNyQlKUKY2"
     }
 
+    /*
+     * במסך עריכת פרופיל התפקיד כבר נקבע בזמן ההתחברות.
+     * לכן אסור שמנגנון האישור של רישום חדש ידרוס אותו.
+     */
+    private var isEditingProfile: Bool {
+        screenTitle == "עריכת פרופיל" ||
+        screenTitle == "Edit Profile"
+    }
+
     init(
         prefillPhone: String = "",
         prefillEmail: String = "",
@@ -762,6 +771,15 @@ struct RegisterFormView: View {
     }
     
     private func applyRoleGate() {
+        /*
+         * בעריכת פרופיל שומרים על התפקיד שהועבר מהפרופיל הפעיל.
+         * מנגנון הרשימה המורשית מיועד לרישום חדש בלבד.
+         */
+        if isEditingProfile {
+            s.role = initialRole
+            return
+        }
+
         if isSuperTester {
             return
         }
@@ -772,7 +790,7 @@ struct RegisterFormView: View {
             s.role = .trainee
         }
     }
-        
+          
     private var headerBar: some View {
         HStack {
             Button(action: onBack) {
@@ -824,6 +842,15 @@ struct RegisterFormView: View {
         let title = role == .trainee ? tr("מתאמן", "Trainee") : tr("מאמן", "Coach")
 
         return Button {
+            /*
+             * בעריכת פרופיל לא משנים את סוג החשבון.
+             * מציגים את התפקיד הפעיל בלבד.
+             */
+            if isEditingProfile {
+                s.role = initialRole
+                return
+            }
+
             if !isSuperTester {
                 if role == .coach && !isWhitelistedCoach {
                     s.role = .trainee
@@ -1478,7 +1505,9 @@ struct RegisterFormView: View {
             return tr("חובה לבחור לפחות קבוצה אחת", "Please choose at least one group")
         }
 
-        if s.role == .coach, !isWhitelistedCoach {
+        if !isEditingProfile,
+           s.role == .coach,
+           !isWhitelistedCoach {
             return tr(
                 "הרישום כמאמן מותר רק למאמנים מורשים",
                 "Coach registration is allowed only for authorized coaches"

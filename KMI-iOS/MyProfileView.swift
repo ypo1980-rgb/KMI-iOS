@@ -15,6 +15,8 @@ private struct MyProfileBranchEntry: Identifiable {
     let id = UUID()
     let branch: String
     let address: String
+    let group: String
+    let coach: String
 }
 
 private struct MyProfileFirestoreInfo {
@@ -263,7 +265,9 @@ struct MyProfileView: View {
 
             return MyProfileBranchEntry(
                 branch: branchValue,
-                address: resolvedAddress
+                address: resolvedAddress,
+                group: displayedGroup,
+                coach: displayedCoach
             )
         }
     }
@@ -576,16 +580,6 @@ struct MyProfileView: View {
             )
 
             labeledValueBlock(
-                label: tr("קבוצה:", "Group:"),
-                value: displayedGroup
-            )
-
-            labeledValueBlock(
-                label: tr("מאמן:", "Coach:"),
-                value: displayedCoach
-            )
-
-            labeledValueBlock(
                 label: tr("אימון הבא:", "Next training:"),
                 value: displayedNextTraining
             )
@@ -666,6 +660,36 @@ struct MyProfileView: View {
                         Text(entry.address.ifBlankDash())
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(Color(red: 0.22, green: 0.25, blue: 0.32))
+                            .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
+                            .multilineTextAlignment(profileTextAlignment)
+
+                        Spacer()
+                            .frame(height: 4)
+
+                        Text(tr("קבוצה:", "Group:"))
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Color(red: 0.35, green: 0.40, blue: 0.50))
+                            .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
+                            .multilineTextAlignment(profileTextAlignment)
+
+                        Text(entry.group.ifBlankDash())
+                            .font(.system(size: 14, weight: .heavy))
+                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.18))
+                            .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
+                            .multilineTextAlignment(profileTextAlignment)
+
+                        Spacer()
+                            .frame(height: 2)
+
+                        Text(tr("מאמן:", "Coach:"))
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Color(red: 0.35, green: 0.40, blue: 0.50))
+                            .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
+                            .multilineTextAlignment(profileTextAlignment)
+
+                        Text(entry.coach.ifBlankDash())
+                            .font(.system(size: 14, weight: .heavy))
+                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.18))
                             .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                             .multilineTextAlignment(profileTextAlignment)
                     }

@@ -170,8 +170,24 @@ enum AppRoute: Hashable {
 
     case weakPoints(belt: Belt)
     case allLists(belt: Belt)
-    case practice(belt: Belt, topicTitle: String)
-    case summary(belt: Belt)
+    case practice(
+        belt: Belt,
+        topicTitle: String
+    )
+
+    /*
+     * סיכום יכול להיפתח עבור:
+     *
+     * חגורה מלאה      -> topic ו־subTopic ריקים.
+     * נושא מסוים      -> topic בלבד.
+     * תת־נושא מסוים   -> topic וגם subTopic.
+     */
+    case summary(
+        belt: Belt,
+        topic: String?,
+        subTopic: String?
+    )
+
     case voiceAssistant
     case onboarding(manual: Bool)
 
@@ -1626,10 +1642,28 @@ struct ContentView: View {
                             )
                         }
 
-                    case .summary(let belt):
-                        KmiRootLayout(title: "מסך סיכום", nav: nav, selectedIcon: .home) {
-                            SummaryView(belt: belt, nav: nav)
-                                .navigationBarBackButtonHidden(true)
+                    case .summary(
+                        let belt,
+                        let topic,
+                        let subTopic
+                    ):
+                        KmiRootLayout(
+                            title: tr(
+                                "מסך סיכום",
+                                "Summary"
+                            ),
+                            nav: nav,
+                            selectedIcon: .home
+                        ) {
+                            SummaryView(
+                                belt: belt,
+                                topic: topic,
+                                subTopic: subTopic,
+                                nav: nav
+                            )
+                            .navigationBarBackButtonHidden(
+                                true
+                            )
                         }
 
                     case .voiceAssistant:

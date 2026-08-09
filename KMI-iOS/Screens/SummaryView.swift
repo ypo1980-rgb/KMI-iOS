@@ -5,20 +5,57 @@ import FirebaseFirestore
 
 // MARK: - Summary models (file-scope)
 
-// זהה ללוגיקה מהתרגילים
+// מצב הסימון של המתאמן.
 enum SummaryMark: String {
     case done
     case notDone
 
-    static func fromStoredValue(_ value: String) -> SummaryMark? {
-        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    static func fromStoredValue(
+        _ value: String
+    ) -> SummaryMark? {
+        switch value
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased() {
+
         case "done", "mastered":
             return .done
+
         case "notdone", "not_done", "unknown":
             return .notDone
+
         default:
             return nil
         }
+    }
+}
+
+/*
+ * סטטוסי המאמן זהים לסטטוסים שנשמרים
+ * מתוך MaterialsView.
+ */
+enum SummaryCoachStatus: String, CaseIterable {
+    case notTaught = "not_taught"
+    case taught = "taught"
+    case practiced = "practiced"
+    case needsReinforcement =
+        "needs_reinforcement"
+
+    static func fromStoredValue(
+        _ value: String?
+    ) -> SummaryCoachStatus {
+        guard let value else {
+            return .notTaught
+        }
+
+        return SummaryCoachStatus(
+            rawValue: value
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
+        ) ?? .notTaught
     }
 }
 
@@ -27,7 +64,13 @@ struct SummaryRowItem: Identifiable {
     let title: String
     let subTopicTitle: String?
     let indexInStatusGroup: Int
+
+    /*
+     * mark משמש את המתאמן.
+     * coachStatus משמש את המאמן.
+     */
     let mark: SummaryMark?
+    let coachStatus: SummaryCoachStatus
 }
 
 struct SummaryTopicBlock: Identifiable {
@@ -35,13 +78,72 @@ struct SummaryTopicBlock: Identifiable {
     let title: String
     let items: [SummaryRowItem]
 
-    var doneCount: Int { items.filter { $0.mark == .done }.count }
-    var notDoneCount: Int { items.filter { $0.mark == .notDone }.count }
-    var totalCount: Int { items.count }
+    var doneCount: Int {
+        items.filter {
+            $0.mark == .done
+        }.count
+    }
 
-    var percent: Int {
-        guard totalCount > 0 else { return 0 }
-        return Int(round((Double(doneCount) / Double(totalCount)) * 100.0))
+    var notDoneCount: Int {
+        items.filter {
+            $0.mark == .notDone
+        }.count
+    }
+
+    var coachNotTaughtCount: Int {
+        items.filter {
+            $0.coachStatus == .notTaught
+        }.count
+    }
+
+    var coachTaughtCount: Int {
+        items.filter {
+            $0.coachStatus == .taught
+        }.count
+    }
+
+    var coachPracticedCount: Int {
+        items.filter {
+            $0.coachStatus == .practiced
+        }.count
+    }
+
+    var coachNeedsReinforcementCount: Int {
+        items.filter {
+            $0.coachStatus == .needsReinforcement
+        }.count
+    }
+
+    var coachMarkedCount: Int {
+        coachTaughtCount
+        + coachPracticedCount
+        + coachNeedsReinforcementCount
+    }
+
+    var totalCount: Int {
+        items.count
+    }
+
+    func percent(
+        isCoach: Bool
+    ) -> Int {
+        guard totalCount > 0 else {
+            return 0
+        }
+
+        let completedCount =
+            isCoach
+            ? coachMarkedCount
+            : doneCount
+
+        return Int(
+            round(
+                (
+                    Double(completedCount)
+                    / Double(totalCount)
+                ) * 100.0
+            )
+        )
     }
 }
 
@@ -58,8 +160,15 @@ struct SummaryView: View {
     @State private var comparisonAveragePercent: Int = 0
     @State private var comparisonBetterThanPercent: Int = 0
     @State private var isComparisonLoading: Bool = false
-    
-    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+
+    /*
+     * התפקיד שעבורו נטען הסיכום הנוכחי.
+     * משמש לניקוי מוחלט במעבר בין מאמן למתאמן.
+     */
+    @State private var loadedSummaryRoleId: String = ""
+
+    @AppStorage("kmi_app_language")
+    private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
     @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
     @AppStorage("selected_language_code") private var selectedLanguageCode: String = "he"
@@ -105,10 +214,79 @@ struct SummaryView: View {
         isEnglish ? .leading : .trailing
     }
 
-    private func tr(_ he: String, _ en: String) -> String {
+    private func tr(
+        _ he: String,
+        _ en: String
+    ) -> String {
         isEnglish ? en : he
     }
-    private func normalizedSummaryText(_ value: String) -> String {
+    
+    /*
+     * מקור האמת לתפקיד הפעיל זהה לזה
+     * שבו משתמש MaterialsView.
+     */
+    private var effectiveIsCoach: Bool {
+        let defaults =
+            UserDefaults.standard
+
+        let rawRole =
+            defaults.string(
+                forKey: "user_role"
+            )
+            ?? defaults.string(
+                forKey: "role"
+            )
+            ?? ""
+
+        switch rawRole
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased() {
+
+        case "coach",
+             "trainer",
+             "מאמן",
+             "מדריך":
+            return true
+
+        case "trainee",
+             "student",
+             "מתאמן":
+            return false
+
+        default:
+            return false
+        }
+    }
+
+    /*
+     * מזהה נפרד לכל סוג סיכום.
+     *
+     * כך נתוני המאמן לעולם לא ידרסו
+     * את נתוני המתאמן של אותו משתמש.
+     */
+    private var summaryRoleId: String {
+        effectiveIsCoach
+            ? "coach"
+            : "trainee"
+    }
+
+    private var comparisonGroupTitle: String {
+        effectiveIsCoach
+            ? tr(
+                "מאמנים",
+                "Coaches"
+            )
+            : tr(
+                "מתאמנים",
+                "Trainees"
+            )
+    }
+
+    private func normalizedSummaryText(
+        _ value: String
+    ) -> String {
         value
             .replacingOccurrences(of: "\u{200F}", with: "")
             .replacingOccurrences(of: "\u{200E}", with: "")
@@ -207,9 +385,132 @@ struct SummaryView: View {
 
         return nil
     }
-    
+
+    /*
+     * נורמליזציה זהה לזו שבה משתמש
+     * statusIdForStorage בתוך MaterialsView.
+     *
+     * כאן לא הופכים את הטקסט לאותיות קטנות,
+     * כדי שמפתח השמירה יישאר זהה לחלוטין.
+     */
+    private func normalizeCoachStatusPart(
+        _ value: String
+    ) -> String {
+        value
+            .replacingOccurrences(
+                of: "\u{200F}",
+                with: ""
+            )
+            .replacingOccurrences(
+                of: "\u{200E}",
+                with: ""
+            )
+            .replacingOccurrences(
+                of: "\u{00A0}",
+                with: " "
+            )
+            .replacingOccurrences(
+                of: "\\s+",
+                with: " ",
+                options: .regularExpression
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+    }
+
+    private func coachTopicKey(
+        topicTitle: String,
+        subTopicTitle: String?
+    ) -> String {
+        let cleanTopic =
+            topicTitle.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let cleanSubTopic =
+            subTopicTitle?
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+            ?? ""
+
+        if cleanSubTopic.isEmpty {
+            return cleanTopic
+        }
+
+        return "\(cleanTopic)__\(cleanSubTopic)"
+    }
+
+    private func coachStatusId(
+        topicTitle: String,
+        subTopicTitle: String?,
+        item: String,
+        index: Int
+    ) -> String {
+        let topicKey =
+            coachTopicKey(
+                topicTitle: topicTitle,
+                subTopicTitle: subTopicTitle
+            )
+
+        let cleanItem =
+            normalizeCoachStatusPart(item)
+
+        return [
+            "status",
+            belt.id,
+            topicKey,
+            String(index),
+            cleanItem
+        ]
+        .joined(separator: "_")
+    }
+
+    private func loadCoachStatus(
+        topicTitle: String,
+        subTopicTitle: String?,
+        item: String,
+        index: Int
+    ) -> SummaryCoachStatus {
+        let topicKey =
+            coachTopicKey(
+                topicTitle: topicTitle,
+                subTopicTitle: subTopicTitle
+            )
+
+        let statusId =
+            coachStatusId(
+                topicTitle: topicTitle,
+                subTopicTitle: subTopicTitle,
+                item: item,
+                index: index
+            )
+
+        /*
+         * המפתח זהה למפתח שנוצר בתוך
+         * coachProgressKey ב־MaterialsView.
+         */
+        let preferenceKey = [
+            "coach_material_progress",
+            belt.id,
+            topicKey,
+            statusId
+        ]
+        .joined(separator: "_")
+        + "_status"
+
+        let storedValue =
+            UserDefaults.standard.string(
+                forKey: preferenceKey
+            )
+
+        return SummaryCoachStatus
+            .fromStoredValue(storedValue)
+    }
+
     // MARK: - Model for UI
-    
+
     private struct SummaryRawItem {
         let title: String
         let subTopicTitle: String?
@@ -335,23 +636,43 @@ struct SummaryView: View {
                     return seen.insert(uniqueKey).inserted
                 }
 
-            let rows: [SummaryRowItem] = uniq.map { raw in
-                let m = loadMark(
-                    topicTitle: t.title,
-                    subTopicTitle: raw.subTopicTitle,
-                    item: raw.title,
-                    index: raw.indexInStatusGroup
-                )
+            let rows: [SummaryRowItem] =
+                uniq.map { raw in
+                    let mark =
+                        loadMark(
+                            topicTitle: t.title,
+                            subTopicTitle:
+                                raw.subTopicTitle,
+                            item: raw.title,
+                            index:
+                                raw.indexInStatusGroup
+                        )
 
-                return SummaryRowItem(
-                    id: "\(t.title)||\(raw.subTopicTitle ?? "")||\(raw.title)",
-                    title: raw.title,
-                    subTopicTitle: raw.subTopicTitle,
-                    indexInStatusGroup: raw.indexInStatusGroup,
-                    mark: m
-                )
-            }
-            
+                    let coachStatus =
+                        loadCoachStatus(
+                            topicTitle: t.title,
+                            subTopicTitle:
+                                raw.subTopicTitle,
+                            item: raw.title,
+                            index:
+                                raw.indexInStatusGroup
+                        )
+
+                    return SummaryRowItem(
+                        id:
+                            "\(t.title)||"
+                            + "\(raw.subTopicTitle ?? "")||"
+                            + raw.title,
+                        title: raw.title,
+                        subTopicTitle:
+                            raw.subTopicTitle,
+                        indexInStatusGroup:
+                            raw.indexInStatusGroup,
+                        mark: mark,
+                        coachStatus: coachStatus
+                    )
+                }
+
             return SummaryTopicBlock(
                 id: t.title,
                 title: t.title,
@@ -360,50 +681,157 @@ struct SummaryView: View {
         }
     }
     
-    private var totalCount: Int { blocks.reduce(0) { $0 + $1.totalCount } }
-    private var doneCount: Int { blocks.reduce(0) { $0 + $1.doneCount } }
-    private var notDoneCount: Int { blocks.reduce(0) { $0 + $1.notDoneCount } }
-    private var markedCount: Int { doneCount + notDoneCount }
-    private var remainingCount: Int { max(totalCount - markedCount, 0) }
+    private var totalCount: Int {
+        blocks.reduce(0) {
+            $0 + $1.totalCount
+        }
+    }
+
+    private var doneCount: Int {
+        blocks.reduce(0) {
+            $0 + $1.doneCount
+        }
+    }
+
+    private var notDoneCount: Int {
+        blocks.reduce(0) {
+            $0 + $1.notDoneCount
+        }
+    }
+
+    private var coachNotTaughtCount: Int {
+        blocks.reduce(0) {
+            $0 + $1.coachNotTaughtCount
+        }
+    }
+
+    private var coachTaughtCount: Int {
+        blocks.reduce(0) {
+            $0 + $1.coachTaughtCount
+        }
+    }
+
+    private var coachPracticedCount: Int {
+        blocks.reduce(0) {
+            $0 + $1.coachPracticedCount
+        }
+    }
+
+    private var coachNeedsReinforcementCount: Int {
+        blocks.reduce(0) {
+            $0 + $1.coachNeedsReinforcementCount
+        }
+    }
+
+    private var coachMarkedCount: Int {
+        coachTaughtCount
+        + coachPracticedCount
+        + coachNeedsReinforcementCount
+    }
+
+    private var markedCount: Int {
+        effectiveIsCoach
+            ? coachMarkedCount
+            : doneCount + notDoneCount
+    }
+
+    private var remainingCount: Int {
+        effectiveIsCoach
+            ? coachNotTaughtCount
+            : max(
+                totalCount - markedCount,
+                0
+            )
+    }
 
     private var percentAll: Int {
-        guard totalCount > 0 else { return 0 }
-        return Int(round((Double(doneCount) / Double(totalCount)) * 100.0))
+        guard totalCount > 0 else {
+            return 0
+        }
+
+        let completedCount =
+            effectiveIsCoach
+            ? coachMarkedCount
+            : doneCount
+
+        return Int(
+            round(
+                (
+                    Double(completedCount)
+                    / Double(totalCount)
+                ) * 100.0
+            )
+        )
     }
 
     private var markedPercentAll: Int {
-        guard totalCount > 0 else { return 0 }
-        return Int(round((Double(markedCount) / Double(totalCount)) * 100.0))
+        guard totalCount > 0 else {
+            return 0
+        }
+
+        return Int(
+            round(
+                (
+                    Double(markedCount)
+                    / Double(totalCount)
+                ) * 100.0
+            )
+        )
     }
     
     private var comparisonHasEnoughData: Bool {
         comparisonTraineesCount >= 2
     }
 
-    private var comparisonStatusText: String {
-        if isComparisonLoading {
-            return tr("טוען נתוני השוואה...", "Loading comparison data...")
-        }
+        private var comparisonStatusText: String {
+            if isComparisonLoading {
+                return effectiveIsCoach
+                    ? tr(
+                        "טוען נתוני השוואה מול מאמנים...",
+                        "Loading coach comparison data..."
+                    )
+                    : tr(
+                        "טוען נתוני השוואה...",
+                        "Loading comparison data..."
+                    )
+            }
 
-        guard comparisonHasEnoughData else {
-            return tr(
-                "אין עדיין מספיק נתונים להשוואה מול מתאמנים אחרים.",
-                "There is not enough data yet to compare with other trainees."
-            )
-        }
+            guard comparisonHasEnoughData else {
+                return effectiveIsCoach
+                    ? tr(
+                        "אין עדיין מספיק נתוני מאמנים להשוואה.",
+                        "There is not enough coach data for comparison yet."
+                    )
+                    : tr(
+                        "אין עדיין מספיק נתונים להשוואה מול מתאמנים אחרים.",
+                        "There is not enough data yet to compare with other trainees."
+                    )
+            }
 
-        if percentAll >= comparisonAveragePercent {
-            return tr(
-                "אתה מעל \(comparisonBetterThanPercent)% מהמתאמנים בחגורה שלך.",
-                "You are above \(comparisonBetterThanPercent)% of trainees in your belt."
-            )
-        }
+            if percentAll >=
+                comparisonAveragePercent {
 
-        return tr(
-            "אתה מתחת לממוצע המתאמנים בחגורה שלך.",
-            "You are below the average for trainees in your belt."
-        )
-    }
+                return effectiveIsCoach
+                    ? tr(
+                        "התקדמות החומר שלך גבוהה משל \(comparisonBetterThanPercent)% מהמאמנים בחגורה הזאת.",
+                        "Your material progress is above \(comparisonBetterThanPercent)% of coaches for this belt."
+                    )
+                    : tr(
+                        "אתה מעל \(comparisonBetterThanPercent)% מהמתאמנים בחגורה שלך.",
+                        "You are above \(comparisonBetterThanPercent)% of trainees in your belt."
+                    )
+            }
+
+            return effectiveIsCoach
+                ? tr(
+                    "התקדמות החומר נמוכה מממוצע המאמנים בחגורה הזאת.",
+                    "Material progress is below the coach average for this belt."
+                )
+                : tr(
+                    "אתה מתחת לממוצע המתאמנים בחגורה שלך.",
+                    "You are below the average for trainees in your belt."
+                )
+        }
 
     private func saveProgressAndLoadComparison() {
         guard totalCount > 0,
@@ -424,31 +852,123 @@ struct SummaryView: View {
             "uid": uid,
             "userId": uid,
             "beltId": beltId,
+            "summaryRole": summaryRoleId,
             "knownPercent": percentAll,
-            "knownCount": doneCount,
+            "knownCount":
+                effectiveIsCoach
+                ? 0
+                : doneCount,
+            "notKnownCount":
+                effectiveIsCoach
+                ? 0
+                : notDoneCount,
+            "coachNotTaughtCount":
+                effectiveIsCoach
+                ? coachNotTaughtCount
+                : 0,
+            "coachTaughtCount":
+                effectiveIsCoach
+                ? coachTaughtCount
+                : 0,
+            "coachPracticedCount":
+                effectiveIsCoach
+                ? coachPracticedCount
+                : 0,
+            "coachNeedsReinforcementCount":
+                effectiveIsCoach
+                ? coachNeedsReinforcementCount
+                : 0,
+            "completedCount":
+                effectiveIsCoach
+                ? coachMarkedCount
+                : doneCount,
             "totalCount": totalCount,
-            "updatedAt": FieldValue.serverTimestamp()
+            "updatedAt":
+                FieldValue.serverTimestamp()
         ]
 
+        /*
+         * לכל משתמש, חגורה ותפקיד נוצר מסמך נפרד:
+         *
+         * uid_belt_trainee
+         * uid_belt_coach
+         */
+        let progressDocumentId =
+            "\(uid)_\(beltId)_\(summaryRoleId)"
+
         db.collection("userProgress")
-            .document("\(uid)_\(beltId)")
-            .setData(progressData, merge: true) { _ in
+            .document(progressDocumentId)
+            .setData(
+                progressData,
+                merge: true
+            ) { _ in
+                /*
+                 * גם ההשוואה מסוננת לפי התפקיד.
+                 *
+                 * מאמן מושווה רק למאמנים,
+                 * ומתאמן מושווה רק למתאמנים.
+                 */
                 db.collection("userProgress")
-                    .whereField("beltId", isEqualTo: beltId)
+                    .whereField(
+                        "beltId",
+                        isEqualTo: beltId
+                    )
+                    .whereField(
+                        "summaryRole",
+                        isEqualTo: summaryRoleId
+                    )
                     .getDocuments { snapshot, _ in
                         var percentByUser: [String: Int] = [:]
 
-                        for document in snapshot?.documents ?? [] {
-                            let data = document.data()
-                            let total = (data["totalCount"] as? NSNumber)?.intValue ?? 0
-                            let known = (data["knownPercent"] as? NSNumber)?.intValue ?? -1
-                            let userKey = (data["uid"] as? String)
-                                ?? (data["userId"] as? String)
-                                ?? (data["userUid"] as? String)
+                        for document in
+                            snapshot?.documents ?? [] {
+
+                            let data =
+                                document.data()
+
+                            let storedRole =
+                                data["summaryRole"]
+                                as? String
+                                ?? ""
+
+                            /*
+                             * בדיקת הגנה נוספת מעבר
+                             * לסינון של שאילתת Firestore.
+                             */
+                            guard storedRole
+                                == summaryRoleId else {
+                                continue
+                            }
+
+                            let total =
+                                (
+                                    data["totalCount"]
+                                    as? NSNumber
+                                )?.intValue
+                                ?? 0
+
+                            let progressPercent =
+                                (
+                                    data["knownPercent"]
+                                    as? NSNumber
+                                )?.intValue
+                                ?? -1
+
+                            let storedUserId =
+                                data["uid"] as? String
+                                ?? data["userId"] as? String
+                                ?? data["userUid"] as? String
                                 ?? document.documentID
 
-                            if total > 0, (0...100).contains(known) {
-                                percentByUser[userKey] = known
+                            let userKey =
+                                "\(storedUserId)_\(storedRole)"
+
+                            if total > 0,
+                               (0...100).contains(
+                                    progressPercent
+                               ) {
+                                percentByUser[userKey] =
+                                    progressPercent
                             }
                         }
 
@@ -521,12 +1041,20 @@ struct SummaryView: View {
                         if showComparisonCard {
                             WhiteCard {
                                 BeltComparisonStatusCard(
-                                    traineesCount: comparisonTraineesCount,
-                                    averagePercent: comparisonAveragePercent,
-                                    userPercent: percentAll,
-                                    statusText: comparisonStatusText,
-                                    hasEnoughData: comparisonHasEnoughData,
-                                    isEnglish: isEnglish,
+                                    traineesCount:
+                                        comparisonTraineesCount,
+                                    averagePercent:
+                                        comparisonAveragePercent,
+                                    userPercent:
+                                        percentAll,
+                                    statusText:
+                                        comparisonStatusText,
+                                    hasEnoughData:
+                                        comparisonHasEnoughData,
+                                    isCoach:
+                                        effectiveIsCoach,
+                                    isEnglish:
+                                        isEnglish,
                                     onClose: {
                                         withAnimation(.easeOut(duration: 0.15)) {
                                             showComparisonCard = false
@@ -569,13 +1097,27 @@ struct SummaryView: View {
                                     
                                     ProgressRing(
                                         percent: markedPercentAll,
-                                        doneCount: doneCount,
-                                        notDoneCount: notDoneCount,
-                                        remainingCount: remainingCount,
-                                        totalCount: totalCount,
-                                        isEnglish: isEnglish
+                                        doneCount:
+                                            effectiveIsCoach
+                                            ? coachMarkedCount
+                                            : doneCount,
+                                        notDoneCount:
+                                            effectiveIsCoach
+                                            ? 0
+                                            : notDoneCount,
+                                        remainingCount:
+                                            remainingCount,
+                                        totalCount:
+                                            totalCount,
+                                        isCoach:
+                                            effectiveIsCoach,
+                                        isEnglish:
+                                            isEnglish
                                     )
-                                    .frame(width: 194, height: 194)
+                                    .frame(
+                                        width: 194,
+                                        height: 194
+                                    )
                                     .padding(.vertical, 4)
 
                                     Text(
@@ -583,26 +1125,119 @@ struct SummaryView: View {
                                         ? "Marked \(markedCount) of \(totalCount)"
                                         : "סומנו \(markedCount) מתוך \(totalCount)"
                                     )
-                                        .font(.system(size: 14, weight: .bold))
-                                        .foregroundStyle(Color.black.opacity(0.62))
-
-                                    HStack(spacing: 8) {
-                                        SummaryStatusChip(
-                                            title: tr("יודע: \(doneCount)", "Known: \(doneCount)"),
-                                            tint: Color(red: 0.30, green: 0.69, blue: 0.31)
+                                    .font(
+                                        .system(
+                                            size: 14,
+                                            weight: .bold
                                         )
+                                    )
+                                    .foregroundStyle(
+                                        Color.black.opacity(0.62)
+                                    )
 
-                                        SummaryStatusChip(
-                                            title: tr("לא יודע: \(notDoneCount)", "Not known: \(notDoneCount)"),
-                                            tint: Color(red: 0.90, green: 0.22, blue: 0.21)
-                                        )
+                                    if effectiveIsCoach {
+                                        LazyVGrid(
+                                            columns: [
+                                                GridItem(
+                                                    .flexible(),
+                                                    spacing: 8
+                                                ),
+                                                GridItem(
+                                                    .flexible(),
+                                                    spacing: 8
+                                                )
+                                            ],
+                                            spacing: 8
+                                        ) {
+                                            SummaryStatusChip(
+                                                title: tr(
+                                                    "תורגל: \(coachPracticedCount)",
+                                                    "Practiced: \(coachPracticedCount)"
+                                                ),
+                                                tint: Color(
+                                                    red: 0.18,
+                                                    green: 0.61,
+                                                    blue: 0.31
+                                                )
+                                            )
 
-                                        SummaryStatusChip(
-                                            title: tr("לא סומן: \(remainingCount)", "Open: \(remainingCount)"),
-                                            tint: Color(red: 0.60, green: 0.64, blue: 0.70)
-                                        )
+                                            SummaryStatusChip(
+                                                title: tr(
+                                                    "נדרש חיזוק: \(coachNeedsReinforcementCount)",
+                                                    "Reinforce: \(coachNeedsReinforcementCount)"
+                                                ),
+                                                tint: Color(
+                                                    red: 0.20,
+                                                    green: 0.47,
+                                                    blue: 0.83
+                                                )
+                                            )
+
+                                            SummaryStatusChip(
+                                                title: tr(
+                                                    "נלמד: \(coachTaughtCount)",
+                                                    "Taught: \(coachTaughtCount)"
+                                                ),
+                                                tint: Color(
+                                                    red: 0.95,
+                                                    green: 0.63,
+                                                    blue: 0.38
+                                                )
+                                            )
+
+                                            SummaryStatusChip(
+                                                title: tr(
+                                                    "לא נלמד: \(coachNotTaughtCount)",
+                                                    "Not taught: \(coachNotTaughtCount)"
+                                                ),
+                                                tint: Color(
+                                                    red: 0.54,
+                                                    green: 0.58,
+                                                    blue: 0.62
+                                                )
+                                            )
+                                        }
+                                        .padding(.top, 2)
+                                    } else {
+                                        HStack(spacing: 8) {
+                                            SummaryStatusChip(
+                                                title: tr(
+                                                    "יודע: \(doneCount)",
+                                                    "Known: \(doneCount)"
+                                                ),
+                                                tint: Color(
+                                                    red: 0.30,
+                                                    green: 0.69,
+                                                    blue: 0.31
+                                                )
+                                            )
+
+                                            SummaryStatusChip(
+                                                title: tr(
+                                                    "לא יודע: \(notDoneCount)",
+                                                    "Not known: \(notDoneCount)"
+                                                ),
+                                                tint: Color(
+                                                    red: 0.90,
+                                                    green: 0.22,
+                                                    blue: 0.21
+                                                )
+                                            )
+
+                                            SummaryStatusChip(
+                                                title: tr(
+                                                    "לא סומן: \(remainingCount)",
+                                                    "Open: \(remainingCount)"
+                                                ),
+                                                tint: Color(
+                                                    red: 0.60,
+                                                    green: 0.64,
+                                                    blue: 0.70
+                                                )
+                                            )
+                                        }
+                                        .padding(.top, 2)
                                     }
-                                    .padding(.top, 2)
                                 }
                                 .padding(.vertical, 12)
                                 .padding(.horizontal, 12)
@@ -636,9 +1271,15 @@ struct SummaryView: View {
                             ForEach(blocks) { block in
                                 TopicSummaryCard(
                                     block: block,
-                                    isEnglish: isEnglish
+                                    isCoach:
+                                        effectiveIsCoach,
+                                    isEnglish:
+                                        isEnglish
                                 )
-                                .padding(.horizontal, 16)
+                                .padding(
+                                    .horizontal,
+                                    16
+                                )
                             }
                         }
 
@@ -664,13 +1305,18 @@ struct SummaryView: View {
         }
         .environment(\.layoutDirection, screenLayoutDirection)
         .onAppear {
+            loadedSummaryRoleId =
+                summaryRoleId
+
             postSummaryTopTitleOverride()
 
             DispatchQueue.main.async {
                 postSummaryTopTitleOverride()
             }
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + 0.12
+            ) {
                 postSummaryTopTitleOverride()
             }
         }
@@ -682,9 +1328,40 @@ struct SummaryView: View {
             }
         }
         .onReceive(
-            NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            NotificationCenter.default.publisher(
+                for: UserDefaults.didChangeNotification
+            )
         ) { _ in
+            let currentRoleId =
+                summaryRoleId
+
+            /*
+             * אם התפקיד השתנה, מנקים את כל
+             * מצב התצוגה השייך לתפקיד הקודם.
+             */
+            if !loadedSummaryRoleId.isEmpty,
+               loadedSummaryRoleId
+                != currentRoleId {
+
+                showProgressCard = false
+                showComparisonCard = false
+
+                comparisonTraineesCount = 0
+                comparisonAveragePercent = 0
+                comparisonBetterThanPercent = 0
+                isComparisonLoading = false
+            }
+
+            loadedSummaryRoleId =
+                currentRoleId
+
+            /*
+             * גורם ל־blocks להיבנות מחדש ולקרוא
+             * רק את הסימונים של התפקיד הפעיל.
+             */
             marksRevision &+= 1
+
+            postSummaryTopTitleOverride()
         }
     }
     
@@ -860,10 +1537,14 @@ struct SummaryView: View {
         let userPercent: Int
         let statusText: String
         let hasEnoughData: Bool
+        let isCoach: Bool
         let isEnglish: Bool
         let onClose: () -> Void
 
-        private func tr(_ he: String, _ en: String) -> String {
+        private func tr(
+            _ he: String,
+            _ en: String
+        ) -> String {
             isEnglish ? en : he
         }
         
@@ -883,8 +1564,23 @@ struct SummaryView: View {
 
                     Spacer(minLength: 0)
 
-                    Text(tr("המצב שלך בחגורה", "Your belt progress"))
-                        .font(.system(size: 22, weight: .black))
+                    Text(
+                        isCoach
+                            ? tr(
+                                "התקדמות החומר בחגורה",
+                                "Belt material progress"
+                            )
+                            : tr(
+                                "המצב שלך בחגורה",
+                                "Your belt progress"
+                            )
+                    )
+                    .font(
+                        .system(
+                            size: 22,
+                            weight: .black
+                        )
+                    )
                         .foregroundStyle(Color(red: 0.12, green: 0.17, blue: 0.24))
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
@@ -894,9 +1590,20 @@ struct SummaryView: View {
                 if hasEnoughData {
                     HStack(spacing: 8) {
                         ComparisonMetricBox(
-                            value: "\(userPercent)%",
-                            title: tr("אתה יודע", "You know"),
-                            tint: Color.green.opacity(0.82)
+                            value:
+                                "\(userPercent)%",
+                            title:
+                                isCoach
+                                ? tr(
+                                    "עודכן",
+                                    "Updated"
+                                )
+                                : tr(
+                                    "אתה יודע",
+                                    "You know"
+                                ),
+                            tint:
+                                Color.green.opacity(0.82)
                         )
 
                         ComparisonMetricBox(
@@ -906,9 +1613,20 @@ struct SummaryView: View {
                         )
 
                         ComparisonMetricBox(
-                            value: "\(traineesCount)",
-                            title: tr("מתאמנים", "Trainees"),
-                            tint: Color.gray.opacity(0.72)
+                            value:
+                                "\(traineesCount)",
+                            title:
+                                isCoach
+                                ? tr(
+                                    "מאמנים",
+                                    "Coaches"
+                                )
+                                : tr(
+                                    "מתאמנים",
+                                    "Trainees"
+                                ),
+                            tint:
+                                Color.gray.opacity(0.72)
                         )
                     }
 
@@ -977,8 +1695,9 @@ struct SummaryView: View {
         let notDoneCount: Int
         let remainingCount: Int
         let totalCount: Int
+        let isCoach: Bool
         let isEnglish: Bool
-        
+
         private var donePart: CGFloat {
             guard totalCount > 0 else { return 0 }
             return CGFloat(doneCount) / CGFloat(totalCount)
@@ -1033,9 +1752,32 @@ struct SummaryView: View {
                         .font(.system(size: 25, weight: .black))
                         .foregroundStyle(Color(red: 0.12, green: 0.17, blue: 0.24))
 
-                    Text(isEnglish ? "Marked" : "סומנו")
-                        .font(.system(size: 14, weight: .black))
-                        .foregroundStyle(Color(red: 0.30, green: 0.69, blue: 0.31))
+                    Text(
+                        isCoach
+                            ? (
+                                isEnglish
+                                ? "Updated"
+                                : "עודכנו"
+                            )
+                            : (
+                                isEnglish
+                                ? "Marked"
+                                : "סומנו"
+                            )
+                    )
+                    .font(
+                        .system(
+                            size: 14,
+                            weight: .black
+                        )
+                    )
+                    .foregroundStyle(
+                        Color(
+                            red: 0.30,
+                            green: 0.69,
+                            blue: 0.31
+                        )
+                    )
 
                     Text(
                         isEnglish
@@ -1074,7 +1816,9 @@ struct SummaryView: View {
     
     private struct TopicSummaryCard: View {
         let block: SummaryTopicBlock
+        let isCoach: Bool
         let isEnglish: Bool
+
         @State private var expanded: Bool = true
 
         private var frameAlignment: Alignment {
@@ -1097,8 +1841,16 @@ struct SummaryView: View {
 
                         Spacer(minLength: 0)
 
-                        Text("\(block.title) — \(block.percent)%")
-                            .font(.system(size: 18, weight: .black))
+                        Text(
+                            "\(block.title) — "
+                            + "\(block.percent(isCoach: isCoach))%"
+                        )
+                        .font(
+                            .system(
+                                size: 18,
+                                weight: .black
+                            )
+                        )
                             .foregroundStyle(Color.black.opacity(0.84))
                             .lineLimit(1)
                             .minimumScaleFactor(0.78)
@@ -1116,10 +1868,14 @@ struct SummaryView: View {
                             SummaryRow(
                                 title: item.title,
                                 mark: item.mark,
+                                coachStatus:
+                                    item.coachStatus,
+                                isCoach: isCoach,
                                 isEnglish: isEnglish
                             )
 
-                            if item.id != block.items.last?.id {
+                            if item.id
+                                != block.items.last?.id {
                                 Divider()
                                     .opacity(0.14)
                             }
@@ -1168,37 +1924,209 @@ struct SummaryView: View {
     private struct SummaryRow: View {
         let title: String
         let mark: SummaryMark?
+        let coachStatus: SummaryCoachStatus
+        let isCoach: Bool
         let isEnglish: Bool
 
         private var frameAlignment: Alignment {
-            isEnglish ? .leading : .trailing
+            isEnglish
+                ? .leading
+                : .trailing
+        }
+
+        private var coachStatusColor: Color {
+            switch coachStatus {
+            case .notTaught:
+                return Color(
+                    red: 0.54,
+                    green: 0.58,
+                    blue: 0.62
+                )
+
+            case .taught:
+                return Color(
+                    red: 0.95,
+                    green: 0.63,
+                    blue: 0.38
+                )
+
+            case .practiced:
+                return Color(
+                    red: 0.18,
+                    green: 0.61,
+                    blue: 0.31
+                )
+
+            case .needsReinforcement:
+                return Color(
+                    red: 0.20,
+                    green: 0.47,
+                    blue: 0.83
+                )
+            }
+        }
+
+        private var coachStatusSymbol: String {
+            switch coachStatus {
+            case .notTaught:
+                return "—"
+
+            case .taught:
+                return "✓"
+
+            case .practiced:
+                return "↻"
+
+            case .needsReinforcement:
+                return "!"
+            }
+        }
+
+        private var coachStatusTitle: String {
+            switch coachStatus {
+            case .notTaught:
+                return isEnglish
+                    ? "Not taught"
+                    : "לא נלמד"
+
+            case .taught:
+                return isEnglish
+                    ? "Taught"
+                    : "נלמד"
+
+            case .practiced:
+                return isEnglish
+                    ? "Practiced"
+                    : "תורגל"
+
+            case .needsReinforcement:
+                return isEnglish
+                    ? "Reinforce"
+                    : "נדרש חיזוק"
+            }
+        }
+
+        private var traineeStatusColor: Color {
+            switch mark {
+            case .done:
+                return Color.green.opacity(0.85)
+
+            case .notDone:
+                return Color.red.opacity(0.80)
+
+            case nil:
+                return Color.gray.opacity(0.35)
+            }
+        }
+
+        private var traineeSystemImage: String {
+            switch mark {
+            case .done:
+                return "checkmark.circle.fill"
+
+            case .notDone:
+                return "xmark.circle.fill"
+
+            case nil:
+                return "circle.fill"
+            }
         }
 
         var body: some View {
             HStack(spacing: 10) {
-                // icon מצב
-                Group {
-                    switch mark {
-                    case .done:
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(Color.green.opacity(0.85))
-                    case .notDone:
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(Color.red.opacity(0.80))
-                    default:
-                        Image(systemName: "circle.fill")
-                            .foregroundStyle(Color.gray.opacity(0.35))
+                if isCoach {
+                    VStack(spacing: 3) {
+                        ZStack {
+                            Circle()
+                                .fill(
+                                    coachStatusColor
+                                )
+                                .frame(
+                                    width: 30,
+                                    height: 30
+                                )
+
+                            Text(
+                                coachStatusSymbol
+                            )
+                            .font(
+                                .system(
+                                    size: 15,
+                                    weight: .heavy
+                                )
+                            )
+                            .foregroundStyle(
+                                Color.white
+                            )
+                        }
+
+                        Text(
+                            coachStatusTitle
+                        )
+                        .font(
+                            .system(
+                                size: 9,
+                                weight: .heavy
+                            )
+                        )
+                        .foregroundStyle(
+                            coachStatusColor
+                        )
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.72)
+                        .multilineTextAlignment(
+                            .center
+                        )
                     }
+                    .frame(width: 76)
+                } else {
+                    Image(
+                        systemName:
+                            traineeSystemImage
+                    )
+                    .font(
+                        .system(
+                            size: 18,
+                            weight: .heavy
+                        )
+                    )
+                    .foregroundStyle(
+                        traineeStatusColor
+                    )
                 }
-                .font(.system(size: 18, weight: .heavy))
 
                 Text(title)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.black.opacity(0.78))
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .font(
+                        .system(
+                            size: 16,
+                            weight: .semibold
+                        )
+                    )
+                    .foregroundStyle(
+                        Color.black.opacity(0.78)
+                    )
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: frameAlignment
+                    )
+                    .multilineTextAlignment(
+                        isEnglish
+                            ? .leading
+                            : .trailing
+                    )
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 10)
+            .background(
+                isCoach
+                    ? coachStatusColor.opacity(
+                        coachStatus
+                            == .notTaught
+                            ? 0
+                            : 0.07
+                    )
+                    : Color.clear
+            )
         }
     }
 }

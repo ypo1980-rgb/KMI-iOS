@@ -2,6 +2,37 @@ import SwiftUI
 import UIKit
 import Shared
 import AVFoundation
+import Combine
+
+/*
+ * מעדכן את ממשק המשתמש לפי סיום ההקראה בפועל,
+ * ללא חישוב משוער לפי אורך הטקסט.
+ */
+private final class MaterialsSpeechDelegate:
+    NSObject,
+    ObservableObject,
+    AVSpeechSynthesizerDelegate {
+
+    var onFinish: (() -> Void)?
+
+    func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        didFinish utterance: AVSpeechUtterance
+    ) {
+        DispatchQueue.main.async { [weak self] in
+            self?.onFinish?()
+        }
+    }
+
+    func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        didCancel utterance: AVSpeechUtterance
+    ) {
+        DispatchQueue.main.async { [weak self] in
+            self?.onFinish?()
+        }
+    }
+}
 
 struct MaterialsView: View {
     let belt: Belt
@@ -14,6 +45,21 @@ struct MaterialsView: View {
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
     @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
     @AppStorage("selected_language_code") private var selectedLanguageCode: String = "he"
+
+    /*
+     * מקור האמת לתפקיד הפעיל.
+     *
+     * AppStorage מעדכן את MaterialsView מיד כאשר המשתמש
+     * עובר בין מצב מאמן למצב מתאמן.
+     */
+    @AppStorage("user_role")
+    private var storedActiveUserRole: String = ""
+
+    /*
+     * מפתח ישן שנשמר לצורך תאימות למשתמשים קיימים.
+     */
+    @AppStorage("role")
+    private var storedLegacyUserRole: String = ""
 
     private var effectiveLanguageCode: String {
         let orderedValues = [
@@ -64,6 +110,13 @@ struct MaterialsView: View {
     var onPractice: (Belt, String) -> Void = { _, _ in }
     var onOpenSubscription: () -> Void = {}
 
+    /*
+     * מקביל לפרמטר isCoach באנדרואיד.
+     *
+     * נעשה בו שימוש רק כאשר עדיין לא נשמר תפקיד פעיל.
+     */
+    var isCoach: Bool = false
+
     private var hasFullAccessForPractice: Bool {
         let defaults = UserDefaults.standard
         let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
@@ -83,31 +136,45 @@ struct MaterialsView: View {
     }
 
     /*
-     * מקור האמת לתפקיד הפעיל נשמר ב־user_role.
+     * סדר העדיפויות זהה לאנדרואיד:
      *
-     * נשמר fallback גם למפתח role, לצורך תאימות
-     * למשתמשים שנרשמו בגרסאות קודמות.
+     * 1. user_role — התפקיד הפעיל.
+     * 2. role — מפתח ישן לצורך תאימות.
+     * 3. isCoach — הערך שהמסך המארח העביר.
      */
     private var effectiveIsCoach: Bool {
-        let defaults = UserDefaults.standard
+        let activeRole =
+            storedActiveUserRole
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
 
-        let rawRole =
-            defaults.string(forKey: "user_role")
-            ?? defaults.string(forKey: "role")
-            ?? ""
+        let legacyRole =
+            storedLegacyUserRole
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
 
-        switch rawRole
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() {
+        let resolvedRole =
+            !activeRole.isEmpty
+            ? activeRole
+            : legacyRole
 
-        case "coach", "trainer", "מאמן":
+        switch resolvedRole {
+        case "coach",
+             "trainer",
+             "מאמן":
             return true
 
-        case "trainee", "student", "מתאמן":
+        case "trainee",
+             "student",
+             "מתאמן":
             return false
 
         default:
-            return false
+            return isCoach
         }
     }
 
@@ -173,6 +240,9 @@ struct MaterialsView: View {
     @State private var showPdfShareSheet: Bool = false
 
     @State private var speechSynth = AVSpeechSynthesizer()
+    @StateObject private var speechDelegate =
+        MaterialsSpeechDelegate()
+
     @State private var isSpeakingExplanation: Bool = false
 
     @State private var openedNestedSubTopic: String? = nil
@@ -478,44 +548,47 @@ struct MaterialsView: View {
     }
 
     private var headerTitle: String {
-        let topicDisplay = KmiEnglishTitleResolver.title(
-            for: materialRootTopic,
-            isEnglish: isEnglish
-        )
+        /*
+         * התאמה לאנדרואיד:
+         *
+         * נושא רגיל       -> שם הנושא
+         * תת־נושא         -> שם תת־הנושא
+         * תת־נושא פנימי   -> שם הרמה הפנימית בלבד
+         */
+        if let openedNestedSubTopic {
+            let cleanNested =
+                openedNestedSubTopic
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
 
-        if let openedNestedSubTopic,
-           !openedNestedSubTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let nestedDisplay = KmiEnglishTitleResolver.title(
-                for: openedNestedSubTopic,
-                isEnglish: isEnglish
-            )
-
-            if let materialParentSubTopic {
-                let parentDisplay = KmiEnglishTitleResolver.title(
-                    for: materialParentSubTopic,
+            if !cleanNested.isEmpty {
+                return KmiEnglishTitleResolver.title(
+                    for: cleanNested,
                     isEnglish: isEnglish
                 )
-
-                return "\(parentDisplay) – \(nestedDisplay)"
             }
-
-            return "\(topicDisplay) – \(nestedDisplay)"
         }
 
-        if let materialParentSubTopic {
-            let parentDisplay = KmiEnglishTitleResolver.title(
-                for: materialParentSubTopic,
-                isEnglish: isEnglish
-            )
+        if let subTopicUi {
+            let cleanSubTopic =
+                subTopicUi
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
 
-            if materialRootTopic == topicUi {
-                return parentDisplay
+            if !cleanSubTopic.isEmpty {
+                return KmiEnglishTitleResolver.title(
+                    for: cleanSubTopic,
+                    isEnglish: isEnglish
+                )
             }
-
-            return "\(topicDisplay) – \(parentDisplay)"
         }
 
-        return topicDisplay
+        return KmiEnglishTitleResolver.title(
+            for: topicUi,
+            isEnglish: isEnglish
+        )
     }
 
     private var masteredCount: Int {
@@ -789,11 +862,26 @@ struct MaterialsView: View {
                         if isPracticeLocked {
                             onOpenSubscription()
                         } else {
-                            onPractice(belt, materialRootTopic)
+                            /*
+                             * כמו באנדרואיד, מסך התרגול מקבל
+                             * את הנושא המקורי שהמשתמש פתח.
+                             */
+                            onPractice(
+                                belt,
+                                topicUi
+                            )
                         }
                     },
                     onSummary: {
-                        onSummary(belt, materialRootTopic, effectiveSubTopicUi)
+                        /*
+                         * התאמה לחתימה באנדרואיד:
+                         * onSummary(belt, topicUi, subTopicFilter)
+                         */
+                        onSummary(
+                            belt,
+                            topicUi,
+                            subTopicUi
+                        )
                     },
                     onReset: {
                         showResetConfirmation = true
@@ -813,26 +901,32 @@ struct MaterialsView: View {
         .navigationBarBackButtonHidden(true)
         .environment(\.layoutDirection, screenLayoutDirection)
         .onAppear {
+            speechDelegate.onFinish = {
+                isSpeakingExplanation = false
+            }
+
+            speechSynth.delegate = speechDelegate
             loadState()
         }
         .onDisappear {
             speechSynth.stopSpeaking(at: .immediate)
+            speechSynth.delegate = nil
+            speechDelegate.onFinish = nil
             isSpeakingExplanation = false
         }
         .onChange(of: scopeKey) { _, _ in
             loadState()
         }
-        .onReceive(
-            NotificationCenter.default.publisher(
-                for: UserDefaults.didChangeNotification
-            )
-        ) { _ in
-            /*
-             * רענון מיידי לאחר מעבר בין
-             * מצב מתאמן למצב מאמן.
-             */
-            loadState()
-        }
+        /*
+         * אין להאזין כאן לכל שינוי ב־UserDefaults.
+         *
+         * loadState מבצעת בעצמה כתיבות לצורך מיגרציה
+         * וסנכרון עם התרגול האקראי. האזנה כללית לכל
+         * כתיבה יוצרת לולאת loadState אינסופית.
+         *
+         * user_role ו־role מנוהלים באמצעות AppStorage
+         * ולכן מעבר בין מאמן למתאמן נשאר ריאקטיבי.
+         */
         .onReceive(
             NotificationCenter.default.publisher(
                 for: Notification.Name(
@@ -1978,14 +2072,6 @@ struct MaterialsView: View {
 
         isSpeakingExplanation = true
         speechSynth.speak(utterance)
-
-        let estimatedSeconds = min(max(Double(clean.count) / 10.5, 1.4), 22.0)
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + estimatedSeconds) {
-            if !speechSynth.isSpeaking {
-                isSpeakingExplanation = false
-            }
-        }
     }
 }
 

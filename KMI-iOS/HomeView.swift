@@ -9,6 +9,17 @@ private struct HomePDFShareItem: Identifiable {
     let url: URL
 }
 
+/*
+ * פריט הצגה ייעודי ל־Sheet של ניהול אימון.
+ *
+ * פתיחת ה־Sheet לפי item מבטיחה שהבקשה קיימת
+ * לפני ש־SwiftUI מנסה ליצור את תוכן המסך.
+ */
+private struct HomeTrainingManagementItem: Identifiable {
+    let id = UUID()
+    let request: TrainingManagementRequest
+}
+
 private struct HomePDFShareSheet: UIViewControllerRepresentable {
     let items: [Any]
 
@@ -165,10 +176,133 @@ private struct CoachHomeMessage: Identifiable, Hashable {
     let group: String
 }
 
+// MARK: - Home visual theme
+
+private enum HomeVisualTheme {
+
+    static func backgroundColors(
+        for colorScheme: ColorScheme
+    ) -> [Color] {
+        if colorScheme == .dark {
+            return [
+                Color(hex: 0xFF020617),
+                Color(hex: 0xFF061426),
+                Color(hex: 0xFF0A2742),
+                Color(hex: 0xFF0B3B62),
+                Color(hex: 0xFF020B16)
+            ]
+        }
+
+        return [
+            Color(hex: 0xFFF8FBFF),
+            Color(hex: 0xFFEAF4FF),
+            Color(hex: 0xFFB7DDF7),
+            Color(hex: 0xFF1F78B4),
+            Color(hex: 0xFF062B4A)
+        ]
+    }
+
+    static func bottomSurface(
+        for colorScheme: ColorScheme
+    ) -> Color {
+        colorScheme == .dark
+            ? Color(hex: 0xFF020B16)
+            : Color(hex: 0xFF062B4A)
+    }
+
+    static func cardBackground(
+        for colorScheme: ColorScheme
+    ) -> Color {
+        colorScheme == .dark
+            ? Color(hex: 0xFF111827).opacity(0.97)
+            : Color.white.opacity(0.96)
+    }
+
+    static func innerCardBackground(
+        for colorScheme: ColorScheme
+    ) -> Color {
+        colorScheme == .dark
+            ? Color(hex: 0xFF172033).opacity(0.98)
+            : Color.white.opacity(0.92)
+    }
+
+    static func primaryText(
+        for colorScheme: ColorScheme
+    ) -> Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.94)
+            : Color(hex: 0xFF111827)
+    }
+
+    static func secondaryText(
+        for colorScheme: ColorScheme
+    ) -> Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.70)
+            : Color(hex: 0xFF475569)
+    }
+
+    static func mutedText(
+        for colorScheme: ColorScheme
+    ) -> Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.58)
+            : Color(hex: 0xFF64748B)
+    }
+
+    static func cardBorder(
+        for colorScheme: ColorScheme
+    ) -> Color {
+        colorScheme == .dark
+            ? Color(hex: 0xFF60A5FA).opacity(0.30)
+            : Color(hex: 0xFF1D4ED8).opacity(0.35)
+    }
+
+    static func innerCardBorder(
+        for colorScheme: ColorScheme
+    ) -> Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.10)
+            : Color.black.opacity(0.06)
+    }
+
+    static func messageGradient(
+        for colorScheme: ColorScheme
+    ) -> [Color] {
+        colorScheme == .dark
+            ? [
+                Color(hex: 0xFF111827),
+                Color(hex: 0xFF172033)
+            ]
+            : [
+                Color.white.opacity(0.98),
+                Color(
+                    red: 0.94,
+                    green: 0.98,
+                    blue: 1.00
+                )
+                .opacity(0.98)
+            ]
+    }
+
+    static func shadow(
+        for colorScheme: ColorScheme
+    ) -> Color {
+        colorScheme == .dark
+            ? Color.black.opacity(0.34)
+            : Color.black.opacity(0.14)
+    }
+}
+
 struct HomeView: View {
     
     @ObservedObject var nav: AppNavModel
-    @EnvironmentObject private var auth: AuthViewModel
+
+    @EnvironmentObject
+    private var auth: AuthViewModel
+
+    @Environment(\.colorScheme)
+    private var colorScheme
     
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
@@ -219,12 +353,12 @@ struct HomeView: View {
 
     /*
      * בקשת ניהול האימון שנפתחה על ידי מאמן.
+     *
+     * עצם קיום הפריט פותח את ה־Sheet.
+     * איפוסו ל־nil סוגר את ה־Sheet.
      */
-    @State private var selectedTrainingManagementRequest:
-        TrainingManagementRequest?
-
-    @State private var showTrainingManagementSheet:
-        Bool = false
+    @State private var trainingManagementItem:
+        HomeTrainingManagementItem?
 
     @State private var pdfShareItem: HomePDFShareItem? = nil
     @State private var pdfExportErrorMessage: String? = nil
@@ -908,11 +1042,74 @@ struct HomeView: View {
             normalizedAddress
         ]
         .joined(separator: "|")
-    }
+        }
 
-    private func trainingCompletenessScore(
-        _ training: TrainingData
-    ) -> Int {
+        /*
+         * מאתר את הסניף והקבוצה שמהם הגיע האימון.
+         *
+         * HomeTrainingsViewModel מאחד אימונים מכמה סניפים,
+         * ולכן אסור להשתמש תמיד בסניף ובקבוצה הפעילים בלבד.
+         */
+        private func trainingSource(
+            for training: TrainingData
+        ) -> (
+            branch: String,
+            group: String
+        ) {
+            let targetKey =
+                physicalTrainingKey(
+                    for: training
+                )
+
+            let branches =
+                resolvedBranches.isEmpty
+                ? [resolvedBranch]
+                : resolvedBranches
+
+            let groups =
+                resolvedGroups.isEmpty
+                ? [resolvedGroup]
+                : resolvedGroups
+
+            for branch in branches {
+                for group in groups {
+                    let candidates =
+                        TrainingCatalogIOS.upcomingFor(
+                            region: resolvedRegion,
+                            branch: branch,
+                            group: group,
+                            count: 5
+                        )
+
+                    let containsTraining =
+                        candidates.contains { candidate in
+                            physicalTrainingKey(
+                                for: candidate
+                            ) == targetKey
+                        }
+
+                    if containsTraining {
+                        return (
+                            branch: branch,
+                            group: group
+                        )
+                    }
+                }
+            }
+
+            /*
+             * fallback למשתמשים ותיקים שנשמר אצלם
+             * רק סניף יחיד וקבוצה יחידה.
+             */
+            return (
+                branch: resolvedBranch,
+                group: resolvedGroup
+            )
+        }
+
+        private func trainingCompletenessScore(
+            _ training: TrainingData
+        ) -> Int {
         [
             training.place,
             training.address,
@@ -933,11 +1130,16 @@ struct HomeView: View {
     private func trainingOccurrenceKey(
         for training: TrainingData
     ) -> String {
-        TrainingOverrideRepository
+        let source =
+            trainingSource(
+                for: training
+            )
+
+        return TrainingOverrideRepository
             .buildOccurrenceKey(
                 training: training,
-                branch: resolvedBranch,
-                group: resolvedGroup
+                branch: source.branch,
+                group: source.group
             )
     }
 
@@ -1154,6 +1356,11 @@ struct HomeView: View {
                     in: .whitespacesAndNewlines
                 )
 
+        let source =
+            trainingSource(
+                for: training
+            )
+
         return TrainingManagementRequest(
             uiData: TrainingManagementUiData(
                 occurrenceKey:
@@ -1161,8 +1368,8 @@ struct HomeView: View {
                         for: training
                     ),
                 place: training.place,
-                branch: resolvedBranch,
-                group: resolvedGroup,
+                branch: source.branch,
+                group: source.group,
                 dateText:
                     dateFormatter.string(
                         from: effectiveStartDate
@@ -1177,14 +1384,14 @@ struct HomeView: View {
                     )
             ),
             training: training,
-            branch: resolvedBranch,
-            group: resolvedGroup,
+            branch: source.branch,
+            group: source.group,
             changedByName:
                 changedByName.isEmpty
                 ? tr("מאמן", "Coach")
                 : changedByName,
             activeOverride: activeOverride
-            )
+        )
             }
 
             private var effectiveStatusMessage: String? {
@@ -1382,19 +1589,16 @@ struct HomeView: View {
         let baseContent = AnyView(
             ZStack {
                 LinearGradient(
-                colors: [
-                    Color(hex: 0xFFF8FBFF),
-                    Color(hex: 0xFFEAF4FF),
-                    Color(hex: 0xFFB7DDF7),
-                    Color(hex: 0xFF1F78B4),
-                    Color(hex: 0xFF062B4A)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+                    colors:
+                        HomeVisualTheme.backgroundColors(
+                            for: colorScheme
+                        ),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
             
-            ScrollView(showsIndicators: false) {
+                ScrollView(showsIndicators: false) {
                 VStack(spacing: 10) {
                     
                     WeekHeaderPill(
@@ -1439,13 +1643,16 @@ struct HomeView: View {
                                         showNavigationSheet = true
                                     },
                                     onManageTap: {
-                                        selectedTrainingManagementRequest =
+                                        let request =
                                             makeTrainingManagementRequest(
                                                 for: training,
                                                 activeOverride: trainingOverride
                                             )
 
-                                        showTrainingManagementSheet = true
+                                        trainingManagementItem =
+                                            HomeTrainingManagementItem(
+                                                request: request
+                                            )
                                     }
                                 )
                                 .padding(.horizontal, 18)
@@ -1466,8 +1673,14 @@ struct HomeView: View {
 
                     CoachMessagesCard(
                         title: isAbroadUser
-                        ? tr("עדכונים מהסניף המקומי", "Local Branch Updates")
-                        : tr("הודעות מאמן", "Coach Messages"),
+                            ? tr(
+                                "עדכונים מהסניף המקומי",
+                                "Local Branch Updates"
+                            )
+                            : tr(
+                                "הודעות מאמן",
+                                "Coach Messages"
+                            ),
                         coachName: resolvedCoachBroadcastName,
                         message: resolvedCoachBroadcastMessage,
                         branch: resolvedCoachBroadcastBranch,
@@ -1482,19 +1695,39 @@ struct HomeView: View {
                     )
                     .padding(.horizontal, 18)
 
-                    Spacer(minLength: 112)
+                    Spacer(minLength: 10)
                 }
+                .padding(.bottom, 4)
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            bottomBeltSelectionButton
-        }
-                .overlay(
-                    alignment: .topLeading
-                ) {
-                    quickMenuOverlay
-                }
+        .safeAreaInset(
+            edge: .bottom,
+            spacing: 0
+        ) {
+            VStack(spacing: 0) {
+                Rectangle()
+                    .fill(
+                        colorScheme == .dark
+                            ? Color.white.opacity(0.10)
+                            : Color.white.opacity(0.16)
+                    )
+                    .frame(height: 1)
+
+                bottomBeltSelectionButton
+            }
+            .background(
+                HomeVisualTheme.bottomSurface(
+                    for: colorScheme
                 )
+                .ignoresSafeArea(edges: .bottom)
+            )
+        }
+        .overlay(
+            alignment: .topLeading
+        ) {
+            quickMenuOverlay
+        }
+        )
 
         let lifecycleContent = AnyView(
             baseContent
@@ -1676,23 +1909,20 @@ struct HomeView: View {
                                             }
                                         }
                                         .sheet(
-                                            isPresented: $showTrainingManagementSheet,
+                                            item: $trainingManagementItem,
                                             onDismiss: {
-                                                selectedTrainingManagementRequest = nil
+                                                trainingManagementItem = nil
                                             }
-                                        ) {
-                                            if let request = selectedTrainingManagementRequest {
-                                                CoachTrainingOverrideSheet(
-                                                    request: request,
-                                                    isEnglish: isEnglish,
-                                                    onClose: {
-                                                        showTrainingManagementSheet = false
-                                                        selectedTrainingManagementRequest = nil
-                                                    }
-                                                )
-                                                .presentationDetents([.large])
-                                                .presentationDragIndicator(.visible)
-                                            }
+                                        ) { item in
+                                            CoachTrainingOverrideSheet(
+                                                request: item.request,
+                                                isEnglish: isEnglish,
+                                                onClose: {
+                                                    trainingManagementItem = nil
+                                                }
+                                            )
+                                            .presentationDetents([.large])
+                                            .presentationDragIndicator(.visible)
                                         }
                                         .sheet(isPresented: $showCoachMessagesSheet) {
             CoachMessagesHistorySheet(
@@ -1772,7 +2002,11 @@ struct HomeView: View {
                 registeredBelt: resolvedBelt
             )
 
-            nav.push(.beltQuestionsByBelt(belt: target))
+            nav.push(
+                .beltQuestionsByBelt(
+                    belt: target
+                )
+            )
         } label: {
             HomePremiumExerciseButton(
                 title: buttonTitleForBelt(),
@@ -1782,9 +2016,14 @@ struct HomeView: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 12)
-        .padding(.top, 4)
-        .padding(.bottom, 4)
-        .background(Color.clear)
+        .padding(.top, 6)
+        .padding(.bottom, 6)
+        .background(
+            HomeVisualTheme.bottomSurface(
+                for: colorScheme
+            )
+        )
+        .contentShape(Rectangle())
     }
 
     private var quickMenuOverlay: some View {
@@ -3780,21 +4019,38 @@ struct HomeView: View {
     
     private func emptyBlock(message: String) -> some View {
         Text(message)
-            .font(.system(size: 18, weight: .heavy))
+            .kmiFont(
+                size: 18,
+                weight: .heavy
+            )
             .foregroundStyle(.white)
             .multilineTextAlignment(.center)
             .lineLimit(3)
-            .minimumScaleFactor(0.86)
+            .minimumScaleFactor(0.80)
             .frame(maxWidth: .infinity)
             .frame(minHeight: 96)
             .padding(.horizontal, 22)
+            .padding(.vertical, 14)
             .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(isCoachUser ? Color.black.opacity(0.36) : Color.white.opacity(0.14))
+                RoundedRectangle(
+                    cornerRadius: 20,
+                    style: .continuous
+                )
+                .fill(
+                    isCoachUser
+                        ? Color.black.opacity(0.36)
+                        : Color.white.opacity(0.14)
+                )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                RoundedRectangle(
+                    cornerRadius: 20,
+                    style: .continuous
+                )
+                .stroke(
+                    Color.white.opacity(0.18),
+                    lineWidth: 1
+                )
             )
             .padding(.horizontal, 18)
     }
@@ -3805,7 +4061,10 @@ private struct HomeAbroadBranchNotice: View {
     let branch: String
     let isEnglish: Bool
 
-    private func tr(_ he: String, _ en: String) -> String {
+    private func tr(
+        _ he: String,
+        _ en: String
+    ) -> String {
         isEnglish ? en : he
     }
 
@@ -3816,27 +4075,45 @@ private struct HomeAbroadBranchNotice: View {
                 "Training schedule is not available for international branches this week"
             )
         )
-        .font(.system(size: 18, weight: .heavy))
+        .kmiFont(
+            size: 18,
+            weight: .heavy
+        )
         .foregroundStyle(.white)
         .multilineTextAlignment(.center)
         .lineLimit(3)
-        .minimumScaleFactor(0.86)
+        .minimumScaleFactor(0.80)
         .frame(maxWidth: .infinity)
         .frame(minHeight: 96)
         .padding(.horizontal, 22)
+        .padding(.vertical, 14)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.white.opacity(0.14))
+            RoundedRectangle(
+                cornerRadius: 20,
+                style: .continuous
+            )
+            .fill(
+                Color.white.opacity(0.14)
+            )
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 20,
+                style: .continuous
+            )
+            .stroke(
+                Color.white.opacity(0.18),
+                lineWidth: 1
+            )
         )
         .padding(.horizontal, 18)
     }
 }
 
 private struct HomeTrainingCardAndroidStyle: View {
+    @Environment(\.colorScheme)
+    private var colorScheme
+
     let training: TrainingData
     let isEnglish: Bool
     let isCoach: Bool
@@ -4233,17 +4510,148 @@ private struct HomeTrainingCardAndroidStyle: View {
         .padding(.top, 2)
     }
 
-    private var holidayCancellationBanner: some View {
-        Text(
-            isEnglish
-            ? "Training cancelled due to holiday"
-            : "האימון מבוטל עקב חג"
-        )
-        .font(
-            .system(
+    private enum HomeTrainingLiveState {
+        case scheduled
+        case ongoing
+        case completed
+        case invalid
+    }
+
+    private func liveTrainingState(
+        at now: Date
+    ) -> HomeTrainingLiveState {
+        guard let originalStartDate = reflectedDate() else {
+            return .invalid
+        }
+
+        let startDate =
+            activeOverride?.hasChangedTime == true
+            ? activeOverride?.effectiveStartDate ?? originalStartDate
+            : originalStartDate
+
+        let endDate: Date = {
+            if activeOverride?.hasChangedTime == true,
+               let overriddenEndDate = activeOverride?.effectiveEndDate {
+                return overriddenEndDate
+            }
+
+            return Calendar.current.date(
+                byAdding: .minute,
+                value: reflectedDurationMinutes(),
+                to: startDate
+            ) ?? startDate
+        }()
+
+        guard endDate > startDate else {
+            return .invalid
+        }
+
+        if now < startDate {
+            return .scheduled
+        }
+
+        if now < endDate {
+            return .ongoing
+        }
+
+        return .completed
+    }
+
+    private func liveTrainingStatusBanner(
+        at now: Date
+    ) -> some View {
+        let state = liveTrainingState(at: now)
+
+        let title: String = {
+            switch state {
+            case .scheduled:
+                return isEnglish
+                    ? "Scheduled training"
+                    : "אימון מתוכנן"
+
+            case .ongoing:
+                return isEnglish
+                    ? "Training in progress"
+                    : "האימון מתקיים עכשיו"
+
+            case .completed:
+                return isEnglish
+                    ? "Training completed"
+                    : "האימון הסתיים"
+
+            case .invalid:
+                return isEnglish
+                    ? "Invalid training details"
+                    : "פרטי האימון אינם תקינים"
+            }
+        }()
+
+        let contentColor: Color = {
+            switch state {
+            case .scheduled:
+                return Color(hex: 0xFF1D4ED8)
+
+            case .ongoing:
+                return Color(hex: 0xFF047857)
+
+            case .completed:
+                return Color(hex: 0xFF475569)
+
+            case .invalid:
+                return Color(hex: 0xFFB91C1C)
+            }
+        }()
+
+        let backgroundColor: Color = {
+            switch state {
+            case .scheduled:
+                return Color(hex: 0xFFEFF6FF)
+
+            case .ongoing:
+                return Color(hex: 0xFFECFDF5)
+
+            case .completed:
+                return Color(hex: 0xFFF1F5F9)
+
+            case .invalid:
+                return Color(hex: 0xFFFEF2F2)
+            }
+        }()
+
+        return Text(title)
+            .kmiFont(
                 size: 12,
                 weight: .bold
             )
+            .foregroundStyle(contentColor)
+            .multilineTextAlignment(.center)
+            .lineLimit(1)
+            .minimumScaleFactor(0.80)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 5)
+            .background(
+                Capsule()
+                    .fill(backgroundColor)
+            )
+            .overlay(
+                Capsule()
+                    .stroke(
+                        contentColor.opacity(0.18),
+                        lineWidth: 1
+                    )
+            )
+            .padding(.top, 2)
+    }
+
+    private var holidayCancellationBanner: some View {
+        Text(
+            isEnglish
+                ? "Training cancelled due to holiday"
+                : "האימון מבוטל עקב חג"
+        )
+        .kmiFont(
+            size: 12,
+            weight: .bold
         )
         .foregroundStyle(
             Color(hex: 0xFF9A3412)
@@ -4279,19 +4687,33 @@ private struct HomeTrainingCardAndroidStyle: View {
         VStack(spacing: 6) {
             VStack(spacing: 2) {
                 Text(branchTitle)
-                    .font(.system(size: 15, weight: .black))
-                    .foregroundStyle(Color(hex: 0xFF111827))
+                    .kmiFont(
+                        size: 15,
+                        weight: .black
+                    )
+                    .foregroundStyle(
+                        HomeVisualTheme.primaryText(
+                            for: colorScheme
+                        )
+                    )
                     .lineLimit(1)
-                    .minimumScaleFactor(0.78)
+                    .minimumScaleFactor(0.72)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
 
                 if !dateLine.isEmpty {
                     Text(dateLine)
-                        .font(.system(size: 12.4, weight: .black))
-                        .foregroundStyle(Color(hex: 0xFF111827))
+                        .kmiFont(
+                            size: 12.4,
+                            weight: .black
+                        )
+                        .foregroundStyle(
+                            HomeVisualTheme.primaryText(
+                                for: colorScheme
+                            )
+                        )
                         .lineLimit(2)
-                        .minimumScaleFactor(0.78)
+                        .minimumScaleFactor(0.72)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
                 }
@@ -4300,43 +4722,17 @@ private struct HomeTrainingCardAndroidStyle: View {
                     trainingOverrideBanner
                 } else if isCancelledByHoliday {
                     holidayCancellationBanner
-                }
-
-                if isCoach {
-                    Button {
-                        onManageTap()
-                    } label: {
-                        Label(
-                            isEnglish
-                            ? "Change or cancel training"
-                            : "שינוי או ביטול אימון",
-                            systemImage: "calendar.badge.clock"
+                } else {
+                    TimelineView(
+                        .periodic(
+                            from: .now,
+                            by: 30
                         )
-                        .font(.system(size: 12, weight: .black))
-                        .foregroundStyle(Color(hex: 0xFF1D4ED8))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(
-                                cornerRadius: 12,
-                                style: .continuous
-                            )
-                            .fill(Color(hex: 0xFFEFF6FF))
-                        )
-                        .overlay(
-                            RoundedRectangle(
-                                cornerRadius: 12,
-                                style: .continuous
-                            )
-                            .stroke(
-                                Color(hex: 0xFF3B82F6)
-                                    .opacity(0.28),
-                                lineWidth: 1
-                            )
+                    ) { timeline in
+                        liveTrainingStatusBanner(
+                            at: timeline.date
                         )
                     }
-                    .buttonStyle(.plain)
-                    .padding(.top, 3)
                 }
             }
 
@@ -4356,43 +4752,153 @@ private struct HomeTrainingCardAndroidStyle: View {
                         navigationIcon
                     }
                 }
-                .environment(\.layoutDirection, rowDirection)
+                .environment(
+                    \.layoutDirection,
+                    rowDirection
+                )
                 .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                .padding(.vertical, 7)
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: 54)
+                .frame(minHeight: 62)
                 .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color.white.opacity(0.92))
+                    RoundedRectangle(
+                        cornerRadius: 14,
+                        style: .continuous
+                    )
+                    .fill(
+                        HomeVisualTheme.innerCardBackground(
+                            for: colorScheme
+                        )
+                    )
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                    RoundedRectangle(
+                        cornerRadius: 14,
+                        style: .continuous
+                    )
+                    .stroke(
+                        HomeVisualTheme.innerCardBorder(
+                            for: colorScheme
+                        ),
+                        lineWidth: 1
+                    )
                 )
-                .shadow(color: Color.black.opacity(0.10), radius: 5, x: 0, y: 3)
+                .shadow(
+                    color: Color.black.opacity(0.10),
+                    radius: 5,
+                    x: 0,
+                    y: 3
+                )
             }
             .buttonStyle(.plain)
             .disabled(addressText.isEmpty)
-            .opacity(addressText.isEmpty ? 0.72 : 1)
+            .opacity(
+                addressText.isEmpty ? 0.72 : 1
+            )
 
             if !coachText.isEmpty {
-                Text(isEnglish ? "Coach: \(coachText)" : "מאמן: \(coachText)")
-                    .font(.system(size: 11.2, weight: .bold))
-                    .foregroundStyle(Color(hex: 0xFF475569))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.76)
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .multilineTextAlignment(textAlignment)
+                Text(
+                    isEnglish
+                        ? "Coach: \(coachText)"
+                        : "מאמן: \(coachText)"
+                )
+                .kmiFont(
+                    size: 11.2,
+                    weight: .bold
+                )
+                .foregroundStyle(
+                    HomeVisualTheme.secondaryText(
+                        for: colorScheme
+                    )
+                )
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: frameAlignment
+                )
+                .multilineTextAlignment(
+                    textAlignment
+                )
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.white.opacity(0.96))
+            RoundedRectangle(
+                cornerRadius: 16,
+                style: .continuous
+            )
+            .fill(
+                HomeVisualTheme.cardBackground(
+                    for: colorScheme
+                )
+            )
         )
-        .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 4)
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: 16,
+                style: .continuous
+            )
+            .stroke(
+                HomeVisualTheme.cardBorder(
+                    for: colorScheme
+                ),
+                lineWidth: 1
+            )
+        )
+        .overlay(
+            alignment: isEnglish
+            ? .topTrailing
+            : .topLeading
+        ) {
+            if isCoach {
+                Button {
+                    onManageTap()
+                } label: {
+                    Image(
+                        systemName: "calendar.badge.clock"
+                    )
+                    .kmiFont(
+                        size: 14,
+                        weight: .bold
+                    )
+                    .foregroundStyle(
+                        Color(hex: 0xFF1D4ED8)
+                    )
+                    .frame(
+                        width: 32,
+                        height: 32
+                    )
+                    .background(
+                        Circle()
+                            .fill(
+                                Color(hex: 0xFFEFF6FF)
+                            )
+                    )
+                    .overlay(
+                        Circle()
+                            .stroke(
+                                Color(hex: 0xFF3B82F6)
+                                    .opacity(0.28),
+                                lineWidth: 1
+                            )
+                    )
+                    .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    Text(
+                        isEnglish
+                        ? "Change or cancel training"
+                        : "שינוי או ביטול אימון"
+                    )
+                )
+                .padding(9)
+            }
+        }
+        .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 3)
         .environment(\.layoutDirection, rowDirection)
     }
 
@@ -4429,6 +4935,9 @@ private struct HomeTrainingCardAndroidStyle: View {
 }
 
 private struct HomePremiumExerciseButton: View {
+    @Environment(\.kmiFontScale)
+    private var displayScale
+
     let title: String
     let subtitle: String
     let isEnglish: Bool
@@ -4437,25 +4946,54 @@ private struct HomePremiumExerciseButton: View {
         isEnglish ? .leftToRight : .rightToLeft
     }
 
+    private var buttonHeight: CGFloat {
+        max(
+            56,
+            60 * displayScale
+        )
+    }
+
     var body: some View {
         TimelineView(.animation) { timeline in
-            let seconds = timeline.date.timeIntervalSinceReferenceDate
-            let progress = (seconds.truncatingRemainder(dividingBy: 2.6)) / 2.6
-            let shineX = -120 + 320 * progress
+            let seconds =
+                timeline.date.timeIntervalSinceReferenceDate
+
+            let progress =
+                seconds.truncatingRemainder(
+                    dividingBy: 2.6
+                ) / 2.6
+
+            let shineX =
+                -120 + 320 * progress
 
             ZStack {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.50, green: 0.00, blue: 1.00),
-                                Color(red: 0.25, green: 0.32, blue: 0.72),
-                                Color(red: 0.02, green: 0.66, blue: 0.96)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
+                RoundedRectangle(
+                    cornerRadius: 18,
+                    style: .continuous
+                )
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(
+                                red: 0.50,
+                                green: 0.00,
+                                blue: 1.00
+                            ),
+                            Color(
+                                red: 0.25,
+                                green: 0.32,
+                                blue: 0.72
+                            ),
+                            Color(
+                                red: 0.02,
+                                green: 0.66,
+                                blue: 0.96
+                            )
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
                     )
+                )
 
                 Circle()
                     .fill(
@@ -4469,52 +5007,85 @@ private struct HomePremiumExerciseButton: View {
                             endRadius: 70
                         )
                     )
-                    .frame(width: 140, height: 140)
+                    .frame(
+                        width: 140,
+                        height: 140
+                    )
                     .offset(x: shineX)
 
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.85),
-                                Color.white.opacity(0.25),
-                                Color.white.opacity(0.85)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        ),
-                        lineWidth: 1
-                    )
+                RoundedRectangle(
+                    cornerRadius: 18,
+                    style: .continuous
+                )
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.85),
+                            Color.white.opacity(0.25),
+                            Color.white.opacity(0.85)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    ),
+                    lineWidth: 1
+                )
 
-                HStack(spacing: 8) {
+                HStack(
+                    spacing: 8 * displayScale
+                ) {
                     if isEnglish {
                         Image(systemName: "star.fill")
-                            .font(.system(size: 18, weight: .black))
+                            .kmiFont(
+                                size: 18,
+                                weight: .black
+                            )
                             .foregroundStyle(.white)
                     }
 
                     Text(title)
-                        .font(.system(size: 18, weight: .black))
+                        .kmiFont(
+                            size: 18,
+                            weight: .black
+                        )
                         .foregroundStyle(.white)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.78)
+                        .minimumScaleFactor(0.72)
                         .multilineTextAlignment(.center)
 
                     if !isEnglish {
                         Image(systemName: "star.fill")
-                            .font(.system(size: 18, weight: .black))
+                            .kmiFont(
+                                size: 18,
+                                weight: .black
+                            )
                             .foregroundStyle(.white)
                     }
                 }
-                .environment(\.layoutDirection, rowDirection)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .environment(
+                    \.layoutDirection,
+                    rowDirection
+                )
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: .infinity
+                )
                 .padding(.horizontal, 12)
             }
-            .frame(height: 60)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .shadow(color: Color.black.opacity(0.18), radius: 12, x: 0, y: 6)
+            .frame(height: buttonHeight)
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: 18,
+                    style: .continuous
+                )
+            )
+            .shadow(
+                color: Color.black.opacity(0.18),
+                radius: 12,
+                x: 0,
+                y: 6
+            )
         }
-        .frame(height: 60)
+        .frame(height: buttonHeight)
         .frame(maxWidth: .infinity)
     }
 }
@@ -4522,42 +5093,82 @@ private struct HomePremiumExerciseButton: View {
 
 // MARK: - Week Header
 private struct WeekHeaderPill: View {
+    @Environment(\.kmiFontScale)
+    private var displayScale
+
     let title: String
     let subtitle: String
+
+    private var minimumHeaderHeight: CGFloat {
+        max(
+            58,
+            60 * displayScale
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
                 LinearGradient(
                     colors: [
-                        Color(red: 0.02, green: 0.17, blue: 0.29).opacity(0.92),
-                        Color(red: 0.06, green: 0.37, blue: 0.61).opacity(0.86),
-                        Color(red: 0.02, green: 0.17, blue: 0.29).opacity(0.92)
+                        Color(
+                            red: 0.02,
+                            green: 0.17,
+                            blue: 0.29
+                        )
+                        .opacity(0.92),
+                        Color(
+                            red: 0.06,
+                            green: 0.37,
+                            blue: 0.61
+                        )
+                        .opacity(0.86),
+                        Color(
+                            red: 0.02,
+                            green: 0.17,
+                            blue: 0.29
+                        )
+                        .opacity(0.92)
                     ],
                     startPoint: .leading,
                     endPoint: .trailing
                 )
 
-                VStack(spacing: 2) {
+                VStack(
+                    spacing: 2 * displayScale
+                ) {
                     Text(title)
-                        .font(.system(size: 16, weight: .heavy))
+                        .kmiFont(
+                            size: 16,
+                            weight: .heavy
+                        )
                         .foregroundStyle(.white)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.86)
+                        .minimumScaleFactor(0.80)
                         .multilineTextAlignment(.center)
 
                     Text(subtitle)
-                        .font(.system(size: 12.6, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.92))
+                        .kmiFont(
+                            size: 12.6,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(
+                            .white.opacity(0.92)
+                        )
                         .lineLimit(2)
-                        .minimumScaleFactor(0.84)
+                        .minimumScaleFactor(0.80)
                         .multilineTextAlignment(.center)
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(
+                    .vertical,
+                    8 * displayScale
+                )
             }
             .frame(maxWidth: .infinity)
-            .frame(minHeight: 60)
+            .frame(
+                minHeight: minimumHeaderHeight
+            )
 
             LinearGradient(
                 colors: [
@@ -4575,6 +5186,9 @@ private struct WeekHeaderPill: View {
 }
 
 private struct CoachMessagesCard: View {
+    @Environment(\.colorScheme)
+    private var colorScheme
+
     let title: String
     let coachName: String
     let message: String
@@ -4632,82 +5246,175 @@ private struct CoachMessagesCard: View {
     }
 
     var body: some View {
-        VStack(alignment: stackAlignment, spacing: 6) {
+        VStack(
+            alignment: stackAlignment,
+            spacing: 6
+        ) {
             Text(title)
-                .font(.system(size: 14.2, weight: .heavy))
-                .foregroundStyle(.white.opacity(0.96))
-                .frame(maxWidth: .infinity, alignment: frameAlignment)
-                .multilineTextAlignment(textAlignment)
+                .kmiFont(
+                    size: 14.2,
+                    weight: .heavy
+                )
+                .foregroundStyle(
+                    .white.opacity(0.96)
+                )
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: frameAlignment
+                )
+                .multilineTextAlignment(
+                    textAlignment
+                )
             
-            Button(action: {
+            Button {
                 if hasMessages {
                     onOpenRecent()
                 }
-            }) {
+            } label: {
                 HStack(spacing: 10) {
                     if isEnglish {
                         personBubble
                     }
                     
-                    VStack(alignment: stackAlignment, spacing: 5) {
+                    VStack(
+                        alignment: stackAlignment,
+                        spacing: 5
+                    ) {
                         HStack(spacing: 8) {
                             if hasMessages && isEnglish {
                                 messagesBadge
                             }
                             
                             Text(coachName)
-                                .font(.system(size: 17, weight: .black))
-                                .foregroundStyle(Color(red: 0.04, green: 0.30, blue: 0.44))
+                                .kmiFont(
+                                    size: 17,
+                                    weight: .black
+                                )
+                                .foregroundStyle(
+                                    colorScheme == .dark
+                                        ? Color(
+                                            red: 0.49,
+                                            green: 0.83,
+                                            blue: 1.00
+                                        )
+                                        : Color(
+                                            red: 0.04,
+                                            green: 0.30,
+                                            blue: 0.44
+                                        )
+                                )
                                 .lineLimit(1)
-                                .minimumScaleFactor(0.80)
-                                .frame(maxWidth: .infinity, alignment: frameAlignment)
-                                .multilineTextAlignment(textAlignment)
+                                .minimumScaleFactor(0.74)
+                                .frame(
+                                    maxWidth: .infinity,
+                                    alignment: frameAlignment
+                                )
+                                .multilineTextAlignment(
+                                    textAlignment
+                                )
                             
                             if hasMessages && !isEnglish {
                                 messagesBadge
                             }
                         }
-                        .environment(\.layoutDirection, rowDirection)
+                        .environment(
+                            \.layoutDirection,
+                            rowDirection
+                        )
                         
                         Text(message)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.23))
-                            .frame(maxWidth: .infinity, alignment: frameAlignment)
-                            .multilineTextAlignment(textAlignment)
+                            .kmiFont(
+                                size: 15,
+                                weight: .semibold
+                            )
+                            .foregroundStyle(
+                                HomeVisualTheme.primaryText(
+                                    for: colorScheme
+                                )
+                            )
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: frameAlignment
+                            )
+                            .multilineTextAlignment(
+                                textAlignment
+                            )
                             .lineLimit(2)
-                            .minimumScaleFactor(0.84)
+                            .minimumScaleFactor(0.78)
                         
                         if !branchGroupLine.isEmpty {
                             Text(branchGroupLine)
-                                .font(.system(size: 12.3, weight: .semibold))
-                                .foregroundStyle(Color(red: 0.30, green: 0.34, blue: 0.40))
-                                .frame(maxWidth: .infinity, alignment: frameAlignment)
-                                .multilineTextAlignment(textAlignment)
+                                .kmiFont(
+                                    size: 12.3,
+                                    weight: .semibold
+                                )
+                                .foregroundStyle(
+                                    HomeVisualTheme.secondaryText(
+                                        for: colorScheme
+                                    )
+                                )
+                                .frame(
+                                    maxWidth: .infinity,
+                                    alignment: frameAlignment
+                                )
+                                .multilineTextAlignment(
+                                    textAlignment
+                                )
                                 .lineLimit(2)
-                                .minimumScaleFactor(0.82)
+                                .minimumScaleFactor(0.76)
                         }
                         
                         if !sentAtText.isEmpty || hasMessages {
                             VStack(spacing: 3) {
                                 if !sentAtText.isEmpty {
                                     Text(sentAtText)
-                                        .font(.system(size: 11.4, weight: .bold))
-                                        .foregroundStyle(Color(red: 0.39, green: 0.45, blue: 0.55))
-                                        .frame(maxWidth: .infinity, alignment: frameAlignment)
-                                        .multilineTextAlignment(textAlignment)
+                                        .kmiFont(
+                                            size: 11.4,
+                                            weight: .bold
+                                        )
+                                        .foregroundStyle(
+                                            Color(
+                                                red: 0.39,
+                                                green: 0.45,
+                                                blue: 0.55
+                                            )
+                                        )
+                                        .frame(
+                                            maxWidth: .infinity,
+                                            alignment: frameAlignment
+                                        )
+                                        .multilineTextAlignment(
+                                            textAlignment
+                                        )
                                         .lineLimit(1)
                                 }
                                 
                                 if hasMessages {
                                     Text(openRecentText)
-                                        .font(.system(size: 12, weight: .black))
-                                        .foregroundStyle(Color(red: 0.01, green: 0.42, blue: 0.68))
+                                        .kmiFont(
+                                            size: 12,
+                                            weight: .black
+                                        )
+                                        .foregroundStyle(
+                                            Color(
+                                                red: 0.01,
+                                                green: 0.42,
+                                                blue: 0.68
+                                            )
+                                        )
                                         .frame(
                                             maxWidth: .infinity,
-                                            alignment: isEnglish ? .trailing : .leading
+                                            alignment: isEnglish
+                                                ? .trailing
+                                                : .leading
                                         )
-                                        .multilineTextAlignment(isEnglish ? .trailing : .leading)
+                                        .multilineTextAlignment(
+                                            isEnglish
+                                                ? .trailing
+                                                : .leading
+                                        )
                                         .lineLimit(1)
+                                        .minimumScaleFactor(0.76)
                                 }
                             }
                         }
@@ -4722,23 +5429,34 @@ private struct CoachMessagesCard: View {
                 .padding(.vertical, 11)
                 .frame(maxWidth: .infinity)
                 .background(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.98),
-                                    Color(red: 0.94, green: 0.98, blue: 1.00).opacity(0.98)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
+                    RoundedRectangle(
+                        cornerRadius: 24,
+                        style: .continuous
+                    )
+                    .fill(
+                        LinearGradient(
+                            colors:
+                                HomeVisualTheme.messageGradient(
+                                    for: colorScheme
+                                ),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
                         )
+                    )
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
                         .stroke(Color(red: 0.36, green: 0.78, blue: 0.98), lineWidth: 1.2)
                 )
-                .shadow(color: Color.black.opacity(0.14), radius: 10, x: 0, y: 6)
+                .shadow(
+                    color:
+                        HomeVisualTheme.shadow(
+                            for: colorScheme
+                        ),
+                    radius: 10,
+                    x: 0,
+                    y: 6
+                )
             }
             .buttonStyle(.plain)
         }
@@ -4747,22 +5465,47 @@ private struct CoachMessagesCard: View {
     private var personBubble: some View {
         ZStack {
             Circle()
-                .fill(Color(red: 0.88, green: 0.97, blue: 1.00))
+                .fill(
+                    Color(
+                        red: 0.88,
+                        green: 0.97,
+                        blue: 1.00
+                    )
+                )
             
             Image(systemName: "person.fill")
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(Color(red: 0.01, green: 0.41, blue: 0.63))
+                .kmiFont(
+                    size: 17,
+                    weight: .bold
+                )
+                .foregroundStyle(
+                    Color(
+                        red: 0.01,
+                        green: 0.41,
+                        blue: 0.63
+                    )
+                )
         }
         .frame(width: 38, height: 38)
     }
     
     private var messagesBadge: some View {
         HStack(spacing: 4) {
-            Text(isEnglish ? "Messages" : "הודעות")
-                .font(.system(size: 12, weight: .black))
+            Text(
+                isEnglish
+                    ? "Messages"
+                    : "הודעות"
+            )
+            .kmiFont(
+                size: 12,
+                weight: .black
+            )
             
             Image(systemName: "envelope.fill")
-                .font(.system(size: 10, weight: .black))
+                .kmiFont(
+                    size: 10,
+                    weight: .black
+                )
         }
         .foregroundStyle(Color(red: 0.01, green: 0.42, blue: 0.68))
         .padding(.horizontal, 8)

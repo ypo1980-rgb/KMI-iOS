@@ -53,15 +53,88 @@ final class AuthViewModel: ObservableObject {
         isLoading = false
         isSignedIn = false
 
-        // ✅ UI מהיר עד שנמשוך מהשרת
-        self.userRole = UserDefaults.standard.string(forKey: roleDefaultsKey) ?? "trainee"
+        let defaults = UserDefaults.standard
+
+        let storedRole =
+            defaults.string(forKey: roleDefaultsKey) ??
+            defaults.string(forKey: "user_role") ??
+            defaults.string(forKey: "role") ??
+            defaults.string(forKey: "userRole") ??
+            defaults.string(forKey: "profile_role") ??
+            "trainee"
+
+        self.userRole = normalizedActiveRole(
+            storedRole
+        )
+    }
+
+    private func normalizedActiveRole(
+        _ rawValue: String
+    ) -> String {
+        let normalized = rawValue
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased()
+
+        switch normalized {
+        case "coach",
+             "trainer",
+             "instructor",
+             "coach_user",
+             "kmi_coach",
+             "מאמן":
+            return "coach"
+
+        default:
+            return "trainee"
+        }
+    }
+
+    func setActiveUserRole(
+        _ rawValue: String
+    ) {
+        let resolvedRole =
+            normalizedActiveRole(rawValue)
+
+        userRole = resolvedRole
+
+        let defaults = UserDefaults.standard
+
+        defaults.set(
+            resolvedRole,
+            forKey: roleDefaultsKey
+        )
+        defaults.set(
+            resolvedRole,
+            forKey: "user_role"
+        )
+        defaults.set(
+            resolvedRole,
+            forKey: "role"
+        )
+        defaults.set(
+            resolvedRole,
+            forKey: "userRole"
+        )
+        defaults.set(
+            resolvedRole,
+            forKey: "profile_role"
+        )
+
+        NotificationCenter.default.post(
+            name: Notification.Name(
+                "KMI_ACTIVE_ROLE_CHANGED"
+            ),
+            object: resolvedRole
+        )
     }
     
     func forceSignOutForFreshLogin() {
         isSignedIn = false
         registeredBelt = nil
         nextBelt = BeltFlow.defaultBelt
-        userRole = "trainee"
+        setActiveUserRole("trainee")
         userFullName = ""
         userRegion = ""
         userBranch = ""
@@ -220,128 +293,300 @@ final class AuthViewModel: ObservableObject {
 
 #if canImport(FirebaseFirestore)
     
-private func ensureUserProfileDocumentExists(
-    uid: String,
-    existingData: [String: Any]
-) async throws -> [String: Any] {
-    let ud = UserDefaults.standard
+    private func ensureUserProfileDocumentExists(
+        uid: String,
+        existingData: [String: Any]
+    ) async throws -> [String: Any] {
+        let ud = UserDefaults.standard
 
-    let existingBranches =
-        (existingData["branches"] as? [String])?
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty } ?? []
+        let existingBranches =
+            (existingData["branches"] as? [String])?
+                .map {
+                    $0.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                }
+                .filter {
+                    !$0.isEmpty
+                }
+                .reduce(into: [String]()) { result, branch in
+                    if !result.contains(branch) {
+                        result.append(branch)
+                    }
+                } ?? []
 
-    let existingGroups =
-        (existingData["groups"] as? [String])?
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty } ?? []
+        let existingGroups =
+            (existingData["groups"] as? [String])?
+                .map {
+                    $0.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                }
+                .filter {
+                    !$0.isEmpty
+                }
+                .reduce(into: [String]()) { result, group in
+                    if !result.contains(group) {
+                        result.append(group)
+                    }
+                } ?? []
 
-    let existingSingleBranch =
-        (existingData["branch"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let existingSingleBranch =
+            (existingData["branch"] as? String)?
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ) ?? ""
 
-    let existingSingleGroup =
-        ((existingData["group"] as? String) ??
-         (existingData["age_group"] as? String) ??
-         (existingData["ageGroup"] as? String) ??
-         "")
-        .trimmingCharacters(in: .whitespacesAndNewlines)
+        let existingSingleGroup =
+            (
+                (existingData["group"] as? String) ??
+                (existingData["age_group"] as? String) ??
+                (existingData["ageGroup"] as? String) ??
+                ""
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
 
-    let fullName =
-        ((existingData["fullName"] as? String) ??
-         ud.string(forKey: "fullName") ??
-         ud.string(forKey: "full_name") ??
-         "")
-        .trimmingCharacters(in: .whitespacesAndNewlines)
+        let storedBranches =
+            (ud.stringArray(forKey: "branches") ?? [])
+                .map {
+                    $0.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                }
+                .filter {
+                    !$0.isEmpty
+                }
 
-    let email =
-        ((existingData["email"] as? String) ??
-         Auth.auth().currentUser?.email ??
-         ud.string(forKey: "email") ??
-         "")
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        .lowercased()
+        let storedGroups =
+            (ud.stringArray(forKey: "groups") ?? [])
+                .map {
+                    $0.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                }
+                .filter {
+                    !$0.isEmpty
+                }
 
-    let phone =
-        ((existingData["phone"] as? String) ??
-         ud.string(forKey: "phone") ??
-         "")
-        .trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackBranch =
+            (
+                ud.string(forKey: "kmi.user.branch") ??
+                ud.string(forKey: "active_branch") ??
+                ud.string(forKey: "branch") ??
+                ""
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
 
-    let region =
-        ((existingData["region"] as? String) ??
-         ud.string(forKey: "kmi.user.region") ??
-         ud.string(forKey: "region") ??
-         "")
-        .trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackGroup =
+            (
+                ud.string(forKey: "kmi.user.group") ??
+                ud.string(forKey: "active_group") ??
+                ud.string(forKey: "group") ??
+                ud.string(forKey: "age_group") ??
+                ""
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
 
-    let branchFromDefaults =
-        (ud.string(forKey: "kmi.user.branch") ??
-         ud.string(forKey: "branch") ??
-         "")
-        .trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedBranches: [String] = {
+            if !existingBranches.isEmpty {
+                return existingBranches
+            }
 
-    let groupFromDefaults =
-        (ud.string(forKey: "kmi.user.group") ??
-         ud.string(forKey: "group") ??
-         ud.string(forKey: "age_group") ??
-         "")
-        .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !existingSingleBranch.isEmpty {
+                return [existingSingleBranch]
+            }
 
-    let resolvedBranch = existingBranches.first ?? (existingSingleBranch.isEmpty ? branchFromDefaults : existingSingleBranch)
-    let resolvedGroup = existingGroups.first ?? (existingSingleGroup.isEmpty ? groupFromDefaults : existingSingleGroup)
-    
-    let role =
-        ((existingData["role"] as? String) ??
-         ud.string(forKey: "user_role") ??
-         self.userRole)
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        .lowercased()
+            if !storedBranches.isEmpty {
+                return storedBranches
+            }
 
-    let shouldRepair =
-        existingData.isEmpty ||
-        existingBranches.isEmpty ||
-        existingGroups.isEmpty ||
-        (existingData["fullName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+            if !fallbackBranch.isEmpty {
+                return [fallbackBranch]
+            }
 
-    if !shouldRepair {
-        return existingData
+            return []
+        }()
+
+        let resolvedGroups: [String] = {
+            if !existingGroups.isEmpty {
+                return existingGroups
+            }
+
+            if !existingSingleGroup.isEmpty {
+                return [existingSingleGroup]
+            }
+
+            if !storedGroups.isEmpty {
+                return storedGroups
+            }
+
+            if !fallbackGroup.isEmpty {
+                return [fallbackGroup]
+            }
+
+            return []
+        }()
+
+        let requestedActiveBranch =
+            (
+                (existingData["active_branch"] as? String) ??
+                (existingData["activeBranch"] as? String) ??
+                existingSingleBranch
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let requestedActiveGroup =
+            (
+                (existingData["active_group"] as? String) ??
+                (existingData["activeGroup"] as? String) ??
+                existingSingleGroup
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let primaryBranch: String = {
+            if resolvedBranches.contains(requestedActiveBranch) {
+                return requestedActiveBranch
+            }
+
+            return resolvedBranches.first ?? ""
+        }()
+
+        let primaryGroup: String = {
+            if resolvedGroups.contains(requestedActiveGroup) {
+                return requestedActiveGroup
+            }
+
+            return resolvedGroups.first ?? ""
+        }()
+
+        let fullName =
+            (
+                (existingData["fullName"] as? String) ??
+                ud.string(forKey: "fullName") ??
+                ud.string(forKey: "full_name") ??
+                ""
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let email =
+            (
+                (existingData["email"] as? String) ??
+                Auth.auth().currentUser?.email ??
+                ud.string(forKey: "email") ??
+                ""
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased()
+
+        let phone =
+            (
+                (existingData["phone"] as? String) ??
+                ud.string(forKey: "phone") ??
+                ""
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let region =
+            (
+                (existingData["region"] as? String) ??
+                ud.string(forKey: "kmi.user.region") ??
+                ud.string(forKey: "region") ??
+                ""
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let role =
+            (
+                (existingData["role"] as? String) ??
+                ud.string(forKey: "user_role") ??
+                self.userRole
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased()
+
+        let serverFullName =
+            (existingData["fullName"] as? String)?
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ) ?? ""
+
+        let shouldRepair =
+            existingData.isEmpty ||
+            serverFullName.isEmpty ||
+            (existingData["branches"] == nil &&
+             !resolvedBranches.isEmpty) ||
+            (existingData["groups"] == nil &&
+             !resolvedGroups.isEmpty)
+
+        if !shouldRepair {
+            return existingData
+        }
+
+        var repairedData = existingData
+
+        repairedData["uid"] = uid
+        repairedData["fullName"] = fullName
+        repairedData["email"] = email
+        repairedData["emailLower"] = email
+        repairedData["phone"] = phone
+        repairedData["region"] = region
+        repairedData["role"] = role
+        repairedData["updatedAt"] =
+            FieldValue.serverTimestamp()
+
+        if !resolvedBranches.isEmpty {
+            repairedData["branches"] = resolvedBranches
+            repairedData["branch"] = primaryBranch
+            repairedData["activeBranch"] = primaryBranch
+            repairedData["active_branch"] = primaryBranch
+        }
+
+        if !resolvedGroups.isEmpty {
+            repairedData["groups"] = resolvedGroups
+            repairedData["group"] = primaryGroup
+            repairedData["age_group"] = primaryGroup
+            repairedData["ageGroup"] = primaryGroup
+            repairedData["activeGroup"] = primaryGroup
+            repairedData["active_group"] = primaryGroup
+        }
+
+        if existingData["createdAt"] == nil {
+            repairedData["createdAt"] =
+                FieldValue.serverTimestamp()
+        }
+
+        let db = Firestore.firestore()
+
+        try await db.collection("users")
+            .document(uid)
+            .setData(
+                repairedData,
+                merge: true
+            )
+
+        return repairedData
     }
-
-    var repairedData = existingData
-
-    repairedData["uid"] = uid
-    repairedData["fullName"] = fullName
-    repairedData["email"] = email
-    repairedData["emailLower"] = email
-    repairedData["phone"] = phone
-    repairedData["region"] = region
-    repairedData["role"] = role
-    repairedData["updatedAt"] = FieldValue.serverTimestamp()
-
-    if !resolvedBranch.isEmpty {
-        repairedData["branch"] = resolvedBranch
-        repairedData["branches"] = [resolvedBranch]
-    }
-
-    if !resolvedGroup.isEmpty {
-        repairedData["group"] = resolvedGroup
-        repairedData["groups"] = [resolvedGroup]
-        repairedData["age_group"] = resolvedGroup
-    }
-
-    if existingData["createdAt"] == nil {
-        repairedData["createdAt"] = FieldValue.serverTimestamp()
-    }
-
-    let db = Firestore.firestore()
-    try await db.collection("users")
-        .document(uid)
-        .setData(repairedData, merge: true)
-
-    return repairedData
-}
-#endif
+    #endif
 
     // MARK: - Helpers
     func refreshCurrentUser() {
@@ -372,48 +617,154 @@ private func ensureUserProfileDocumentExists(
         #endif
     }
 
-    func saveTrainingAssignment(branch: String, group: String) {
-        let cleanBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanGroup = group.trimmingCharacters(in: .whitespacesAndNewlines)
+    func saveTrainingAssignment(
+        branch: String,
+        group: String
+    ) {
+        let cleanBranch = branch
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let cleanGroup = group
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
 
         self.userBranch = cleanBranch
         self.userGroup = cleanGroup
 
+        let defaults = UserDefaults.standard
+
+        var storedBranches =
+            (defaults.stringArray(forKey: "branches") ?? [])
+                .map {
+                    $0.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                }
+                .filter {
+                    !$0.isEmpty
+                }
+
+        var storedGroups =
+            (defaults.stringArray(forKey: "groups") ?? [])
+                .map {
+                    $0.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                }
+                .filter {
+                    !$0.isEmpty
+                }
+
+        /*
+         * תאימות לפרופילים ישנים שבהם עדיין לא נשמרו
+         * מערכים מלאים אלא רק סניף וקבוצה יחידים.
+         */
+        if storedBranches.isEmpty && !cleanBranch.isEmpty {
+            storedBranches = [cleanBranch]
+        }
+
+        if storedGroups.isEmpty && !cleanGroup.isEmpty {
+            storedGroups = [cleanGroup]
+        }
+
+        /*
+         * הפונקציה מעדכנת את הסניף והקבוצה הפעילים בלבד.
+         */
         self.persistTrainingAssignmentToDefaults(
             region: self.userRegion,
             branch: cleanBranch,
             group: cleanGroup
         )
 
+        /*
+         * מחזירים את הרשימות המלאות לאחר עדכון
+         * הערכים הפעילים, כדי שלא יצטמצמו לפריט יחיד.
+         */
+        defaults.set(
+            storedBranches,
+            forKey: "branches"
+        )
+
+        defaults.set(
+            storedGroups,
+            forKey: "groups"
+        )
+
+        defaults.set(
+            storedBranches.joined(separator: ","),
+            forKey: "branchesCsv"
+        )
+
+        defaults.set(
+            storedGroups.joined(separator: ","),
+            forKey: "groupsCsv"
+        )
+
+        defaults.set(
+            cleanBranch,
+            forKey: "activeBranch"
+        )
+
+        defaults.set(
+            cleanBranch,
+            forKey: "active_branch"
+        )
+
+        defaults.set(
+            cleanGroup,
+            forKey: "activeGroup"
+        )
+
+        defaults.set(
+            cleanGroup,
+            forKey: "active_group"
+        )
+
         #if canImport(FirebaseAuth)
-        guard let uid = Auth.auth().currentUser?.uid else { return }
+        guard let uid = Auth.auth().currentUser?.uid else {
+            return
+        }
 
         Task { @MainActor in
             #if canImport(FirebaseFirestore)
             do {
+                /*
+                 * מעדכנים בשרת רק את הבחירה הפעילה.
+                 * אין לכתוב כאן branches או groups משום
+                 * שהם מכילים את כל בחירות המשתמש.
+                 */
                 try await Firestore.firestore()
                     .collection("users")
                     .document(uid)
-                    .setData([
-                        "branch": cleanBranch,
-                        "activeBranch": cleanBranch,
-                        "active_branch": cleanBranch,
-                        "branchesCsv": cleanBranch,
-                        "branches": cleanBranch.isEmpty ? [] : [cleanBranch],
-                        "group": cleanGroup,
-                        "groupKey": cleanGroup,
-                        "group_key": cleanGroup,
-                        "activeGroup": cleanGroup,
-                        "active_group": cleanGroup,
-                        "primaryGroup": cleanGroup,
-                        "groups": cleanGroup.isEmpty ? [] : [cleanGroup],
-                        "age_group": cleanGroup,
-                        "ageGroup": cleanGroup,
-                        "updatedAt": FieldValue.serverTimestamp()
-                    ], merge: true)
+                    .setData(
+                        [
+                            "branch": cleanBranch,
+                            "activeBranch": cleanBranch,
+                            "active_branch": cleanBranch,
 
-                KmiPushManager.shared.savePendingFcmTokenAfterLoginIfNeeded()
-                KmiPushManager.shared.refreshAndSaveFcmTokenIfPossible()
+                            "group": cleanGroup,
+                            "groupKey": cleanGroup,
+                            "group_key": cleanGroup,
+                            "activeGroup": cleanGroup,
+                            "active_group": cleanGroup,
+                            "primaryGroup": cleanGroup,
+                            "age_group": cleanGroup,
+                            "ageGroup": cleanGroup,
+
+                            "updatedAt":
+                                FieldValue.serverTimestamp()
+                        ],
+                        merge: true
+                    )
+
+                KmiPushManager.shared
+                    .savePendingFcmTokenAfterLoginIfNeeded()
+
+                KmiPushManager.shared
+                    .refreshAndSaveFcmTokenIfPossible()
 
             } catch {
                 self.errorText = error.localizedDescription
@@ -1315,39 +1666,128 @@ do {
         userData["beltId"] = form.belt.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    // ✅ שומרים שיוך סניף וקבוצה כמו באנדרואיד
+    // ✅ שומרים את כל הסניפים וכל הקבוצות כמו באנדרואיד
     let branchesFromForm =
         (userData["branches"] as? [String])?
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty } ?? []
+            .map {
+                $0.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+            }
+            .filter {
+                !$0.isEmpty
+            }
+            .reduce(into: [String]()) { result, branch in
+                if !result.contains(branch) {
+                    result.append(branch)
+                }
+            } ?? []
 
     let groupsFromForm =
         (userData["groups"] as? [String])?
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty } ?? []
+            .map {
+                $0.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+            }
+            .filter {
+                !$0.isEmpty
+            }
+            .reduce(into: [String]()) { result, group in
+                if !result.contains(group) {
+                    result.append(group)
+                }
+            } ?? []
 
     let singleBranchFromForm =
         (userData["branch"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ) ?? ""
 
     let singleGroupFromForm =
-        ((userData["group"] as? String) ??
-         (userData["age_group"] as? String) ??
-         "")
-        .trimmingCharacters(in: .whitespacesAndNewlines)
+        (
+            (userData["group"] as? String) ??
+            (userData["age_group"] as? String) ??
+            ""
+        )
+        .trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
 
-    let branchClean = branchesFromForm.first ?? singleBranchFromForm
-    let groupClean = groupsFromForm.first ?? singleGroupFromForm
+    let requestedActiveBranch = form.activeBranch
+        .trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
 
-    if !branchClean.isEmpty {
-        userData["branch"] = branchClean
-        userData["branches"] = [branchClean]
+    let requestedActiveGroup = form.activeGroup
+        .trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+    let resolvedBranches: [String] = {
+        if !branchesFromForm.isEmpty {
+            return branchesFromForm
+        }
+
+        if !singleBranchFromForm.isEmpty {
+            return [singleBranchFromForm]
+        }
+
+        return []
+    }()
+
+    let resolvedGroups: [String] = {
+        if !groupsFromForm.isEmpty {
+            return groupsFromForm
+        }
+
+        if !singleGroupFromForm.isEmpty {
+            return [singleGroupFromForm]
+        }
+
+        return []
+    }()
+
+    let primaryBranch: String = {
+        if resolvedBranches.contains(requestedActiveBranch) {
+            return requestedActiveBranch
+        }
+
+        return resolvedBranches.first ?? ""
+    }()
+
+    let primaryGroup: String = {
+        if resolvedGroups.contains(requestedActiveGroup) {
+            return requestedActiveGroup
+        }
+
+        return resolvedGroups.first ?? ""
+    }()
+
+    userData["branches"] = resolvedBranches
+    userData["groups"] = resolvedGroups
+
+    if !primaryBranch.isEmpty {
+        /*
+         * branch נשמר לצורך תאימות למסכים ישנים,
+         * אך branches מכיל את כל הסניפים שנבחרו.
+         */
+        userData["branch"] = primaryBranch
+        userData["activeBranch"] = primaryBranch
+        userData["active_branch"] = primaryBranch
     }
 
-    if !groupClean.isEmpty {
-        userData["group"] = groupClean
-        userData["groups"] = [groupClean]
-        userData["age_group"] = groupClean
+    if !primaryGroup.isEmpty {
+        /*
+         * group ו־age_group נשמרים לצורך תאימות,
+         * אך groups מכיל את כל הקבוצות שנבחרו.
+         */
+        userData["group"] = primaryGroup
+        userData["age_group"] = primaryGroup
+        userData["ageGroup"] = primaryGroup
+        userData["activeGroup"] = primaryGroup
+        userData["active_group"] = primaryGroup
     }
 
     // ✅ מאמן מורשה בלבד + יצירת קוד אוטומטי כמו באנדרואיד
@@ -1502,67 +1942,135 @@ private func loadUserProfileFromFirestore(uid: String) async {
 
 
 
-        // ✅ role מהשרת (עם fallback רחב יותר)
+        // ✅ role מהשרת עם תמיכה בחשבון מנהל דו־תפקידי
         let roleFromServer =
             (data["role"] as? String) ??
             (data["userRole"] as? String) ??
-                (data["user_type"] as? String) ??
-                (data["type"] as? String) ??
-                ""
+            (data["user_type"] as? String) ??
+            (data["type"] as? String) ??
+            ""
 
-            let normalizedRole = roleFromServer
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
+        let normalizedRole = roleFromServer
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased()
 
-            let fallbackEmail =
-                Auth.auth().currentUser?.email?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackEmail =
+            Auth.auth().currentUser?.email?
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
                 .lowercased() ?? ""
 
-            let serverPhoneRaw =
-                (data["phone"] as? String) ??
-                (data["phoneNumber"] as? String) ??
-                (data["mobile"] as? String) ??
-                ""
+        let serverPhoneRaw =
+            (data["phone"] as? String) ??
+            (data["phoneNumber"] as? String) ??
+            (data["mobile"] as? String) ??
+            ""
 
-            let serverPhoneNormalized = serverPhoneRaw.filter { $0.isNumber }
+        let serverPhoneNormalized =
+            serverPhoneRaw.filter { $0.isNumber }
 
-            let isWhitelistedCoach = CoachWhitelist.isWhitelisted(
+        let isWhitelistedCoach =
+            CoachWhitelist.isWhitelisted(
                 phone: serverPhoneNormalized,
                 email: fallbackEmail
             )
 
-            let resolvedRole: String = {
-                if normalizedRole == "coach" ||
-                    normalizedRole == "trainer" ||
-                    normalizedRole == "instructor" ||
-                    normalizedRole == "coach_user" ||
-                    normalizedRole == "kmi_coach" ||
-                    normalizedRole == "מאמן" {
+        let isDeveloperDualRole =
+            isDeveloperDualRoleUser(
+                email: fallbackEmail,
+                uid: uid
+            )
+
+        let serverRoleIsCoach =
+            normalizedRole == "coach" ||
+            normalizedRole == "trainer" ||
+            normalizedRole == "instructor" ||
+            normalizedRole == "coach_user" ||
+            normalizedRole == "kmi_coach" ||
+            normalizedRole == "מאמן"
+
+        let serverRoleIsTrainee =
+            normalizedRole == "trainee" ||
+            normalizedRole == "student" ||
+            normalizedRole == "trainee_user" ||
+            normalizedRole == "kmi_trainee" ||
+            normalizedRole == "מתאמן"
+
+        let resolvedRole: String = {
+            /*
+             * חשבון מנהל דו־תפקידי חייב לכבד את הבחירה
+             * שנשמרה בפרופיל, גם אם החשבון נמצא ברשימת
+             * המאמנים המורשים.
+             */
+            if isDeveloperDualRole {
+                if serverRoleIsCoach {
                     return "coach"
                 }
 
-                if (data["coachApproved"] as? Bool) == true {
-                    return "coach"
+                if serverRoleIsTrainee {
+                    return "trainee"
                 }
 
-                if isWhitelistedCoach {
-                    return "coach"
-                }
+                let locallySelectedRole =
+                    UserDefaults.standard
+                        .string(forKey: self.roleDefaultsKey)?
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                        .lowercased() ?? ""
 
-                if fallbackEmail == "ypo1980@gmail.com" {
-                    return "coach"
-                }
+                return locallySelectedRole == "coach"
+                    ? "coach"
+                    : "trainee"
+            }
 
-                return "trainee"
-            }()
+            /*
+             * אצל משתמש רגיל, תפקיד מאמן מאושר לפי
+             * נתוני הפרופיל או רשימת המאמנים המורשים.
+             */
+            if serverRoleIsCoach {
+                return "coach"
+            }
 
-            self.userRole = resolvedRole
-            UserDefaults.standard.set(resolvedRole, forKey: self.roleDefaultsKey)
+            if (data["coachApproved"] as? Bool) == true {
+                return "coach"
+            }
 
+            if isWhitelistedCoach {
+                return "coach"
+            }
 
+            return "trainee"
+        }()
 
-            let rawBelt =
+        self.userRole = resolvedRole
+
+        let roleDefaults = UserDefaults.standard
+        roleDefaults.set(
+            resolvedRole,
+            forKey: self.roleDefaultsKey
+        )
+        roleDefaults.set(
+            resolvedRole,
+            forKey: "user_role"
+        )
+        roleDefaults.set(
+            resolvedRole,
+            forKey: "role"
+        )
+        roleDefaults.set(
+            resolvedRole,
+            forKey: "userRole"
+        )
+        roleDefaults.set(
+            resolvedRole,
+            forKey: "profile_role"
+        )
+
+        let rawBelt =
                 (data["beltId"] as? String) ??
                 (data["belt"] as? String) ??
                 (data["registeredBelt"] as? String)
@@ -1626,7 +2134,9 @@ private func loadUserProfileFromFirestore(uid: String) async {
         ud.set(fullName, forKey: "displayName")
 
         if let email = Auth.auth().currentUser?.email?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
             .lowercased(),
            !email.isEmpty {
             ud.set(email, forKey: "email")
@@ -1645,11 +2155,38 @@ private func loadUserProfileFromFirestore(uid: String) async {
             ud.set(belt.id, forKey: "registeredBelt")
         }
 
+        /*
+         * שומר את הערכים הראשיים לצורך תאימות
+         * למסכים הישנים באפליקציה.
+         */
         self.persistTrainingAssignmentToDefaults(
             region: region,
             branch: primaryBranch,
             group: primaryGroup
         )
+
+        /*
+         * שומר גם את כל הרשימות. ערכים אלה משמשים
+         * את מסך עריכת הפרופיל ואת מסך האימונים הקרובים.
+         */
+        ud.set(branches, forKey: "branches")
+        ud.set(groups, forKey: "groups")
+
+        ud.set(
+            branches.joined(separator: ","),
+            forKey: "branchesCsv"
+        )
+
+        ud.set(
+            groups.joined(separator: ","),
+            forKey: "groupsCsv"
+        )
+
+        ud.set(primaryBranch, forKey: "activeBranch")
+        ud.set(primaryBranch, forKey: "active_branch")
+
+        ud.set(primaryGroup, forKey: "activeGroup")
+        ud.set(primaryGroup, forKey: "active_group")
 
         KmiPushManager.shared.savePendingFcmTokenAfterLoginIfNeeded()
         KmiPushManager.shared.refreshAndSaveFcmTokenIfPossible()

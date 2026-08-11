@@ -1191,19 +1191,28 @@ struct ContentView: View {
                                     let resolvedRole: String = {
                                         if formState.role == .coach {
                                             return "coach"
-                                        } else {
-                                            return "trainee"
                                         }
+
+                                        return "trainee"
                                     }()
 
-                                    defaults.set(resolvedRole, forKey: "user_role")
-                                    defaults.set(resolvedRole, forKey: "role")
-                                    defaults.set(resolvedRole, forKey: "userRole")
-                                    defaults.set(resolvedRole, forKey: "profile_role")
+                                    /*
+                                     * מקור אמת יחיד לתפקיד הפעיל.
+                                     *
+                                     * הפעולה מעדכנת מיד את AuthViewModel,
+                                     * את הכותרת הגלובלית ואת כל מפתחות
+                                     * התאימות ב־UserDefaults.
+                                     */
+                                    auth.setActiveUserRole(
+                                        resolvedRole
+                                    )
 
-                                    defaults.synchronize()
-
+                                    /*
+                                     * טעינה חוזרת מהשרת מתבצעת לאחר
+                                     * שהבחירה המקומית כבר הוצגה בכותרת.
+                                     */
                                     auth.reloadProfileIfSignedIn()
+
                                     nav.pop()
                                 },
                                 onReadMoreTerms: {

@@ -15,6 +15,10 @@ struct SettingsView: View {
     @ObservedObject var nav: AppNavModel
     var onOpenRegistration: (() -> Void)? = nil
 
+    // MARK: Global display settings
+    @EnvironmentObject
+    private var displaySettings: KmiDisplaySettings
+
     // MARK: Language
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
@@ -716,8 +720,8 @@ struct SettingsView: View {
             SettingsListSection(
                 title: tr("כללי ותזכורות", "General and reminders"),
                 subtitle: tr(
-                    "שפה, תזכורות אימון והגדרות שימוש יומי",
-                    "Language, training reminders and daily usage settings"
+                    "שפה, גודל תצוגה, תזכורות אימון והגדרות שימוש יומי",
+                    "Language, display size, training reminders and daily usage settings"
                 ),
                 systemImage: "slider.horizontal.3",
                 tint: sectionIconTint,
@@ -732,18 +736,37 @@ struct SettingsView: View {
                     topRounded: true
                 ) {
                     VStack(spacing: 8) {
-                        Text(tr("בחר שפת ממשק", "Choose interface language"))
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0xFF64748B))
-                            .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                            .multilineTextAlignment(primaryTextAlignment)
+                        Text(
+                            tr(
+                                "בחר שפת ממשק",
+                                "Choose interface language"
+                            )
+                        )
+                        .kmiFont(
+                            size: 11,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(
+                            Color(hex: 0xFF64748B)
+                        )
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: horizontalTextAlignment
+                        )
+                        .multilineTextAlignment(
+                            primaryTextAlignment
+                        )
 
                         Picker(
                             "",
                             selection: Binding<Int>(
-                                get: { isEnglish ? 1 : 0 },
+                                get: {
+                                    isEnglish ? 1 : 0
+                                },
                                 set: { newValue in
-                                    applyInterfaceLanguage(newValue == 1)
+                                    applyInterfaceLanguage(
+                                        newValue == 1
+                                    )
                                 }
                             )
                         ) {
@@ -757,11 +780,148 @@ struct SettingsView: View {
                 SettingsListDivider()
 
                 SettingsListItem(
-                    title: tr("תזכורות אימון", "Training reminders"),
+                    title: tr(
+                        "גודל כתב ואייקונים",
+                        "Text and icon size"
+                    ),
+                    value: displaySettings.fontSize.localizedTitle(
+                        isEnglish: isEnglish
+                    ),
+                    systemImage: "textformat.size",
+                    tint: Color(hex: 0xFF0F9D8A),
+                    isEnglish: isEnglish
+                ) {
+                    VStack(spacing: 10) {
+                        Text(
+                            tr(
+                                "בחר את גודל הכתב והאייקונים באפליקציה",
+                                "Choose the text and icon size in the app"
+                            )
+                        )
+                        .kmiFont(
+                            size: 11,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(
+                            Color(hex: 0xFF64748B)
+                        )
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: horizontalTextAlignment
+                        )
+                        .multilineTextAlignment(
+                            primaryTextAlignment
+                        )
+
+                        Picker(
+                            "",
+                            selection: Binding<KmiAppFontSize>(
+                                get: {
+                                    displaySettings.fontSize
+                                },
+                                set: { newValue in
+                                    displaySettings.setFontSize(
+                                        newValue
+                                    )
+
+                                    feedbackTap()
+
+                                    toast(
+                                        tr(
+                                            "גודל התצוגה שונה ל־\(newValue.localizedTitle(isEnglish: false))",
+                                            "Display size changed to \(newValue.localizedTitle(isEnglish: true))"
+                                        )
+                                    )
+                                }
+                            )
+                        ) {
+                            ForEach(
+                                KmiAppFontSize.allCases
+                            ) { option in
+                                Text(
+                                    option.localizedTitle(
+                                        isEnglish: isEnglish
+                                    )
+                                )
+                                .tag(option)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .accessibilityLabel(
+                            tr(
+                                "בחירת גודל כתב ואייקונים",
+                                "Choose text and icon size"
+                            )
+                        )
+
+                        HStack(spacing: 8) {
+                            Image(systemName: "textformat")
+                                .font(
+                                    .system(
+                                        size: 14 *
+                                            displaySettings
+                                                .scaleFactor,
+                                        weight: .bold
+                                    )
+                                )
+
+                            Text(
+                                tr(
+                                    "תצוגה מקדימה של גודל הכתב",
+                                    "Text size preview"
+                                )
+                            )
+                            .kmiFont(
+                                size: 14,
+                                weight: .bold
+                            )
+
+                            Spacer(minLength: 0)
+                        }
+                        .foregroundStyle(
+                            Color(hex: 0xFF123C7C)
+                        )
+                        .padding(.horizontal, 12)
+                        .frame(height: 46)
+                        .background(
+                            Color(hex: 0xFFF3F7FF)
+                        )
+                        .clipShape(
+                            RoundedRectangle(
+                                cornerRadius: 14,
+                                style: .continuous
+                            )
+                        )
+                        .overlay {
+                            RoundedRectangle(
+                                cornerRadius: 14,
+                                style: .continuous
+                            )
+                            .stroke(
+                                Color(hex: 0xFF2A78E4)
+                                    .opacity(0.16),
+                                lineWidth: 1
+                            )
+                        }
+                        .environment(
+                            \.layoutDirection,
+                            settingsLayoutDirection
+                        )
+                    }
+                }
+
+                SettingsListDivider()
+
+                SettingsListItem(
+                    title: tr(
+                        "תזכורות אימון",
+                        "Training reminders"
+                    ),
                     value: trainingRemindersEnabled
-                    ? formatTrainingLeadTime(trainingReminderMinutes)
-                    : tr("כבוי", "Off"),
-                    
+                        ? formatTrainingLeadTime(
+                            trainingReminderMinutes
+                        )
+                        : tr("כבוי", "Off"),
                     systemImage: "alarm.fill",
                     tint: Color(hex: 0xFF7B61D9),
                     isEnglish: isEnglish,

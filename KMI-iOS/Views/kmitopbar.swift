@@ -30,37 +30,77 @@ private enum KmiGlobalLanguage {
 
 private enum KmiGlobalText {
 
-    static func roleLabel(_ raw: String, isEnglish: Bool) -> String {
+    static func roleLabel(
+        _ raw: String,
+        isEnglish: Bool
+    ) -> String {
         let clean = raw
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "מצב", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(
+                of: "\n",
+                with: " "
+            )
+            .replacingOccurrences(
+                of: "מצב",
+                with: ""
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
 
         guard !clean.isEmpty else {
             return ""
         }
 
-        if isEnglish {
-            if clean.contains("מאמן") || clean.lowercased().contains("coach") {
-                return "Coach"
-            }
+        let normalized = clean.lowercased()
 
-            if clean.contains("מנהל") || clean.lowercased().contains("admin") {
-                return "Admin"
-            }
+        let isCoach =
+            normalized == "coach" ||
+            normalized == "trainer" ||
+            normalized == "instructor" ||
+            normalized == "coach_user" ||
+            normalized == "kmi_coach" ||
+            normalized == "מאמן" ||
+            normalized.contains("coach") ||
+            normalized.contains("מאמן")
 
-            return "Trainee"
-        } else {
-            if clean.contains("מאמן") {
-                return "מאמן"
-            }
+        let isAdmin =
+            normalized == "admin" ||
+            normalized == "administrator" ||
+            normalized == "manager" ||
+            normalized == "מנהל" ||
+            normalized.contains("admin") ||
+            normalized.contains("מנהל")
 
-            if clean.contains("מנהל") {
-                return "מנהל"
-            }
+        let isTrainee =
+            normalized == "trainee" ||
+            normalized == "student" ||
+            normalized == "trainee_user" ||
+            normalized == "kmi_trainee" ||
+            normalized == "מתאמן" ||
+            normalized.contains("trainee") ||
+            normalized.contains("מתאמן")
 
-            return "מתאמן"
+        if isCoach {
+            return isEnglish
+                ? "Coach"
+                : "מאמן"
         }
+
+        if isAdmin {
+            return isEnglish
+                ? "Admin"
+                : "מנהל"
+        }
+
+        if isTrainee {
+            return isEnglish
+                ? "Trainee"
+                : "מתאמן"
+        }
+
+        return isEnglish
+            ? "Trainee"
+            : "מתאמן"
     }
     
     static func screenTitle(_ raw: String, isEnglish: Bool) -> String {
@@ -205,7 +245,11 @@ private enum KmiGlobalText {
 
 // MARK: - Global TopBar (לא תלוי ב-HomeView)
 struct KmiTopBar: View {
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorScheme)
+    private var colorScheme
+
+    @Environment(\.kmiFontScale)
+    private var displayScale
 
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
@@ -387,11 +431,9 @@ struct KmiTopBar: View {
                         onBack()
                     } label: {
                         Image(systemName: "chevron.backward")
-                            .font(
-                                .system(
-                                    size: 14,
-                                    weight: .black
-                                )
+                            .kmiFont(
+                                size: 14,
+                                weight: .black
                             )
                             .foregroundStyle(
                                 Color(hex: 0xFF4B478F)
@@ -427,24 +469,28 @@ struct KmiTopBar: View {
                     )
                     .isEmpty {
                     Text(localizedRoleLabel)
-                        .font(
-                            .system(
-                                size: 8.5,
-                                weight: .bold
-                            )
+                        .kmiFont(
+                            size: 8.5,
+                            weight: .bold
                         )
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2)
+                        .padding(
+                            .horizontal,
+                            7 * displayScale
+                        )
+                        .padding(
+                            .vertical,
+                            2 * displayScale
+                        )
                         .background(
                             Capsule(style: .continuous)
                                 .fill(
                                     isCoachRole
-                                    ? Color(hex: 0xFF2A1F52)
-                                    : Color(hex: 0xFF1E2947)
+                                        ? Color(hex: 0xFF2A1F52)
+                                        : Color(hex: 0xFF1E2947)
                                 )
                                 .opacity(0.94)
                         )
@@ -453,8 +499,8 @@ struct KmiTopBar: View {
                                 .stroke(
                                     (
                                         isCoachRole
-                                        ? Color(hex: 0xFFD8B4FE)
-                                        : Color(hex: 0xFFBFDBFE)
+                                            ? Color(hex: 0xFFD8B4FE)
+                                            : Color(hex: 0xFFBFDBFE)
                                     )
                                     .opacity(0.30),
                                     lineWidth: 1
@@ -486,23 +532,21 @@ struct KmiTopBar: View {
                         .resizable()
                         .scaledToFit()
                         .frame(
-                            width: 46,
-                            height: 30
+                            width: 46 * displayScale,
+                            height: 30 * displayScale
                         )
                         .accessibilityLabel(
                             isEnglish
-                            ? "Belt"
-                            : "חגורה"
+                                ? "Belt"
+                                : "חגורה"
                         )
                 }
 
                 Text(localizedTitle)
-                    .font(
-                        .system(
-                            size: 20,
-                            weight: .black,
-                            design: .rounded
-                        )
+                    .kmiFont(
+                        size: 20,
+                        weight: .black,
+                        design: .rounded
                     )
                     .foregroundStyle(resolvedTitleColor)
                     .lineLimit(1)
@@ -516,11 +560,9 @@ struct KmiTopBar: View {
                     )
                     .isEmpty {
                     Text(rightText)
-                        .font(
-                            .system(
-                                size: 18,
-                                weight: .heavy
-                            )
+                        .kmiFont(
+                            size: 18,
+                            weight: .heavy
                         )
                         .foregroundStyle(
                             secondaryTitleColor
@@ -566,11 +608,16 @@ struct KmiTopBar: View {
                             )
                         )
 
-                        VStack(spacing: 4) {
+                        VStack(
+                            spacing: 4 * displayScale
+                        ) {
                             ForEach(0..<3, id: \.self) { _ in
                                 Capsule(style: .continuous)
                                     .fill(Color.white)
-                                    .frame(width: 20, height: 3)
+                                    .frame(
+                                        width: 20 * displayScale,
+                                        height: 3 * displayScale
+                                    )
                             }
                         }
                     }
@@ -789,8 +836,25 @@ struct KmiRootLayout<Content: View>: View {
   
     private var effectiveRole: String {
         /*
-         * התפקיד שנבחר כרגע באפליקציה קודם לתפקיד
-         * הקבוע שנטען מפרופיל המשתמש.
+         * AuthViewModel הוא מקור האמת הראשון.
+         *
+         * מאחר ש־userRole הוא @Published, שינוי התפקיד
+         * מרענן מיד את KmiRootLayout ואת KmiTopBar.
+         */
+        let authRole =
+            auth.userRole
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
+
+        if !authRole.isEmpty {
+            return authRole
+        }
+
+        /*
+         * user_role משמש כמקור גיבוי בזמן העלייה
+         * הראשונית של האפליקציה.
          */
         let activeRole =
             storedActiveUserRole
@@ -804,6 +868,7 @@ struct KmiRootLayout<Content: View>: View {
         }
 
         let defaults = UserDefaults.standard
+
         let roleAliasKeys = [
             "role",
             "userRole",
@@ -821,17 +886,6 @@ struct KmiRootLayout<Content: View>: View {
             if !storedRole.isEmpty {
                 return storedRole
             }
-        }
-
-        let authRole =
-            auth.userRole
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-                .lowercased()
-
-        if !authRole.isEmpty {
-            return authRole
         }
 
         return "trainee"
@@ -1479,11 +1533,9 @@ struct KmiRootLayout<Content: View>: View {
             VoiceCommandsBridge.open()
         } label: {
             Image(systemName: "mic.fill")
-                .font(
-                    .system(
-                        size: 15,
-                        weight: .black
-                    )
+                .kmiFont(
+                    size: 15,
+                    weight: .black
                 )
                 .foregroundStyle(
                     Color(hex: 0xFF4B478F)
@@ -1578,14 +1630,12 @@ struct KmiRootLayout<Content: View>: View {
             Image(
                 systemName:
                     showGlobalIconMenu
-                    ? "chevron.up"
-                    : "chevron.down"
+                        ? "chevron.up"
+                        : "chevron.down"
             )
-            .font(
-                .system(
-                    size: 17,
-                    weight: .black
-                )
+            .kmiFont(
+                size: 17,
+                weight: .black
             )
             .foregroundStyle(
                 Color(hex: 0xFF4B478F)
@@ -1834,10 +1884,17 @@ struct KmiRootLayout<Content: View>: View {
                 Circle()
                     .fill(
                         isSelected
-                        ? Color(red: 0.31, green: 0.27, blue: 0.78).opacity(
-                            colorScheme == .dark ? 0.34 : 0.18
-                        )
-                        : globalRailIdleCircleColor
+                            ? Color(
+                                red: 0.31,
+                                green: 0.27,
+                                blue: 0.78
+                            )
+                            .opacity(
+                                colorScheme == .dark
+                                    ? 0.34
+                                    : 0.18
+                            )
+                            : globalRailIdleCircleColor
                     )
                     .shadow(
                         color: Color.black.opacity(0.12),
@@ -1846,25 +1903,39 @@ struct KmiRootLayout<Content: View>: View {
                         y: 1
                     )
 
-                Image(systemName: globalRailSystemIcon(item))
-                    .font(.system(size: 17, weight: .black))
-                    .foregroundStyle(
-                        isSelected
-                        ? Color(red: 0.31, green: 0.27, blue: 0.78)
+                Image(
+                    systemName: globalRailSystemIcon(item)
+                )
+                .kmiFont(
+                    size: 17,
+                    weight: .black
+                )
+                .foregroundStyle(
+                    isSelected
+                        ? Color(
+                            red: 0.31,
+                            green: 0.27,
+                            blue: 0.78
+                        )
                         : globalRailIconTint(item)
-                    )
+                )
             }
             .frame(width: 34, height: 34)
 
             Text(globalRailTitle(item))
-                .font(.system(size: 8.5, weight: .black))
+                .kmiFont(
+                    size: 8.5,
+                    weight: .black
+                )
                 .foregroundStyle(globalRailTextColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
                 .multilineTextAlignment(.center)
-                .frame(width: 52, height: 10)
+                .frame(width: 52)
+                .frame(minHeight: 10)
         }
-        .frame(width: 58, height: 49)
+        .frame(width: 58)
+        .frame(minHeight: 49)
         .contentShape(
             RoundedRectangle(
                 cornerRadius: 14,

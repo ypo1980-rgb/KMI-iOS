@@ -21,6 +21,9 @@ struct BeltQuestionsByTopicView: View {
     @Environment(\.scenePhase)
     private var scenePhase
 
+    @Environment(\.colorScheme)
+    private var colorScheme
+
     // ContentRepo / TopicsEngine הם מקור האמת.
     @AppStorage("kmi_app_language")
     private var kmiAppLanguageCode:
@@ -500,6 +503,25 @@ struct BeltQuestionsByTopicView: View {
         let hasSubTopics: Bool
         let isExpanded: Bool
 
+        @Environment(\.colorScheme)
+        private var colorScheme
+
+        private var isDarkMode: Bool {
+            colorScheme == .dark
+        }
+
+        private var titleColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.94)
+                : Color.black.opacity(0.84)
+        }
+
+        private var secondaryTextColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.64)
+                : Color.black.opacity(0.56)
+        }
+
         private var textAlignment: TextAlignment {
             isEnglish ? .leading : .trailing
         }
@@ -549,64 +571,141 @@ struct BeltQuestionsByTopicView: View {
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 17, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
+                RoundedRectangle(
+                    cornerRadius: 17,
+                    style: .continuous
+                )
+                .fill(
+                    LinearGradient(
+                        colors:
+                            isDarkMode
+                            ? [
+                                accent.opacity(0.22),
+                                Color(
+                                    red: 0.07,
+                                    green: 0.09,
+                                    blue: 0.14
+                                ),
+                                Color(
+                                    red: 0.05,
+                                    green: 0.07,
+                                    blue: 0.11
+                                )
+                            ]
+                            : [
                                 accent.opacity(0.18),
                                 accent.opacity(0.08),
                                 Color.white.opacity(0.92)
                             ],
-                            startPoint: .trailing,
-                            endPoint: .leading
-                        )
+                        startPoint: .trailing,
+                        endPoint: .leading
                     )
+                )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 17, style: .continuous)
-                    .stroke(isLocked ? Color.orange.opacity(0.38) : Color.black.opacity(0.05), lineWidth: 1)
+                RoundedRectangle(
+                    cornerRadius: 17,
+                    style: .continuous
+                )
+                .stroke(
+                    isLocked
+                        ? Color.orange.opacity(0.38)
+                        : (
+                            isDarkMode
+                                ? Color.white.opacity(0.12)
+                                : Color.black.opacity(0.05)
+                        ),
+                    lineWidth: 1
+                )
             )
-            .shadow(color: Color.black.opacity(0.045), radius: 5, x: 0, y: 2)
+            .shadow(
+                color:
+                    Color.black.opacity(
+                        isDarkMode ? 0.28 : 0.045
+                    ),
+                radius: 5,
+                x: 0,
+                y: 2
+            )
         }
 
         private var navigationIcon: some View {
             Image(systemName: navigationIconName)
-                .font(.system(size: hasSubTopics ? 14 : 13, weight: .bold))
+                .kmiFont(
+                    size:
+                        hasSubTopics
+                        ? 14
+                        : 13,
+                    weight: .bold
+                )
                 .foregroundStyle(
                     hasSubTopics
-                    ? accent.opacity(0.82)
-                    : Color.black.opacity(0.30)
+                        ? accent.opacity(0.88)
+                        : (
+                            isDarkMode
+                                ? Color.white.opacity(0.52)
+                                : Color.black.opacity(0.30)
+                        )
                 )
-                .frame(width: 18)
+                .frame(minWidth: 18)
         }
 
         private var textBlock: some View {
-            VStack(alignment: stackAlignment, spacing: 3) {
+            VStack(
+                alignment: stackAlignment,
+                spacing: 3
+            ) {
                 Text(title)
-                    .font(.system(size: 13.5, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(0.84))
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .kmiFont(
+                        size: 13.5,
+                        weight: .heavy
+                    )
+                    .foregroundStyle(titleColor)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: frameAlignment
+                    )
                     .multilineTextAlignment(textAlignment)
                     .lineLimit(2)
-                    .minimumScaleFactor(0.78)
+                    .minimumScaleFactor(0.68)
                 
-                if let top = subtitleTop, !top.isEmpty {
+                if let top = subtitleTop,
+                   !top.isEmpty {
+
                     Text(top)
-                        .font(.system(size: 10.5, weight: .heavy))
-                        .foregroundStyle(accent.opacity(0.86))
-                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                        .kmiFont(
+                            size: 10.5,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            accent.opacity(
+                                isDarkMode ? 1.0 : 0.86
+                            )
+                        )
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: frameAlignment
+                        )
                         .multilineTextAlignment(textAlignment)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.78)
+                        .minimumScaleFactor(0.66)
                 }
 
                 Text(subtitleBottom)
-                    .font(.system(size: 10.5, weight: .bold))
-                    .foregroundStyle(Color.black.opacity(0.56))
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .kmiFont(
+                        size: 10.5,
+                        weight: .bold
+                    )
+                    .foregroundStyle(
+                        secondaryTextColor
+                    )
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: frameAlignment
+                    )
                     .multilineTextAlignment(textAlignment)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.78)
+                    .minimumScaleFactor(0.66)
             }
         }
 
@@ -641,9 +740,15 @@ struct BeltQuestionsByTopicView: View {
                         )
                 } else {
                     Image(systemName: symbolName)
-                        .font(.system(size: 24, weight: .heavy))
+                        .kmiFont(
+                            size: 24,
+                            weight: .heavy
+                        )
                         .foregroundStyle(accent)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(
+                            maxWidth: .infinity,
+                            maxHeight: .infinity
+                        )
                 }
             }
             .frame(width: 58, height: 50)
@@ -2248,33 +2353,74 @@ struct BeltQuestionsByTopicView: View {
     ) -> some View {
         HStack(spacing: 10) {
             if isEnglish {
-                inlineSubTopicIcon(subject: subject, accent: accent)
+                inlineSubTopicIcon(
+                    subject: subject,
+                    accent: accent
+                )
 
-                inlineSubTopicText(subject: subject, isEnglish: isEnglish)
+                inlineSubTopicText(
+                    subject: subject,
+                    isEnglish: isEnglish
+                )
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(accent.opacity(0.70))
+                    .kmiFont(
+                        size: 11,
+                        weight: .bold
+                    )
+                    .foregroundStyle(
+                        colorScheme == .dark
+                            ? Color.white.opacity(0.54)
+                            : accent.opacity(0.70)
+                    )
             } else {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(accent.opacity(0.70))
+                    .kmiFont(
+                        size: 11,
+                        weight: .bold
+                    )
+                    .foregroundStyle(
+                        colorScheme == .dark
+                            ? Color.white.opacity(0.54)
+                            : accent.opacity(0.70)
+                    )
 
-                inlineSubTopicText(subject: subject, isEnglish: isEnglish)
+                inlineSubTopicText(
+                    subject: subject,
+                    isEnglish: isEnglish
+                )
 
-                inlineSubTopicIcon(subject: subject, accent: accent)
+                inlineSubTopicIcon(
+                    subject: subject,
+                    accent: accent
+                )
             }
         }
         .environment(\.layoutDirection, .leftToRight)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
-                .fill(Color.white.opacity(0.86))
+            RoundedRectangle(
+                cornerRadius: 15,
+                style: .continuous
+            )
+            .fill(
+                colorScheme == .dark
+                    ? Color.white.opacity(0.07)
+                    : Color.white.opacity(0.86)
+            )
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
-                .stroke(accent.opacity(0.11), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 15,
+                style: .continuous
+            )
+            .stroke(
+                colorScheme == .dark
+                    ? Color.white.opacity(0.12)
+                    : accent.opacity(0.11),
+                lineWidth: 1
+            )
         )
     }
 
@@ -2282,17 +2428,43 @@ struct BeltQuestionsByTopicView: View {
         subject: SubjectTopic,
         isEnglish: Bool
     ) -> some View {
-        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 2) {
-            Text(uiSubjectTitleForInline(subject))
-                .font(.system(size: 13, weight: .heavy))
-                .foregroundStyle(Color.black.opacity(0.84))
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: isEnglish ? .leading : .trailing
-                )
-                .multilineTextAlignment(isEnglish ? .leading : .trailing)
-                .lineLimit(1)
-                .minimumScaleFactor(0.80)
+        let titleColor =
+            colorScheme == .dark
+                ? Color.white.opacity(0.90)
+                : Color.black.opacity(0.84)
+
+        let subjectAccent =
+            accentForTopicSubject(subject)
+
+        return VStack(
+            alignment:
+                isEnglish
+                ? .leading
+                : .trailing,
+            spacing: 2
+        ) {
+            Text(
+                uiSubjectTitleForInline(subject)
+            )
+            .kmiFont(
+                size: 13,
+                weight: .heavy
+            )
+            .foregroundStyle(titleColor)
+            .frame(
+                maxWidth: .infinity,
+                alignment:
+                    isEnglish
+                    ? .leading
+                    : .trailing
+            )
+            .multilineTextAlignment(
+                isEnglish
+                    ? .leading
+                    : .trailing
+            )
+            .lineLimit(1)
+            .minimumScaleFactor(0.68)
 
             Text(
                 exercisesCountText(
@@ -2301,15 +2473,31 @@ struct BeltQuestionsByTopicView: View {
                     )
                 )
             )
-                .font(.system(size: 10.5, weight: .black))
-                .foregroundStyle(accentForTopicSubject(subject).opacity(0.90))
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: isEnglish ? .leading : .trailing
+            .kmiFont(
+                size: 10.5,
+                weight: .black
+            )
+            .foregroundStyle(
+                subjectAccent.opacity(
+                    colorScheme == .dark
+                        ? 1.0
+                        : 0.90
                 )
-                .multilineTextAlignment(isEnglish ? .leading : .trailing)
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
+            )
+            .frame(
+                maxWidth: .infinity,
+                alignment:
+                    isEnglish
+                    ? .leading
+                    : .trailing
+            )
+            .multilineTextAlignment(
+                isEnglish
+                    ? .leading
+                    : .trailing
+            )
+            .lineLimit(1)
+            .minimumScaleFactor(0.64)
         }
     }
 
@@ -2325,11 +2513,26 @@ struct BeltQuestionsByTopicView: View {
                         .stroke(accent.opacity(0.18), lineWidth: 1)
                 )
 
-            Image(systemName: symbolForSubjectInline(subject))
-                .font(.system(size: 13, weight: .heavy))
-                .foregroundStyle(accent.opacity(0.86))
+            Image(
+                systemName:
+                    symbolForSubjectInline(subject)
+            )
+            .kmiFont(
+                size: 13,
+                weight: .heavy
+            )
+            .foregroundStyle(
+                accent.opacity(
+                    colorScheme == .dark
+                        ? 1.0
+                        : 0.86
+                )
+            )
         }
-        .frame(width: 30, height: 30)
+        .frame(
+            minWidth: 30,
+            minHeight: 30
+        )
     }
 
     private func uiSubjectTitleForInline(_ subject: SubjectTopic) -> String {
@@ -2468,20 +2671,23 @@ struct BeltQuestionsByTopicView: View {
         } label: {
             VStack(spacing: 9) {
                 Image(systemName: "line.3.horizontal")
-                    .font(
-                        .system(
-                            size: 19,
-                            weight: .black
-                        )
+                    .kmiFont(
+                        size: 19,
+                        weight: .black
                     )
 
-                Text(tr("מהיר", "Quick"))
-                    .font(
-                        .system(
-                            size: 13,
-                            weight: .black
-                        )
+                Text(
+                    tr(
+                        "מהיר",
+                        "Quick"
                     )
+                )
+                .kmiFont(
+                    size: 13,
+                    weight: .black
+                )
+                .lineLimit(1)
+                .minimumScaleFactor(0.70)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
                     .rotationEffect(.degrees(90))
@@ -2552,11 +2758,9 @@ struct BeltQuestionsByTopicView: View {
                         showQuickActionsDialog = false
                     } label: {
                         Image(systemName: "xmark")
-                            .font(
-                                .system(
-                                    size: 17,
-                                    weight: .bold
-                                )
+                            .kmiFont(
+                                size: 17,
+                                weight: .black
                             )
                             .foregroundStyle(
                                 activeBeltFill.opacity(0.86)
@@ -2574,12 +2778,12 @@ struct BeltQuestionsByTopicView: View {
                             "Quick menu"
                         )
                     )
-                    .font(
-                        .system(
-                            size: 25,
-                            weight: .heavy
-                        )
-                    )
+                    .kmiFont(
+                                            size: 25,
+                                            weight: .black
+                                        )
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.66)
                     .foregroundStyle(
                         activeBeltFill.opacity(0.94)
                     )
@@ -2658,11 +2862,9 @@ struct BeltQuestionsByTopicView: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: icon)
-                    .font(
-                        .system(
-                            size: 17,
-                            weight: .bold
-                        )
+                    .kmiFont(
+                        size: 17,
+                        weight: .black
                     )
                     .foregroundStyle(
                         activeBeltFill.opacity(0.84)
@@ -2675,22 +2877,25 @@ struct BeltQuestionsByTopicView: View {
 
                 if locked {
                     Image(systemName: "lock.fill")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(activeBeltFill.opacity(0.88))
+                        .kmiFont(
+                            size: 12,
+                            weight: .bold
+                        )
+                        .foregroundStyle(
+                            activeBeltFill.opacity(0.88)
+                        )
                 }
 
                 Text(title)
-                    .font(
-                        .system(
-                            size: 19,
-                            weight: .heavy
-                        )
+                    .kmiFont(
+                        size: 19,
+                        weight: .heavy
                     )
                     .foregroundStyle(
                         activeBeltFill.opacity(0.94)
                     )
                     .lineLimit(1)
-                    .minimumScaleFactor(0.82)
+                    .minimumScaleFactor(0.64)
                     .frame(
                         maxWidth: .infinity,
                         alignment:
@@ -2728,13 +2933,56 @@ struct BeltQuestionsByTopicView: View {
                     availableHeight
                 )
 
-            WhiteCard {
-                topicsCardContent
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 8)
-            }
-            .frame(height: cardHeight)
-            .padding(.horizontal, 18)
+            topicsCardContent
+                .padding(.vertical, 8)
+                .padding(.horizontal, 8)
+                .background(
+                    RoundedRectangle(
+                        cornerRadius: 22,
+                        style: .continuous
+                    )
+                    .fill(
+                        colorScheme == .dark
+                            ? Color(
+                                red: 0.055,
+                                green: 0.075,
+                                blue: 0.115
+                            )
+                            .opacity(0.97)
+                            : Color.white.opacity(0.96)
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(
+                        cornerRadius: 22,
+                        style: .continuous
+                    )
+                    .stroke(
+                        colorScheme == .dark
+                            ? Color.white.opacity(0.14)
+                            : Color.black.opacity(0.06),
+                        lineWidth: 1
+                    )
+                )
+                .shadow(
+                    color:
+                        Color.black.opacity(
+                            colorScheme == .dark
+                                ? 0.32
+                                : 0.08
+                        ),
+                    radius: 9,
+                    x: 0,
+                    y: 4
+                )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 22,
+                        style: .continuous
+                    )
+                )
+                .frame(height: cardHeight)
+                .padding(.horizontal, 18)
         }
     }
 
@@ -2752,14 +3000,14 @@ struct BeltQuestionsByTopicView: View {
                     "Subjects (Categories)"
                 )
             )
-            .font(
-                .system(
-                    size: 14,
-                    weight: .heavy
-                )
+            .kmiFont(
+                size: 14,
+                weight: .heavy
             )
             .foregroundStyle(
-                Color.black.opacity(0.84)
+                colorScheme == .dark
+                    ? Color.white.opacity(0.94)
+                    : Color.black.opacity(0.84)
             )
             .frame(
                 maxWidth: .infinity,
@@ -2850,15 +3098,16 @@ struct BeltQuestionsByTopicView: View {
                 "No topics to display"
             )
         )
-        .font(
-            .system(
-                size: 16,
-                weight: .semibold
-            )
+        .kmiFont(
+            size: 16,
+            weight: .semibold
         )
         .foregroundStyle(
-            Color.black.opacity(0.55)
+            colorScheme == .dark
+                ? Color.white.opacity(0.62)
+                : Color.black.opacity(0.55)
         )
+        .multilineTextAlignment(.center)
         .frame(
             maxWidth: .infinity,
             alignment: .center
@@ -3073,9 +3322,17 @@ private struct TopicPulsingLockBadge: View {
     
     var body: some View {
         Image(systemName: "lock.fill")
-            .font(.system(size: 13, weight: .black))
-            .foregroundStyle(Color.orange.opacity(0.92))
-            .frame(width: 28, height: 28)
+            .kmiFont(
+                size: 13,
+                weight: .black
+            )
+            .foregroundStyle(
+                Color.orange.opacity(0.92)
+            )
+            .frame(
+                minWidth: 28,
+                minHeight: 28
+            )
             .background(
                 Circle()
                     .fill(Color.orange.opacity(0.12))
@@ -3102,9 +3359,14 @@ private struct SubjectSubTopicsListView: View {
     let mainTopic: MainTopic
     let onPickSubject: (SubjectTopic) -> Void
 
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismiss)
+    private var dismiss
 
-    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @Environment(\.colorScheme)
+    private var colorScheme
+
+    @AppStorage("kmi_app_language")
+    private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
     @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
 
@@ -3417,6 +3679,25 @@ private struct SubjectSubTopicsListView: View {
         let isEnglish: Bool
         let symbolName: String
 
+        @Environment(\.colorScheme)
+        private var colorScheme
+
+        private var isDarkMode: Bool {
+            colorScheme == .dark
+        }
+
+        private var titleColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.92)
+                : Color.black.opacity(0.84)
+        }
+
+        private var secondaryTextColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.64)
+                : Color.black.opacity(0.56)
+        }
+
         private var textAlignment: TextAlignment {
             isEnglish ? .leading : .trailing
         }
@@ -3437,12 +3718,26 @@ private struct SubjectSubTopicsListView: View {
                     textBlock
 
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color.black.opacity(0.30))
+                        .kmiFont(
+                            size: 13,
+                            weight: .bold
+                        )
+                        .foregroundStyle(
+                            isDarkMode
+                                ? Color.white.opacity(0.52)
+                                : Color.black.opacity(0.30)
+                        )
                 } else {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color.black.opacity(0.30))
+                        .kmiFont(
+                            size: 13,
+                            weight: .bold
+                        )
+                        .foregroundStyle(
+                            isDarkMode
+                                ? Color.white.opacity(0.52)
+                                : Color.black.opacity(0.30)
+                        )
 
                     textBlock
                     visualBlock
@@ -3453,33 +3748,75 @@ private struct SubjectSubTopicsListView: View {
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 17, style: .continuous)
-                    .fill(Color.white.opacity(0.94))
+                RoundedRectangle(
+                    cornerRadius: 17,
+                    style: .continuous
+                )
+                .fill(
+                    isDarkMode
+                        ? Color(
+                            red: 0.06,
+                            green: 0.08,
+                            blue: 0.12
+                        )
+                        : Color.white.opacity(0.94)
+                )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 17, style: .continuous)
-                    .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                RoundedRectangle(
+                    cornerRadius: 17,
+                    style: .continuous
+                )
+                .stroke(
+                    isDarkMode
+                        ? Color.white.opacity(0.12)
+                        : Color.black.opacity(0.05),
+                    lineWidth: 1
+                )
             )
-            .shadow(color: Color.black.opacity(0.045), radius: 5, x: 0, y: 2)
+            .shadow(
+                color:
+                    Color.black.opacity(
+                        isDarkMode ? 0.26 : 0.045
+                    ),
+                radius: 5,
+                x: 0,
+                y: 2
+            )
         }
 
         private var textBlock: some View {
-            VStack(alignment: stackAlignment, spacing: 5) {
+            VStack(
+                alignment: stackAlignment,
+                spacing: 5
+            ) {
                 Text(title)
-                    .font(.system(size: 14.5, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(0.84))
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .kmiFont(
+                        size: 14.5,
+                        weight: .heavy
+                    )
+                    .foregroundStyle(titleColor)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: frameAlignment
+                    )
                     .multilineTextAlignment(textAlignment)
                     .lineLimit(2)
-                    .minimumScaleFactor(0.78)
+                    .minimumScaleFactor(0.68)
                 
                 Text(subtitleBottom)
-                    .font(.system(size: 10.5, weight: .bold))
-                    .foregroundStyle(Color.black.opacity(0.56))
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .kmiFont(
+                        size: 10.5,
+                        weight: .bold
+                    )
+                    .foregroundStyle(secondaryTextColor)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: frameAlignment
+                    )
                     .multilineTextAlignment(textAlignment)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.78)
+                    .minimumScaleFactor(0.64)
             }
         }
         
@@ -3502,10 +3839,16 @@ private struct SubjectSubTopicsListView: View {
                 )
                 .overlay(
                     Image(systemName: symbolName)
-                        .font(.system(size: 22, weight: .heavy))
+                        .kmiFont(
+                            size: 22,
+                            weight: .heavy
+                        )
                         .foregroundStyle(accent)
                 )
-                .frame(width: 62, height: 52)
+                .frame(
+                    minWidth: 62,
+                    minHeight: 52
+                )
         }
 
         private var accentBar: some View {
@@ -3515,84 +3858,212 @@ private struct SubjectSubTopicsListView: View {
         }
     }
 
+    private var selectionHeaderTitle: some View {
+        VStack(
+            alignment:
+                isEnglish
+                ? .leading
+                : .trailing,
+            spacing: 3
+        ) {
+            Text(
+                uiMainTopicTitle(mainTopic)
+            )
+            .kmiFont(
+                size: 22,
+                weight: .heavy
+            )
+            .foregroundStyle(
+                colorScheme == .dark
+                    ? Color.white.opacity(0.94)
+                    : Color.black.opacity(0.84)
+            )
+            .frame(
+                maxWidth: .infinity,
+                alignment:
+                    isEnglish
+                    ? .leading
+                    : .trailing
+            )
+            .multilineTextAlignment(
+                isEnglish
+                    ? .leading
+                    : .trailing
+            )
+            .lineLimit(2)
+            .minimumScaleFactor(0.68)
+
+            Text(
+                tr(
+                    "בחר תת נושא",
+                    "Choose a sub-topic"
+                )
+            )
+            .kmiFont(
+                size: 13,
+                weight: .bold
+            )
+            .foregroundStyle(
+                colorScheme == .dark
+                    ? Color.white.opacity(0.62)
+                    : Color.black.opacity(0.50)
+            )
+            .frame(
+                maxWidth: .infinity,
+                alignment:
+                    isEnglish
+                    ? .leading
+                    : .trailing
+            )
+        }
+    }
+
+    private var selectionHeaderIcon: some View {
+        Image(
+            systemName:
+                "square.grid.2x2.fill"
+        )
+        .kmiFont(
+            size: 18,
+            weight: .heavy
+        )
+        .foregroundStyle(
+            colorScheme == .dark
+                ? Color.purple.opacity(0.96)
+                : Color.purple.opacity(0.72)
+        )
+        .frame(
+            minWidth: 38,
+            minHeight: 38
+        )
+        .background(
+            Color.purple.opacity(
+                colorScheme == .dark
+                    ? 0.18
+                    : 0.10
+            )
+        )
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 13,
+                style: .continuous
+            )
+        )
+    }
+
+    private var selectionHeader: some View {
+        HStack(spacing: 10) {
+            if isEnglish {
+                selectionHeaderTitle
+                selectionHeaderIcon
+            } else {
+                selectionHeaderIcon
+                selectionHeaderTitle
+            }
+        }
+        .environment(
+            \.layoutDirection,
+            .leftToRight
+        )
+    }
+
     var body: some View {
         ZStack {
             KmiAppBackground()
 
             ScrollView {
-                WhiteCard {
-                    VStack(alignment: isEnglish ? .leading : .trailing, spacing: 9) {
-                        HStack(spacing: 10) {
-                            if isEnglish {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(uiMainTopicTitle(mainTopic))
-                                        .font(.system(size: 22, weight: .heavy))
-                                        .foregroundStyle(Color.black.opacity(0.84))
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .multilineTextAlignment(.leading)
+                VStack(
+                    alignment:
+                        isEnglish
+                        ? .leading
+                        : .trailing,
+                    spacing: 9
+                ) {
+                    selectionHeader
 
-                                    Text(tr("בחר תת נושא", "Choose a sub-topic"))
-                                        .font(.system(size: 13, weight: .bold))
-                                        .foregroundStyle(Color.black.opacity(0.50))
-                                        .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(spacing: 12) {
+                        ForEach(
+                            Array(
+                                mainTopic.subjects.enumerated()
+                            ),
+                            id: \.offset
+                        ) { _, subject in
+                            Button {
+                                triggerTapHaptic()
+                                dismiss()
+
+                                DispatchQueue.main.asyncAfter(
+                                    deadline: .now() + 0.05
+                                ) {
+                                    onPickSubject(subject)
                                 }
-
-                                Image(systemName: "square.grid.2x2.fill")
-                                    .font(.system(size: 18, weight: .heavy))
-                                    .foregroundStyle(Color.purple.opacity(0.72))
-                                    .frame(width: 38, height: 38)
-                                    .background(Color.purple.opacity(0.10))
-                                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                            } else {
-                                Image(systemName: "square.grid.2x2.fill")
-                                    .font(.system(size: 18, weight: .heavy))
-                                    .foregroundStyle(Color.purple.opacity(0.72))
-                                    .frame(width: 38, height: 38)
-                                    .background(Color.purple.opacity(0.10))
-                                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-
-                                VStack(alignment: .trailing, spacing: 3) {
-                                    Text(uiMainTopicTitle(mainTopic))
-                                        .font(.system(size: 22, weight: .heavy))
-                                        .foregroundStyle(Color.black.opacity(0.84))
-                                        .frame(maxWidth: .infinity, alignment: .trailing)
-                                        .multilineTextAlignment(.trailing)
-
-                                    Text(tr("בחר תת נושא", "Choose a sub-topic"))
-                                        .font(.system(size: 13, weight: .bold))
-                                        .foregroundStyle(Color.black.opacity(0.50))
-                                        .frame(maxWidth: .infinity, alignment: .trailing)
-                                }
+                            } label: {
+                                SubTopicRowCard(
+                                    title:
+                                        uiSubjectTitle(subject),
+                                    accent:
+                                        accentForTitle(
+                                            subject.titleHeb
+                                        ),
+                                    subtitleBottom:
+                                        exercisesCountText(
+                                            totalExercisesCount(
+                                                for: subject
+                                            )
+                                        ),
+                                    isEnglish:
+                                        isEnglish,
+                                    symbolName:
+                                        symbolForSubject(subject)
+                                )
                             }
-                        }
-
-                        VStack(spacing: 12) {
-                            ForEach(Array(mainTopic.subjects.enumerated()), id: \.offset) { _, subject in
-                                Button {
-                                    triggerTapHaptic()
-                                    dismiss()
-
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                                        onPickSubject(subject)
-                                    }
-                                } label: {
-                                    SubTopicRowCard(
-                                        title: uiSubjectTitle(subject),
-                                        accent: accentForTitle(subject.titleHeb),
-                                        subtitleBottom: exercisesCountText(totalExercisesCount(for: subject)),
-                                        isEnglish: isEnglish,
-                                        symbolName: symbolForSubject(subject)
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
+                            .buttonStyle(.plain)
                         }
                     }
+                }
                     .padding(.vertical, 14)
                     .padding(.horizontal, 14)
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 12)
+                    .background(
+                        RoundedRectangle(
+                            cornerRadius: 22,
+                            style: .continuous
+                        )
+                        .fill(
+                            colorScheme == .dark
+                                ? Color(
+                                    red: 0.055,
+                                    green: 0.075,
+                                    blue: 0.115
+                                )
+                                .opacity(0.97)
+                                : Color.white.opacity(0.96)
+                        )
+                    )
+                    .overlay(
+                        RoundedRectangle(
+                            cornerRadius: 22,
+                            style: .continuous
+                        )
+                        .stroke(
+                            colorScheme == .dark
+                                ? Color.white.opacity(0.14)
+                                : Color.black.opacity(0.06),
+                            lineWidth: 1
+                        )
+                    )
+                    .shadow(
+                        color:
+                            Color.black.opacity(
+                                colorScheme == .dark
+                                    ? 0.32
+                                    : 0.08
+                            ),
+                        radius: 9,
+                        x: 0,
+                        y: 4
+                    )
+                    .padding(.horizontal, 18)
+                    .padding(.top, 12)
             }
         }
         .environment(\.layoutDirection, screenLayoutDirection)
@@ -3607,7 +4078,11 @@ private struct SubjectSectionsListView: View {
     let subject: SubjectTopic
     let onPickSection: (String) -> Void
 
-    @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
+    @Environment(\.colorScheme)
+    private var colorScheme
+
+    @AppStorage("kmi_app_language")
+    private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
     @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
 
@@ -4032,6 +4507,25 @@ private struct SubjectSectionsListView: View {
         let isEnglish: Bool
         let symbolName: String
 
+        @Environment(\.colorScheme)
+        private var colorScheme
+
+        private var isDarkMode: Bool {
+            colorScheme == .dark
+        }
+
+        private var titleColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.92)
+                : Color.black.opacity(0.84)
+        }
+
+        private var secondaryTextColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.64)
+                : Color.black.opacity(0.56)
+        }
+
         private var textAlignment: TextAlignment {
             isEnglish ? .leading : .trailing
         }
@@ -4052,12 +4546,26 @@ private struct SubjectSectionsListView: View {
                     textBlock
 
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color.black.opacity(0.30))
+                        .kmiFont(
+                            size: 13,
+                            weight: .bold
+                        )
+                        .foregroundStyle(
+                            isDarkMode
+                                ? Color.white.opacity(0.52)
+                                : Color.black.opacity(0.30)
+                        )
                 } else {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color.black.opacity(0.30))
+                        .kmiFont(
+                            size: 13,
+                            weight: .bold
+                        )
+                        .foregroundStyle(
+                            isDarkMode
+                                ? Color.white.opacity(0.52)
+                                : Color.black.opacity(0.30)
+                        )
 
                     textBlock
                     visualBlock
@@ -4068,31 +4576,75 @@ private struct SubjectSectionsListView: View {
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 17, style: .continuous)
-                    .fill(Color.white.opacity(0.94))
+                RoundedRectangle(
+                    cornerRadius: 17,
+                    style: .continuous
+                )
+                .fill(
+                    isDarkMode
+                        ? Color(
+                            red: 0.06,
+                            green: 0.08,
+                            blue: 0.12
+                        )
+                        : Color.white.opacity(0.94)
+                )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 17, style: .continuous)
-                    .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                RoundedRectangle(
+                    cornerRadius: 17,
+                    style: .continuous
+                )
+                .stroke(
+                    isDarkMode
+                        ? Color.white.opacity(0.12)
+                        : Color.black.opacity(0.05),
+                    lineWidth: 1
+                )
             )
-            .shadow(color: Color.black.opacity(0.045), radius: 5, x: 0, y: 2)
+            .shadow(
+                color:
+                    Color.black.opacity(
+                        isDarkMode ? 0.26 : 0.045
+                    ),
+                radius: 5,
+                x: 0,
+                y: 2
+            )
         }
 
         private var textBlock: some View {
-            VStack(alignment: stackAlignment, spacing: 7) {
+            VStack(
+                alignment: stackAlignment,
+                spacing: 7
+            ) {
                 Text(title)
-                    .font(.system(size: 19, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(0.84))
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .kmiFont(
+                        size: 19,
+                        weight: .heavy
+                    )
+                    .foregroundStyle(titleColor)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: frameAlignment
+                    )
                     .multilineTextAlignment(textAlignment)
                     .lineLimit(2)
+                    .minimumScaleFactor(0.66)
 
                 Text(subtitleBottom)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.black.opacity(0.56))
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    .kmiFont(
+                        size: 12,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(secondaryTextColor)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: frameAlignment
+                    )
                     .multilineTextAlignment(textAlignment)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.64)
             }
         }
 
@@ -4115,10 +4667,16 @@ private struct SubjectSectionsListView: View {
                 )
                 .overlay(
                     Image(systemName: symbolName)
-                        .font(.system(size: 22, weight: .heavy))
+                        .kmiFont(
+                            size: 22,
+                            weight: .heavy
+                        )
                         .foregroundStyle(accent)
                 )
-                .frame(width: 62, height: 52)
+                .frame(
+                    minWidth: 62,
+                    minHeight: 52
+                )
         }
 
         private var accentBar: some View {
@@ -4127,57 +4685,129 @@ private struct SubjectSectionsListView: View {
                 .frame(width: 6, height: 52)
         }
     }
+
+    private var selectionHeaderTitle: some View {
+        VStack(
+            alignment:
+                isEnglish
+                ? .leading
+                : .trailing,
+            spacing: 3
+        ) {
+            Text(
+                uiSubjectTitle(subject)
+            )
+            .kmiFont(
+                size: 22,
+                weight: .heavy
+            )
+            .foregroundStyle(
+                colorScheme == .dark
+                    ? Color.white.opacity(0.94)
+                    : Color.black.opacity(0.84)
+            )
+            .frame(
+                maxWidth: .infinity,
+                alignment:
+                    isEnglish
+                    ? .leading
+                    : .trailing
+            )
+            .multilineTextAlignment(
+                isEnglish
+                    ? .leading
+                    : .trailing
+            )
+            .lineLimit(2)
+            .minimumScaleFactor(0.68)
+
+            Text(
+                tr(
+                    "בחר תת נושא",
+                    "Choose a sub-topic"
+                )
+            )
+            .kmiFont(
+                size: 13,
+                weight: .bold
+            )
+            .foregroundStyle(
+                colorScheme == .dark
+                    ? Color.white.opacity(0.62)
+                    : Color.black.opacity(0.50)
+            )
+            .frame(
+                maxWidth: .infinity,
+                alignment:
+                    isEnglish
+                    ? .leading
+                    : .trailing
+            )
+        }
+    }
+
+    private var selectionHeaderIcon: some View {
+        Image(
+            systemName:
+                "square.grid.2x2.fill"
+        )
+        .kmiFont(
+            size: 18,
+            weight: .heavy
+        )
+        .foregroundStyle(
+            colorScheme == .dark
+                ? Color.purple.opacity(0.96)
+                : Color.purple.opacity(0.72)
+        )
+        .frame(
+            minWidth: 38,
+            minHeight: 38
+        )
+        .background(
+            Color.purple.opacity(
+                colorScheme == .dark
+                    ? 0.18
+                    : 0.10
+            )
+        )
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 13,
+                style: .continuous
+            )
+        )
+    }
+
+    private var selectionHeader: some View {
+        HStack(spacing: 10) {
+            if isEnglish {
+                selectionHeaderTitle
+                selectionHeaderIcon
+            } else {
+                selectionHeaderIcon
+                selectionHeaderTitle
+            }
+        }
+        .environment(
+            \.layoutDirection,
+            .leftToRight
+        )
+    }
     
     var body: some View {
         ZStack {
             KmiAppBackground()
 
             ScrollView {
-                WhiteCard {
-                    VStack(alignment: isEnglish ? .leading : .trailing, spacing: 14) {
-                        HStack(spacing: 10) {
-                            if isEnglish {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(uiSubjectTitle(subject))
-                                        .font(.system(size: 22, weight: .heavy))
-                                        .foregroundStyle(Color.black.opacity(0.84))
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .multilineTextAlignment(.leading)
-
-                                    Text(tr("בחר תת נושא", "Choose a sub-topic"))
-                                        .font(.system(size: 13, weight: .bold))
-                                        .foregroundStyle(Color.black.opacity(0.50))
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-
-                                Image(systemName: "square.grid.2x2.fill")
-                                    .font(.system(size: 18, weight: .heavy))
-                                    .foregroundStyle(Color.purple.opacity(0.72))
-                                    .frame(width: 38, height: 38)
-                                    .background(Color.purple.opacity(0.10))
-                                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                            } else {
-                                Image(systemName: "square.grid.2x2.fill")
-                                    .font(.system(size: 18, weight: .heavy))
-                                    .foregroundStyle(Color.purple.opacity(0.72))
-                                    .frame(width: 38, height: 38)
-                                    .background(Color.purple.opacity(0.10))
-                                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-
-                                VStack(alignment: .trailing, spacing: 3) {
-                                    Text(uiSubjectTitle(subject))
-                                        .font(.system(size: 22, weight: .heavy))
-                                        .foregroundStyle(Color.black.opacity(0.84))
-                                        .frame(maxWidth: .infinity, alignment: .trailing)
-                                        .multilineTextAlignment(.trailing)
-
-                                    Text(tr("בחר תת נושא", "Choose a sub-topic"))
-                                        .font(.system(size: 13, weight: .bold))
-                                        .foregroundStyle(Color.black.opacity(0.50))
-                                        .frame(maxWidth: .infinity, alignment: .trailing)
-                                }
-                            }
-                        }
+                VStack(
+                    alignment:
+                        isEnglish
+                        ? .leading
+                        : .trailing,
+                    spacing: 14
+                ) {
+                    selectionHeader
 
                         VStack(spacing: 12) {
                             ForEach(Array(sections.enumerated()), id: \.element.id) { _, section in
@@ -4199,10 +4829,48 @@ private struct SubjectSectionsListView: View {
                                 .buttonStyle(.plain)
                             }
                         }
-                    }
-                    .padding(.vertical, 14)
-                    .padding(.horizontal, 14)
                 }
+                .padding(.vertical, 14)
+                .padding(.horizontal, 14)
+                .background(
+                    RoundedRectangle(
+                        cornerRadius: 22,
+                        style: .continuous
+                    )
+                    .fill(
+                        colorScheme == .dark
+                            ? Color(
+                                red: 0.055,
+                                green: 0.075,
+                                blue: 0.115
+                            )
+                            .opacity(0.97)
+                            : Color.white.opacity(0.96)
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(
+                        cornerRadius: 22,
+                        style: .continuous
+                    )
+                    .stroke(
+                        colorScheme == .dark
+                            ? Color.white.opacity(0.14)
+                            : Color.black.opacity(0.06),
+                        lineWidth: 1
+                    )
+                )
+                .shadow(
+                    color:
+                        Color.black.opacity(
+                            colorScheme == .dark
+                                ? 0.32
+                                : 0.08
+                        ),
+                    radius: 9,
+                    x: 0,
+                    y: 4
+                )
                 .padding(.horizontal, 18)
                 .padding(.top, 12)
             }

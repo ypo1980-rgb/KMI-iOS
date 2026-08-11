@@ -7,6 +7,8 @@ struct ContactUsViewIOS: View {
     let isEnglish: Bool
     let onClose: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+
     @State private var fullName: String = ""
     @State private var phone: String = ""
     @State private var email: String = ""
@@ -17,6 +19,40 @@ struct ContactUsViewIOS: View {
     @State private var toastText: String? = nil
     @State private var didPrefill: Bool = false
 
+    private var isDarkMode: Bool {
+        colorScheme == .dark
+    }
+
+    private var primaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.94)
+            : Color(hex: 0xFF1E2A3D)
+    }
+
+    private var secondaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.68)
+            : Color(hex: 0xFF5E6C80)
+    }
+
+    private var cardColor: Color {
+        isDarkMode
+            ? Color(hex: 0xFF111827).opacity(0.96)
+            : Color(hex: 0xFFEAF2FF)
+    }
+
+    private var fieldColor: Color {
+        isDarkMode
+            ? Color(hex: 0xFF1E293B).opacity(0.96)
+            : Color.white
+    }
+
+    private var dividerColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.12)
+            : Color(hex: 0xFFBFD0E8)
+    }
+    
     private func tr(_ he: String, _ en: String) -> String {
         isEnglish ? en : he
     }
@@ -43,13 +79,20 @@ struct ContactUsViewIOS: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             LinearGradient(
-                colors: [
-                    Color(hex: 0xFFF8FBFF),
-                    Color(hex: 0xFFEAF4FF),
-                    Color(hex: 0xFFB7DDF7),
-                    Color(hex: 0xFF1F78B4),
-                    Color(hex: 0xFF062B4A)
-                ],
+                colors: isDarkMode
+                    ? [
+                        Color(hex: 0xFF111827),
+                        Color(hex: 0xFF0F172A),
+                        Color(hex: 0xFF12395B),
+                        Color(hex: 0xFF062B4A)
+                    ]
+                    : [
+                        Color(hex: 0xFFF8FBFF),
+                        Color(hex: 0xFFEAF4FF),
+                        Color(hex: 0xFFB7DDF7),
+                        Color(hex: 0xFF1F78B4),
+                        Color(hex: 0xFF062B4A)
+                    ],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -68,14 +111,18 @@ struct ContactUsViewIOS: View {
 
             if let toastText {
                 Text(toastText)
-                    .font(.system(size: 13.5, weight: .bold))
+                    .kmiFont(size: 13.5, weight: .bold)
                     .foregroundStyle(Color.white)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .background(
                         Capsule()
-                            .fill(Color.black.opacity(0.76))
+                            .fill(
+                                isDarkMode
+                                    ? Color.black.opacity(0.90)
+                                    : Color.black.opacity(0.76)
+                            )
                     )
                     .padding(.horizontal, 18)
                     .padding(.bottom, 18)
@@ -99,13 +146,13 @@ struct ContactUsViewIOS: View {
                     "Leave your details and the association will get back to you"
                 )
             )
-            .font(.system(size: 16, weight: .black))
-            .foregroundStyle(Color(hex: 0xFF1E2A3D))
+            .kmiFont(size: 16, weight: .black)
+            .foregroundStyle(primaryTextColor)
             .frame(maxWidth: .infinity, alignment: frameAlignment)
             .multilineTextAlignment(textAlignment)
 
             Rectangle()
-                .fill(Color(hex: 0xFFBFD0E8))
+                .fill(dividerColor)
                 .frame(height: 1)
 
             HStack(spacing: 10) {
@@ -122,16 +169,30 @@ struct ContactUsViewIOS: View {
             .padding(.vertical, 11)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white)
+                    .fill(fieldColor)
             )
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(hex: 0xFFEAF2FF))
+                .fill(cardColor)
         )
-        .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 4)
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(
+                    isDarkMode
+                        ? Color.white.opacity(0.10)
+                        : Color.black.opacity(0.05),
+                    lineWidth: 1
+                )
+        )
+        .shadow(
+            color: Color.black.opacity(isDarkMode ? 0.26 : 0.12),
+            radius: 8,
+            x: 0,
+            y: 4
+        )
     }
 
     private var supportIcon: some View {
@@ -148,8 +209,8 @@ struct ContactUsViewIOS: View {
                 "KAMI representative will contact you soon."
             )
         )
-        .font(.system(size: 14, weight: .bold))
-        .foregroundStyle(Color(hex: 0xFF1E2A3D))
+        .kmiFont(size: 14, weight: .bold)
+        .foregroundStyle(primaryTextColor)
         .frame(maxWidth: .infinity, alignment: frameAlignment)
         .multilineTextAlignment(textAlignment)
     }

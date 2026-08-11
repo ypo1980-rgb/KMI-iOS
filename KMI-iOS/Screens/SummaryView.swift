@@ -153,6 +153,35 @@ struct SummaryView: View {
     var subTopic: String? = nil
     
     @ObservedObject var nav: AppNavModel
+    @Environment(\.colorScheme)
+    private var colorScheme
+
+    private var isDarkMode: Bool {
+        colorScheme == .dark
+    }
+
+    private var summaryPrimaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.94)
+            : Color.black.opacity(0.84)
+    }
+
+    private var summarySecondaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.64)
+            : Color.black.opacity(0.56)
+    }
+
+    private var summaryBottomSurfaceColor: Color {
+        isDarkMode
+            ? Color(
+                red: 0.025,
+                green: 0.035,
+                blue: 0.075
+            )
+            .opacity(0.98)
+            : Color.white.opacity(0.96)
+    }
     @State private var showProgressCard: Bool = false
     @State private var showComparisonCard: Bool = false
     @State private var marksRevision: Int = 0
@@ -523,79 +552,74 @@ struct SummaryView: View {
     }
 
     private var catalogTopics: [SummaryRawTopic] {
-        // Reading this value makes the computed model refresh whenever
-        // UserDefaults posts a change notification.
         _ = marksRevision
 
-        return TopicsEngine.shared.topicTitlesFor(belt: belt)
+        return TopicsEngine.shared
+            .topicTitlesFor(belt: belt)
             .map { title in
-                let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                let cleanTitle =
+                    title.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
 
                 var allItems: [SummaryRawItem] = []
 
-                let requestedTopic = topic?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                let requestedSubTopic = subTopic?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                let isRequestedTopic = !requestedTopic.isEmpty &&
-                    normalizedSummaryText(cleanTitle) == normalizedSummaryText(requestedTopic)
-
-                // When a sub-topic was selected, include only that sub-topic.
-                // The previous implementation appended the whole topic and merely
-                // changed the status key, which produced incorrect rows and marks.
-                if isRequestedTopic && !requestedSubTopic.isEmpty {
-                    let selectedItems = ContentRepo.shared.getAllItemsFor(
+                let directItems =
+                    ContentRepo.shared.getAllItemsFor(
                         belt: belt,
                         topicTitle: cleanTitle,
-                        subTopicTitle: requestedSubTopic
+                        subTopicTitle: nil
                     )
 
-                    allItems.append(contentsOf: selectedItems.enumerated().map { index, item in
-                        SummaryRawItem(
-                            title: item,
-                            subTopicTitle: requestedSubTopic,
-                            indexInStatusGroup: index
+                allItems.append(
+                    contentsOf:
+                        directItems.enumerated().map {
+                            index,
+                            item in
+
+                            SummaryRawItem(
+                                title: item,
+                                subTopicTitle: nil,
+                                indexInStatusGroup: index
+                            )
+                        }
+                )
+
+                let subTopicTitles =
+                    ContentRepo.shared.getSubTopicsFor(
+                        belt: belt,
+                        topicTitle: cleanTitle
+                    )
+                    .map {
+                        $0.title.trimmingCharacters(
+                            in: .whitespacesAndNewlines
                         )
-                    })
-
-                    return SummaryRawTopic(title: cleanTitle, items: allItems)
-                }
-
-                let directItems = ContentRepo.shared.getAllItemsFor(
-                    belt: belt,
-                    topicTitle: cleanTitle,
-                    subTopicTitle: nil
-                )
-
-                allItems.append(contentsOf: directItems.enumerated().map { index, item in
-                    SummaryRawItem(
-                        title: item,
-                        subTopicTitle: nil,
-                        indexInStatusGroup: index
-                    )
-                })
-
-                let subTopicTitles = ContentRepo.shared.getSubTopicsFor(
-                    belt: belt,
-                    topicTitle: cleanTitle
-                )
-                .map { $0.title.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
+                    }
+                    .filter {
+                        !$0.isEmpty
+                    }
 
                 for subTopicTitle in subTopicTitles {
-                    let subItems = ContentRepo.shared.getAllItemsFor(
-                        belt: belt,
-                        topicTitle: cleanTitle,
-                        subTopicTitle: subTopicTitle
-                    )
-
-                    allItems.append(contentsOf: subItems.enumerated().map { index, item in
-                        SummaryRawItem(
-                            title: item,
-                            subTopicTitle: subTopicTitle,
-                            indexInStatusGroup: index
+                    let subItems =
+                        ContentRepo.shared.getAllItemsFor(
+                            belt: belt,
+                            topicTitle: cleanTitle,
+                            subTopicTitle: subTopicTitle
                         )
-                    })
+
+                    allItems.append(
+                        contentsOf:
+                            subItems.enumerated().map {
+                                index,
+                                item in
+
+                                SummaryRawItem(
+                                    title: item,
+                                    subTopicTitle: subTopicTitle,
+                                    indexInStatusGroup: index
+                                )
+                            }
+                    )
                 }
 
                 return SummaryRawTopic(
@@ -606,41 +630,41 @@ struct SummaryView: View {
     }
     
     private var blocks: [SummaryTopicBlock] {
-        let filteredTopics: [SummaryRawTopic]
-
-        if let topic, !topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            filteredTopics = catalogTopics.filter {
-                $0.title.trimmingCharacters(in: .whitespacesAndNewlines) ==
-                topic.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-        } else {
-            filteredTopics = catalogTopics
-        }
-
-        return filteredTopics.compactMap { t in
-            var out: [SummaryRawItem] = []
-            out.append(contentsOf: t.items)
-            
+        catalogTopics.map { topicBlock in
             var seen = Set<String>()
-            let uniq = out
-                .map { raw in
-                    SummaryRawItem(
-                        title: raw.title.trimmingCharacters(in: .whitespacesAndNewlines),
-                        subTopicTitle: raw.subTopicTitle,
-                        indexInStatusGroup: raw.indexInStatusGroup
-                    )
-                }
-                .filter { !$0.title.isEmpty }
-                .filter { raw in
-                    let uniqueKey = "\(raw.subTopicTitle ?? "")||\(raw.title)"
-                    return seen.insert(uniqueKey).inserted
-                }
+
+            let uniqueItems =
+                topicBlock.items
+                    .map { raw in
+                        SummaryRawItem(
+                            title:
+                                raw.title.trimmingCharacters(
+                                    in: .whitespacesAndNewlines
+                                ),
+                            subTopicTitle:
+                                raw.subTopicTitle,
+                            indexInStatusGroup:
+                                raw.indexInStatusGroup
+                        )
+                    }
+                    .filter {
+                        !$0.title.isEmpty
+                    }
+                    .filter { raw in
+                        let uniqueKey = [
+                            raw.subTopicTitle ?? "",
+                            raw.title
+                        ]
+                        .joined(separator: "||")
+
+                        return seen.insert(uniqueKey).inserted
+                    }
 
             let rows: [SummaryRowItem] =
-                uniq.map { raw in
+                uniqueItems.map { raw in
                     let mark =
                         loadMark(
-                            topicTitle: t.title,
+                            topicTitle: topicBlock.title,
                             subTopicTitle:
                                 raw.subTopicTitle,
                             item: raw.title,
@@ -650,7 +674,7 @@ struct SummaryView: View {
 
                     let coachStatus =
                         loadCoachStatus(
-                            topicTitle: t.title,
+                            topicTitle: topicBlock.title,
                             subTopicTitle:
                                 raw.subTopicTitle,
                             item: raw.title,
@@ -660,22 +684,25 @@ struct SummaryView: View {
 
                     return SummaryRowItem(
                         id:
-                            "\(t.title)||"
+                            "\(topicBlock.title)||"
                             + "\(raw.subTopicTitle ?? "")||"
                             + raw.title,
-                        title: raw.title,
+                        title:
+                            raw.title,
                         subTopicTitle:
                             raw.subTopicTitle,
                         indexInStatusGroup:
                             raw.indexInStatusGroup,
-                        mark: mark,
-                        coachStatus: coachStatus
+                        mark:
+                            mark,
+                        coachStatus:
+                            coachStatus
                     )
                 }
 
             return SummaryTopicBlock(
-                id: t.title,
-                title: t.title,
+                id: topicBlock.title,
+                title: topicBlock.title,
                 items: rows
             )
         }
@@ -995,19 +1022,8 @@ struct SummaryView: View {
     }
     
     private var summaryTitle: String {
-        if let topic,
-           !topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           let subTopic,
-           !subTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "\(subTopic) - \(percentAll)%"
-        }
-
-        if let topic,
-           !topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "\(topic) - \(percentAll)%"
-        }
-
-        return "\(beltDisplayTitleForSummary()) - \(percentAll)%"
+        "\(tr("סיכום", "Summary")) "
+        + beltDisplayTitleForSummary()
     }
     
     private func beltDisplayTitleForSummary() -> String {
@@ -1056,9 +1072,7 @@ struct SummaryView: View {
                                     isEnglish:
                                         isEnglish,
                                     onClose: {
-                                        withAnimation(.easeOut(duration: 0.15)) {
-                                            showComparisonCard = false
-                                        }
+                                        showComparisonCard = false
                                     }
                                 )
                                 .padding(.vertical, 12)
@@ -1076,24 +1090,49 @@ struct SummaryView: View {
                                         Spacer()
 
                                         Button {
-                                            withAnimation(.easeOut(duration: 0.15)) {
-                                                showProgressCard = false
-                                            }
+                                            showProgressCard = false
                                         } label: {
                                             Image(systemName: "xmark")
-                                                .font(.system(size: 13, weight: .black))
-                                                .foregroundStyle(Color.black.opacity(0.62))
+                                                .kmiFont(
+                                                    size: 13,
+                                                    weight: .black
+                                                )
+                                                .foregroundStyle(
+                                                    summarySecondaryTextColor
+                                                )
                                                 .frame(width: 32, height: 32)
-                                                .background(Circle().fill(Color.black.opacity(0.06)))
+                                                .background(
+                                                    Circle()
+                                                        .fill(
+                                                            isDarkMode
+                                                                ? Color.white.opacity(0.10)
+                                                                : Color.black.opacity(0.06)
+                                                        )
+                                                )
                                         }
                                         .buttonStyle(.plain)
                                     }
 
-                                    Text(tr("מד התקדמות", "Progress meter"))
-                                        .font(.system(size: 22, weight: .black))
-                                        .foregroundStyle(Color(red: 0.09, green: 0.13, blue: 0.20))
-                                        .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-                                        .multilineTextAlignment(screenTextAlignment)
+                                    Text(
+                                        tr(
+                                            "מד התקדמות",
+                                            "Progress meter"
+                                        )
+                                    )
+                                    .kmiFont(
+                                        size: 22,
+                                        weight: .black
+                                    )
+                                    .foregroundStyle(
+                                        summaryPrimaryTextColor
+                                    )
+                                    .frame(
+                                        maxWidth: .infinity,
+                                        alignment: screenFrameAlignment
+                                    )
+                                    .multilineTextAlignment(
+                                        screenTextAlignment
+                                    )
                                     
                                     ProgressRing(
                                         percent: markedPercentAll,
@@ -1125,14 +1164,12 @@ struct SummaryView: View {
                                         ? "Marked \(markedCount) of \(totalCount)"
                                         : "סומנו \(markedCount) מתוך \(totalCount)"
                                     )
-                                    .font(
-                                        .system(
-                                            size: 14,
-                                            weight: .bold
-                                        )
+                                    .kmiFont(
+                                        size: 14,
+                                        weight: .bold
                                     )
                                     .foregroundStyle(
-                                        Color.black.opacity(0.62)
+                                        summarySecondaryTextColor
                                     )
 
                                     if effectiveIsCoach {
@@ -1250,18 +1287,34 @@ struct SummaryView: View {
                         if blocks.isEmpty {
                             WhiteCard {
                                 VStack(spacing: 10) {
-                                    Text(tr("אין נתוני סיכום להצגה", "No summary data to display"))
-                                        .font(.system(size: 20, weight: .heavy))
-                                        .foregroundStyle(Color.black.opacity(0.82))
+                                    Text(
+                                        tr(
+                                            "אין נתוני סיכום להצגה",
+                                            "No summary data to display"
+                                        )
+                                    )
+                                    .kmiFont(
+                                        size: 20,
+                                        weight: .heavy
+                                    )
+                                    .foregroundStyle(
+                                        summaryPrimaryTextColor
+                                    )
 
-                                    Text(tr(
-                                        "עדיין לא סומנו תרגילים עבור הבחירה הנוכחית",
-                                        "No exercises have been marked for the current selection yet"
-                                    ))
-                                    
-                                        .font(.system(size: 15, weight: .semibold))
-                                        .foregroundStyle(Color.black.opacity(0.56))
-                                        .multilineTextAlignment(.center)
+                                    Text(
+                                        tr(
+                                            "עדיין אין תרגילים להצגה עבור החגורה הנוכחית",
+                                            "There are no exercises to display for the current belt yet"
+                                        )
+                                    )
+                                    .kmiFont(
+                                        size: 15,
+                                        weight: .semibold
+                                    )
+                                    .foregroundStyle(
+                                        summarySecondaryTextColor
+                                    )
+                                    .multilineTextAlignment(.center)
                                 }
                                 .padding(.vertical, 18)
                             }
@@ -1299,9 +1352,20 @@ struct SummaryView: View {
                         .padding(.top, 12)
                         .padding(.bottom, 10)
                 }
-                .background(Color.white.opacity(0.96))
+                .background(
+                    summaryBottomSurfaceColor
+                        .ignoresSafeArea(edges: .bottom)
+                )
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(
+                            isDarkMode
+                                ? Color.white.opacity(0.10)
+                                : Color.black.opacity(0.07)
+                        )
+                        .frame(height: 1)
+                }
             }
-            .ignoresSafeArea(edges: .bottom)
         }
         .environment(\.layoutDirection, screenLayoutDirection)
         .onAppear {
@@ -1372,10 +1436,8 @@ struct SummaryView: View {
                 systemImage: "chart.line.uptrend.xyaxis",
                 isOpen: showProgressCard
             ) {
-                withAnimation(.easeOut(duration: 0.15)) {
-                    showComparisonCard = false
-                    showProgressCard.toggle()
-                }
+                showComparisonCard = false
+                showProgressCard.toggle()
             }
 
             summaryTopActionButton(
@@ -1383,14 +1445,13 @@ struct SummaryView: View {
                 systemImage: "chart.line.uptrend.xyaxis",
                 isOpen: showComparisonCard
             ) {
-                withAnimation(.easeOut(duration: 0.15)) {
-                    showProgressCard = false
-                    let willOpen = !showComparisonCard
-                    showComparisonCard = willOpen
+                showProgressCard = false
 
-                    if willOpen {
-                        saveProgressAndLoadComparison()
-                    }
+                let willOpen = !showComparisonCard
+                showComparisonCard = willOpen
+
+                if willOpen {
+                    saveProgressAndLoadComparison()
                 }
             }
         }
@@ -1410,41 +1471,100 @@ struct SummaryView: View {
         Button(action: action) {
             HStack(spacing: 7) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 15, weight: .heavy))
-                    .foregroundStyle(Color.orange.opacity(0.90))
+                    .kmiFont(
+                        size: 15,
+                        weight: .heavy
+                    )
+                    .foregroundStyle(
+                        Color.orange.opacity(0.92)
+                    )
 
                 Text(title)
-                    .font(.system(size: 17, weight: .black))
-                    .foregroundStyle(Color.black.opacity(0.78))
+                    .kmiFont(
+                        size: 17,
+                        weight: .black
+                    )
+                    .foregroundStyle(
+                        summaryPrimaryTextColor
+                    )
 
-                Image(systemName: isOpen ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 12, weight: .black))
-                    .foregroundStyle(Color.black.opacity(0.48))
+                Image(
+                    systemName:
+                        isOpen
+                        ? "chevron.up"
+                        : "chevron.down"
+                )
+                .kmiFont(
+                    size: 12,
+                    weight: .black
+                )
+                .foregroundStyle(
+                    summarySecondaryTextColor
+                )
             }
             .frame(maxWidth: .infinity)
             .frame(height: 48)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
+            .background {
+                RoundedRectangle(
+                    cornerRadius: 16,
+                    style: .continuous
+                )
+                .fill(
+                    LinearGradient(
+                        colors:
+                            isDarkMode
+                            ? [
+                                Color(
+                                    red: 0.10,
+                                    green: 0.13,
+                                    blue: 0.20
+                                ),
+                                isOpen
+                                    ? Color.orange.opacity(0.18)
+                                    : Color(
+                                        red: 0.07,
+                                        green: 0.10,
+                                        blue: 0.16
+                                    ),
+                                Color.orange.opacity(0.08)
+                            ]
+                            : [
                                 Color.white.opacity(0.98),
-                                isOpen ? Color.orange.opacity(0.11) : Color.white.opacity(0.90),
+                                isOpen
+                                    ? Color.orange.opacity(0.11)
+                                    : Color.white.opacity(0.90),
                                 Color.orange.opacity(0.06)
                             ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
+                        startPoint: .top,
+                        endPoint: .bottom
                     )
+                )
+            }
+            .overlay {
+                RoundedRectangle(
+                    cornerRadius: 16,
+                    style: .continuous
+                )
+                .stroke(
+                    isOpen
+                        ? Color.orange.opacity(0.32)
+                        : (
+                            isDarkMode
+                            ? Color.white.opacity(0.12)
+                            : Color.black.opacity(0.06)
+                        ),
+                    lineWidth: 1
+                )
+            }
+            .shadow(
+                color:
+                    Color.black.opacity(
+                        isDarkMode ? 0.28 : 0.10
+                    ),
+                radius: 7,
+                x: 0,
+                y: 4
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(
-                        isOpen ? Color.orange.opacity(0.26) : Color.black.opacity(0.06),
-                        lineWidth: 1
-                    )
-            )
-            .shadow(color: Color.black.opacity(0.10), radius: 7, x: 0, y: 4)
         }
         .buttonStyle(.plain)
     }
@@ -1469,10 +1589,10 @@ struct SummaryView: View {
 
                 HStack(spacing: 8) {
                     Image(systemName: "star.fill")
-                        .font(.system(size: 15, weight: .black))
+                        .kmiFont(size: 15, weight: .black)
 
                     Text(tr("חזרה למסך הנושאים", "Back to topics screen"))
-                        .font(.system(size: 17, weight: .black))
+                        .kmiFont(size: 17, weight: .black)
                 }
                 .foregroundStyle(.white)
             }
@@ -1541,6 +1661,31 @@ struct SummaryView: View {
         let isEnglish: Bool
         let onClose: () -> Void
 
+        @Environment(\.colorScheme)
+        private var colorScheme
+
+        private var isDarkMode: Bool {
+            colorScheme == .dark
+        }
+
+        private var primaryTextColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.94)
+                : Color(red: 0.12, green: 0.17, blue: 0.24)
+        }
+
+        private var secondaryTextColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.68)
+                : Color.black.opacity(0.58)
+        }
+
+        private var messageSurfaceColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.08)
+                : Color.white.opacity(0.72)
+        }
+
         private func tr(
             _ he: String,
             _ en: String
@@ -1555,8 +1700,11 @@ struct SummaryView: View {
                         onClose()
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 17, weight: .heavy))
-                            .foregroundStyle(Color(red: 0.18, green: 0.27, blue: 0.38))
+                            .kmiFont(
+                                size: 17,
+                                weight: .heavy
+                            )
+                            .foregroundStyle(secondaryTextColor)
                             .frame(width: 34, height: 34)
                             .contentShape(Circle())
                     }
@@ -1575,15 +1723,13 @@ struct SummaryView: View {
                                 "Your belt progress"
                             )
                     )
-                    .font(
-                        .system(
-                            size: 22,
-                            weight: .black
-                        )
+                    .kmiFont(
+                        size: 22,
+                        weight: .black
                     )
-                        .foregroundStyle(Color(red: 0.12, green: 0.17, blue: 0.24))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.78)
+                    .foregroundStyle(primaryTextColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
                 }
                 .padding(.horizontal, 4)
 
@@ -1631,28 +1777,49 @@ struct SummaryView: View {
                     }
 
                     Text(statusText)
-                        .font(.system(size: 21, weight: .black))
-                        .foregroundStyle(Color.green.opacity(0.84))
+                        .kmiFont(
+                            size: 21,
+                            weight: .black
+                        )
+                        .foregroundStyle(
+                            isDarkMode
+                                ? Color.green.opacity(0.94)
+                                : Color.green.opacity(0.84)
+                        )
                         .frame(maxWidth: .infinity, alignment: .center)
                         .multilineTextAlignment(.center)
                         .lineSpacing(2)
                         .padding(.top, 2)
                 } else {
                     Text(statusText)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color.black.opacity(0.58))
+                        .kmiFont(
+                            size: 15,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(secondaryTextColor)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .multilineTextAlignment(.center)
                         .lineSpacing(3)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 12)
                         .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Color.white.opacity(0.72))
+                            RoundedRectangle(
+                                cornerRadius: 16,
+                                style: .continuous
+                            )
+                            .fill(messageSurfaceColor)
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                            RoundedRectangle(
+                                cornerRadius: 16,
+                                style: .continuous
+                            )
+                            .stroke(
+                                isDarkMode
+                                    ? Color.white.opacity(0.12)
+                                    : Color.black.opacity(0.06),
+                                lineWidth: 1
+                            )
                         )
                 }
             }
@@ -1664,27 +1831,57 @@ struct SummaryView: View {
         let title: String
         let tint: Color
 
+        @Environment(\.colorScheme)
+        private var colorScheme
+
+        private var titleColor: Color {
+            colorScheme == .dark
+                ? Color.white.opacity(0.76)
+                : Color(red: 0.25, green: 0.34, blue: 0.42)
+        }
+
         var body: some View {
             VStack(spacing: 5) {
                 Text(value)
-                    .font(.system(size: 20, weight: .black))
+                    .kmiFont(
+                        size: 20,
+                        weight: .black
+                    )
                     .foregroundStyle(tint)
 
                 Text(title)
-                    .font(.system(size: 14, weight: .black))
-                    .foregroundStyle(Color(red: 0.25, green: 0.34, blue: 0.42))
+                    .kmiFont(
+                        size: 14,
+                        weight: .black
+                    )
+                    .foregroundStyle(titleColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.74)
             }
             .frame(maxWidth: .infinity)
             .frame(height: 76)
             .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(tint.opacity(0.12))
+                RoundedRectangle(
+                    cornerRadius: 16,
+                    style: .continuous
+                )
+                .fill(
+                    colorScheme == .dark
+                        ? tint.opacity(0.18)
+                        : tint.opacity(0.12)
+                )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(tint.opacity(0.26), lineWidth: 1)
+                RoundedRectangle(
+                    cornerRadius: 16,
+                    style: .continuous
+                )
+                .stroke(
+                    colorScheme == .dark
+                        ? tint.opacity(0.38)
+                        : tint.opacity(0.26),
+                    lineWidth: 1
+                )
             )
         }
     }
@@ -1697,6 +1894,35 @@ struct SummaryView: View {
         let totalCount: Int
         let isCoach: Bool
         let isEnglish: Bool
+
+        @Environment(\.colorScheme)
+        private var colorScheme
+
+        private var isDarkMode: Bool {
+            colorScheme == .dark
+        }
+
+        private var ringSurfaceColor: Color {
+            isDarkMode
+                ? Color(
+                    red: 0.075,
+                    green: 0.095,
+                    blue: 0.145
+                )
+                : Color.white.opacity(0.98)
+        }
+
+        private var ringPrimaryTextColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.94)
+                : Color(red: 0.12, green: 0.17, blue: 0.24)
+        }
+
+        private var ringSecondaryTextColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.62)
+                : Color.black.opacity(0.55)
+        }
 
         private var donePart: CGFloat {
             guard totalCount > 0 else { return 0 }
@@ -1716,13 +1942,22 @@ struct SummaryView: View {
         var body: some View {
             ZStack {
                 Circle()
-                    .fill(Color.white.opacity(0.98))
-                    .shadow(color: Color.black.opacity(0.06), radius: 5, x: 0, y: 3)
+                    .fill(ringSurfaceColor)
+                    .shadow(
+                        color: Color.black.opacity(
+                            isDarkMode ? 0.32 : 0.06
+                        ),
+                        radius: 5,
+                        x: 0,
+                        y: 3
+                    )
 
                 Circle()
                     .trim(from: 0, to: max(remainingPart, 0.001))
                     .stroke(
-                        Color(red: 0.85, green: 0.85, blue: 0.89),
+                        isDarkMode
+                            ? Color.white.opacity(0.18)
+                            : Color(red: 0.85, green: 0.85, blue: 0.89),
                         style: StrokeStyle(lineWidth: 16, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
@@ -1744,13 +1979,16 @@ struct SummaryView: View {
                     .rotationEffect(.degrees(-90))
 
                 Circle()
-                    .fill(Color.white.opacity(0.98))
+                    .fill(ringSurfaceColor)
                     .frame(width: 128, height: 128)
 
                 VStack(spacing: 5) {
                     Text("\(percent)%")
-                        .font(.system(size: 25, weight: .black))
-                        .foregroundStyle(Color(red: 0.12, green: 0.17, blue: 0.24))
+                        .kmiFont(
+                            size: 25,
+                            weight: .black
+                        )
+                        .foregroundStyle(ringPrimaryTextColor)
 
                     Text(
                         isCoach
@@ -1765,11 +2003,9 @@ struct SummaryView: View {
                                 : "סומנו"
                             )
                     )
-                    .font(
-                        .system(
-                            size: 14,
-                            weight: .black
-                        )
+                    .kmiFont(
+                        size: 14,
+                        weight: .black
                     )
                     .foregroundStyle(
                         Color(
@@ -1784,8 +2020,11 @@ struct SummaryView: View {
                         ? "\(doneCount + notDoneCount) of \(totalCount)"
                         : "\(doneCount + notDoneCount) מתוך \(totalCount)"
                     )
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color.black.opacity(0.55))
+                    .kmiFont(
+                        size: 13,
+                        weight: .bold
+                    )
+                    .foregroundStyle(ringSecondaryTextColor)
                 }
             }
         }
@@ -1797,7 +2036,10 @@ struct SummaryView: View {
 
         var body: some View {
             Text(title)
-                .font(.system(size: 10, weight: .black))
+                .kmiFont(
+                    size: 10,
+                    weight: .black
+                )
                 .foregroundStyle(tint)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
@@ -1819,6 +2061,45 @@ struct SummaryView: View {
         let isCoach: Bool
         let isEnglish: Bool
 
+        @Environment(\.colorScheme)
+        private var colorScheme
+
+        private var isDarkMode: Bool {
+            colorScheme == .dark
+        }
+
+        private var primaryTextColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.94)
+                : Color.black.opacity(0.84)
+        }
+
+        private var cardColors: [Color] {
+            isDarkMode
+                ? [
+                    Color(
+                        red: 0.09,
+                        green: 0.12,
+                        blue: 0.19
+                    ),
+                    Color(
+                        red: 0.06,
+                        green: 0.09,
+                        blue: 0.15
+                    ),
+                    Color(
+                        red: 0.08,
+                        green: 0.11,
+                        blue: 0.18
+                    )
+                ]
+                : [
+                    Color.white.opacity(0.98),
+                    Color.white.opacity(0.88),
+                    Color.white.opacity(0.95)
+                ]
+        }
+        
         @State private var expanded: Bool = true
 
         private var frameAlignment: Alignment {
@@ -1845,13 +2126,11 @@ struct SummaryView: View {
                             "\(block.title) — "
                             + "\(block.percent(isCoach: isCoach))%"
                         )
-                        .font(
-                            .system(
-                                size: 18,
-                                weight: .black
-                            )
+                        .kmiFont(
+                            size: 18,
+                            weight: .black
                         )
-                            .foregroundStyle(Color.black.opacity(0.84))
+                        .foregroundStyle(primaryTextColor)
                             .lineLimit(1)
                             .minimumScaleFactor(0.78)
                             .frame(maxWidth: .infinity, alignment: frameAlignment)
@@ -1887,40 +2166,68 @@ struct SummaryView: View {
             }
             .padding(.vertical, 10)
             .padding(.horizontal, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.98),
-                                Color.white.opacity(0.88),
-                                Color.white.opacity(0.95)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
+            .background {
+                RoundedRectangle(
+                    cornerRadius: 18,
+                    style: .continuous
+                )
+                .fill(
+                    LinearGradient(
+                        colors: cardColors,
+                        startPoint: .top,
+                        endPoint: .bottom
                     )
+                )
+            }
+            .overlay {
+                RoundedRectangle(
+                    cornerRadius: 18,
+                    style: .continuous
+                )
+                .stroke(
+                    isDarkMode
+                        ? Color.white.opacity(0.12)
+                        : Color.black.opacity(0.04),
+                    lineWidth: 1
+                )
+            }
+            .shadow(
+                color:
+                    Color.black.opacity(
+                        isDarkMode ? 0.30 : 0.06
+                    ),
+                radius: 6,
+                x: 0,
+                y: 3
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.black.opacity(0.04), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 3)
         }
 
         private struct ButtonIcon: View {
             let expanded: Bool
 
             var body: some View {
-                Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 15, weight: .black))
-                    .foregroundStyle(Color.black.opacity(0.42))
-                    .frame(width: 30, height: 30)
-                    .background(Circle().fill(Color.black.opacity(0.08)))
+                Image(
+                    systemName:
+                        expanded
+                        ? "chevron.up"
+                        : "chevron.down"
+                )
+                .kmiFont(
+                    size: 15,
+                    weight: .black
+                )
+                .foregroundStyle(.secondary)
+                .frame(width: 30, height: 30)
+                .background(
+                    Circle()
+                        .fill(
+                            Color.primary.opacity(0.08)
+                        )
+                )
             }
         }
     }
-    
+
     private struct SummaryRow: View {
         let title: String
         let mark: SummaryMark?
@@ -1928,6 +2235,15 @@ struct SummaryView: View {
         let isCoach: Bool
         let isEnglish: Bool
 
+        @Environment(\.colorScheme)
+        private var colorScheme
+
+        private var rowTextColor: Color {
+            colorScheme == .dark
+                ? Color.white.opacity(0.88)
+                : Color.black.opacity(0.78)
+        }
+        
         private var frameAlignment: Alignment {
             isEnglish
                 ? .leading
@@ -2049,11 +2365,9 @@ struct SummaryView: View {
                             Text(
                                 coachStatusSymbol
                             )
-                            .font(
-                                .system(
-                                    size: 15,
-                                    weight: .heavy
-                                )
+                            .kmiFont(
+                                size: 15,
+                                weight: .heavy
                             )
                             .foregroundStyle(
                                 Color.white
@@ -2063,11 +2377,9 @@ struct SummaryView: View {
                         Text(
                             coachStatusTitle
                         )
-                        .font(
-                            .system(
-                                size: 9,
-                                weight: .heavy
-                            )
+                        .kmiFont(
+                            size: 9,
+                            weight: .heavy
                         )
                         .foregroundStyle(
                             coachStatusColor
@@ -2084,11 +2396,9 @@ struct SummaryView: View {
                         systemName:
                             traineeSystemImage
                     )
-                    .font(
-                        .system(
-                            size: 18,
-                            weight: .heavy
-                        )
+                    .kmiFont(
+                        size: 18,
+                        weight: .heavy
                     )
                     .foregroundStyle(
                         traineeStatusColor
@@ -2096,15 +2406,11 @@ struct SummaryView: View {
                 }
 
                 Text(title)
-                    .font(
-                        .system(
-                            size: 16,
-                            weight: .semibold
-                        )
+                    .kmiFont(
+                        size: 16,
+                        weight: .semibold
                     )
-                    .foregroundStyle(
-                        Color.black.opacity(0.78)
-                    )
+                    .foregroundStyle(rowTextColor)
                     .frame(
                         maxWidth: .infinity,
                         alignment: frameAlignment
@@ -2115,6 +2421,12 @@ struct SummaryView: View {
                             : .trailing
                     )
             }
+            .environment(
+                \.layoutDirection,
+                isEnglish
+                    ? .rightToLeft
+                    : .leftToRight
+            )
             .padding(.horizontal, 10)
             .padding(.vertical, 10)
             .background(

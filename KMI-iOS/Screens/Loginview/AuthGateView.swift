@@ -14,8 +14,13 @@ struct AuthGateView: View {
     @State private var didCompleteAuthScreen: Bool = false
     @State private var didFinishPostLoginLoading: Bool = true
     @State private var didRequestEnterApp: Bool = false
+
+    /*
+     * מסך הכניסה הוא תמיד המסך הראשון.
+     * טעינת נתוני השרת מתחילה רק לאחר לחיצה על "המשך".
+     */
     @State private var isCheckingServerUser: Bool = false
-    @State private var canContinueExistingUser: Bool = false
+    @State private var canContinueExistingUser: Bool
 
     private enum AuthEntryStep {
         case intro
@@ -27,6 +32,31 @@ struct AuthGateView: View {
     }
 
     @State private var step: AuthEntryStep = .intro
+
+    init() {
+        let existingUser: User? = {
+            guard FirebaseApp.app() != nil else {
+                return nil
+            }
+
+            return Auth.auth().currentUser
+        }()
+
+        /*
+         * משתמש מחובר מזוהה מיד כמשתמש שיכול
+         * לראות את כפתור "המשך".
+         *
+         * אין כאן פנייה ל־Firestore ואין הצגת
+         * מסך טעינת נתונים.
+         */
+        let hasExistingSession =
+            existingUser != nil &&
+            existingUser?.isAnonymous == false
+
+        _canContinueExistingUser = State(
+            initialValue: hasExistingSession
+        )
+    }
 
     var body: some View {
         ZStack {
@@ -61,26 +91,46 @@ struct AuthGateView: View {
         }
         .environmentObject(auth)
         .onAppear {
-            guard !didBootstrap else { return }
+            guard !didBootstrap else {
+                return
+            }
+
             didBootstrap = true
 
             didEnterAuthFlow = false
             didCompleteAuthScreen = false
-            didFinishInitialAuthCheck = false
+            didFinishInitialAuthCheck = true
             didFinishPostLoginLoading = true
             didRequestEnterApp = false
             isCheckingServerUser = false
             step = .intro
-            nav.popToRoot()
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                auth.start()
-                prepareSignedInUserForIntro()
-            }
+            nav.popToRoot()
+            auth.start()
+
+            let existingUser =
+                FirebaseApp.app() != nil
+                    ? Auth.auth().currentUser
+                    : nil
+
+            /*
+             * קובעים מיד איזה כפתור יוצג במסך הכניסה.
+             * לא מבצעים כאן בדיקת Firestore.
+             */
+            canContinueExistingUser =
+                existingUser != nil &&
+                existingUser?.isAnonymous == false
         }
         .onChange(of: auth.isSignedIn) { _, isSignedIn in
             if isSignedIn {
-                prepareSignedInUserForIntro()
+                /*
+                 * לאחר התחברות מציגים "המשך".
+                 * מסך הטעינה ייפתח רק בלחיצה על הכפתור.
+                 */
+                canContinueExistingUser = true
+                isCheckingServerUser = false
+                didFinishInitialAuthCheck = true
+                step = .intro
             } else {
                 resetToIntro()
             }
@@ -100,46 +150,118 @@ struct AuthGateView: View {
     }
 
     private func prepareSignedInUserForIntro() {
-        guard FirebaseApp.app() != nil,
-              let firebaseUser = Auth.auth().currentUser,
+        isCheckingServerUser = true
+        didFinishInitialAuthCheck = false
+
+        guard FirebaseApp.app() != nil else {
+            completeInitialUserCheck(
+                canContinue: false
+            )
+            return
+        }
+
+        guard let firebaseUser =
+            Auth.auth().currentUser,
               !firebaseUser.isAnonymous else {
-            canContinueExistingUser = false
+            completeInitialUserCheck(
+                canContinue: false
+            )
             return
         }
 
         let uid = firebaseUser.uid
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
 
         guard !uid.isEmpty else {
-            canContinueExistingUser = false
+            completeInitialUserCheck(
+                canContinue: false
+            )
             return
         }
 
         Task {
             do {
-                let snapshot = try await Firestore.firestore()
-                    .collection("users")
-                    .document(uid)
-                    .getDocument()
+                let snapshot =
+                    try await Firestore.firestore()
+                        .collection("users")
+                        .document(uid)
+                        .getDocument()
 
-                let data = snapshot.data() ?? [:]
-                let isComplete = snapshot.exists &&
+                let data =
+                    snapshot.data() ?? [:]
+
+                let isComplete =
+                    snapshot.exists &&
                     persistAndCheckRequiredProfile(
                         data: data,
                         firebaseUser: firebaseUser
                     )
 
                 await MainActor.run {
-                    canContinueExistingUser = isComplete
-                    step = .intro
+                    completeInitialUserCheck(
+                        canContinue: isComplete
+                    )
                 }
             } catch {
                 await MainActor.run {
-                    canContinueExistingUser = false
-                    step = .intro
+                    /*
+                     * אם קיים משתמש מחובר ופרופיל מקומי
+                     * שמור, לא מחליפים אותו זמנית בכפתור Google
+                     * בגלל כשל רשת רגעי.
+                     */
+                    let hasLocalProfile =
+                        hasSavedLocalUserProfile()
+
+                    completeInitialUserCheck(
+                        canContinue: hasLocalProfile
+                    )
                 }
             }
         }
+    }
+
+    private func completeInitialUserCheck(
+        canContinue: Bool
+    ) {
+        canContinueExistingUser = canContinue
+        didFinishInitialAuthCheck = true
+        isCheckingServerUser = false
+        step = .intro
+    }
+
+    private func hasSavedLocalUserProfile() -> Bool {
+        let defaults = UserDefaults.standard
+
+        let uid =
+            Auth.auth().currentUser?.uid
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ) ?? ""
+
+        let email =
+            defaults.string(forKey: "email")?
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ) ?? ""
+
+        let fullName =
+            defaults.string(forKey: "fullName")?
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ) ?? ""
+
+        let role =
+            defaults.string(forKey: "user_role")?
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ) ?? ""
+
+        return !uid.isEmpty &&
+            !email.isEmpty &&
+            !fullName.isEmpty &&
+            !role.isEmpty
     }
 
     private func firstNonEmptyString(
@@ -384,6 +506,9 @@ struct AuthGateView: View {
 
 private struct KmiIntroGateScreen: View {
 
+    @Environment(\.colorScheme)
+    private var colorScheme
+
     let canContinueExistingUser: Bool
     let onExistingUserContinue: () -> Void
     let onGoogleLogin: () async -> Bool
@@ -392,6 +517,43 @@ private struct KmiIntroGateScreen: View {
     @State private var startAnim: Bool = false
     @State private var bubbleOffset: CGFloat = -70
     @State private var isGoogleLoading: Bool = false
+
+    private var adaptiveCardBackground: Color {
+        colorScheme == .dark
+            ? Color(
+                red: 0.055,
+                green: 0.080,
+                blue: 0.130
+            )
+            .opacity(0.94)
+            : Color.white.opacity(0.88)
+    }
+
+    private var adaptivePrimaryText: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.94)
+            : Color(
+                red: 0.09,
+                green: 0.13,
+                blue: 0.20
+            )
+    }
+
+    private var adaptiveSecondaryText: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.72)
+            : Color(
+                red: 0.22,
+                green: 0.28,
+                blue: 0.36
+            )
+    }
+
+    private var adaptiveCardBorder: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.14)
+            : Color.black.opacity(0.06)
+    }
 
     private var isEnglish: Bool {
         KmiStartupLanguage.currentFromDefaults().isEnglish
@@ -616,27 +778,55 @@ private struct KmiIntroGateScreen: View {
         }
     }
 
-    private func greetingCard(isCompactHeight: Bool) -> some View {
+    private func greetingCard(
+        isCompactHeight: Bool
+    ) -> some View {
         Text(greeting)
-            .font(
-                .system(
-                    size: isCompactHeight ? 22 : 26,
-                    weight: .heavy,
-                    design: .rounded
-                )
+            .kmiFont(
+                size: isCompactHeight ? 22 : 26,
+                weight: .heavy,
+                design: .rounded
             )
-            .foregroundStyle(Color(red: 0.09, green: 0.13, blue: 0.20))
+            .foregroundStyle(
+                adaptivePrimaryText
+            )
             .multilineTextAlignment(.center)
             .lineLimit(1)
-            .minimumScaleFactor(0.78)
+            .minimumScaleFactor(0.72)
             .frame(maxWidth: .infinity)
-            .frame(height: isCompactHeight ? 38 : 42)
-            .padding(.horizontal, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.white.opacity(0.88))
-                    .shadow(color: Color.black.opacity(0.18), radius: 4, x: 0, y: 2)
+            .frame(
+                minHeight:
+                    isCompactHeight ? 38 : 42
             )
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(
+                    cornerRadius: 10,
+                    style: .continuous
+                )
+                .fill(adaptiveCardBackground)
+                .shadow(
+                    color: Color.black.opacity(
+                        colorScheme == .dark
+                            ? 0.34
+                            : 0.18
+                    ),
+                    radius: 4,
+                    x: 0,
+                    y: 2
+                )
+            )
+            .overlay {
+                RoundedRectangle(
+                    cornerRadius: 10,
+                    style: .continuous
+                )
+                .stroke(
+                    adaptiveCardBorder,
+                    lineWidth: 1
+                )
+            }
             .padding(.horizontal, 22)
     }
 
@@ -729,8 +919,16 @@ private struct KmiIntroGateScreen: View {
 
             ZStack {
                 introBackgroundImage
-                    .frame(width: geo.size.width, height: geo.size.height)
+                    .frame(
+                        width: geo.size.width,
+                        height: geo.size.height
+                    )
                     .clipped()
+                    .overlay {
+                        if colorScheme == .dark {
+                            Color.black.opacity(0.36)
+                        }
+                    }
                     .ignoresSafeArea()
                 
                 VStack(spacing: 0) {
@@ -782,19 +980,43 @@ private struct KmiIntroGateScreen: View {
         Button {
             onRegularLogin()
         } label: {
-            Text(isEnglish ? "Existing login / regular registration" : "כניסה / רישום בדרך הרגילה")
-                .font(.system(size: 14, weight: .bold, design: .rounded))
-                .foregroundStyle(Color(red: 0.09, green: 0.13, blue: 0.20))
-                .multilineTextAlignment(.center)
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
-                .frame(maxWidth: .infinity)
-                .frame(height: 36)
-                .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(Color.white.opacity(0.88))
+            Text(
+                isEnglish
+                    ? "Existing login / regular registration"
+                    : "כניסה / רישום בדרך הרגילה"
+            )
+            .kmiFont(
+                size: 14,
+                weight: .bold,
+                design: .rounded
+            )
+            .foregroundStyle(
+                adaptivePrimaryText
+            )
+            .multilineTextAlignment(.center)
+            .lineLimit(1)
+            .minimumScaleFactor(0.68)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 36)
+            .padding(.horizontal, 10)
+            .background(
+                RoundedRectangle(
+                    cornerRadius: 20,
+                    style: .continuous
                 )
-                .contentShape(Rectangle())
+                .fill(adaptiveCardBackground)
+            )
+            .overlay {
+                RoundedRectangle(
+                    cornerRadius: 20,
+                    style: .continuous
+                )
+                .stroke(
+                    adaptiveCardBorder,
+                    lineWidth: 1
+                )
+            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(isGoogleLoading)
@@ -855,14 +1077,29 @@ private struct KmiIntroGateScreen: View {
                 } else {
                     HStack(spacing: 8) {
                         Image(systemName: "star.fill")
-                            .font(.system(size: 16, weight: .bold))
+                            .kmiFont(
+                                size: 16,
+                                weight: .bold
+                            )
 
                         Text(
                             canContinueExistingUser
-                            ? (isEnglish ? "Continue" : "המשך")
-                            : (isEnglish ? "Continue with Google" : "התחברות עם Google")
+                                ? (
+                                    isEnglish
+                                        ? "Continue"
+                                        : "המשך"
+                                )
+                                : (
+                                    isEnglish
+                                        ? "Continue with Google"
+                                        : "התחברות עם Google"
+                                )
                         )
-                            .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .kmiFont(
+                            size: 18,
+                            weight: .bold,
+                            design: .rounded
+                        )
                     }
                     .foregroundStyle(.white)
                 }

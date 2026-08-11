@@ -5,6 +5,30 @@ struct AboutAviAbisidonView: View {
 
     let onClose: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var isDarkMode: Bool {
+        colorScheme == .dark
+    }
+
+    private var primaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.94)
+            : Color.black.opacity(0.88)
+    }
+
+    private var secondaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.78)
+            : Color.black.opacity(0.82)
+    }
+
+    private var cardColor: Color {
+        isDarkMode
+            ? Color(hex: 0xFF111827).opacity(0.97)
+            : Color.white
+    }
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
 
@@ -23,17 +47,23 @@ struct AboutAviAbisidonView: View {
             // הכרטיס
             VStack(spacing: 0) {
                 Text("אבי אביסידון")
-                    .font(.title3.weight(.heavy))
-                    .foregroundStyle(Color.black.opacity(0.88))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .kmiFont(size: 22, weight: .heavy)
+                    .foregroundStyle(primaryTextColor)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .multilineTextAlignment(.trailing)
                     .padding(.horizontal, 16)
                     .padding(.top, 16)
                     .padding(.bottom, 12)
 
-                Divider().opacity(0.8)
+                Divider()
+                    .overlay(
+                        isDarkMode
+                            ? Color.white.opacity(0.12)
+                            : Color.black.opacity(0.12)
+                    )
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .trailing, spacing: 12) {
 
                         paragraph("""
 מייסד שיטת ק.מ.י קרב מגן ישראלי
@@ -63,9 +93,7 @@ struct AboutAviAbisidonView: View {
 
                         divider()
 
-                        Text("בידיו התעודות הבאות:")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(Color.black.opacity(0.88))
+                        sectionTitle("בידיו התעודות הבאות:")
 
                         Bulleted("„מדריך קרב מגע\" מטעם מכון וינגייט - בי\"ס למאמנים.")
                         Bulleted("„מאמן באומנויות לחימה\" מטעם מכון וינגייט - בי\"ס למאמנים.")
@@ -75,9 +103,7 @@ struct AboutAviAbisidonView: View {
 
                         divider()
 
-                        Text("ניסיון צבאי וביטחוני:")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(Color.black.opacity(0.88))
+                        sectionTitle("ניסיון צבאי וביטחוני:")
 
                         paragraph("""
 במשך שרותו הצבאי בשנים 1977-1979 שימש אבי כסגן ראש מדור קרב מגע בצה"ל.
@@ -104,9 +130,7 @@ struct AboutAviAbisidonView: View {
 
                         divider()
 
-                        Text("פעילות בינלאומית:")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(Color.black.opacity(0.88))
+                        sectionTitle("פעילות בינלאומית:")
 
                         paragraph("""
 אבי מעורב בהכנת מאבטחים אישיים עבור נכבדים ופוליטיקאים בארץ ובחו"ל ומעביר קורסים למשלחות המגיעות מטעם הקהילות היהודיות.
@@ -114,9 +138,7 @@ struct AboutAviAbisidonView: View {
 
                         divider()
 
-                        Text("אקדמיה והכשרות:")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(Color.black.opacity(0.88))
+                        sectionTitle("אקדמיה והכשרות:")
 
                         paragraph("""
 אבי אבסידון מרכז תחום של אומנות לחימה במכללה האקדמית בוינגייט אשר כולל כל סוגי האומנות לחימה למיניהם.
@@ -125,17 +147,13 @@ struct AboutAviAbisidonView: View {
 
                         divider()
 
-                        Text("שב\"ס:")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(Color.black.opacity(0.88))
+                        sectionTitle("שב\"ס:")
 
                         paragraph("אבי כיום מנחה את תוכנית ההדרכה של שירות בתי הסוהר ומעביר להם השתלמויות.")
 
                         divider()
 
-                        Text("החזון של אבי אבסידון: העצמת שיטת ק.מ.י בארץ ובעולם.")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(Color.black.opacity(0.88))
+                        sectionTitle("החזון של אבי אבסידון: העצמת שיטת ק.מ.י בארץ ובעולם.")
 
                         Spacer(minLength: 10)
                     }
@@ -146,33 +164,24 @@ struct AboutAviAbisidonView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white)
+                    .fill(cardColor)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(
+                        isDarkMode
+                            ? Color.white.opacity(0.10)
+                            : Color.black.opacity(0.06),
+                        lineWidth: 1
+                    )
             )
             .padding(.horizontal, 16)
             .padding(.top, 14)
             .padding(.bottom, 18)
 
-            // כפתור X צף
-            Button {
-                playClick()
-                heavyHaptic()
-                onClose()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(0.75))
-                    .frame(width: 28, height: 28)
-                    .background(
-                        Circle().fill(Color.white.opacity(0.92))
-                    )
-                    .overlay(
-                        Circle().stroke(Color.black.opacity(0.10), lineWidth: 1)
-                    )
-                    .shadow(radius: 6, y: 2)
-            }
-            .buttonStyle(.plain)
-            .padding(.trailing, 22)
-            .padding(.top, 22)
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 18)
         }
         .navigationBarBackButtonHidden(true)
         .navigationBarTitleDisplayMode(.inline)
@@ -180,16 +189,30 @@ struct AboutAviAbisidonView: View {
 
     // MARK: - UI helpers
 
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title)
+            .kmiFont(size: 17, weight: .semibold)
+            .foregroundStyle(primaryTextColor)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .multilineTextAlignment(.trailing)
+    }
+
     private func paragraph(_ s: String) -> some View {
         Text(s)
-            .font(.body)
-            .foregroundStyle(Color.black.opacity(0.82))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .multilineTextAlignment(.leading)
+            .kmiFont(size: 16, weight: .regular)
+            .foregroundStyle(secondaryTextColor)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .multilineTextAlignment(.trailing)
     }
 
     private func divider() -> some View {
-        Divider().opacity(0.7).padding(.vertical, 4)
+        Divider()
+            .overlay(
+                isDarkMode
+                    ? Color.white.opacity(0.12)
+                    : Color.black.opacity(0.12)
+            )
+            .padding(.vertical, 4)
     }
 
     // MARK: - Haptics + Click sound (global-ish like Android)
@@ -209,19 +232,33 @@ struct AboutAviAbisidonView: View {
 // MARK: - Bullet row (כמו Bulleted באנדרואיד)
 private struct Bulleted: View {
     let text: String
-    init(_ text: String) { self.text = text }
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    private var textColor: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.78)
+            : Color.black.opacity(0.82)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Text("•")
-                .font(.body)
-                .foregroundStyle(Color.black.opacity(0.82))
+                .kmiFont(size: 16, weight: .bold)
+                .foregroundStyle(textColor)
 
             Text(text)
-                .font(.body)
-                .foregroundStyle(Color.black.opacity(0.82))
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .kmiFont(size: 16, weight: .regular)
+                .foregroundStyle(textColor)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .multilineTextAlignment(.trailing)
         }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .environment(\.layoutDirection, .rightToLeft)
     }
 }
 

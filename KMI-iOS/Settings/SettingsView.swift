@@ -19,6 +19,25 @@ struct SettingsView: View {
     @EnvironmentObject
     private var displaySettings: KmiDisplaySettings
 
+    @Environment(\.colorScheme)
+    private var colorScheme
+
+    private var isDarkMode: Bool {
+        colorScheme == .dark
+    }
+
+    private var settingsPrimaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.94)
+            : Color.black.opacity(0.84)
+    }
+
+    private var settingsSecondaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.64)
+            : Color.black.opacity(0.56)
+    }
+
     // MARK: Language
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
@@ -473,7 +492,10 @@ struct SettingsView: View {
                     HStack {
                         if isEnglish {
                             Text(tr("הגדרות", "Settings"))
-                                .font(.system(size: 30, weight: .heavy))
+                                .kmiFont(
+                                    size: 30,
+                                    weight: .heavy
+                                )
                                 .foregroundStyle(Color.white)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .multilineTextAlignment(.leading)
@@ -483,7 +505,10 @@ struct SettingsView: View {
                             closeSettingsButton
 
                             Text(tr("הגדרות", "Settings"))
-                                .font(.system(size: 30, weight: .heavy))
+                                .kmiFont(
+                                    size: 30,
+                                    weight: .heavy
+                                )
                                 .foregroundStyle(Color.white)
                                 .frame(maxWidth: .infinity, alignment: .trailing)
                                 .multilineTextAlignment(.trailing)
@@ -508,13 +533,24 @@ struct SettingsView: View {
         } label: {
             
             Image(systemName: "xmark")
-                .font(.system(size: 20, weight: .bold))
+                .kmiFont(
+                    size: 20,
+                    weight: .bold
+                )
                 .foregroundStyle(Color.white)
-                .frame(width: 48, height: 48)
+                .frame(
+                    minWidth: 48,
+                    minHeight: 48
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(tr("סגור הגדרות", "Close settings"))
+        .accessibilityLabel(
+            tr(
+                "סגור הגדרות",
+                "Close settings"
+            )
+        )
     }
 
     private var profileCard: some View {
@@ -568,68 +604,195 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 13)
-        .background(Color.white.opacity(0.94))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.36), lineWidth: 1)
+        .background(
+            isDarkMode
+                ? Color(
+                    red: 0.07,
+                    green: 0.09,
+                    blue: 0.14
+                )
+                .opacity(0.96)
+                : Color.white.opacity(0.94)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 5)
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: 18,
+                style: .continuous
+            )
+            .stroke(
+                isDarkMode
+                    ? Color.white.opacity(0.14)
+                    : Color.white.opacity(0.36),
+                lineWidth: 1
+            )
+        )
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 18,
+                style: .continuous
+            )
+        )
+        .shadow(
+            color:
+                Color.black.opacity(
+                    isDarkMode ? 0.28 : 0.08
+                ),
+            radius: 10,
+            x: 0,
+            y: 5
+        )
     }
 
     private var profileIcon: some View {
         ZStack {
             Circle()
-                .fill((isCoach ? Color(hex: 0xFF6A1B9A) : Color(hex: 0xFF1565C0)).opacity(0.12))
-                .frame(width: 46, height: 46)
+                .fill(
+                    (
+                        isCoach
+                            ? Color(hex: 0xFF6A1B9A)
+                            : Color(hex: 0xFF1565C0)
+                    )
+                    .opacity(
+                        isDarkMode ? 0.20 : 0.12
+                    )
+                )
+                .frame(
+                    width: 46,
+                    height: 46
+                )
 
-            Image(systemName: isCoach ? "checkmark.seal.fill" : "person.fill")
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(isCoach ? Color(hex: 0xFF6A1B9A) : Color(hex: 0xFF1565C0))
+            Image(
+                systemName:
+                    isCoach
+                    ? "checkmark.seal.fill"
+                    : "person.fill"
+            )
+            .kmiFont(
+                size: 24,
+                weight: .semibold
+            )
+            .foregroundStyle(
+                isCoach
+                    ? Color(hex: 0xFF6A1B9A)
+                    : Color(hex: 0xFF1565C0)
+            )
         }
-        .frame(width: 48, height: 48)
+        .frame(
+            minWidth: 48,
+            minHeight: 48
+        )
     }
 
     private var profileTextBlock: some View {
-        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 5) {
+        VStack(
+            alignment:
+                isEnglish
+                ? .leading
+                : .trailing,
+            spacing: 5
+        ) {
             Text(settingsProfileName())
-                .font(.system(size: 22, weight: .heavy))
-                .foregroundStyle(Color.black.opacity(0.88))
+                .kmiFont(
+                    size: 22,
+                    weight: .heavy
+                )
+                .foregroundStyle(
+                    isDarkMode
+                        ? Color.white.opacity(0.94)
+                        : Color.black.opacity(0.88)
+                )
                 .lineLimit(2)
-                .minimumScaleFactor(0.76)
-                .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                .multilineTextAlignment(primaryTextAlignment)
+                .minimumScaleFactor(0.68)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: horizontalTextAlignment
+                )
+                .multilineTextAlignment(
+                    primaryTextAlignment
+                )
 
-            if !phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if !phone
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .isEmpty {
+
                 Text(phone)
-                    .font(.system(size: 15.5, weight: .semibold))
-                    .foregroundStyle(Color.black.opacity(0.68))
+                    .kmiFont(
+                        size: 15.5,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(
+                        isDarkMode
+                            ? Color.white.opacity(0.76)
+                            : Color.black.opacity(0.68)
+                    )
                     .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                    .multilineTextAlignment(primaryTextAlignment)
+                    .minimumScaleFactor(0.68)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: horizontalTextAlignment
+                    )
+                    .multilineTextAlignment(
+                        primaryTextAlignment
+                    )
             }
 
-            if !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if !email
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .isEmpty {
+
                 Text(email)
-                    .font(.system(size: 13.5, weight: .semibold))
-                    .foregroundStyle(Color.black.opacity(0.54))
+                    .kmiFont(
+                        size: 13.5,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(
+                        isDarkMode
+                            ? Color.white.opacity(0.64)
+                            : Color.black.opacity(0.54)
+                    )
                     .lineLimit(1)
-                    .minimumScaleFactor(0.74)
-                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                    .multilineTextAlignment(primaryTextAlignment)
+                    .minimumScaleFactor(0.66)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: horizontalTextAlignment
+                    )
+                    .multilineTextAlignment(
+                        primaryTextAlignment
+                    )
             }
 
             if !settingsBranchGroupLine().isEmpty {
-                Text(settingsBranchGroupLine())
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color(hex: 0xFF64748B))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.76)
-                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                    .multilineTextAlignment(primaryTextAlignment)
+                Text(
+                    settingsBranchGroupLine()
+                )
+                .kmiFont(
+                    size: 13,
+                    weight: .bold
+                )
+                .foregroundStyle(
+                    isDarkMode
+                        ? Color.white.opacity(0.68)
+                        : Color(hex: 0xFF64748B)
+                )
+                .lineLimit(2)
+                .minimumScaleFactor(0.66)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: horizontalTextAlignment
+                )
+                .multilineTextAlignment(
+                    primaryTextAlignment
+                )
             }
         }
-        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
+        .frame(
+            maxWidth: .infinity,
+            alignment: horizontalTextAlignment
+        )
     }
 
     private func settingsRankDisplayName() -> String {
@@ -747,7 +910,9 @@ struct SettingsView: View {
                             weight: .semibold
                         )
                         .foregroundStyle(
-                            Color(hex: 0xFF64748B)
+                            isDarkMode
+                                ? Color.white.opacity(0.64)
+                                : Color(hex: 0xFF64748B)
                         )
                         .frame(
                             maxWidth: .infinity,
@@ -803,7 +968,9 @@ struct SettingsView: View {
                             weight: .semibold
                         )
                         .foregroundStyle(
-                            Color(hex: 0xFF64748B)
+                            isDarkMode
+                                ? Color.white.opacity(0.64)
+                                : Color(hex: 0xFF64748B)
                         )
                         .frame(
                             maxWidth: .infinity,
@@ -879,12 +1046,20 @@ struct SettingsView: View {
                             Spacer(minLength: 0)
                         }
                         .foregroundStyle(
-                            Color(hex: 0xFF123C7C)
+                            isDarkMode
+                                ? Color(
+                                    red: 0.42,
+                                    green: 0.68,
+                                    blue: 1.00
+                                )
+                                : Color(hex: 0xFF123C7C)
                         )
                         .padding(.horizontal, 12)
-                        .frame(height: 46)
+                        .frame(minHeight: 46)
                         .background(
-                            Color(hex: 0xFFF3F7FF)
+                            isDarkMode
+                                ? Color.blue.opacity(0.12)
+                                : Color(hex: 0xFFF3F7FF)
                         )
                         .clipShape(
                             RoundedRectangle(
@@ -940,10 +1115,22 @@ struct SettingsView: View {
                                     "Enable reminders before training sessions"
                                 )
                             )
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0xFF64748B))
-                            .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                            .multilineTextAlignment(primaryTextAlignment)
+                            .kmiFont(
+                                size: 11,
+                                weight: .semibold
+                            )
+                            .foregroundStyle(
+                                isDarkMode
+                                    ? Color.white.opacity(0.64)
+                                    : Color(hex: 0xFF64748B)
+                            )
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: horizontalTextAlignment
+                            )
+                            .multilineTextAlignment(
+                                primaryTextAlignment
+                            )
 
                             Toggle("", isOn: Binding(
                                 get: { trainingRemindersEnabled },
@@ -968,17 +1155,54 @@ struct SettingsView: View {
 
                         if trainingRemindersEnabled {
                             VStack(spacing: 9) {
-                                Text(formatTrainingLeadTime(trainingReminderMinutes))
-                                    .font(.system(size: 14, weight: .black))
-                                    .foregroundStyle(Color(hex: 0xFF123C7C))
-                                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                                    .multilineTextAlignment(primaryTextAlignment)
+                                Text(
+                                    formatTrainingLeadTime(
+                                        trainingReminderMinutes
+                                    )
+                                )
+                                .kmiFont(
+                                    size: 14,
+                                    weight: .black
+                                )
+                                .foregroundStyle(
+                                    isDarkMode
+                                        ? Color(
+                                            red: 0.42,
+                                            green: 0.68,
+                                            blue: 1.00
+                                        )
+                                        : Color(hex: 0xFF123C7C)
+                                )
+                                .frame(
+                                    maxWidth: .infinity,
+                                    alignment: horizontalTextAlignment
+                                )
+                                .multilineTextAlignment(
+                                    primaryTextAlignment
+                                )
 
-                                Text(tr("ברירת המחדל היא 60 דקות אם לא נבחר זמן אחר.", "Default is 60 minutes if no other time is selected."))
-                                    .font(.system(size: 10.5, weight: .semibold))
-                                    .foregroundStyle(Color(hex: 0xFF64748B))
-                                    .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                                    .multilineTextAlignment(primaryTextAlignment)
+                                Text(
+                                    tr(
+                                        "ברירת המחדל היא 60 דקות אם לא נבחר זמן אחר.",
+                                        "Default is 60 minutes if no other time is selected."
+                                    )
+                                )
+                                .kmiFont(
+                                    size: 10.5,
+                                    weight: .semibold
+                                )
+                                .foregroundStyle(
+                                    isDarkMode
+                                        ? Color.white.opacity(0.60)
+                                        : Color(hex: 0xFF64748B)
+                                )
+                                .frame(
+                                    maxWidth: .infinity,
+                                    alignment: horizontalTextAlignment
+                                )
+                                .multilineTextAlignment(
+                                    primaryTextAlignment
+                                )
 
                                 SettingsPickerLikeButton(
                                     title: tr("בחר זמן מדויק", "Choose exact time"),
@@ -1029,10 +1253,22 @@ struct SettingsView: View {
                                     "Send me a daily exercise from the next belt"
                                 )
                             )
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0xFF64748B))
-                            .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                            .multilineTextAlignment(primaryTextAlignment)
+                            .kmiFont(
+                                size: 11,
+                                weight: .semibold
+                            )
+                            .foregroundStyle(
+                                isDarkMode
+                                    ? Color.white.opacity(0.64)
+                                    : Color(hex: 0xFF64748B)
+                            )
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: horizontalTextAlignment
+                            )
+                            .multilineTextAlignment(
+                                primaryTextAlignment
+                            )
 
                             Toggle("", isOn: Binding(
                                 get: { dailyReminderEnabledBinding.wrappedValue },
@@ -1066,10 +1302,22 @@ struct SettingsView: View {
                                     "You will receive a daily reminder with options to open the exercise card, save it to favorites, and get another exercise."
                                 )
                             )
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0xFF64748B))
-                            .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                            .multilineTextAlignment(primaryTextAlignment)
+                            .kmiFont(
+                                size: 10.5,
+                                weight: .semibold
+                            )
+                            .foregroundStyle(
+                                isDarkMode
+                                    ? Color.white.opacity(0.60)
+                                    : Color(hex: 0xFF64748B)
+                            )
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: horizontalTextAlignment
+                            )
+                            .multilineTextAlignment(
+                                primaryTextAlignment
+                            )
                         }
                     }
                 }
@@ -1085,15 +1333,32 @@ struct SettingsView: View {
                 ) {
                     HStack(spacing: 12) {
                         Text(
-                            tr(
-                                "התראות 30 ו־10 דקות לפני אימון חופשי שסימנת \"אני מגיע\"",
-                                "Notifications 30 and 10 minutes before a free training session marked as \"I'm coming\""
+                            isCoach
+                            ? tr(
+                                "המאמן יכול לכבות או להפעיל תרגיל יומי לעצמו",
+                                "The coach can enable or disable a daily exercise for themselves"
+                            )
+                            : tr(
+                                "שלח לי בכל יום תרגיל מהחגורה הבאה",
+                                "Send me a daily exercise from the next belt"
                             )
                         )
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0xFF64748B))
-                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                        .multilineTextAlignment(primaryTextAlignment)
+                        .kmiFont(
+                            size: 11,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(
+                            isDarkMode
+                                ? Color.white.opacity(0.64)
+                                : Color(hex: 0xFF64748B)
+                        )
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: horizontalTextAlignment
+                        )
+                        .multilineTextAlignment(
+                            primaryTextAlignment
+                        )
 
                         Toggle("", isOn: Binding(
                             get: { freeSessionsRemindersEnabled },
@@ -1135,11 +1400,26 @@ struct SettingsView: View {
                 ) {
                     VStack(spacing: 10) {
                         HStack(spacing: 12) {
-                            Text(tr("סנכרן ליומן חיצוני", "Sync to external calendar"))
-                                .font(.system(size: 12.5, weight: .heavy))
-                                .foregroundStyle(Color(hex: 0xFF111827))
-                                .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                                .multilineTextAlignment(primaryTextAlignment)
+                            Text(
+                                tr(
+                                    "סנכרן ליומן חיצוני",
+                                    "Sync to external calendar"
+                                )
+                            )
+                            .kmiFont(
+                                size: 12.5,
+                                weight: .heavy
+                            )
+                            .foregroundStyle(
+                                settingsPrimaryTextColor
+                            )
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: horizontalTextAlignment
+                            )
+                            .multilineTextAlignment(
+                                primaryTextAlignment
+                            )
 
                             Toggle("", isOn: Binding(
                                 get: { selectedCalendarSyncEnabled },
@@ -1167,14 +1447,27 @@ struct SettingsView: View {
                         }
 
                         Text(
-                            selectedCalendarIdentifier.isEmpty || selectedCalendarDisplay.isEmpty
-                            ? tr("עדיין לא נבחר יומן יעד", "No target calendar selected yet")
-                            : tr("יומן שנבחר: \(selectedCalendarDisplay)", "Selected calendar: \(selectedCalendarDisplay)")
+                            tr(
+                                "תקבל התראה יומית עם אפשרות לפתוח כרטיס תרגיל, לשמור למועדפים ולקבל תרגיל נוסף.",
+                                "You will receive a daily reminder with options to open the exercise card, save it to favorites, and get another exercise."
+                            )
                         )
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0xFF64748B))
-                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                        .multilineTextAlignment(primaryTextAlignment)
+                        .kmiFont(
+                            size: 10.5,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(
+                            isDarkMode
+                                ? Color.white.opacity(0.60)
+                                : Color(hex: 0xFF64748B)
+                        )
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: horizontalTextAlignment
+                        )
+                        .multilineTextAlignment(
+                            primaryTextAlignment
+                        )
 
                         SettingsPickerLikeButton(
                             title: tr("בחר יומן יעד", "Choose target calendar"),
@@ -1266,8 +1559,8 @@ struct SettingsView: View {
                 ) {
                     VStack(spacing: 8) {
                         Text(tr("בחר קול להשמעה:", "Choose voice playback:"))
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0xFF64748B))
+                            .kmiFont(size: 11, weight: .semibold)
+                            .foregroundStyle(settingsSecondaryTextColor)
                             .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
                             .multilineTextAlignment(primaryTextAlignment)
 
@@ -1298,8 +1591,8 @@ struct SettingsView: View {
                                 "The selection is saved on the device and affects speech in the voice assistant."
                             )
                         )
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0xFF64748B))
+                        .kmiFont(size: 10.5, weight: .semibold)
+                        .foregroundStyle(settingsSecondaryTextColor)
                         .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
                         .multilineTextAlignment(primaryTextAlignment)
                     }
@@ -1316,8 +1609,8 @@ struct SettingsView: View {
                 ) {
                     VStack(spacing: 8) {
                         Text(tr("בחר מצב תצוגה:", "Choose display mode:"))
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0xFF64748B))
+                            .kmiFont(size: 11, weight: .semibold)
+                            .foregroundStyle(settingsSecondaryTextColor)
                             .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
                             .multilineTextAlignment(primaryTextAlignment)
 
@@ -1406,8 +1699,8 @@ struct SettingsView: View {
                                     "Biometric authentication is not available or not configured for this user."
                                 )
                             )
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0xFF64748B))
+                            .kmiFont(size: 10.5, weight: .semibold)
+                            .foregroundStyle(settingsSecondaryTextColor)
                             .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
                             .multilineTextAlignment(primaryTextAlignment)
                         }
@@ -1440,8 +1733,8 @@ struct SettingsView: View {
                                 "Progress is calculated from the known / review marks saved in the material and practice screens."
                             )
                         )
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0xFF64748B))
+                        .kmiFont(size: 10.5, weight: .semibold)
+                        .foregroundStyle(settingsSecondaryTextColor)
                         .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
                         .multilineTextAlignment(primaryTextAlignment)
 
@@ -1543,8 +1836,8 @@ struct SettingsView: View {
                 ) {
                     VStack(spacing: 8) {
                         Text(appVersionLine())
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0xFF64748B))
+                            .kmiFont(size: 10.5, weight: .semibold)
+                            .foregroundStyle(settingsSecondaryTextColor)
                             .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
                             .multilineTextAlignment(primaryTextAlignment)
 
@@ -1596,6 +1889,24 @@ struct SettingsView: View {
         let isEnglish: Bool
         @ViewBuilder let content: () -> Content
 
+        @Environment(\.colorScheme) private var colorScheme
+
+        private var isDarkMode: Bool {
+            colorScheme == .dark
+        }
+
+        private var primaryTextColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.94)
+                : Color(hex: 0xFF111827)
+        }
+
+        private var secondaryTextColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.64)
+                : Color(hex: 0xFF64748B)
+        }
+
         private var textAlignment: TextAlignment {
             isEnglish ? .leading : .trailing
         }
@@ -1627,11 +1938,17 @@ struct SettingsView: View {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .fill(
                         LinearGradient(
-                            colors: [
-                                Color(hex: 0xFFF6F1FA).opacity(0.98),
-                                Color(hex: 0xFFEAF5FB).opacity(0.96),
-                                Color(hex: 0xFFF8F4EC).opacity(0.94)
-                            ],
+                            colors: isDarkMode
+                                ? [
+                                    Color(hex: 0xFF172033).opacity(0.98),
+                                    Color(hex: 0xFF111827).opacity(0.98),
+                                    Color(hex: 0xFF1E293B).opacity(0.96)
+                                ]
+                                : [
+                                    Color(hex: 0xFFF6F1FA).opacity(0.98),
+                                    Color(hex: 0xFFEAF5FB).opacity(0.96),
+                                    Color(hex: 0xFFF8F4EC).opacity(0.94)
+                                ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -1639,9 +1956,19 @@ struct SettingsView: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                    .stroke(
+                        isDarkMode
+                            ? Color.white.opacity(0.10)
+                            : Color.white.opacity(0.22),
+                        lineWidth: 1
+                    )
             )
-            .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 4)
+            .shadow(
+                color: Color.black.opacity(isDarkMode ? 0.28 : 0.08),
+                radius: 8,
+                x: 0,
+                y: 4
+            )
         }
 
         private var iconBubble: some View {
@@ -1659,8 +1986,8 @@ struct SettingsView: View {
         private var titleBlock: some View {
             VStack(alignment: isEnglish ? .leading : .trailing, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 13.2, weight: .black))
-                    .foregroundStyle(Color(hex: 0xFF111827))
+                    .kmiFont(size: 13.2, weight: .black)
+                    .foregroundStyle(primaryTextColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.74)
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
@@ -1668,8 +1995,8 @@ struct SettingsView: View {
 
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.system(size: 10.6, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0xFF64748B))
+                        .kmiFont(size: 10.6, weight: .semibold)
+                        .foregroundStyle(secondaryTextColor)
                         .lineLimit(1)
                         .minimumScaleFactor(0.70)
                         .frame(maxWidth: .infinity, alignment: frameAlignment)
@@ -1680,9 +2007,15 @@ struct SettingsView: View {
     }
 
     private struct SettingsListDivider: View {
+        @Environment(\.colorScheme) private var colorScheme
+
         var body: some View {
             Rectangle()
-                .fill(Color.black.opacity(0.08))
+                .fill(
+                    colorScheme == .dark
+                        ? Color.white.opacity(0.10)
+                        : Color.black.opacity(0.08)
+                )
                 .frame(height: 0.7)
                 .padding(.horizontal, 12)
         }
@@ -1698,7 +2031,24 @@ struct SettingsView: View {
         var bottomRounded: Bool = false
         @ViewBuilder let content: () -> Content
 
+        @Environment(\.colorScheme) private var colorScheme
         @State private var expanded: Bool = false
+
+        private var isDarkMode: Bool {
+            colorScheme == .dark
+        }
+
+        private var primaryTextColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.94)
+                : Color(hex: 0xFF111827)
+        }
+
+        private var secondaryTextColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.62)
+                : Color(hex: 0xFF64748B)
+        }
 
         private var rowShape: RoundedRectangle {
             RoundedRectangle(
@@ -1765,11 +2115,17 @@ struct SettingsView: View {
                     .padding(.vertical, 10)
                     .background(
                         LinearGradient(
-                            colors: [
-                                tint.opacity(0.08),
-                                Color.white.opacity(0.10),
-                                tint.opacity(0.04)
-                            ],
+                            colors: isDarkMode
+                                ? [
+                                    tint.opacity(0.16),
+                                    Color.white.opacity(0.035),
+                                    tint.opacity(0.08)
+                                ]
+                                : [
+                                    tint.opacity(0.08),
+                                    Color.white.opacity(0.10),
+                                    tint.opacity(0.04)
+                                ],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
@@ -1793,10 +2149,15 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity)
                     .background(
                         LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.22),
-                                tint.opacity(0.045)
-                            ],
+                            colors: isDarkMode
+                                ? [
+                                    Color.white.opacity(0.045),
+                                    tint.opacity(0.09)
+                                ]
+                                : [
+                                    Color.white.opacity(0.22),
+                                    tint.opacity(0.045)
+                                ],
                             startPoint: .top,
                             endPoint: .bottom
                         )
@@ -1821,16 +2182,19 @@ struct SettingsView: View {
         private var textBlock: some View {
             VStack(alignment: isEnglish ? .leading : .trailing, spacing: 2) {
                 Text(title)
-                    .font(.system(size: isEnglish ? 12.0 : 12.4, weight: .black))
-                    .foregroundStyle(Color(hex: 0xFF111827))
+                    .kmiFont(
+                        size: isEnglish ? 12.0 : 12.4,
+                        weight: .black
+                    )
+                    .foregroundStyle(primaryTextColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.70)
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
                     .multilineTextAlignment(textAlignment)
 
                 Text(value)
-                    .font(.system(size: 9.8, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0xFF64748B))
+                    .kmiFont(size: 9.8, weight: .semibold)
+                    .foregroundStyle(secondaryTextColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.68)
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
@@ -1852,12 +2216,12 @@ struct SettingsView: View {
                         .font(.system(size: 10.5, weight: .black))
 
                     Text(title)
-                        .font(.system(size: 11.5, weight: .black))
+                        .kmiFont(size: 11.5, weight: .black)
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                 } else {
                     Text(title)
-                        .font(.system(size: 11.5, weight: .black))
+                        .kmiFont(size: 11.5, weight: .black)
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
 
@@ -1918,14 +2282,14 @@ struct SettingsView: View {
 
                     VStack(spacing: 2) {
                         Text(title)
-                            .font(.system(size: 15.5, weight: .black))
+                            .kmiFont(size: 15.5, weight: .black)
                             .lineLimit(1)
                             .minimumScaleFactor(0.78)
                             .multilineTextAlignment(textAlignment)
 
                         if let subtitle, !subtitle.isEmpty {
                             Text(subtitle)
-                                .font(.system(size: 11.5, weight: .semibold))
+                                .kmiFont(size: 11.5, weight: .semibold)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.74)
                                 .multilineTextAlignment(textAlignment)
@@ -1962,6 +2326,24 @@ struct SettingsView: View {
         @Binding var isOn: Bool
         let onChange: (Bool) -> Void
 
+        @Environment(\.colorScheme) private var colorScheme
+
+        private var isDarkMode: Bool {
+            colorScheme == .dark
+        }
+
+        private var primaryTextColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.94)
+                : Color(hex: 0xFF111827)
+        }
+
+        private var secondaryTextColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.64)
+                : Color(hex: 0xFF64748B)
+        }
+
         private var textAlignment: TextAlignment {
             isEnglish ? .leading : .trailing
         }
@@ -1986,13 +2368,24 @@ struct SettingsView: View {
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(0.94))
+                    .fill(
+                        isDarkMode
+                            ? Color(hex: 0xFF1E293B).opacity(0.94)
+                            : Color.white.opacity(0.94)
+                    )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .stroke(tint.opacity(isOn ? 0.26 : 0.14), lineWidth: 1)
             )
-            .shadow(color: tint.opacity(isOn ? 0.10 : 0.05), radius: 8, x: 0, y: 4)
+            .shadow(
+                color: isDarkMode
+                    ? Color.black.opacity(0.22)
+                    : tint.opacity(isOn ? 0.10 : 0.05),
+                radius: 8,
+                x: 0,
+                y: 4
+            )
             .environment(\.layoutDirection, .leftToRight)
         }
 
@@ -2011,16 +2404,16 @@ struct SettingsView: View {
         private var textBlock: some View {
             VStack(alignment: isEnglish ? .leading : .trailing, spacing: 4) {
                 Text(title)
-                    .font(.system(size: 15.5, weight: .black))
-                    .foregroundStyle(Color(hex: 0xFF111827))
+                    .kmiFont(size: 15.5, weight: .black)
+                    .foregroundStyle(primaryTextColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
                     .multilineTextAlignment(textAlignment)
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
 
                 Text(subtitle)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0xFF64748B))
+                    .kmiFont(size: 12, weight: .semibold)
+                    .foregroundStyle(secondaryTextColor)
                     .lineLimit(2)
                     .minimumScaleFactor(0.76)
                     .multilineTextAlignment(textAlignment)
@@ -2056,12 +2449,12 @@ struct SettingsView: View {
                         .font(.system(size: 11, weight: .black))
 
                     Text(title)
-                        .font(.system(size: 12, weight: .heavy))
+                        .kmiFont(size: 12, weight: .heavy)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                 } else {
                     Text(title)
-                        .font(.system(size: 12, weight: .heavy))
+                        .kmiFont(size: 12, weight: .heavy)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
 
@@ -2092,7 +2485,24 @@ struct SettingsView: View {
         let isEnglish: Bool
         let onTap: () -> Void
 
+        @Environment(\.colorScheme) private var colorScheme
         @State private var pressed: Bool = false
+
+        private var isDarkMode: Bool {
+            colorScheme == .dark
+        }
+
+        private var primaryTextColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.94)
+                : Color(hex: 0xFF111827)
+        }
+
+        private var secondaryTextColor: Color {
+            isDarkMode
+                ? Color.white.opacity(0.64)
+                : Color(hex: 0xFF64748B)
+        }
 
         private var textAlignment: TextAlignment {
             isEnglish ? .leading : .trailing
@@ -2140,13 +2550,24 @@ struct SettingsView: View {
                 .frame(minHeight: 58)
                 .background(
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color.white.opacity(0.94))
+                        .fill(
+                            isDarkMode
+                                ? Color(hex: 0xFF1E293B).opacity(0.94)
+                                : Color.white.opacity(0.94)
+                        )
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .stroke(tint.opacity(0.18), lineWidth: 1)
                 )
-                .shadow(color: tint.opacity(0.08), radius: 8, x: 0, y: 4)
+                .shadow(
+                    color: isDarkMode
+                        ? Color.black.opacity(0.22)
+                        : tint.opacity(0.08),
+                    radius: 8,
+                    x: 0,
+                    y: 4
+                )
                 .scaleEffect(pressed ? 0.97 : 1.0)
             }
             .buttonStyle(.plain)
@@ -2168,8 +2589,8 @@ struct SettingsView: View {
         private var textBlock: some View {
             VStack(alignment: isEnglish ? .leading : .trailing, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 15.5, weight: .black))
-                    .foregroundStyle(Color(hex: 0xFF111827))
+                    .kmiFont(size: 15.5, weight: .black)
+                    .foregroundStyle(primaryTextColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
                     .multilineTextAlignment(textAlignment)
@@ -2177,8 +2598,8 @@ struct SettingsView: View {
 
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0xFF64748B))
+                        .kmiFont(size: 12, weight: .semibold)
+                        .foregroundStyle(secondaryTextColor)
                         .lineLimit(2)
                         .minimumScaleFactor(0.76)
                         .multilineTextAlignment(textAlignment)
@@ -2195,10 +2616,17 @@ struct SettingsView: View {
         let tint: Color
         let onTap: () -> Void
 
+        @Environment(\.colorScheme) private var colorScheme
         @State private var pressed: Bool = false
 
         private var fillColor: Color {
-            isPrimary ? tint : Color.white.opacity(0.96)
+            if isPrimary {
+                return tint
+            }
+
+            return colorScheme == .dark
+                ? Color(hex: 0xFF1E293B).opacity(0.96)
+                : Color.white.opacity(0.96)
         }
 
         private var textColor: Color {
@@ -2224,7 +2652,7 @@ struct SettingsView: View {
                         .font(.system(size: 14, weight: .black))
 
                     Text(title)
-                        .font(.system(size: 16, weight: .black))
+                        .kmiFont(size: 16, weight: .black)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                 }
@@ -2332,19 +2760,19 @@ struct SettingsView: View {
             VStack(spacing: 16) {
                 VStack(spacing: 6) {
                     Text(tr("בחירת זמן לפני האימון", "Choose reminder time before training"))
-                        .font(.system(size: 22, weight: .black))
+                        .kmiFont(size: 22, weight: .black)
                         .foregroundStyle(Color.white)
                         .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
                         .multilineTextAlignment(primaryTextAlignment)
 
                     Text(tr("בחר שעות ודקות. לדוגמה: שעה ו־18 דקות.", "Choose hours and minutes. For example: 1 hour and 18 minutes."))
-                        .font(.system(size: 14, weight: .semibold))
+                        .kmiFont(size: 14, weight: .semibold)
                         .foregroundStyle(Color.white.opacity(0.92))
                         .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
                         .multilineTextAlignment(primaryTextAlignment)
 
                     Text(formatTrainingLeadTime((tempTrainingLeadHours * 60) + tempTrainingLeadMinutes))
-                        .font(.system(size: 16, weight: .black))
+                        .kmiFont(size: 16, weight: .black)
                         .foregroundStyle(Color.white)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
@@ -2381,10 +2809,15 @@ struct SettingsView: View {
                         showTrainingLeadPicker = false
                     } label: {
                         Text(tr("ביטול", "Cancel"))
-                            .font(.system(size: 16, weight: .bold))
+                            .kmiFont(size: 16, weight: .bold)
+                            .foregroundStyle(settingsPrimaryTextColor)
                             .frame(maxWidth: .infinity)
                             .frame(height: 48)
-                            .background(Color.white)
+                            .background(
+                                isDarkMode
+                                    ? Color(hex: 0xFF1E293B)
+                                    : Color.white
+                            )
                             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
                     .buttonStyle(.plain)
@@ -2393,7 +2826,7 @@ struct SettingsView: View {
                         saveTrainingLeadFromPicker()
                     } label: {
                         Text(tr("שמירה", "Save"))
-                            .font(.system(size: 16, weight: .black))
+                            .kmiFont(size: 16, weight: .black)
                             .foregroundStyle(Color.white)
                             .frame(maxWidth: .infinity)
                             .frame(height: 48)
@@ -2404,7 +2837,11 @@ struct SettingsView: View {
                 }
             }
             .padding(18)
-            .background(Color(hex: 0xFFF6F1FB))
+            .background(
+                isDarkMode
+                    ? Color(hex: 0xFF111827)
+                    : Color(hex: 0xFFF6F1FB)
+            )
             .environment(\.layoutDirection, settingsLayoutDirection)
         }
     }
@@ -2416,12 +2853,13 @@ struct SettingsView: View {
     ) -> some View {
         VStack(spacing: 8) {
             Text(title)
-                .font(.system(size: 15, weight: .black))
-                .foregroundStyle(Color(hex: 0xFF111827))
+                .kmiFont(size: 15, weight: .black)
+                .foregroundStyle(settingsPrimaryTextColor)
 
             Picker(title, selection: selection) {
                 ForEach(Array(range), id: \.self) { value in
                     Text("\(value)")
+                        .kmiFont(size: 17, weight: .semibold)
                         .tag(value)
                 }
             }
@@ -2432,9 +2870,18 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .background(Color.white)
+        .background(
+            isDarkMode
+                ? Color(hex: 0xFF1E293B)
+                : Color.white
+        )
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 3)
+        .shadow(
+            color: Color.black.opacity(isDarkMode ? 0.24 : 0.08),
+            radius: 4,
+            x: 0,
+            y: 3
+        )
     }
     
     // MARK: Calendar picker
@@ -2455,13 +2902,13 @@ struct SettingsView: View {
                         }
 
                         Text(tr("לא נמצאו יומנים זמינים", "No calendars found"))
-                            .font(.system(size: 20, weight: .black))
-                            .foregroundStyle(Color(hex: 0xFF111827))
+                            .kmiFont(size: 20, weight: .black)
+                            .foregroundStyle(settingsPrimaryTextColor)
                             .multilineTextAlignment(.center)
 
                         Text(tr("לא נמצאו יומנים זמינים לכתיבה במכשיר.", "No writable calendars were found on this device."))
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.secondary)
+                            .kmiFont(size: 14, weight: .semibold)
+                            .foregroundStyle(settingsSecondaryTextColor)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 24)
                     }
@@ -2510,14 +2957,14 @@ struct SettingsView: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(calendar.title.isEmpty ? tr("יומן ללא שם", "Unnamed calendar") : calendar.title)
-                            .font(.system(size: 16, weight: .heavy))
-                            .foregroundStyle(Color(hex: 0xFF111827))
+                            .kmiFont(size: 16, weight: .heavy)
+                            .foregroundStyle(settingsPrimaryTextColor)
                             .lineLimit(1)
                             .minimumScaleFactor(0.78)
 
                         Text(calendar.source.title)
-                            .font(.system(size: 12.5, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0xFF64748B))
+                            .kmiFont(size: 12.5, weight: .semibold)
+                            .foregroundStyle(settingsSecondaryTextColor)
                             .lineLimit(1)
                     }
 
@@ -2527,14 +2974,14 @@ struct SettingsView: View {
 
                     VStack(alignment: .trailing, spacing: 4) {
                         Text(calendar.title.isEmpty ? tr("יומן ללא שם", "Unnamed calendar") : calendar.title)
-                            .font(.system(size: 16, weight: .heavy))
-                            .foregroundStyle(Color(hex: 0xFF111827))
+                            .kmiFont(size: 16, weight: .heavy)
+                            .foregroundStyle(settingsPrimaryTextColor)
                             .lineLimit(1)
                             .minimumScaleFactor(0.78)
 
                         Text(calendar.source.title)
-                            .font(.system(size: 12.5, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0xFF64748B))
+                            .kmiFont(size: 12.5, weight: .semibold)
+                            .foregroundStyle(settingsSecondaryTextColor)
                             .lineLimit(1)
                     }
 
@@ -2743,13 +3190,17 @@ struct SettingsView: View {
                 nav.pop()
             } label: {
                 Text(tr("ביטול", "Cancel"))
-                    .font(.system(size: 17, weight: .black))
+                    .kmiFont(size: 17, weight: .black)
                     .foregroundStyle(sectionIconTint)
                     .frame(maxWidth: .infinity)
                     .frame(height: 52)
                     .background(
                         RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .fill(Color.white.opacity(0.82))
+                            .fill(
+                                isDarkMode
+                                    ? Color(hex: 0xFF1E293B).opacity(0.96)
+                                    : Color.white.opacity(0.82)
+                            )
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 22, style: .continuous)
@@ -2762,7 +3213,7 @@ struct SettingsView: View {
                 saveAllSettingsAndExit()
             } label: {
                 Text(tr("אישור", "Confirm"))
-                    .font(.system(size: 17, weight: .black))
+                    .kmiFont(size: 17, weight: .black)
                     .foregroundStyle(Color.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 52)
@@ -2778,8 +3229,12 @@ struct SettingsView: View {
         .padding(.bottom, 14)
         .background(
             ZStack {
-                Color(hex: 0xFFF4EFFB)
-                    .ignoresSafeArea(edges: .bottom)
+                (
+                    isDarkMode
+                        ? Color(hex: 0xFF111827)
+                        : Color(hex: 0xFFF4EFFB)
+                )
+                .ignoresSafeArea(edges: .bottom)
 
                 UnevenRoundedRectangle(
                     topLeadingRadius: 28,
@@ -2788,11 +3243,20 @@ struct SettingsView: View {
                     topTrailingRadius: 28,
                     style: .continuous
                 )
-                .fill(Color(hex: 0xFFF4EFFB))
-                .shadow(color: Color.black.opacity(0.16), radius: 18, x: 0, y: -6)
+                .fill(
+                    isDarkMode
+                        ? Color(hex: 0xFF111827)
+                        : Color(hex: 0xFFF4EFFB)
+                )
+                .shadow(
+                    color: Color.black.opacity(isDarkMode ? 0.34 : 0.16),
+                    radius: 18,
+                    x: 0,
+                    y: -6
+                )
             }
         )
-        
+
         .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
     }
 

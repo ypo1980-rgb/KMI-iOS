@@ -1010,9 +1010,14 @@ struct ContentView: View {
 
                     // ✅ Side Drawer destinations
                     case .aboutNetwork:
-                        AboutNetworkView(onClose: { nav.pop() })
-                            .navigationBarBackButtonHidden(true)
-                            .toolbar(.hidden, for: .navigationBar)
+                        KmiRootLayout(
+                            title: tr("אודות הרשת", "About the network"),
+                            nav: nav,
+                            selectedIcon: .home
+                        ) {
+                            AboutNetworkView(onClose: { nav.pop() })
+                                .navigationBarBackButtonHidden(true)
+                        }
 
                     case .monthlyTrainingBoard:
                         KmiRootLayout(
@@ -1024,53 +1029,19 @@ struct ContentView: View {
                             selectedIcon: .home
                         ) {
                             MonthlyTrainingBoardView()
-                                .navigationBarBackButtonHidden(
-                                    true
-                                )
-                                .toolbar(
-                                    .hidden,
-                                    for: .navigationBar
-                                )
+                                .navigationBarBackButtonHidden(true)
                         }
 
-                    case .trainingSummary(
-                        let pickedDateIso
-                    ):
+                    case .coachTrainees:
                         KmiRootLayout(
-                            title: tr(
-                                "סיכום אימון",
-                                "Training Summary"
-                            ),
+                            title: tr("רשימת המתאמנים", "Trainees list"),
                             nav: nav,
                             selectedIcon: .home
                         ) {
-                            TrainingSummaryView(
-                                ownerUid:
-                                    Auth.auth().currentUser?.uid ?? "",
-                                isCoach: isCoachUser,
-                                initialBelt:
-                                    auth.registeredBelt ?? .white,
-                                pickedDateIso: pickedDateIso,
-                                initialBranchName:
-                                    auth.userBranch
-                                        .trimmingCharacters(
-                                            in: .whitespacesAndNewlines
-                                        ),
-                                initialCoachName:
-                                    auth.userFullName
-                                        .trimmingCharacters(
-                                            in: .whitespacesAndNewlines
-                                        )
-                            )
-                            .navigationBarBackButtonHidden(true)
-                        }
-                    
-                    case .coachTrainees:
-                        KmiRootLayout(title: tr("רשימת המתאמנים", "Trainees list"), nav: nav, selectedIcon: .home) {
                             CoachTraineesView()
                                 .navigationBarBackButtonHidden(true)
                         }
-                        
+
                     case .coachBroadcast:
                         KmiRootLayout(
                             title: tr(
@@ -1083,24 +1054,43 @@ struct ContentView: View {
                             CoachBroadcastView()
                                 .navigationBarBackButtonHidden(true)
                         }
-                        
+
                     case .aboutMethod:
-                        AboutMethodView(onClose: { nav.pop() })
-                            .navigationBarBackButtonHidden(true)
-                            .toolbar(.hidden, for: .navigationBar)
+                        KmiRootLayout(
+                            title: tr("אודות שיטת ק.מ.י", "About the K.M.I. method"),
+                            nav: nav,
+                            selectedIcon: .home
+                        ) {
+                            AboutMethodView(onClose: { nav.pop() })
+                                .navigationBarBackButtonHidden(true)
+                        }
 
                     case .aboutItzik:
-                        AboutItzikBitonView(onClose: { nav.pop() })
-                            .navigationBarBackButtonHidden(true)
-                            .toolbar(.hidden, for: .navigationBar)
+                        KmiRootLayout(
+                            title: tr("אודות איציק ביטון", "About Itzik Biton"),
+                            nav: nav,
+                            selectedIcon: .home
+                        ) {
+                            AboutItzikBitonView(onClose: { nav.pop() })
+                                .navigationBarBackButtonHidden(true)
+                        }
 
                     case .aboutAvi:
-                        AboutAviAbisidonView(onClose: { nav.pop() })
-                            .navigationBarBackButtonHidden(true)
-                            .toolbar(.hidden, for: .navigationBar)
+                        KmiRootLayout(
+                            title: tr("אודות אבי אביסידון", "About Avi Abisidon"),
+                            nav: nav,
+                            selectedIcon: .home
+                        ) {
+                            AboutAviAbisidonView(onClose: { nav.pop() })
+                                .navigationBarBackButtonHidden(true)
+                        }
 
                     case .aboutNetworkCoaches:
-                        KmiRootLayout(title: "אודות המאמנים ברשת", nav: nav, selectedIcon: .home) {
+                        KmiRootLayout(
+                            title: tr("אודות המאמנים ברשת", "About the network coaches"),
+                            nav: nav,
+                            selectedIcon: .home
+                        ) {
                             AboutNetworkCoachesView()
                                 .navigationBarBackButtonHidden(true)
                         }

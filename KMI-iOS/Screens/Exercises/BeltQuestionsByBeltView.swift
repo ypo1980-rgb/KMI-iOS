@@ -44,6 +44,31 @@ struct BeltQuestionsByBeltView: View {
     private var screenLayoutDirection: LayoutDirection {
         isEnglish ? .leftToRight : .rightToLeft
     }
+
+    private var byBeltCardSurfaceColor: Color {
+        colorScheme == .dark
+            ? Color(
+                red: 0.055,
+                green: 0.075,
+                blue: 0.115
+            )
+            .opacity(0.97)
+            : Color.white.opacity(0.96)
+    }
+
+    private var byBeltCardBorderColor: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.14)
+            : Color.black.opacity(0.06)
+    }
+
+    private var byBeltCardShadowColor: Color {
+        Color.black.opacity(
+            colorScheme == .dark
+                ? 0.34
+                : 0.08
+        )
+    }
     
     private func uiTopicTitle(_ title: String) -> String {
         let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -102,6 +127,10 @@ struct BeltQuestionsByBeltView: View {
     
     // ✅ NEW: nav גלובאלי (כדי לנווט למסכים עטופים ב-KmiRootLayout)
     @EnvironmentObject private var nav: AppNavModel
+
+    @Environment(\.colorScheme)
+    private var colorScheme
+
     @StateObject private var coach = CoachService.shared
     // ✅ החגורות שמציגים בגלגל (ללא לבנה)
     private let belts: [Belt] = [.yellow, .orange, .green, .blue, .brown, .black]
@@ -117,6 +146,10 @@ struct BeltQuestionsByBeltView: View {
     @State private var showPracticeMenu: Bool = false
     @State private var expandedTopic: String? = nil
     @State private var accessRefreshTick: Int = 0
+
+    @State private var generalNoteTitle: String = ""
+    @State private var generalNoteText: String = ""
+    @State private var showGeneralNote: Bool = false
     
     // Global search
     @State private var pickedExercise: ExerciseSelection? = nil
@@ -967,16 +1000,43 @@ struct BeltQuestionsByBeltView: View {
         isExpanded: Bool,
         isEnglish: Bool
     ) -> some View {
+        let isDarkMode =
+            colorScheme == .dark
+
         if hasSubs {
-            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                .font(.system(size: 14, weight: .heavy))
-                .foregroundStyle(Color.black.opacity(0.42))
-                .frame(width: 20)
+            Image(
+                systemName:
+                    isExpanded
+                    ? "chevron.up"
+                    : "chevron.down"
+            )
+            .kmiFont(
+                size: 14,
+                weight: .heavy
+            )
+            .foregroundStyle(
+                isDarkMode
+                    ? Color.white.opacity(0.66)
+                    : Color.black.opacity(0.42)
+            )
+            .frame(width: 20)
         } else {
-            Image(systemName: isEnglish ? "chevron.right" : "chevron.left")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Color.black.opacity(0.30))
-                .frame(width: 20)
+            Image(
+                systemName:
+                    isEnglish
+                    ? "chevron.right"
+                    : "chevron.left"
+            )
+            .kmiFont(
+                size: 13,
+                weight: .bold
+            )
+            .foregroundStyle(
+                isDarkMode
+                    ? Color.white.opacity(0.52)
+                    : Color.black.opacity(0.30)
+            )
+            .frame(width: 20)
         }
     }
     
@@ -985,29 +1045,101 @@ struct BeltQuestionsByBeltView: View {
         subtitle: String?,
         isEnglish: Bool
     ) -> some View {
-        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 3) {
+        let isDarkMode =
+            colorScheme == .dark
+
+        let titleColor =
+            isDarkMode
+            ? Color.white.opacity(0.94)
+            : Color.black.opacity(0.86)
+
+        let beltSubtitleColor: Color = {
+            switch selectedBelt {
+            case .white:
+                return isDarkMode
+                    ? Color.white.opacity(0.82)
+                    : Color.gray.opacity(0.82)
+
+            case .black:
+                return isDarkMode
+                    ? Color.white.opacity(0.76)
+                    : Color.black.opacity(0.72)
+
+            case .yellow:
+                return isDarkMode
+                    ? Color(
+                        red: 1.00,
+                        green: 0.84,
+                        blue: 0.24
+                    )
+                    : Color(
+                        red: 0.72,
+                        green: 0.53,
+                        blue: 0.02
+                    )
+
+            default:
+                return BeltPaletteByBeltScreen
+                    .color(for: selectedBelt)
+                    .opacity(
+                        isDarkMode ? 1.0 : 0.88
+                    )
+            }
+        }()
+
+        return VStack(
+            alignment:
+                isEnglish
+                ? .leading
+                : .trailing,
+            spacing: 3
+        ) {
             Text(uiTopicTitle(title))
-                .font(.system(size: 15.5, weight: .heavy))
-                .foregroundStyle(Color.black.opacity(0.86))
+                .kmiFont(
+                    size: 18,
+                    weight: .heavy
+                )
+                .foregroundStyle(titleColor)
                 .frame(
                     maxWidth: .infinity,
-                    alignment: isEnglish ? .leading : .trailing
+                    alignment:
+                        isEnglish
+                        ? .leading
+                        : .trailing
                 )
-                .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                .multilineTextAlignment(
+                    isEnglish
+                        ? .leading
+                        : .trailing
+                )
                 .lineLimit(1)
-                .minimumScaleFactor(0.82)
-            
-            if let subtitle, !subtitle.isEmpty {
+                .minimumScaleFactor(0.76)
+
+            if let subtitle,
+               !subtitle.isEmpty {
+
                 Text(subtitle)
-                    .font(.system(size: 11.5, weight: .bold))
-                    .foregroundStyle(Color.black.opacity(0.48))
+                    .kmiFont(
+                        size: 13,
+                        weight: .bold
+                    )
+                    .foregroundStyle(
+                        beltSubtitleColor
+                    )
                     .frame(
                         maxWidth: .infinity,
-                        alignment: isEnglish ? .leading : .trailing
+                        alignment:
+                            isEnglish
+                            ? .leading
+                            : .trailing
                     )
-                    .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                    .multilineTextAlignment(
+                        isEnglish
+                            ? .leading
+                            : .trailing
+                    )
                     .lineLimit(1)
-                    .minimumScaleFactor(0.78)
+                    .minimumScaleFactor(0.72)
             }
         }
     }
@@ -1016,28 +1148,73 @@ struct BeltQuestionsByBeltView: View {
         topicTitle: String,
         accent: Color
     ) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.92))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(accent.opacity(0.18), lineWidth: 1)
+        let isDarkMode =
+            colorScheme == .dark
+
+        return ZStack {
+            RoundedRectangle(
+                cornerRadius: 12,
+                style: .continuous
+            )
+            .fill(
+                isDarkMode
+                    ? Color.white.opacity(0.10)
+                    : Color.white.opacity(0.92)
+            )
+            .overlay(
+                RoundedRectangle(
+                    cornerRadius: 12,
+                    style: .continuous
                 )
-                .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+                .stroke(
+                    isDarkMode
+                        ? accent.opacity(0.34)
+                        : accent.opacity(0.18),
+                    lineWidth: 1
+                )
+            )
+            .shadow(
+                color:
+                    Color.black.opacity(
+                        isDarkMode ? 0.24 : 0.05
+                    ),
+                radius: 2,
+                x: 0,
+                y: 1
+            )
             
-            if let imageName = topicImageName(topicTitle) {
+            if let imageName =
+                topicImageName(topicTitle) {
+
                 Image(imageName)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 42, height: 42)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .frame(
+                        width: 46,
+                        height: 46
+                    )
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius: 12,
+                            style: .continuous
+                        )
+                    )
             } else {
-                Image(systemName: topicSymbolName(topicTitle))
-                    .font(.system(size: 18, weight: .heavy))
-                    .foregroundStyle(accent)
+                Image(
+                    systemName:
+                        topicSymbolName(topicTitle)
+                )
+                .kmiFont(
+                    size: 19,
+                    weight: .heavy
+                )
+                .foregroundStyle(accent)
             }
         }
-        .frame(width: 42, height: 42)
+        .frame(
+            width: 46,
+            height: 46
+        )
     }
     
     private func topicAccentStrip(_ accent: Color) -> some View {
@@ -1926,6 +2103,128 @@ struct BeltQuestionsByBeltView: View {
                 .visible
             )
         }
+        .sheet(
+            isPresented: $showGeneralNote,
+            onDismiss: {
+                generalNoteTitle = ""
+                generalNoteText = ""
+            }
+        ) {
+            VStack(spacing: 16) {
+                Capsule()
+                    .fill(
+                        colorScheme == .dark
+                            ? Color.white.opacity(0.28)
+                            : Color.black.opacity(0.18)
+                    )
+                    .frame(
+                        width: 42,
+                        height: 5
+                    )
+                    .padding(.top, 10)
+
+                Image(systemName: "info.circle.fill")
+                    .kmiFont(
+                        size: 34,
+                        weight: .heavy
+                    )
+                    .foregroundStyle(
+                        colorScheme == .dark
+                            ? Color(
+                                red: 0.38,
+                                green: 0.65,
+                                blue: 0.98
+                            )
+                            : Color(
+                                red: 0.15,
+                                green: 0.39,
+                                blue: 0.92
+                            )
+                    )
+
+                Text(generalNoteTitle)
+                    .kmiFont(
+                        size: 20,
+                        weight: .black
+                    )
+                    .foregroundStyle(
+                        colorScheme == .dark
+                            ? Color.white.opacity(0.95)
+                            : Color.black.opacity(0.86)
+                    )
+                    .multilineTextAlignment(.center)
+
+                ScrollView {
+                    Text(generalNoteText)
+                        .kmiFont(
+                            size: 16,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(
+                            colorScheme == .dark
+                                ? Color.white.opacity(0.78)
+                                : Color.black.opacity(0.68)
+                        )
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment:
+                                isEnglish
+                                ? .leading
+                                : .trailing
+                        )
+                        .multilineTextAlignment(
+                            isEnglish
+                                ? .leading
+                                : .trailing
+                        )
+                }
+
+                Button {
+                    showGeneralNote = false
+                } label: {
+                    Text(
+                        isEnglish
+                            ? "Close"
+                            : "סגור"
+                    )
+                    .kmiFont(
+                        size: 17,
+                        weight: .black
+                    )
+                    .foregroundStyle(Color.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(
+                        RoundedRectangle(
+                            cornerRadius: 16,
+                            style: .continuous
+                        )
+                        .fill(Color.blue)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 18)
+            .background(
+                colorScheme == .dark
+                    ? Color(
+                        red: 0.055,
+                        green: 0.075,
+                        blue: 0.115
+                    )
+                    : Color.white
+            )
+            .environment(
+                \.layoutDirection,
+                screenLayoutDirection
+            )
+            .presentationDetents([
+                .medium,
+                .large
+            ])
+            .presentationDragIndicator(.hidden)
+        }
         .alert(
             isEnglish
                 ? "PDF Creation Failed"
@@ -1954,6 +2253,68 @@ struct BeltQuestionsByBeltView: View {
         }
     }
     
+    private func generalNoteButton(
+        title: String,
+        text: String
+    ) -> some View {
+        Button {
+            generalNoteTitle =
+                isEnglish
+                ? "General note: \(uiTopicTitle(title))"
+                : "הערה כללית: \(uiTopicTitle(title))"
+
+            generalNoteText =
+                text.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+            showGeneralNote = true
+        } label: {
+            Image(systemName: "info.circle.fill")
+                .kmiFont(
+                    size: 20,
+                    weight: .heavy
+                )
+                .foregroundStyle(
+                    colorScheme == .dark
+                        ? Color(
+                            red: 0.38,
+                            green: 0.65,
+                            blue: 0.98
+                        )
+                        : Color(
+                            red: 0.15,
+                            green: 0.39,
+                            blue: 0.92
+                        )
+                )
+                .frame(
+                    width: 30,
+                    height: 30
+                )
+                .background(
+                    Circle()
+                        .fill(
+                            colorScheme == .dark
+                                ? Color.blue.opacity(0.20)
+                                : Color(
+                                    red: 0.91,
+                                    green: 0.95,
+                                    blue: 1.00
+                                )
+                        )
+                )
+                .overlay(
+                    Circle()
+                        .stroke(
+                            Color.blue.opacity(0.42),
+                            lineWidth: 1
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
     @ViewBuilder
     private func topicRowCard(
         entry: BeltTopicUi,
@@ -1965,60 +2326,49 @@ struct BeltQuestionsByBeltView: View {
         accent: Color,
         rowMinHeight: CGFloat
     ) -> some View {
-        let rowOpacity: Double = locked ? 0.88 : 1.0
-        let beltTint = BeltPaletteByBeltScreen.color(for: selectedBelt)
+        let rowOpacity: Double =
+            locked ? 0.88 : 1.0
 
-        Button {
+        let topicGeneralNote =
+            ContentRepo.shared
+                .getTopicGeneralNote(
+                    belt: selectedBelt,
+                    topicTitle: topicTitle
+                )?
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+            ?? ""
+
+        VStack(spacing: 0) {
+            topicMainRow(
+                entry: entry,
+                topicTitle: topicTitle,
+                hasSubs: hasSubs,
+                isExpanded: isExpanded,
+                locked: locked,
+                generalNote: topicGeneralNote,
+                accent: accent,
+                rowMinHeight: rowMinHeight
+            )
+
+            if hasSubs && isExpanded {
+                expandedSubTopicsBlock(
+                    topicTitle: topicTitle,
+                    subTitles: subTitles,
+                    accent: accent
+                )
+            }
+        }
+        .contentShape(Rectangle())
+        .opacity(rowOpacity)
+        .onTapGesture {
             openTopicFromByBelt(
                 topicTitle: topicTitle,
                 hasSubs: hasSubs,
                 isExpanded: isExpanded
             )
-        } label: {
-            VStack(spacing: 0) {
-                topicMainRow(
-                    entry: entry,
-                    topicTitle: topicTitle,
-                    hasSubs: hasSubs,
-                    isExpanded: isExpanded,
-                    locked: locked,
-                    accent: accent,
-                    rowMinHeight: rowMinHeight
-                )
-
-                if hasSubs && isExpanded {
-                    expandedSubTopicsBlock(
-                        topicTitle: topicTitle,
-                        subTitles: subTitles,
-                        accent: accent
-                    )
-                }
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                beltTint.opacity(0.18),
-                                Color.white.opacity(0.97),
-                                beltTint.opacity(0.10)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(
-                        locked ? Color.orange.opacity(0.34) : beltTint.opacity(0.34),
-                        lineWidth: 1
-                    )
-            )
-            .shadow(color: Color.black.opacity(0.055), radius: 6, x: 0, y: 3)
-            .opacity(rowOpacity)
         }
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -2028,6 +2378,7 @@ struct BeltQuestionsByBeltView: View {
         hasSubs: Bool,
         isExpanded: Bool,
         locked: Bool,
+        generalNote: String,
         accent: Color,
         rowMinHeight: CGFloat
     ) -> some View {
@@ -2050,6 +2401,13 @@ struct BeltQuestionsByBeltView: View {
                     isEnglish: isEnglish
                 )
 
+                if !generalNote.isEmpty {
+                    generalNoteButton(
+                        title: topicTitle,
+                        text: generalNote
+                    )
+                }
+
                 if locked {
                     PulsingLockBadge()
                 }
@@ -2061,6 +2419,13 @@ struct BeltQuestionsByBeltView: View {
                     isExpanded: isExpanded,
                     isEnglish: isEnglish
                 )
+
+                if !generalNote.isEmpty {
+                    generalNoteButton(
+                        title: topicTitle,
+                        text: generalNote
+                    )
+                }
 
                 if locked {
                     PulsingLockBadge()
@@ -2161,87 +2526,197 @@ struct BeltQuestionsByBeltView: View {
         topicTitle: String,
         subTitle: String
     ) -> some View {
-        let itemCount = subTopicExercisesCountForUi(
-            belt: selectedBelt,
-            topicTitle: topicTitle,
-            subTopicTitle: subTitle
-        )
+        let itemCount =
+            subTopicExercisesCountForUi(
+                belt: selectedBelt,
+                topicTitle: topicTitle,
+                subTopicTitle: subTitle
+            )
 
-        Button {
-            if isTopicLocked(topicTitle) || isTopicLocked(subTitle) {
-                nav.push(.subscriptionPlans)
-            } else {
-                selectedExerciseRoute = BeltTopicExerciseRoute(
+        let subTopicGeneralNote =
+            ContentRepo.shared
+                .getSubTopicGeneralNote(
                     belt: selectedBelt,
                     topicTitle: topicTitle,
-                    forcedSubTopicTitle: subTitle
+                    subTopicTitle: subTitle
+                )?
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
                 )
+            ?? ""
+
+        let isDarkMode =
+            colorScheme == .dark
+
+        let subtitleColor =
+            BeltPaletteByBeltScreen
+                .color(for: selectedBelt)
+                .opacity(
+                    isDarkMode ? 1.0 : 0.88
+                )
+
+        let openSubTopic = {
+            if isTopicLocked(topicTitle)
+                || isTopicLocked(subTitle) {
+
+                nav.push(.subscriptionPlans)
+            } else {
+                selectedExerciseRoute =
+                    BeltTopicExerciseRoute(
+                        belt: selectedBelt,
+                        topicTitle: topicTitle,
+                        forcedSubTopicTitle: subTitle
+                    )
             }
-        } label: {
-            HStack(spacing: 10) {
-                if isEnglish {
-                    VStack(alignment: .leading, spacing: 3) {
-                        subTopicTitleLine(subTitle)
+        }
 
-                        Text(exercisesCountText(itemCount))
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(Color.black.opacity(0.48))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .multilineTextAlignment(.leading)
-                    }
+        HStack(spacing: 10) {
+            if isEnglish {
+                VStack(
+                    alignment: .leading,
+                    spacing: 3
+                ) {
+                    subTopicTitleLine(subTitle)
 
-                    Spacer(minLength: 0)
+                    Text(
+                        exercisesCountText(itemCount)
+                    )
+                    .kmiFont(
+                        size: 12,
+                        weight: .bold
+                    )
+                    .foregroundStyle(subtitleColor)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .leading
+                    )
+                    .multilineTextAlignment(.leading)
+                }
 
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(Color.black.opacity(0.26))
-                } else {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(Color.black.opacity(0.26))
+                Spacer(minLength: 0)
 
-                    Spacer(minLength: 0)
+                if !subTopicGeneralNote.isEmpty {
+                    generalNoteButton(
+                        title: subTitle,
+                        text: subTopicGeneralNote
+                    )
+                }
 
-                    VStack(alignment: .trailing, spacing: 3) {
-                        subTopicTitleLine(subTitle)
+                Image(systemName: "chevron.right")
+                    .kmiFont(
+                        size: 11,
+                        weight: .bold
+                    )
+                    .foregroundStyle(
+                        isDarkMode
+                            ? Color.white.opacity(0.54)
+                            : Color.black.opacity(0.26)
+                    )
+            } else {
+                Image(systemName: "chevron.left")
+                    .kmiFont(
+                        size: 11,
+                        weight: .bold
+                    )
+                    .foregroundStyle(
+                        isDarkMode
+                            ? Color.white.opacity(0.54)
+                            : Color.black.opacity(0.26)
+                    )
 
-                        Text(exercisesCountText(itemCount))
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(Color.black.opacity(0.48))
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                            .multilineTextAlignment(.trailing)
-                    }
+                if !subTopicGeneralNote.isEmpty {
+                    generalNoteButton(
+                        title: subTitle,
+                        text: subTopicGeneralNote
+                    )
+                }
+
+                Spacer(minLength: 0)
+
+                VStack(
+                    alignment: .trailing,
+                    spacing: 3
+                ) {
+                    subTopicTitleLine(subTitle)
+
+                    Text(
+                        exercisesCountText(itemCount)
+                    )
+                    .kmiFont(
+                        size: 12,
+                        weight: .bold
+                    )
+                    .foregroundStyle(subtitleColor)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .trailing
+                    )
+                    .multilineTextAlignment(.trailing)
                 }
             }
-            .environment(\.layoutDirection, .leftToRight)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(0.78))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.black.opacity(0.05), lineWidth: 1)
-            )
         }
-        .buttonStyle(.plain)
+        .environment(
+            \.layoutDirection,
+            .leftToRight
+        )
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(
+                cornerRadius: 16,
+                style: .continuous
+            )
+            .fill(
+                isDarkMode
+                    ? Color.white.opacity(0.07)
+                    : Color.white.opacity(0.78)
+            )
+        )
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: 16,
+                style: .continuous
+            )
+            .stroke(
+                isDarkMode
+                    ? Color.white.opacity(0.12)
+                    : Color.black.opacity(0.05),
+                lineWidth: 1
+            )
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            openSubTopic()
+        }
     }
 
     @ViewBuilder
     private func subTopicTitleLine(_ subTitle: String) -> some View {
+        let titleColor =
+            colorScheme == .dark
+                ? Color.white.opacity(0.90)
+                : Color.black.opacity(0.82)
+
         HStack(spacing: 6) {
             if isEnglish {
                 Text(uiTopicTitle(subTitle))
-                    .font(.system(size: 15, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(0.82))
+                    .kmiFont(
+                        size: 15,
+                        weight: .heavy
+                    )
+                    .foregroundStyle(titleColor)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.82)
+                    .minimumScaleFactor(0.72)
 
                 if isTopicLocked(subTitle) {
                     Image(systemName: "lock.fill")
-                        .font(.system(size: 11.5, weight: .black))
-                        .foregroundStyle(Color.orange.opacity(0.90))
+                        .kmiFont(
+                            size: 11.5,
+                            weight: .black
+                        )
+                        .foregroundStyle(
+                            Color.orange.opacity(0.90)
+                        )
                 }
 
                 Spacer(minLength: 0)
@@ -2250,15 +2725,23 @@ struct BeltQuestionsByBeltView: View {
 
                 if isTopicLocked(subTitle) {
                     Image(systemName: "lock.fill")
-                        .font(.system(size: 11.5, weight: .black))
-                        .foregroundStyle(Color.orange.opacity(0.90))
+                        .kmiFont(
+                            size: 11.5,
+                            weight: .black
+                        )
+                        .foregroundStyle(
+                            Color.orange.opacity(0.90)
+                        )
                 }
 
                 Text(uiTopicTitle(subTitle))
-                    .font(.system(size: 15, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(0.82))
+                    .kmiFont(
+                        size: 15,
+                        weight: .heavy
+                    )
+                    .foregroundStyle(titleColor)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.82)
+                    .minimumScaleFactor(0.72)
             }
         }
         .environment(\.layoutDirection, .leftToRight)
@@ -2283,22 +2766,38 @@ struct BeltQuestionsByBeltView: View {
                 )
             }
         } label: {
+            let titleColor =
+                colorScheme == .dark
+                    ? Color.white.opacity(0.90)
+                    : Color.black.opacity(0.82)
+
             HStack(spacing: 10) {
                 if isEnglish {
                     Image(systemName: "list.bullet.rectangle.fill")
-                        .font(.system(size: 14, weight: .heavy))
+                        .kmiFont(
+                            size: 14,
+                            weight: .heavy
+                        )
                         .foregroundStyle(accent)
 
                     Text("Full topic")
-                        .font(.system(size: 15, weight: .heavy))
-                        .foregroundStyle(Color.black.opacity(0.82))
+                        .kmiFont(
+                            size: 15,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(titleColor)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.82)
+                        .minimumScaleFactor(0.72)
 
                     if isTopicLocked(topicTitle) {
                         Image(systemName: "lock.fill")
-                            .font(.system(size: 11.5, weight: .black))
-                            .foregroundStyle(Color.orange.opacity(0.90))
+                            .kmiFont(
+                                size: 11.5,
+                                weight: .black
+                            )
+                            .foregroundStyle(
+                                Color.orange.opacity(0.90)
+                            )
                     }
 
                     Spacer(minLength: 0)
@@ -2307,18 +2806,29 @@ struct BeltQuestionsByBeltView: View {
 
                     if isTopicLocked(topicTitle) {
                         Image(systemName: "lock.fill")
-                            .font(.system(size: 11.5, weight: .black))
-                            .foregroundStyle(Color.orange.opacity(0.90))
+                            .kmiFont(
+                                size: 11.5,
+                                weight: .black
+                            )
+                            .foregroundStyle(
+                                Color.orange.opacity(0.90)
+                            )
                     }
 
                     Text("כל הנושא")
-                        .font(.system(size: 15, weight: .heavy))
-                        .foregroundStyle(Color.black.opacity(0.82))
+                        .kmiFont(
+                            size: 15,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(titleColor)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.82)
+                        .minimumScaleFactor(0.72)
 
                     Image(systemName: "list.bullet.rectangle.fill")
-                        .font(.system(size: 14, weight: .heavy))
+                        .kmiFont(
+                            size: 14,
+                            weight: .heavy
+                        )
                         .foregroundStyle(accent)
                 }
             }
@@ -2326,12 +2836,27 @@ struct BeltQuestionsByBeltView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(0.78))
+                RoundedRectangle(
+                    cornerRadius: 16,
+                    style: .continuous
+                )
+                .fill(
+                    colorScheme == .dark
+                        ? Color.white.opacity(0.07)
+                        : Color.white.opacity(0.78)
+                )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                RoundedRectangle(
+                    cornerRadius: 16,
+                    style: .continuous
+                )
+                .stroke(
+                    colorScheme == .dark
+                        ? Color.white.opacity(0.12)
+                        : Color.black.opacity(0.05),
+                    lineWidth: 1
+                )
             )
         }
         .buttonStyle(.plain)
@@ -2396,10 +2921,17 @@ struct BeltQuestionsByBeltView: View {
         selected: Bool
     ) -> some View {
         Text(title)
-            .font(.system(size: 17, weight: .heavy))
-            .foregroundStyle(selected ? Color.white : Color.white.opacity(0.72))
+            .kmiFont(
+                size: 17,
+                weight: .heavy
+            )
+            .foregroundStyle(
+                selected
+                    ? Color.white
+                    : Color.white.opacity(0.72)
+            )
             .lineLimit(1)
-            .minimumScaleFactor(0.82)
+            .minimumScaleFactor(0.70)
             .frame(maxWidth: .infinity)
             .frame(height: 44)
             .contentShape(Rectangle())
@@ -2409,31 +2941,65 @@ struct BeltQuestionsByBeltView: View {
     private var byBeltContent: some View {
         VStack(spacing: 0) {
             GeometryReader { geo in
-                let rowMinHeight: CGFloat = 73
-                let visibleRows: CGFloat = 6.15
-                let rowSpacing: CGFloat = 6
-                let listHeight = rowMinHeight * visibleRows + rowSpacing * (visibleRows - 1) + 6
-                let cardHeight = min(geo.size.height * 0.92, listHeight + 112)
+                let rowMinHeight: CGFloat = 78
+                let visibleRows: CGFloat = 5.25
+                let rowSpacing: CGFloat = 2
+                let listHeight =
+                    rowMinHeight * visibleRows
+                    + rowSpacing * (visibleRows - 1)
+                    + 6
+                let cardHeight =
+                    min(
+                        geo.size.height * 0.94,
+                        listHeight + 112
+                    )
                 
-                WhiteCard {
-                    VStack(spacing: 7) {
-                        Text(isEnglish ? "Topics in Belt" : "נושאים בחגורה")
-                            .font(.system(size: 16.5, weight: .bold))
-                            .foregroundStyle(Color.black.opacity(0.84))
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .lineLimit(1)
-                            .padding(.top, 0)
+                VStack(spacing: 7) {
+                    Text(
+                        isEnglish
+                            ? "Topics in Belt"
+                            : "נושאים בחגורה"
+                    )
+                        .kmiFont(
+                            size: 18,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            colorScheme == .dark
+                                ? Color.white.opacity(0.94)
+                                : Color.black.opacity(0.84)
+                        )
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: .center
+                        )
+                        .lineLimit(1)
+                        .padding(.top, 0)
                         
                         if beltTopicsUi.isEmpty {
-                            Text(isEnglish ? "No topics to display" : "אין נושאים להצגה")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(Color.black.opacity(0.52))
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.vertical, 22)
+                            Text(
+                                isEnglish
+                                    ? "No topics to display"
+                                    : "אין נושאים להצגה"
+                            )
+                            .kmiFont(
+                                size: 15,
+                                weight: .semibold
+                            )
+                            .foregroundStyle(
+                                colorScheme == .dark
+                                    ? Color.white.opacity(0.62)
+                                    : Color.black.opacity(0.52)
+                            )
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: .center
+                            )
+                            .padding(.vertical, 22)
                         } else {
                             ScrollViewReader { proxy in
                                 ScrollView(showsIndicators: false) {
-                                    VStack(spacing: 6) {
+                                    VStack(spacing: 0) {
                                         Color.clear
                                             .frame(height: 0)
                                             .id("topics_top_anchor")
@@ -2487,6 +3053,14 @@ struct BeltQuestionsByBeltView: View {
                                                 accent: accent,
                                                 rowMinHeight: rowMinHeight
                                             )
+
+                                            Divider()
+                                                .overlay(
+                                                    colorScheme == .dark
+                                                        ? Color.white.opacity(0.13)
+                                                        : Color.black.opacity(0.10)
+                                                )
+                                                .padding(.horizontal, 10)
                                         }
                                     }
                                     .padding(.horizontal, 2)
@@ -2504,11 +3078,39 @@ struct BeltQuestionsByBeltView: View {
                     .padding(.top, 5)
                     .padding(.horizontal, 10)
                     .padding(.bottom, 7)
-                }
-                .frame(height: cardHeight)
-                .padding(.horizontal, 16)
-                .padding(.top, -2)
-                .padding(.bottom, 0)
+                    .background(
+                        RoundedRectangle(
+                            cornerRadius: 22,
+                            style: .continuous
+                        )
+                        .fill(byBeltCardSurfaceColor)
+                    )
+                    .overlay(
+                        RoundedRectangle(
+                            cornerRadius: 22,
+                            style: .continuous
+                        )
+                        .stroke(
+                            byBeltCardBorderColor,
+                            lineWidth: 1
+                        )
+                    )
+                    .shadow(
+                        color: byBeltCardShadowColor,
+                        radius: 9,
+                        x: 0,
+                        y: 4
+                    )
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius: 22,
+                            style: .continuous
+                        )
+                    )
+                    .frame(height: cardHeight)
+                    .padding(.horizontal, 16)
+                    .padding(.top, -2)
+                    .padding(.bottom, 0)
             }
         }
         .zIndex(1)
@@ -2654,7 +3256,10 @@ struct BeltQuestionsByBeltView: View {
                         close()
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 13, weight: .bold))
+                            .kmiFont(
+                                size: 13,
+                                weight: .bold
+                            )
                             .foregroundStyle(beltFill.opacity(0.86))
                             .frame(width: 28, height: 28)
                             .background(
@@ -2667,11 +3272,20 @@ struct BeltQuestionsByBeltView: View {
                     
                     Spacer(minLength: 0)
                     
-                    Text(isEnglish ? "Quick Menu" : "תפריט מהיר")
-                        .font(.system(size: 19.5, weight: .black))
-                        .foregroundStyle(beltFill.opacity(0.92))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.80)
+                    Text(
+                        isEnglish
+                            ? "Quick Menu"
+                            : "תפריט מהיר"
+                    )
+                    .kmiFont(
+                        size: 19.5,
+                        weight: .black
+                    )
+                    .foregroundStyle(
+                        beltFill.opacity(0.92)
+                    )
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.68)
                 }
                 .padding(.horizontal, 15)
                 .padding(.top, 9)
@@ -2795,33 +3409,80 @@ struct BeltQuestionsByBeltView: View {
                                 )
 
                             Image(systemName: systemImage)
-                                .font(.system(size: 12.5, weight: .bold))
-                                .foregroundStyle(beltFill.opacity(0.86))
+                                .kmiFont(
+                                    size: 12.5,
+                                    weight: .bold
+                                )
+                                .foregroundStyle(
+                                    beltFill.opacity(0.86)
+                                )
                         }
 
                         Text(title)
-                            .font(.system(size: 18.5, weight: .black))
-                            .foregroundStyle(beltFill.opacity(0.92))
+                            .kmiFont(
+                                size: 18.5,
+                                weight: .black
+                            )
+                            .foregroundStyle(
+                                beltFill.opacity(0.92)
+                            )
                             .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .minimumScaleFactor(0.64)
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: .leading
+                            )
 
-                        Image(systemName: showsLock ? "lock.fill" : "chevron.right")
-                            .font(.system(size: showsLock ? 13 : 12, weight: .bold))
-                            .foregroundStyle(beltFill.opacity(0.88))
-                            .frame(width: 24)
+                        Image(
+                            systemName:
+                                showsLock
+                                ? "lock.fill"
+                                : "chevron.right"
+                        )
+                        .kmiFont(
+                            size:
+                                showsLock
+                                ? 13
+                                : 12,
+                            weight: .bold
+                        )
+                        .foregroundStyle(
+                            beltFill.opacity(0.88)
+                        )
+                        .frame(width: 24)
                     } else {
-                        Image(systemName: showsLock ? "lock.fill" : "chevron.left")
-                            .font(.system(size: showsLock ? 13 : 12, weight: .bold))
-                            .foregroundStyle(beltFill.opacity(0.88))
-                            .frame(width: 24)
+                        Image(
+                            systemName:
+                                showsLock
+                                ? "lock.fill"
+                                : "chevron.left"
+                        )
+                        .kmiFont(
+                            size:
+                                showsLock
+                                ? 13
+                                : 12,
+                            weight: .bold
+                        )
+                        .foregroundStyle(
+                            beltFill.opacity(0.88)
+                        )
+                        .frame(width: 24)
 
                         Text(title)
-                            .font(.system(size: 18.5, weight: .black))
-                            .foregroundStyle(beltFill.opacity(0.92))
+                            .kmiFont(
+                                size: 18.5,
+                                weight: .black
+                            )
+                            .foregroundStyle(
+                                beltFill.opacity(0.92)
+                            )
                             .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .minimumScaleFactor(0.64)
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: .trailing
+                            )
 
                         ZStack {
                             Circle()
@@ -2833,13 +3494,22 @@ struct BeltQuestionsByBeltView: View {
                                 )
 
                             Image(systemName: systemImage)
-                                .font(.system(size: 12.5, weight: .bold))
-                                .foregroundStyle(beltFill.opacity(0.86))
+                                .kmiFont(
+                                    size: 12.5,
+                                    weight: .bold
+                                )
+                                .foregroundStyle(
+                                    beltFill.opacity(0.86)
+                                )
                         }
                     }
                 }
-                .environment(\.layoutDirection, .leftToRight)
-                .frame(height: 43)
+                .environment(
+                    \.layoutDirection,
+                    .leftToRight
+                )
+                .frame(minHeight: 43)
+                .padding(.vertical, 2)
                 .padding(.horizontal, 8)
                 .contentShape(Rectangle())
             }
@@ -2850,10 +3520,18 @@ struct BeltQuestionsByBeltView: View {
             Button {
                 toggle()
             } label: {
-                Image(systemName: isOpen ? "xmark" : "line.3.horizontal")
-                    .font(.system(size: 21, weight: .black))
-                    .foregroundStyle(.white)
-                    .frame(width: 62, height: 62)
+                Image(
+                    systemName:
+                        isOpen
+                        ? "xmark"
+                        : "line.3.horizontal"
+                )
+                .kmiFont(
+                    size: 21,
+                    weight: .black
+                )
+                .foregroundStyle(.white)
+                .frame(width: 62, height: 62)
                     .background(
                         Circle()
                             .fill(
@@ -2934,11 +3612,28 @@ struct BeltQuestionsByBeltView: View {
                         toggle()
                     } label: {
                         HStack(spacing: 10) {
-                            Image(systemName: isOpen ? "xmark" : "line.3.horizontal")
-                                .font(.system(size: 17, weight: .black))
+                            Image(
+                                systemName:
+                                    isOpen
+                                    ? "xmark"
+                                    : "line.3.horizontal"
+                            )
+                            .kmiFont(
+                                size: 17,
+                                weight: .black
+                            )
                             
-                            Text(isEnglish ? "Quick View" : "מבט מהיר")
-                                .font(.system(size: 17, weight: .black))
+                            Text(
+                                isEnglish
+                                    ? "Quick View"
+                                    : "מבט מהיר"
+                            )
+                            .kmiFont(
+                                size: 17,
+                                weight: .black
+                            )
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.70)
                         }
                         .foregroundStyle(beltFill)
                         .frame(maxWidth: .infinity)
@@ -3203,9 +3898,17 @@ private struct BeltScreenSideQuickFab: View {
             )
             .stroke(Color.white.opacity(0.72), lineWidth: 1)
 
-            Image(systemName: isOpen ? "xmark" : "line.3.horizontal")
-                .font(.system(size: 23, weight: .heavy))
-                .foregroundStyle(Color.white)
+            Image(
+                systemName:
+                    isOpen
+                    ? "xmark"
+                    : "line.3.horizontal"
+            )
+            .kmiFont(
+                size: 23,
+                weight: .heavy
+            )
+            .foregroundStyle(Color.white)
         }
         .frame(width: 46, height: 84)
         .shadow(
@@ -3251,15 +3954,24 @@ private struct BeltScreenQuickMenuPanel: View {
         VStack(alignment: stackAlignment, spacing: 0) {
             HStack(spacing: 8) {
                 Text(title)
-                    .font(.system(size: 15, weight: .heavy))
-                    .foregroundStyle(accent.opacity(0.92))
+                    .kmiFont(
+                        size: 15,
+                        weight: .heavy
+                    )
+                    .foregroundStyle(
+                        accent.opacity(0.92)
+                    )
                     .lineLimit(1)
+                    .minimumScaleFactor(0.68)
 
                 Spacer(minLength: 0)
 
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .heavy))
+                        .kmiFont(
+                            size: 11,
+                            weight: .heavy
+                        )
                         .foregroundStyle(accent)
                 }
                 .buttonStyle(.plain)
@@ -3354,10 +4066,23 @@ private struct BeltScreenQuickMenuRow: View {
                     menuIcon
                     
                     Text(title)
-                        .font(.system(size: 11.5, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.04, green: 0.19, blue: 0.12))
+                        .kmiFont(
+                            size: 11.5,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            Color(
+                                red: 0.04,
+                                green: 0.19,
+                                blue: 0.12
+                            )
+                        )
                         .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .minimumScaleFactor(0.62)
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: .leading
+                        )
                         .multilineTextAlignment(.leading)
                     
                     trailingIcon
@@ -3365,18 +4090,34 @@ private struct BeltScreenQuickMenuRow: View {
                     trailingIcon
                     
                     Text(title)
-                        .font(.system(size: 11.5, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.04, green: 0.19, blue: 0.12))
+                        .kmiFont(
+                            size: 11.5,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            Color(
+                                red: 0.04,
+                                green: 0.19,
+                                blue: 0.12
+                            )
+                        )
                         .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .minimumScaleFactor(0.62)
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: .trailing
+                        )
                         .multilineTextAlignment(.trailing)
                     
                     menuIcon
                 }
             }
-            .environment(\.layoutDirection, .leftToRight)
+            .environment(
+                \.layoutDirection,
+                .leftToRight
+            )
             .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .padding(.vertical, 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -3384,16 +4125,46 @@ private struct BeltScreenQuickMenuRow: View {
     
     private var menuIcon: some View {
         Image(systemName: systemImage)
-            .font(.system(size: 12, weight: .bold))
-            .foregroundStyle(accent.opacity(0.92))
-            .frame(width: 19, height: 19)
+            .kmiFont(
+                size: 12,
+                weight: .bold
+            )
+            .foregroundStyle(
+                accent.opacity(0.92)
+            )
+            .frame(
+                minWidth: 19,
+                minHeight: 19
+            )
     }
     
     private var trailingIcon: some View {
-        Image(systemName: isLocked ? "lock.fill" : (isEnglish ? "chevron.right" : "chevron.left"))
-            .font(.system(size: isLocked ? 11.5 : 10.5, weight: .heavy))
-            .foregroundStyle(isLocked ? Color.orange.opacity(0.92) : accent.opacity(0.70))
-            .frame(width: 18, height: 18)
+        Image(
+            systemName:
+                isLocked
+                ? "lock.fill"
+                : (
+                    isEnglish
+                    ? "chevron.right"
+                    : "chevron.left"
+                )
+        )
+        .kmiFont(
+            size:
+                isLocked
+                ? 11.5
+                : 10.5,
+            weight: .heavy
+        )
+        .foregroundStyle(
+            isLocked
+                ? Color.orange.opacity(0.92)
+                : accent.opacity(0.70)
+        )
+        .frame(
+            minWidth: 18,
+            minHeight: 18
+        )
     }
 }
 
@@ -3402,9 +4173,17 @@ private struct PulsingLockBadge: View {
     
     var body: some View {
         Image(systemName: "lock.fill")
-            .font(.system(size: 13.5, weight: .black))
-            .foregroundStyle(Color.orange.opacity(0.92))
-            .frame(width: 25, height: 25)
+            .kmiFont(
+                size: 13.5,
+                weight: .black
+            )
+            .foregroundStyle(
+                Color.orange.opacity(0.92)
+            )
+            .frame(
+                minWidth: 25,
+                minHeight: 25
+            )
             .background(
                 Circle()
                     .fill(Color.orange.opacity(0.13))

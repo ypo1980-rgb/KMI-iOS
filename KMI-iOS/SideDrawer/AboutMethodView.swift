@@ -1,10 +1,3 @@
-//
-//  AboutMethodView.swift
-//  KMI-iOS
-//
-//  SideDrawer Screen: "אודות השיטה"
-//
-
 import SwiftUI
 import AudioToolbox
 
@@ -12,16 +5,53 @@ struct AboutMethodView: View {
 
     let onClose: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var isDarkMode: Bool {
+        colorScheme == .dark
+    }
+
+    private var primaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.94)
+            : Color.black.opacity(0.88)
+    }
+
+    private var secondaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.78)
+            : Color.black.opacity(0.82)
+    }
+
+    private var tertiaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.64)
+            : Color.black.opacity(0.65)
+    }
+
+    private var cardColor: Color {
+        isDarkMode
+            ? Color(hex: 0xFF111827).opacity(0.97)
+            : Color.white
+    }
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
 
             // רקע (כמו שאר מסכי SideDrawer)
             LinearGradient(
-                colors: [
-                    Color(red: 0.07, green: 0.10, blue: 0.23),
-                    Color(red: 0.01, green: 0.05, blue: 0.14),
-                    Color(red: 0.11, green: 0.33, blue: 0.80)
-                ],
+                colors: isDarkMode
+                    ? [
+                        Color(red: 0.07, green: 0.10, blue: 0.23),
+                        Color(red: 0.01, green: 0.05, blue: 0.14),
+                        Color(red: 0.11, green: 0.33, blue: 0.80)
+                    ]
+                    : [
+                        Color(hex: 0xFFF8FBFF),
+                        Color(hex: 0xFFEAF4FF),
+                        Color(hex: 0xFFB7DDF7),
+                        Color(hex: 0xFF1F78B4)
+                    ],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -29,19 +59,8 @@ struct AboutMethodView: View {
 
             // Card
             VStack(spacing: 0) {
-
-                Text("אודות שיטת ק.מ.י - קרב מגן ישראלי")
-                    .font(.title3.weight(.heavy))
-                    .foregroundStyle(Color.black.opacity(0.88))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 18)
-                    .padding(.top, 16)
-                    .padding(.bottom, 12)
-
-                Divider().opacity(0.8)
-
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .trailing, spacing: 12) {
 
                         paragraph("""
 קרב מגן ישראלי - ק.מ.י שיטת לחימה ישראלית
@@ -131,29 +150,20 @@ struct AboutMethodView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color.white)
+                    .fill(cardColor)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(
+                        isDarkMode
+                            ? Color.white.opacity(0.10)
+                            : Color.black.opacity(0.06),
+                        lineWidth: 1
+                    )
             )
             .padding(.horizontal, 16)
             .padding(.top, 14)
             .padding(.bottom, 18)
-
-            // כפתור X אחיד (כמו שאר המסכים)
-            Button {
-                playClick()
-                heavyHaptic()
-                onClose()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(0.75))
-                    .frame(width: 28, height: 28)
-                    .background(Circle().fill(Color.white.opacity(0.92)))
-                    .overlay(Circle().stroke(Color.black.opacity(0.10), lineWidth: 1))
-                    .shadow(radius: 6, y: 2)
-            }
-            .buttonStyle(.plain)
-            .padding(.trailing, 22)
-            .padding(.top, 22)
         }
         .navigationBarBackButtonHidden(true)
         .navigationBarTitleDisplayMode(.inline)
@@ -163,33 +173,37 @@ struct AboutMethodView: View {
 
     private func paragraph(_ s: String) -> some View {
         Text(s)
-            .font(.body)
-            .foregroundStyle(Color.black.opacity(0.82))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .multilineTextAlignment(.leading)
+            .kmiFont(size: 16, weight: .regular)
+            .foregroundStyle(secondaryTextColor)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .multilineTextAlignment(.trailing)
     }
 
     private func sectionTitle(_ s: String) -> some View {
         Text(s)
-            .font(.headline.weight(.semibold))
-            .foregroundStyle(Color.black.opacity(0.88))
+            .kmiFont(size: 17, weight: .semibold)
+            .foregroundStyle(primaryTextColor)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .multilineTextAlignment(.trailing)
             .padding(.top, 2)
     }
 
     private func bulletTitle(_ s: String) -> some View {
         Text(s)
-            .font(.headline.weight(.semibold))
-            .foregroundStyle(Color.black.opacity(0.86))
+            .kmiFont(size: 17, weight: .semibold)
+            .foregroundStyle(primaryTextColor)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .multilineTextAlignment(.trailing)
             .padding(.top, 2)
     }
 
     private func bulletSub(_ s: String) -> some View {
         Text("–  \(s)")
-            .font(.subheadline)
-            .foregroundStyle(Color.black.opacity(0.65))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .multilineTextAlignment(.leading)
-            .padding(.leading, 10)
+            .kmiFont(size: 15, weight: .regular)
+            .foregroundStyle(tertiaryTextColor)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .multilineTextAlignment(.trailing)
+            .padding(.trailing, 10)
     }
 
     // MARK: - Haptics + Click
@@ -208,20 +222,34 @@ struct AboutMethodView: View {
 // MARK: - Bullets
 private struct Bulleted: View {
     let text: String
-    init(_ text: String) { self.text = text }
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    private var textColor: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.78)
+            : Color.black.opacity(0.82)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Text("•")
-                .font(.body)
-                .foregroundStyle(Color.black.opacity(0.82))
+                .kmiFont(size: 16, weight: .bold)
+                .foregroundStyle(textColor)
 
             Text(text)
-                .font(.body)
-                .foregroundStyle(Color.black.opacity(0.82))
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .kmiFont(size: 16, weight: .regular)
+                .foregroundStyle(textColor)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .multilineTextAlignment(.trailing)
         }
+        .frame(maxWidth: .infinity, alignment: .trailing)
         .padding(.vertical, 2)
+        .environment(\.layoutDirection, .rightToLeft)
     }
 }
 

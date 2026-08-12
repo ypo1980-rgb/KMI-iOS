@@ -68,6 +68,61 @@ struct AttendanceView: View {
         isEnglish ? .leading : .trailing
     }
 
+    @Environment(\.colorScheme)
+    private var colorScheme
+
+    private var isDarkMode: Bool {
+        colorScheme == .dark
+    }
+
+    private var primaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.94)
+            : Color(red: 0.12, green: 0.16, blue: 0.24)
+    }
+
+    private var secondaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.68)
+            : Color(red: 0.32, green: 0.38, blue: 0.48)
+    }
+
+    private var cardSurfaceColor: Color {
+        isDarkMode
+            ? Color(red: 0.06, green: 0.09, blue: 0.15).opacity(0.96)
+            : Color.white.opacity(0.96)
+    }
+
+    private var elevatedSurfaceColor: Color {
+        isDarkMode
+            ? Color(red: 0.09, green: 0.13, blue: 0.21)
+            : Color(red: 0.95, green: 0.97, blue: 1.0)
+    }
+
+    private var cardBorderColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.14)
+            : Color.black.opacity(0.08)
+    }
+
+    private var fieldSurfaceColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.08)
+            : Color.white.opacity(0.88)
+    }
+
+    private var fieldIconSurfaceColor: Color {
+        isDarkMode
+            ? Color(red: 0.10, green: 0.29, blue: 0.44)
+            : Color(red: 0.88, green: 0.96, blue: 1.0)
+    }
+
+    private var fieldIconColor: Color {
+        isDarkMode
+            ? Color(red: 0.35, green: 0.83, blue: 0.96)
+            : Color(red: 0.07, green: 0.45, blue: 0.72)
+    }
+
     private func tr(_ he: String, _ en: String) -> String {
         isEnglish ? en : he
     }
@@ -104,12 +159,21 @@ struct AttendanceView: View {
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    Color(red: 0.008, green: 0.024, blue: 0.090), // #020617
-                    Color(red: 0.067, green: 0.094, blue: 0.153), // #111827
-                    Color(red: 0.114, green: 0.306, blue: 0.847), // #1D4ED8
-                    Color(red: 0.133, green: 0.827, blue: 0.933)  // #22D3EE
-                ],
+                colors:
+                    isDarkMode
+                    ? [
+                        Color(red: 0.008, green: 0.024, blue: 0.090),
+                        Color(red: 0.067, green: 0.094, blue: 0.153),
+                        Color(red: 0.063, green: 0.141, blue: 0.227),
+                        Color(red: 0.039, green: 0.212, blue: 0.341),
+                        Color(red: 0.016, green: 0.118, blue: 0.200)
+                    ]
+                    : [
+                        Color(red: 0.96, green: 0.94, blue: 1.0),
+                        Color(red: 0.91, green: 0.96, blue: 1.0),
+                        Color(red: 0.82, green: 0.94, blue: 1.0),
+                        Color(red: 0.69, green: 0.88, blue: 0.96)
+                    ],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -124,13 +188,26 @@ struct AttendanceView: View {
                         addMemberCard
                     }
 
-                    Text(tr("סימון נוכחות למתאמנים", "Mark trainee attendance"))
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.93, green: 1.0, blue: 1.0))
-                        .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-                        .multilineTextAlignment(screenTextAlignment)
-                        .padding(.horizontal, 2)
-                        .padding(.top, 2)
+                    Text(
+                        tr(
+                            "סימון נוכחות למתאמנים",
+                            "Mark trainee attendance"
+                        )
+                    )
+                    .kmiFont(
+                        size: 18,
+                        weight: .heavy
+                    )
+                    .foregroundStyle(primaryTextColor)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: screenFrameAlignment
+                    )
+                    .multilineTextAlignment(screenTextAlignment)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.74)
+                    .padding(.horizontal, 2)
+                    .padding(.top, 2)
 
                     membersCard
 
@@ -163,7 +240,14 @@ struct AttendanceView: View {
                 VStack {
                     Spacer()
                     Text(toastMessage)
-                        .font(.subheadline.weight(.bold))
+                        .kmiFont(
+                            size: 14,
+                            weight: .bold
+                        )
+                        .foregroundStyle(primaryTextColor)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
+                        .minimumScaleFactor(0.74)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                         .background(.ultraThinMaterial)
@@ -337,24 +421,56 @@ struct AttendanceView: View {
     }
     
     private var attendanceHeroCard: some View {
-        let branch = vm.state.branchName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let group = vm.state.groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let branch =
+            vm.state.branchName
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        let group =
+            vm.state.groupKey
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
         let dateText = formattedDate(vm.state.dateIso)
         let total = vm.state.summary.totalMembers
 
-        return VStack(alignment: screenHorizontalAlignment, spacing: 12) {
-            Text(tr("בחירת אימון לנוכחות", "Select attendance class"))
-                .font(.system(size: 20, weight: .black, design: .rounded))
-                .foregroundStyle(Color(red: 0.08, green: 0.10, blue: 0.18))
-                .frame(maxWidth: .infinity, alignment: .center)
-                .multilineTextAlignment(.center)
+        return VStack(
+            alignment: screenHorizontalAlignment,
+            spacing: 12
+        ) {
+            Text(
+                tr(
+                    "בחירת אימון לנוכחות",
+                    "Select attendance class"
+                )
+            )
+            .kmiFont(
+                size: 20,
+                weight: .black
+            )
+            .foregroundStyle(primaryTextColor)
+            .frame(
+                maxWidth: .infinity,
+                alignment: .center
+            )
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .minimumScaleFactor(0.74)
 
             Button {
-                draftAttendanceDate = dateFromIso(vm.state.dateIso) ?? Date()
+                draftAttendanceDate =
+                    dateFromIso(vm.state.dateIso)
+                    ?? Date()
+
                 showDatePickerSheet = true
             } label: {
                 premiumSelectionField(
-                    label: tr("תאריך אימון", "Class date"),
+                    label: tr(
+                        "תאריך אימון",
+                        "Class date"
+                    ),
                     value: dateText,
                     icon: "calendar",
                     trailingIcon: "chevron.down"
@@ -364,14 +480,26 @@ struct AttendanceView: View {
 
             premiumSelectionField(
                 label: tr("סניף", "Branch"),
-                value: branch.isEmpty ? tr("לא נבחר סניף", "No branch selected") : branch,
+                value:
+                    branch.isEmpty
+                    ? tr(
+                        "לא נבחר סניף",
+                        "No branch selected"
+                    )
+                    : branch,
                 icon: "mappin.and.ellipse",
                 trailingIcon: nil
             )
 
             premiumSelectionField(
                 label: tr("קבוצה", "Group"),
-                value: group.isEmpty ? tr("לא נבחרה קבוצה", "No group selected") : group,
+                value:
+                    group.isEmpty
+                    ? tr(
+                        "לא נבחרה קבוצה",
+                        "No group selected"
+                    )
+                    : group,
                 icon: "person.3.fill",
                 trailingIcon: nil
             )
@@ -381,25 +509,49 @@ struct AttendanceView: View {
                 ? "The list loads by date + branch + group · trainees in class: \(total)"
                 : "הרשימה נטענת לפי תאריך + סניף + קבוצה · מתאמנים בשיעור: \(total)"
             )
-            .font(.system(size: 12, weight: .bold))
-            .foregroundStyle(Color(red: 0.21, green: 0.25, blue: 0.36))
-            .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-            .multilineTextAlignment(screenTextAlignment)
-            .lineLimit(2)
-            .minimumScaleFactor(0.82)
+            .kmiFont(
+                size: 12,
+                weight: .bold
+            )
+            .foregroundStyle(secondaryTextColor)
+            .frame(
+                maxWidth: .infinity,
+                alignment: screenFrameAlignment
+            )
+            .multilineTextAlignment(
+                screenTextAlignment
+            )
+            .lineLimit(3)
+            .minimumScaleFactor(0.74)
             .padding(.top, 2)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 15)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(red: 0.96, green: 0.94, blue: 1.0).opacity(0.97))
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+            .fill(cardSurfaceColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.white.opacity(0.82), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+            .stroke(
+                cardBorderColor,
+                lineWidth: 1
+            )
         )
-        .shadow(color: Color.black.opacity(0.18), radius: 10, x: 0, y: 6)
+        .shadow(
+            color: Color.black.opacity(
+                isDarkMode ? 0.28 : 0.14
+            ),
+            radius: 10,
+            x: 0,
+            y: 6
+        )
     }
     
     private func premiumSelectionField(
@@ -414,12 +566,18 @@ struct AttendanceView: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(label)
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(Color(red: 0.36, green: 0.43, blue: 0.56))
+                        .kmiFont(
+                            size: 11,
+                            weight: .bold
+                        )
+                        .foregroundStyle(secondaryTextColor)
 
                     Text(value.isEmpty ? "—" : value)
-                        .font(.system(size: 14, weight: .black))
-                        .foregroundStyle(Color(red: 0.08, green: 0.10, blue: 0.18))
+                        .kmiFont(
+                            size: 14,
+                            weight: .black
+                        )
+                        .foregroundStyle(primaryTextColor)
                         .lineLimit(2)
                         .minimumScaleFactor(0.78)
                         .multilineTextAlignment(.leading)
@@ -428,26 +586,42 @@ struct AttendanceView: View {
 
                 if let trailingIcon {
                     Image(systemName: trailingIcon)
-                        .font(.system(size: 13, weight: .black))
-                        .foregroundStyle(Color(red: 0.22, green: 0.28, blue: 0.40))
+                        .font(
+                            .system(
+                                size: 13,
+                                weight: .black
+                            )
+                        )
+                        .foregroundStyle(fieldIconColor)
                 }
             } else {
                 if let trailingIcon {
                     Image(systemName: trailingIcon)
-                        .font(.system(size: 13, weight: .black))
-                        .foregroundStyle(Color(red: 0.22, green: 0.28, blue: 0.40))
+                        .font(
+                            .system(
+                                size: 13,
+                                weight: .black
+                            )
+                        )
+                        .foregroundStyle(fieldIconColor)
                 }
 
                 VStack(alignment: .trailing, spacing: 3) {
                     Text(label)
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(Color(red: 0.36, green: 0.43, blue: 0.56))
+                        .kmiFont(
+                            size: 11,
+                            weight: .bold
+                        )
+                        .foregroundStyle(secondaryTextColor)
 
                     Text(value.isEmpty ? "—" : value)
-                        .font(.system(size: 14, weight: .black))
-                        .foregroundStyle(Color(red: 0.08, green: 0.10, blue: 0.18))
+                        .kmiFont(
+                            size: 14,
+                            weight: .black
+                        )
+                        .foregroundStyle(primaryTextColor)
                         .lineLimit(2)
-                        .minimumScaleFactor(0.78)
+                        .minimumScaleFactor(0.74)
                         .multilineTextAlignment(.trailing)
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -457,24 +631,43 @@ struct AttendanceView: View {
         }
         .padding(.horizontal, 13)
         .padding(.vertical, 10)
-        .background(Color.white.opacity(0.86))
-        .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .background(fieldSurfaceColor)
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 17,
+                style: .continuous
+            )
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: 17, style: .continuous)
-                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 17,
+                style: .continuous
+            )
+            .stroke(
+                cardBorderColor,
+                lineWidth: 1
+            )
         )
     }
 
     private func fieldIcon(_ name: String) -> some View {
         Image(systemName: name)
-            .font(.system(size: 14, weight: .heavy))
-            .foregroundStyle(Color(red: 0.07, green: 0.45, blue: 0.72))
-            .frame(width: 30, height: 30)
-            .background(Color(red: 0.88, green: 0.96, blue: 1.0))
+            .font(
+                .system(
+                    size: 14,
+                    weight: .heavy
+                )
+            )
+            .foregroundStyle(fieldIconColor)
+            .frame(width: 32, height: 32)
+            .background(fieldIconSurfaceColor)
             .clipShape(Circle())
             .overlay(
                 Circle()
-                    .stroke(Color(red: 0.68, green: 0.84, blue: 0.94), lineWidth: 1)
+                    .stroke(
+                        fieldIconColor.opacity(0.32),
+                        lineWidth: 1
+                    )
             )
     }
     
@@ -486,13 +679,33 @@ struct AttendanceView: View {
             HStack {
                 if isEnglish {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(tr("סיכום נוכחות", "Attendance summary"))
-                            .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
+                        Text(
+                            tr(
+                                "סיכום נוכחות",
+                                "Attendance summary"
+                            )
+                        )
+                        .kmiFont(
+                            size: 18,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(primaryTextColor)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.74)
 
-                        Text(tr("נתוני היום הנוכחי", "Current class data"))
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.68))
+                        Text(
+                            tr(
+                                "נתוני היום הנוכחי",
+                                "Current class data"
+                            )
+                        )
+                        .kmiFont(
+                            size: 12,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(secondaryTextColor)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.74)
                     }
 
                     Spacer()
@@ -508,13 +721,33 @@ struct AttendanceView: View {
                     Spacer()
 
                     VStack(alignment: .trailing, spacing: 3) {
-                        Text(tr("סיכום נוכחות", "Attendance summary"))
-                            .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
+                        Text(
+                            tr(
+                                "סיכום נוכחות",
+                                "Attendance summary"
+                            )
+                        )
+                        .kmiFont(
+                            size: 18,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(primaryTextColor)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.74)
 
-                        Text(tr("נתוני היום הנוכחי", "Current class data"))
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.68))
+                        Text(
+                            tr(
+                                "נתוני היום הנוכחי",
+                                "Current class data"
+                            )
+                        )
+                        .kmiFont(
+                            size: 12,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(secondaryTextColor)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.74)
                     }
                 }
             }
@@ -522,40 +755,106 @@ struct AttendanceView: View {
             VStack(alignment: screenHorizontalAlignment, spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
                     if isEnglish {
-                        Text(tr("אחוז נוכחות", "Attendance rate"))
-                            .font(.system(size: 13, weight: .heavy))
-                            .foregroundStyle(Color(red: 0.86, green: 0.94, blue: 1.0))
+                        Text(
+                            tr(
+                                "אחוז נוכחות",
+                                "Attendance rate"
+                            )
+                        )
+                        .kmiFont(
+                            size: 13,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            isDarkMode
+                                ? Color(red: 0.68, green: 0.88, blue: 1.0)
+                                : Color(red: 0.10, green: 0.38, blue: 0.66)
+                        )
 
                         Spacer()
 
                         Text("\(summary.attendancePercent)%")
-                            .font(.system(size: 28, weight: .black, design: .rounded))
-                            .foregroundStyle(.white)
+                            .kmiFont(
+                                size: 28,
+                                weight: .black
+                            )
+                            .foregroundStyle(primaryTextColor)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
                     } else {
                         Text("\(summary.attendancePercent)%")
-                            .font(.system(size: 28, weight: .black, design: .rounded))
-                            .foregroundStyle(.white)
+                            .kmiFont(
+                                size: 28,
+                                weight: .black
+                            )
+                            .foregroundStyle(primaryTextColor)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
 
                         Spacer()
 
-                        Text(tr("אחוז נוכחות", "Attendance rate"))
-                            .font(.system(size: 13, weight: .heavy))
-                            .foregroundStyle(Color(red: 0.86, green: 0.94, blue: 1.0))
+                        Text(
+                            tr(
+                                "אחוז נוכחות",
+                                "Attendance rate"
+                            )
+                        )
+                        .kmiFont(
+                            size: 13,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            isDarkMode
+                                ? Color(
+                                    red: 0.68,
+                                    green: 0.88,
+                                    blue: 1.0
+                                )
+                                : Color(
+                                    red: 0.10,
+                                    green: 0.38,
+                                    blue: 0.66
+                                )
+                        )
                     }
                 }
 
-                ProgressView(value: pct, total: 100)
-                    .progressViewStyle(.linear)
-                    .tint(Color(red: 0.13, green: 0.83, blue: 0.93))
-                    .background(Color.white.opacity(0.14))
-                    .clipShape(Capsule())
+                ProgressView(
+                    value: pct,
+                    total: 100
+                )
+                .progressViewStyle(.linear)
+                .tint(
+                    Color(
+                        red: 0.13,
+                        green: 0.83,
+                        blue: 0.93
+                    )
+                )
+                .background(
+                    isDarkMode
+                        ? Color.white.opacity(0.14)
+                        : Color.black.opacity(0.10)
+                )
+                .clipShape(Capsule())
             }
             .padding(14)
-            .background(Color.white.opacity(0.10))
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(elevatedSurfaceColor)
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: 18,
+                    style: .continuous
+                )
+            )
             .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                RoundedRectangle(
+                    cornerRadius: 18,
+                    style: .continuous
+                )
+                .stroke(
+                    cardBorderColor,
+                    lineWidth: 1
+                )
             )
 
             HStack(spacing: 10) {
@@ -572,12 +871,31 @@ struct AttendanceView: View {
             )
         }
         .padding(16)
-        .background(Color.white.opacity(0.09))
+        .background(cardSurfaceColor)
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .stroke(
+                cardBorderColor,
+                lineWidth: 1
+            )
         )
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+        )
+        .shadow(
+            color: Color.black.opacity(
+                isDarkMode ? 0.24 : 0.10
+            ),
+            radius: 8,
+            x: 0,
+            y: 4
+        )
     }
     
     private var addMemberCard: some View {
@@ -585,13 +903,33 @@ struct AttendanceView: View {
             HStack {
                 if isEnglish {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(tr("הוספת מתאמן", "Add trainee"))
-                            .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
+                        Text(
+                            tr(
+                                "הוספת מתאמן",
+                                "Add trainee"
+                            )
+                        )
+                        .kmiFont(
+                            size: 18,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(primaryTextColor)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.74)
 
-                        Text(tr("רשימת המתאמנים נטענת לפי סניף וקבוצה", "The trainee list loads by branch and group"))
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.68))
+                        Text(
+                            tr(
+                                "רשימת המתאמנים נטענת לפי סניף וקבוצה",
+                                "The trainee list loads by branch and group"
+                            )
+                        )
+                        .kmiFont(
+                            size: 12,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(secondaryTextColor)
+                        .lineLimit(3)
+                        .minimumScaleFactor(0.74)
                     }
 
                     Spacer()
@@ -607,13 +945,33 @@ struct AttendanceView: View {
                     Spacer()
 
                     VStack(alignment: .trailing, spacing: 3) {
-                        Text(tr("הוספת מתאמן", "Add trainee"))
-                            .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
+                        Text(
+                            tr(
+                                "הוספת מתאמן",
+                                "Add trainee"
+                            )
+                        )
+                        .kmiFont(
+                            size: 18,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(primaryTextColor)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.74)
 
-                        Text(tr("רשימת המתאמנים נטענת לפי סניף וקבוצה", "The trainee list loads by branch and group"))
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.68))
+                        Text(
+                            tr(
+                                "רשימת המתאמנים נטענת לפי סניף וקבוצה",
+                                "The trainee list loads by branch and group"
+                            )
+                        )
+                        .kmiFont(
+                            size: 12,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(secondaryTextColor)
+                        .lineLimit(3)
+                        .minimumScaleFactor(0.74)
                     }
                 }
             }
@@ -639,9 +997,18 @@ struct AttendanceView: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "plus.circle.fill")
-                    Text(tr("הוסף מתאמן", "Add trainee"))
+
+                    Text(
+                        tr(
+                            "הוסף מתאמן",
+                            "Add trainee"
+                        )
+                    )
+                    .kmiFont(
+                        size: 16,
+                        weight: .heavy
+                    )
                 }
-                .font(.system(size: 16, weight: .heavy))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 13)
@@ -653,13 +1020,35 @@ struct AttendanceView: View {
             .opacity(newMemberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1.0)
         }
         .padding(16)
-        .background(Color.white.opacity(0.09))
+        .background(cardSurfaceColor)
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .stroke(
+                cardBorderColor,
+                lineWidth: 1
+            )
         )
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .transition(.move(edge: .top).combined(with: .opacity))
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+        )
+        .shadow(
+            color: Color.black.opacity(
+                isDarkMode ? 0.24 : 0.10
+            ),
+            radius: 8,
+            x: 0,
+            y: 4
+        )
+        .transition(
+            .move(edge: .top)
+                .combined(with: .opacity)
+        )
     }
     
     private var membersCard: some View {
@@ -667,13 +1056,38 @@ struct AttendanceView: View {
             HStack {
                 if isEnglish {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(tr("רשימת מתאמנים", "Trainee list"))
-                            .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
+                        Text(
+                            tr(
+                                "רשימת מתאמנים",
+                                "Trainee list"
+                            )
+                        )
+                        .kmiFont(
+                            size: 18,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(primaryTextColor)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.74)
 
-                        Text(vm.state.rows.isEmpty ? tr("אין מתאמנים עדיין", "No trainees yet") : tr("סמן נוכחות לכל מתאמן", "Mark attendance for each trainee"))
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.68))
+                        Text(
+                            vm.state.rows.isEmpty
+                                ? tr(
+                                    "אין מתאמנים עדיין",
+                                    "No trainees yet"
+                                )
+                                : tr(
+                                    "סמן נוכחות לכל מתאמן",
+                                    "Mark attendance for each trainee"
+                                )
+                        )
+                        .kmiFont(
+                            size: 12,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(secondaryTextColor)
+                        .lineLimit(3)
+                        .minimumScaleFactor(0.74)
                     }
 
                     Spacer()
@@ -689,24 +1103,62 @@ struct AttendanceView: View {
                     Spacer()
 
                     VStack(alignment: .trailing, spacing: 3) {
-                        Text(tr("רשימת מתאמנים", "Trainee list"))
-                            .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
+                        Text(
+                            tr(
+                                "רשימת מתאמנים",
+                                "Trainee list"
+                            )
+                        )
+                        .kmiFont(
+                            size: 18,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(primaryTextColor)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.74)
 
-                        Text(vm.state.rows.isEmpty ? tr("אין מתאמנים עדיין", "No trainees yet") : tr("סמן נוכחות לכל מתאמן", "Mark attendance for each trainee"))
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.68))
+                        Text(
+                            vm.state.rows.isEmpty
+                                ? tr(
+                                    "אין מתאמנים עדיין",
+                                    "No trainees yet"
+                                )
+                                : tr(
+                                    "סמן נוכחות לכל מתאמן",
+                                    "Mark attendance for each trainee"
+                                )
+                        )
+                        .kmiFont(
+                            size: 12,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(secondaryTextColor)
+                        .lineLimit(3)
+                        .minimumScaleFactor(0.74)
                     }
                 }
             }
 
             if vm.state.rows.isEmpty {
-                Text(tr("לא נוספו מתאמנים לסניף ולקבוצה שנבחרו.", "No trainees were added for the selected branch and group."))
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.78))
-                    .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-                    .multilineTextAlignment(screenTextAlignment)
-                    .padding(.vertical, 10)
+                Text(
+                    tr(
+                        "לא נוספו מתאמנים לסניף ולקבוצה שנבחרו.",
+                        "No trainees were added for the selected branch and group."
+                    )
+                )
+                .kmiFont(
+                    size: 14,
+                    weight: .semibold
+                )
+                .foregroundStyle(secondaryTextColor)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: screenFrameAlignment
+                )
+                .multilineTextAlignment(screenTextAlignment)
+                .lineLimit(4)
+                .minimumScaleFactor(0.74)
+                .padding(.vertical, 10)
             } else {
                 let uniqueRows = uniqueMembers(vm.state.rows)
 
@@ -720,23 +1172,36 @@ struct AttendanceView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 14)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.13),
-                            Color.white.opacity(0.08)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+            .fill(cardSurfaceColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+            .stroke(
+                cardBorderColor,
+                lineWidth: 1
+            )
         )
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+        )
+        .shadow(
+            color: Color.black.opacity(
+                isDarkMode ? 0.24 : 0.10
+            ),
+            radius: 8,
+            x: 0,
+            y: 4
+        )
     }
     
     private var actionsCard: some View {
@@ -744,13 +1209,33 @@ struct AttendanceView: View {
             HStack {
                 if isEnglish {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(tr("פעולות", "Actions"))
-                            .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
+                        Text(
+                            tr(
+                                "פעולות",
+                                "Actions"
+                            )
+                        )
+                        .kmiFont(
+                            size: 18,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(primaryTextColor)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.74)
 
-                        Text(tr("שמירה, שיתוף וסטטיסטיקה של דו״ח הנוכחות", "Save, share and view attendance report statistics"))
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.68))
+                        Text(
+                            tr(
+                                "שמירה, שיתוף וסטטיסטיקה של דו״ח הנוכחות",
+                                "Save, share and view attendance report statistics"
+                            )
+                        )
+                        .kmiFont(
+                            size: 12,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(secondaryTextColor)
+                        .lineLimit(3)
+                        .minimumScaleFactor(0.70)
                     }
 
                     Spacer()
@@ -766,13 +1251,33 @@ struct AttendanceView: View {
                     Spacer()
 
                     VStack(alignment: .trailing, spacing: 3) {
-                        Text(tr("פעולות", "Actions"))
-                            .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(.white)
+                        Text(
+                            tr(
+                                "פעולות",
+                                "Actions"
+                            )
+                        )
+                        .kmiFont(
+                            size: 18,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(primaryTextColor)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.74)
 
-                        Text(tr("שמירה, שיתוף וסטטיסטיקה של דו״ח הנוכחות", "Save, share and view attendance report statistics"))
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.68))
+                        Text(
+                            tr(
+                                "שמירה, שיתוף וסטטיסטיקה של דו״ח הנוכחות",
+                                "Save, share and view attendance report statistics"
+                            )
+                        )
+                        .kmiFont(
+                            size: 12,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(secondaryTextColor)
+                        .lineLimit(3)
+                        .minimumScaleFactor(0.70)
                     }
                 }
             }
@@ -802,9 +1307,25 @@ struct AttendanceView: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "checkmark.circle.fill")
-                    Text(vm.state.isSaving ? tr("שומר...", "Saving...") : tr("שמירת דו״ח נוכחות", "Save attendance report"))
+
+                    Text(
+                        vm.state.isSaving
+                            ? tr(
+                                "שומר...",
+                                "Saving..."
+                            )
+                            : tr(
+                                "שמירת דו״ח נוכחות",
+                                "Save attendance report"
+                            )
+                    )
+                    .kmiFont(
+                        size: 15,
+                        weight: .heavy
+                    )
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.72)
                 }
-                .font(.system(size: 15, weight: .heavy))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
@@ -830,12 +1351,31 @@ struct AttendanceView: View {
             .opacity(vm.state.isSaving ? 0.65 : 1.0)
         }
         .padding(14)
-        .background(Color.white.opacity(0.09))
+        .background(cardSurfaceColor)
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .stroke(
+                cardBorderColor,
+                lineWidth: 1
+            )
         )
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+        )
+        .shadow(
+            color: Color.black.opacity(
+                isDarkMode ? 0.24 : 0.10
+            ),
+            radius: 8,
+            x: 0,
+            y: 4
+        )
     }
     
     private func toggleAttendanceStatus(
@@ -865,22 +1405,47 @@ struct AttendanceView: View {
                         )
                     } label: {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(cleanName.isEmpty ? tr("מתאמן ללא שם", "Unnamed trainee") : cleanName)
-                                .font(.system(size: 16, weight: .black))
-                                .foregroundStyle(Color(red: 0.08, green: 0.13, blue: 0.22))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.78)
+                            Text(
+                                cleanName.isEmpty
+                                    ? tr(
+                                        "מתאמן ללא שם",
+                                        "Unnamed trainee"
+                                    )
+                                    : cleanName
+                            )
+                            .kmiFont(
+                                size: 16,
+                                weight: .black
+                            )
+                            .foregroundStyle(primaryTextColor)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.72)
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
                             if !cleanPhone.isEmpty {
                                 Text(cleanPhone)
-                                    .font(.system(size: 11.5, weight: .semibold))
-                                    .foregroundStyle(Color(red: 0.39, green: 0.45, blue: 0.55))
+                                    .kmiFont(
+                                        size: 11.5,
+                                        weight: .semibold
+                                    )
+                                    .foregroundStyle(secondaryTextColor)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.74)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             } else {
-                                Text(tr("לחץ לפתיחת סטטיסטיקה", "Tap for statistics"))
-                                    .font(.system(size: 11.5, weight: .semibold))
-                                    .foregroundStyle(Color(red: 0.39, green: 0.45, blue: 0.55))
+                                Text(
+                                    tr(
+                                        "לחץ לפתיחת סטטיסטיקה",
+                                        "Tap for statistics"
+                                    )
+                                )
+                                .kmiFont(
+                                    size: 11.5,
+                                    weight: .semibold
+                                )
+                                .foregroundStyle(secondaryTextColor)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.72)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
@@ -901,22 +1466,50 @@ struct AttendanceView: View {
                         )
                     } label: {
                         VStack(alignment: .trailing, spacing: 3) {
-                            Text(cleanName.isEmpty ? tr("מתאמן ללא שם", "Unnamed trainee") : cleanName)
-                                .font(.system(size: 16, weight: .black))
-                                .foregroundStyle(Color(red: 0.08, green: 0.13, blue: 0.22))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.78)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
+                            Text(
+                                cleanName.isEmpty
+                                    ? tr(
+                                        "מתאמן ללא שם",
+                                        "Unnamed trainee"
+                                    )
+                                    : cleanName
+                            )
+                            .kmiFont(
+                                size: 16,
+                                weight: .black
+                            )
+                            .foregroundStyle(primaryTextColor)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.72)
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: .trailing
+                            )
 
                             if !cleanPhone.isEmpty {
                                 Text(cleanPhone)
-                                    .font(.system(size: 11.5, weight: .semibold))
-                                    .foregroundStyle(Color(red: 0.39, green: 0.45, blue: 0.55))
+                                    .kmiFont(
+                                        size: 11.5,
+                                        weight: .semibold
+                                    )
+                                    .foregroundStyle(secondaryTextColor)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.74)
                                     .frame(maxWidth: .infinity, alignment: .trailing)
                             } else {
-                                Text(tr("לחץ לפתיחת סטטיסטיקה", "Tap for statistics"))
-                                    .font(.system(size: 11.5, weight: .semibold))
-                                    .foregroundStyle(Color(red: 0.39, green: 0.45, blue: 0.55))
+                                Text(
+                                    tr(
+                                        "לחץ לפתיחת סטטיסטיקה",
+                                        "Tap for statistics"
+                                    )
+                                )
+                                .kmiFont(
+                                    size: 11.5,
+                                    weight: .semibold
+                                )
+                                .foregroundStyle(secondaryTextColor)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.72)
                                     .frame(maxWidth: .infinity, alignment: .trailing)
                             }
                         }
@@ -966,45 +1559,80 @@ struct AttendanceView: View {
             }
 
             TextField(
-                tr("הערת נוכחות", "Attendance note"),
+                tr(
+                    "הערת נוכחות",
+                    "Attendance note"
+                ),
                 text: Binding(
-                    get: { row.attendanceNote },
-                    set: { vm.setAttendanceNote(memberId: row.memberId, note: $0) }
+                    get: {
+                        row.attendanceNote
+                    },
+                    set: {
+                        vm.setAttendanceNote(
+                            memberId: row.memberId,
+                            note: $0
+                        )
+                    }
                 ),
                 axis: .vertical
             )
-            .font(.system(size: 12.5, weight: .semibold))
-            .foregroundStyle(Color(red: 0.15, green: 0.20, blue: 0.30))
+            .kmiFont(
+                size: 12.5,
+                weight: .semibold
+            )
+            .foregroundStyle(primaryTextColor)
+            .lineLimit(1...4)
             .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(Color(red: 0.95, green: 0.98, blue: 1.0))
-            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .padding(.vertical, 10)
+            .background(fieldSurfaceColor)
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: 13,
+                    style: .continuous
+                )
+            )
             .overlay(
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .stroke(Color(red: 0.80, green: 0.88, blue: 0.95), lineWidth: 1)
+                RoundedRectangle(
+                    cornerRadius: 13,
+                    style: .continuous
+                )
+                .stroke(
+                    cardBorderColor,
+                    lineWidth: 1
+                )
             )
             .multilineTextAlignment(screenTextAlignment)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.98),
-                            Color(red: 0.94, green: 0.98, blue: 1.0).opacity(0.97)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .fill(elevatedSurfaceColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color(red: 0.55, green: 0.82, blue: 0.96), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .stroke(
+                isDarkMode
+                    ? Color(red: 0.35, green: 0.72, blue: 0.94)
+                        .opacity(0.32)
+                    : Color(red: 0.55, green: 0.82, blue: 0.96),
+                lineWidth: 1
+            )
         )
-        .shadow(color: Color.black.opacity(0.14), radius: 8, x: 0, y: 5)
+        .shadow(
+            color: Color.black.opacity(
+                isDarkMode ? 0.24 : 0.12
+            ),
+            radius: 8,
+            x: 0,
+            y: 5
+        )
     }
     
     private func traineeAvatar(_ row: AttendanceRowUi) -> some View {
@@ -1036,22 +1664,49 @@ struct AttendanceView: View {
         )
     }
     
-    private func deleteMemberButton(_ row: AttendanceRowUi) -> some View {
+    private func deleteMemberButton(
+        _ row: AttendanceRowUi
+    ) -> some View {
         Button {
             pendingDeleteRow = row
         } label: {
             Image(systemName: "trash.fill")
-                .font(.system(size: 12.5, weight: .black))
-                .foregroundStyle(Color(red: 0.86, green: 0.12, blue: 0.12))
-                .frame(width: 32, height: 32)
-                .background(Color(red: 1.0, green: 0.93, blue: 0.93))
+                .font(
+                    .system(
+                        size: 14,
+                        weight: .black
+                    )
+                )
+                .foregroundStyle(
+                    isDarkMode
+                        ? Color(red: 1.0, green: 0.48, blue: 0.48)
+                        : Color(red: 0.86, green: 0.12, blue: 0.12)
+                )
+                .frame(width: 42, height: 42)
+                .background(
+                    isDarkMode
+                        ? Color.red.opacity(0.16)
+                        : Color(red: 1.0, green: 0.93, blue: 0.93)
+                )
                 .clipShape(Circle())
                 .overlay(
                     Circle()
-                        .stroke(Color(red: 0.98, green: 0.65, blue: 0.65), lineWidth: 1)
+                        .stroke(
+                            Color.red.opacity(
+                                isDarkMode ? 0.34 : 0.24
+                            ),
+                            lineWidth: 1
+                        )
                 )
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(
+            tr(
+                "מחיקת מתאמן",
+                "Delete trainee"
+            )
+        )
     }
     
     private func statusButton(
@@ -1062,43 +1717,100 @@ struct AttendanceView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            VStack(spacing: 3) {
+            VStack(spacing: 4) {
                 Image(systemName: icon)
-                    .font(.system(size: 12, weight: .black))
+                    .font(
+                        .system(
+                            size: 14,
+                            weight: .black
+                        )
+                    )
 
                 Text(title)
-                    .font(.system(size: 10.5, weight: .black))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.68)
+                    .kmiFont(
+                        size: 10.5,
+                        weight: .black
+                    )
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.66)
+                    .multilineTextAlignment(.center)
             }
-            .foregroundStyle(selected ? .white : selectedColor)
+            .foregroundStyle(
+                selected
+                    ? Color.white
+                    : selectedColor
+            )
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 7)
+            .frame(minHeight: 54)
             .background(
                 selected
-                ? selectedColor
-                : selectedColor.opacity(0.10)
+                    ? selectedColor
+                    : selectedColor.opacity(
+                        isDarkMode ? 0.18 : 0.10
+                    )
             )
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: 13,
+                    style: .continuous
+                )
+            )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(selected ? selectedColor.opacity(0.26) : selectedColor.opacity(0.22), lineWidth: 1)
+                RoundedRectangle(
+                    cornerRadius: 13,
+                    style: .continuous
+                )
+                .stroke(
+                    selected
+                        ? selectedColor.opacity(0.62)
+                        : selectedColor.opacity(
+                            isDarkMode ? 0.42 : 0.22
+                        ),
+                    lineWidth: 1
+                )
+            )
+            .contentShape(
+                RoundedRectangle(
+                    cornerRadius: 13,
+                    style: .continuous
+                )
             )
         }
         .buttonStyle(.plain)
     }
 
-    private func statPill(title: String, value: String, tint: Color) -> some View {
+    private func statPill(
+        title: String,
+        value: String,
+        tint: Color
+    ) -> some View {
         VStack(spacing: 4) {
             Text(value)
-                .font(.system(size: 18, weight: .black, design: .rounded))
-                .foregroundStyle(.white)
+                .kmiFont(
+                    size: 18,
+                    weight: .black
+                )
+                .foregroundStyle(
+                    isDarkMode
+                        ? Color.white
+                        : primaryTextColor
+                )
+                .lineLimit(1)
+                .minimumScaleFactor(0.70)
 
             Text(title)
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.white.opacity(0.78))
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
+                .kmiFont(
+                    size: 11,
+                    weight: .bold
+                )
+                .foregroundStyle(
+                    isDarkMode
+                        ? Color.white.opacity(0.78)
+                        : secondaryTextColor
+                )
+                .lineLimit(2)
+                .minimumScaleFactor(0.70)
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 11)
@@ -1110,35 +1822,72 @@ struct AttendanceView: View {
         )
     }
 
-    private func attendanceTextField(_ placeholder: String, text: Binding<String>) -> some View {
-        TextField(placeholder, text: text, axis: .vertical)
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 11)
-            .background(Color.white.opacity(0.11))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
+    private func attendanceTextField(
+        _ placeholder: String,
+        text: Binding<String>
+    ) -> some View {
+        TextField(
+            placeholder,
+            text: text,
+            axis: .vertical
+        )
+        .kmiFont(
+            size: 15,
+            weight: .semibold
+        )
+        .foregroundStyle(primaryTextColor)
+        .lineLimit(1...4)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 11)
+        .background(fieldSurfaceColor)
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 14,
+                style: .continuous
             )
-            .multilineTextAlignment(screenTextAlignment)
+        )
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: 14,
+                style: .continuous
+            )
+            .stroke(
+                cardBorderColor,
+                lineWidth: 1
+            )
+        )
+        .multilineTextAlignment(screenTextAlignment)
     }
 
-    private func secondaryActionButton(icon: String, title: String) -> some View {
+    private func secondaryActionButton(
+        icon: String,
+        title: String
+    ) -> some View {
         HStack(spacing: 7) {
             Image(systemName: icon)
+
             Text(title)
+                .kmiFont(
+                    size: 14,
+                    weight: .heavy
+                )
+                .lineLimit(2)
+                .minimumScaleFactor(0.72)
         }
-        .font(.system(size: 14, weight: .heavy))
-        .foregroundStyle(.white)
+        .foregroundStyle(primaryTextColor)
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .background(Color.white.opacity(0.10))
+        .frame(minHeight: 48)
+        .background(elevatedSurfaceColor)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 18,
+                style: .continuous
+            )
+            .stroke(
+                cardBorderColor,
+                lineWidth: 1
+            )
         )
     }
 
@@ -1221,17 +1970,50 @@ private struct AttendancePremiumDatePickerSheet: View {
     let onToday: () -> Void
     let onConfirm: () -> Void
 
+    @Environment(\.colorScheme)
+    private var colorScheme
+
+    private var isDarkMode: Bool {
+        colorScheme == .dark
+    }
+
     private var title: String {
-        isEnglish ? "Select attendance date" : "בחירת תאריך אימון"
+        isEnglish
+            ? "Select attendance date"
+            : "בחירת תאריך אימון"
+    }
+
+    private var sheetPrimaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.94)
+            : Color(red: 0.10, green: 0.14, blue: 0.22)
+    }
+
+    private var calendarSurfaceColor: Color {
+        isDarkMode
+            ? Color(red: 0.08, green: 0.12, blue: 0.19)
+            : Color.white.opacity(0.97)
+    }
+
+    private var secondaryButtonColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.12)
+            : Color.black.opacity(0.07)
     }
 
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    Color(red: 0.03, green: 0.09, blue: 0.18),
-                    Color(red: 0.03, green: 0.18, blue: 0.30)
-                ],
+                colors:
+                    isDarkMode
+                    ? [
+                        Color(red: 0.03, green: 0.07, blue: 0.14),
+                        Color(red: 0.03, green: 0.18, blue: 0.30)
+                    ]
+                    : [
+                        Color(red: 0.94, green: 0.96, blue: 1.0),
+                        Color(red: 0.82, green: 0.93, blue: 0.98)
+                    ],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -1239,10 +2021,15 @@ private struct AttendancePremiumDatePickerSheet: View {
 
             VStack(spacing: 18) {
                 Text(title)
-                    .font(.system(size: 22, weight: .black, design: .rounded))
-                    .foregroundStyle(.white)
+                    .kmiFont(
+                        size: 22,
+                        weight: .black
+                    )
+                    .foregroundStyle(sheetPrimaryTextColor)
                     .frame(maxWidth: .infinity)
                     .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.72)
                     .padding(.top, 6)
 
                 DatePicker(
@@ -1251,45 +2038,137 @@ private struct AttendancePremiumDatePickerSheet: View {
                     displayedComponents: [.date]
                 )
                 .datePickerStyle(.graphical)
-                .tint(Color(red: 0.13, green: 0.83, blue: 0.93))
+                .tint(
+                    Color(
+                        red: 0.13,
+                        green: 0.83,
+                        blue: 0.93
+                    )
+                )
                 .padding(12)
                 .background(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .fill(Color.white.opacity(0.96))
+                    RoundedRectangle(
+                        cornerRadius: 24,
+                        style: .continuous
+                    )
+                    .fill(calendarSurfaceColor)
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .overlay(
+                    RoundedRectangle(
+                        cornerRadius: 24,
+                        style: .continuous
+                    )
+                    .stroke(
+                        isDarkMode
+                            ? Color.white.opacity(0.14)
+                            : Color.black.opacity(0.08),
+                        lineWidth: 1
+                    )
+                )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 24,
+                        style: .continuous
+                    )
+                )
 
                 HStack(spacing: 12) {
                     Button(action: onCancel) {
-                        Text(isEnglish ? "Cancel" : "ביטול")
-                            .font(.system(size: 15, weight: .heavy))
-                            .foregroundStyle(.white.opacity(0.88))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(Color.white.opacity(0.12))
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        Text(
+                            isEnglish
+                                ? "Cancel"
+                                : "ביטול"
+                        )
+                        .kmiFont(
+                            size: 15,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(sheetPrimaryTextColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 48)
+                        .background(secondaryButtonColor)
+                        .clipShape(
+                            RoundedRectangle(
+                                cornerRadius: 16,
+                                style: .continuous
+                            )
+                        )
                     }
                     .buttonStyle(.plain)
 
                     Button(action: onToday) {
-                        Text(isEnglish ? "Today" : "היום")
-                            .font(.system(size: 15, weight: .heavy))
-                            .foregroundStyle(Color(red: 0.03, green: 0.09, blue: 0.18))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(Color(red: 0.13, green: 0.83, blue: 0.93))
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        Text(
+                            isEnglish
+                                ? "Today"
+                                : "היום"
+                        )
+                        .kmiFont(
+                            size: 15,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            Color(
+                                red: 0.03,
+                                green: 0.09,
+                                blue: 0.18
+                            )
+                        )
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 48)
+                        .background(
+                            Color(
+                                red: 0.13,
+                                green: 0.83,
+                                blue: 0.93
+                            )
+                        )
+                        .clipShape(
+                            RoundedRectangle(
+                                cornerRadius: 16,
+                                style: .continuous
+                            )
+                        )
                     }
                     .buttonStyle(.plain)
 
                     Button(action: onConfirm) {
-                        Text(isEnglish ? "Apply" : "אישור")
-                            .font(.system(size: 15, weight: .heavy))
-                            .foregroundStyle(Color(red: 0.03, green: 0.09, blue: 0.18))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        Text(
+                            isEnglish
+                                ? "Apply"
+                                : "אישור"
+                        )
+                        .kmiFont(
+                            size: 15,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            isDarkMode
+                                ? Color(red: 0.03, green: 0.09, blue: 0.18)
+                                : Color.white
+                        )
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 48)
+                        .background(
+                            isDarkMode
+                                ? Color.white
+                                : Color(
+                                    red: 0.17,
+                                    green: 0.36,
+                                    blue: 0.72
+                                )
+                        )
+                        .clipShape(
+                            RoundedRectangle(
+                                cornerRadius: 16,
+                                style: .continuous
+                            )
+                        )
                     }
                     .buttonStyle(.plain)
                 }

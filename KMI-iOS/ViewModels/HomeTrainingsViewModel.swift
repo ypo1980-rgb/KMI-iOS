@@ -272,5 +272,13 @@ final class HomeTrainingsViewModel: ObservableObject {
             : nil
 
         upcomingTrainings = uniqueTrainings
+
+        /*
+         * בכל טעינה או שינוי של האימונים הקרובים,
+         * מוחקים את התזכורות הישנות ובונים אותן מחדש.
+         */
+        TrainingReminderScheduler.shared.refresh(
+            trainings: uniqueTrainings
+        )
     }
 }

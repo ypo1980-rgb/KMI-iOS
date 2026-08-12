@@ -253,7 +253,10 @@ final class AppNavModel: ObservableObject {
         AppNavModel.sharedInstance = self
     }
 
-    func push(_ route: AppRoute) {
+    func push(
+        _ route: AppRoute,
+        presentationDelay: TimeInterval = 0.08
+    ) {
         if path.last == route {
             return
         }
@@ -269,7 +272,7 @@ final class AppNavModel: ObservableObject {
          * שהוא מתחיל לבנות את המסך הבא.
          */
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + 0.08
+            deadline: .now() + presentationDelay
         ) { [weak self] in
             guard let self else {
                 return

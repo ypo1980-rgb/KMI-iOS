@@ -1063,32 +1063,70 @@ struct SummaryView: View {
                     VStack(spacing: 12) {
 
                         if showComparisonCard {
-                            WhiteCard {
-                                BeltComparisonStatusCard(
-                                    traineesCount:
-                                        comparisonTraineesCount,
-                                    averagePercent:
-                                        comparisonAveragePercent,
-                                    userPercent:
-                                        percentAll,
-                                    statusText:
-                                        comparisonStatusText,
-                                    hasEnoughData:
-                                        comparisonHasEnoughData,
-                                    isCoach:
-                                        effectiveIsCoach,
-                                    isEnglish:
-                                        isEnglish,
-                                    onClose: {
-                                        showComparisonCard = false
-                                    }
+                            BeltComparisonStatusCard(
+                                traineesCount:
+                                    comparisonTraineesCount,
+                                averagePercent:
+                                    comparisonAveragePercent,
+                                userPercent:
+                                    percentAll,
+                                statusText:
+                                    comparisonStatusText,
+                                hasEnoughData:
+                                    comparisonHasEnoughData,
+                                isCoach:
+                                    effectiveIsCoach,
+                                isEnglish:
+                                    isEnglish,
+                                onClose: {
+                                    showComparisonCard = false
+                                }
+                            )
+                            .padding(.vertical, 16)
+                            .padding(.horizontal, 16)
+                            .background(
+                                RoundedRectangle(
+                                    cornerRadius: 22,
+                                    style: .continuous
                                 )
-                                .padding(.vertical, 12)
-                                .padding(.horizontal, 12)
-                            }
+                                .fill(
+                                    isDarkMode
+                                        ? Color(
+                                            red: 0.055,
+                                            green: 0.075,
+                                            blue: 0.125
+                                        )
+                                        .opacity(0.98)
+                                        : Color.white.opacity(0.96)
+                                )
+                            )
+                            .overlay(
+                                RoundedRectangle(
+                                    cornerRadius: 22,
+                                    style: .continuous
+                                )
+                                .stroke(
+                                    isDarkMode
+                                        ? Color.white.opacity(0.12)
+                                        : Color.black.opacity(0.07),
+                                    lineWidth: 1
+                                )
+                            )
+                            .shadow(
+                                color: Color.black.opacity(
+                                    isDarkMode ? 0.24 : 0.10
+                                ),
+                                radius: 12,
+                                x: 0,
+                                y: 5
+                            )
                             .padding(.horizontal, 16)
                             .padding(.top, 8)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
+                            .transition(
+                                .opacity.combined(
+                                    with: .move(edge: .top)
+                                )
+                            )
                         }
                         
                         if showProgressCard {

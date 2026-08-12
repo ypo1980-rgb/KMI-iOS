@@ -8,9 +8,22 @@ struct BeltArcPicker: View {
     let isEnglish: Bool
 
     private let big: CGFloat = 112
-    private let small: CGFloat = 58
+
+    // הגודל המקורי משמש לחישוב מיקום העיגולים בקרוסלה.
+    private let originalSmall: CGFloat = 58
+
+    // שני העיגולים הצדדיים מוגדלים ב־15%
+    // ולאחר מכן ב־25% נוספים.
+    private var small: CGFloat {
+        originalSmall * 1.15 * 1.25*1.15
+    }
+
     private let stepGap: CGFloat = 46
-    private var step: CGFloat { small + stepGap }
+
+    // שומר על המרווחים המקוריים בין מרכזי העיגולים.
+    private var step: CGFloat {
+        originalSmall + stepGap
+    }
 
     private let arcDepth: CGFloat = 74
     private var pickerHeight: CGFloat { big + arcDepth - 34 }
@@ -54,7 +67,9 @@ struct BeltArcPicker: View {
 
                     let x = centerX + step * rel
 
-                    let sideBoost = small * 1.32
+                    // משתמש בגודל המקורי כדי שההגדלה לא תזיז
+                    // את העיגולים הצדדיים כלפי מטה.
+                    let sideBoost = originalSmall * 1.32
                     let boostFactor = min(1, dist)
                     let yDrop = drop + sideBoost * boostFactor
                     let y = yDrop + 22

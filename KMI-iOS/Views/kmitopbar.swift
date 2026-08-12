@@ -1787,7 +1787,7 @@ struct KmiRootLayout<Content: View>: View {
     }
 
     private var globalVerticalRailPanel: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             ForEach(globalRailItems, id: \.self) { item in
                 let isEnabled =
                     isGlobalRailItemEnabled(item)
@@ -1854,8 +1854,8 @@ struct KmiRootLayout<Content: View>: View {
                 }
             }
         }
-        .padding(.horizontal, 5)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 9)
         .background(
             RoundedRectangle(
                 cornerRadius: 22,
@@ -1890,7 +1890,7 @@ struct KmiRootLayout<Content: View>: View {
     private func globalRailIcon(_ item: KmiIconStripItem) -> some View {
         let isSelected = selectedIcon == item
 
-        return VStack(spacing: 1) {
+        return VStack(spacing: 3) {
             ZStack {
                 Circle()
                     .fill(
@@ -1909,16 +1909,16 @@ struct KmiRootLayout<Content: View>: View {
                     )
                     .shadow(
                         color: Color.black.opacity(0.12),
-                        radius: 2,
+                        radius: 3,
                         x: 0,
-                        y: 1
+                        y: 2
                     )
 
                 Image(
                     systemName: globalRailSystemIcon(item)
                 )
                 .kmiFont(
-                    size: 17,
+                    size: 20,
                     weight: .black
                 )
                 .foregroundStyle(
@@ -1931,25 +1931,25 @@ struct KmiRootLayout<Content: View>: View {
                         : globalRailIconTint(item)
                 )
             }
-            .frame(width: 34, height: 34)
+            .frame(width: 42, height: 42)
 
             Text(globalRailTitle(item))
                 .kmiFont(
-                    size: 8.5,
+                    size: 10,
                     weight: .black
                 )
                 .foregroundStyle(globalRailTextColor)
                 .lineLimit(1)
-                .minimumScaleFactor(0.72)
+                .minimumScaleFactor(0.70)
                 .multilineTextAlignment(.center)
-                .frame(width: 52)
-                .frame(minHeight: 10)
+                .frame(width: 62)
+                .frame(minHeight: 12)
         }
-        .frame(width: 58)
-        .frame(minHeight: 49)
+        .frame(width: 68)
+        .frame(minHeight: 60)
         .contentShape(
             RoundedRectangle(
-                cornerRadius: 14,
+                cornerRadius: 16,
                 style: .continuous
             )
         )

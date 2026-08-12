@@ -1712,18 +1712,17 @@ struct BeltQuestionsByBeltView: View {
                     let isCompactHeight = geo.size.height < 760
                     let pickerWidth: CGFloat = isCompactHeight ? 332 : 346
                     let pickerHeight: CGFloat = isCompactHeight ? 168 : 176
-                    let pickerOffsetY: CGFloat = isCompactHeight ? -28 : -34
-                    
+
                     VStack {
                         Spacer()
-                        
+
                         BeltArcPicker(
                             belts: belts,
                             selectedBelt: $selectedBelt,
                             isEnglish: isEnglish
                         )
                         .frame(width: pickerWidth, height: pickerHeight)
-                        .offset(y: pickerOffsetY)
+                        .offset(y: 7)
                         .padding(.bottom, 0)
                     }
                     .frame(width: geo.size.width, height: geo.size.height, alignment: .bottom)
@@ -1956,7 +1955,8 @@ struct BeltQuestionsByBeltView: View {
                                         .isEmpty == false
                                     ? cleanSubTopic
                                     : nil
-                            )
+                            ),
+                            presentationDelay: 0.30
                         )
                     },
                     onPractice: {

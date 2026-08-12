@@ -470,8 +470,11 @@ struct KmiSideDrawer: View {
                 VStack(spacing: 8) {
                     HStack {
                         Text(isEnglish ? "Menu" : "תפריט")
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
+                            .kmiFont(
+                                size: 22,
+                                weight: .bold
+                            )
+                            .foregroundStyle(.white)
 
                         Spacer()
 
@@ -506,8 +509,17 @@ struct KmiSideDrawer: View {
                             traineeAreaCard
 
                             Text("© KAMI")
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundStyle(Color(red: 0.72, green: 0.77, blue: 0.85)) // #B8C4DA
+                                .kmiFont(
+                                    size: 12,
+                                    weight: .regular
+                                )
+                                .foregroundStyle(
+                                    Color(
+                                        red: 0.72,
+                                        green: 0.77,
+                                        blue: 0.85
+                                    )
+                                )
                                 .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
                                 .multilineTextAlignment(isEnglish ? .leading : .trailing)
                                 .padding(.horizontal, 18)
@@ -580,7 +592,10 @@ struct KmiSideDrawer: View {
     ) -> some View {
         VStack(spacing: 0) {
             Text(isEnglish ? titleEn : titleHe)
-                .font(.system(size: 16, weight: .black, design: .rounded))
+                .kmiFont(
+                    size: 16,
+                    weight: .black
+                )
                 .foregroundStyle(.white)
                 .frame(
                     maxWidth: .infinity,
@@ -735,20 +750,39 @@ struct KmiSideDrawer: View {
                     spacing: 2
                 ) {
                     Text(it.title(isEnglish: isEnglish))
-                        .font(.system(size: titleSize(for: it, isCoachButton: isCoachButton), weight: titleWeight(for: it, isCoachButton: isCoachButton)))
+                        .kmiFont(
+                            size: titleSize(
+                                for: it,
+                                isCoachButton: isCoachButton
+                            ),
+                            weight: titleWeight(
+                                for: it,
+                                isCoachButton: isCoachButton
+                            )
+                        )
                         .foregroundStyle(.white)
                         .lineLimit(2)
-                        .minimumScaleFactor(0.86)
+                        .minimumScaleFactor(0.72)
                         .tracking(it.routeKey == .aboutAvi || it.routeKey == .aboutNetworkCoaches ? -0.2 : 0)
                         .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
                         .multilineTextAlignment(isEnglish ? .leading : .trailing)
 
                     if let sub = it.subtitle(isEnglish: isEnglish), !sub.isEmpty {
                         Text(sub)
-                            .font(.system(size: isCoachButton ? 11 : 12, weight: isCoachButton ? .medium : .semibold))
-                            .foregroundStyle(.white.opacity(isCoachButton ? 0.82 : 0.72))
+                            .kmiFont(
+                                size: isCoachButton ? 11 : 12,
+                                weight:
+                                    isCoachButton
+                                    ? .medium
+                                    : .semibold
+                            )
+                            .foregroundStyle(
+                                .white.opacity(
+                                    isCoachButton ? 0.82 : 0.72
+                                )
+                            )
                             .lineLimit(2)
-                            .minimumScaleFactor(0.86)
+                            .minimumScaleFactor(0.72)
                             .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
                             .multilineTextAlignment(isEnglish ? .leading : .trailing)
                     }
@@ -808,7 +842,10 @@ private struct DrawerUnreadBadge: View {
     var body: some View {
         if count > 0 {
             Text(count > 99 ? "99+" : "\(count)")
-                .font(.system(size: 12, weight: .black))
+                .kmiFont(
+                    size: 12,
+                    weight: .black
+                )
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -1060,13 +1097,20 @@ private struct KmiDemoVideosSheet: View {
                                             spacing: 4
                                         ) {
                                             Text(video.title(isEnglish: isEnglish))
-                                                .font(.system(size: 16, weight: .heavy))
+                                                .kmiFont(
+                                                    size: 16,
+                                                    weight: .heavy
+                                                )
                                                 .foregroundStyle(.white)
                                                 .lineLimit(2)
+                                                .minimumScaleFactor(0.72)
                                                 .multilineTextAlignment(isEnglish ? .leading : .trailing)
 
                                             Text(video.source)
-                                                .font(.system(size: 13, weight: .semibold))
+                                                .kmiFont(
+                                                    size: 13,
+                                                    weight: .semibold
+                                                )
                                                 .foregroundStyle(.white.opacity(0.68))
                                         }
                                         .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
@@ -1114,8 +1158,13 @@ private struct KmiFormsPaymentsSheet: View {
 
             VStack(spacing: 14) {
                 Text(isEnglish ? "Forms & Payments" : "טפסים ותשלומים")
-                    .font(.system(size: 24, weight: .black, design: .rounded))
+                    .kmiFont(
+                        size: 24,
+                        weight: .black
+                    )
                     .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
                     .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
 
                 drawerSheetCard(
@@ -1152,13 +1201,21 @@ private struct KmiFormsPaymentsSheet: View {
                 spacing: 5
             ) {
                 Text(title)
-                    .font(.system(size: 18, weight: .heavy))
+                    .kmiFont(
+                        size: 18,
+                        weight: .heavy
+                    )
                     .foregroundStyle(.white)
 
                 Text(subtitle)
-                    .font(.system(size: 14, weight: .semibold))
+                    .kmiFont(
+                        size: 14,
+                        weight: .semibold
+                    )
                     .foregroundStyle(.white.opacity(0.72))
-                    .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                    .multilineTextAlignment(
+                        isEnglish ? .leading : .trailing
+                    )
             }
             .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
             .padding(16)
@@ -1272,13 +1329,29 @@ private struct KmiFormsListSheet: View {
                 spacing: 5
             ) {
                 Text(title)
-                    .font(.system(size: 17, weight: .heavy))
-                    .foregroundStyle(enabled ? .white : .white.opacity(0.62))
+                    .kmiFont(
+                        size: 17,
+                        weight: .heavy
+                    )
+                    .foregroundStyle(
+                        enabled
+                            ? .white
+                            : .white.opacity(0.62)
+                    )
 
                 Text(subtitle)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(enabled ? .white.opacity(0.72) : .white.opacity(0.50))
-                    .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                    .kmiFont(
+                        size: 14,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(
+                        enabled
+                            ? .white.opacity(0.72)
+                            : .white.opacity(0.50)
+                    )
+                    .multilineTextAlignment(
+                        isEnglish ? .leading : .trailing
+                    )
             }
             .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
             .padding(16)

@@ -4520,21 +4520,96 @@ private struct HomeTrainingCardAndroidStyle: View {
     private func liveTrainingState(
         at now: Date
     ) -> HomeTrainingLiveState {
-        guard let originalStartDate = reflectedDate() else {
-            return .invalid
-        }
+        let originalStartDate = training.date
 
         let startDate =
             activeOverride?.hasChangedTime == true
-            ? activeOverride?.effectiveStartDate ?? originalStartDate
+            ? activeOverride?.effectiveStartDate
+                ?? originalStartDate
             : originalStartDate
 
         let endDate: Date = {
+            /*
+             * אם המאמן שינה את שעות האימון,
+             * משתמשים בשעת הסיום המעודכנת.
+             */
             if activeOverride?.hasChangedTime == true,
-               let overriddenEndDate = activeOverride?.effectiveEndDate {
+               let overriddenEndDate =
+                    activeOverride?.effectiveEndDate,
+               overriddenEndDate > startDate {
                 return overriddenEndDate
             }
 
+            /*
+             * שעת הסיום שמגיעה מהקטלוג,
+             * לדוגמה: "20:30".
+             */
+            let cleanEndText =
+                training.endText
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                    .replacingOccurrences(
+                        of: #"[^0-9:]"#,
+                        with: "",
+                        options: .regularExpression
+                    )
+
+            let parts =
+                cleanEndText
+                    .split(separator: ":")
+                    .compactMap {
+                        Int($0)
+                    }
+
+            if parts.count >= 2 {
+                var calendar =
+                    Calendar(identifier: .gregorian)
+
+                calendar.timeZone =
+                    TimeZone(
+                        identifier: "Asia/Jerusalem"
+                    ) ?? .current
+
+                var components =
+                    calendar.dateComponents(
+                        [
+                            .year,
+                            .month,
+                            .day
+                        ],
+                        from: startDate
+                    )
+
+                components.hour = parts[0]
+                components.minute = parts[1]
+                components.second = 0
+                components.timeZone = calendar.timeZone
+
+                if var resolvedEndDate =
+                    calendar.date(
+                        from: components
+                    ) {
+
+                    /*
+                     * תומך גם באימון שמסתיים אחרי חצות.
+                     */
+                    if resolvedEndDate <= startDate {
+                        resolvedEndDate =
+                            calendar.date(
+                                byAdding: .day,
+                                value: 1,
+                                to: resolvedEndDate
+                            ) ?? resolvedEndDate
+                    }
+
+                    return resolvedEndDate
+                }
+            }
+
+            /*
+             * גיבוי רק כאשר שעת הסיום חסרה או שגויה.
+             */
             return Calendar.current.date(
                 byAdding: .minute,
                 value: reflectedDurationMinutes(),

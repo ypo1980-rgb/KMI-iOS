@@ -21,6 +21,8 @@ struct RegisterFormView: View {
     @State private var displayedBranchValue: String = ""
     @State private var displayedGroupValue: String = ""
 
+    @Environment(\.colorScheme) private var colorScheme
+
     @AppStorage("active_branch")
     private var storedActiveBranch: String = ""
 
@@ -577,44 +579,48 @@ struct RegisterFormView: View {
             .isEmpty
     }
 
+    private var isDarkMode: Bool {
+        colorScheme == .dark
+    }
+
+    private var registrationFieldBackground: Color {
+        isDarkMode
+            ? Color(hex: 0xFF1E293B).opacity(0.96)
+            : Color.white
+    }
+
+    private var registrationFieldTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.94)
+            : Color(hex: 0xFF111827)
+    }
+
     private var registrationFieldBorder: Color {
-        Color(
-            red: 0.824,
-            green: 0.769,
-            blue: 0.890
-        ) // #D2C4E3
+        isDarkMode
+            ? Color.white.opacity(0.18)
+            : Color(hex: 0xFFD2C4E3)
     }
 
     private var registrationErrorBorder: Color {
-        Color(
-            red: 0.882,
-            green: 0.231,
-            blue: 0.231
-        )
+        isDarkMode
+            ? Color(hex: 0xFFF87171)
+            : Color(hex: 0xFFE13B3B)
     }
 
     private var registrationMissingBackground: Color {
-        Color(
-            red: 1.000,
-            green: 0.894,
-            blue: 0.902
-        ) // #FFE4E6
+        isDarkMode
+            ? Color(hex: 0xFF4C1D2A).opacity(0.94)
+            : Color(hex: 0xFFFFE4E6)
     }
 
     private var registrationPrimaryPurple: Color {
-        Color(
-            red: 0.486,
-            green: 0.302,
-            blue: 1.0
-        ) // #7C4DFF
+        Color(hex: 0xFF7C4DFF)
     }
 
     private var registrationLabelColor: Color {
-        Color(
-            red: 0.278,
-            green: 0.333,
-            blue: 0.412
-        ) // #475569
+        isDarkMode
+            ? Color.white.opacity(0.72)
+            : Color(hex: 0xFF475569)
     }
 
     private var displayedBranchesText: String {
@@ -797,8 +803,6 @@ struct RegisterFormView: View {
 
     private var registerScrollContent: some View {
         VStack(spacing: 14) {
-            headerBar
-
             roleTabs
 
             /*
@@ -847,7 +851,7 @@ struct RegisterFormView: View {
             )
 
             Text(tr("מין המשתמש", "Gender"))
-                .font(.system(size: 14, weight: .semibold))
+                .kmiFont(size: 14, weight: .semibold)
                 .foregroundStyle(
                     showGenderError
                         ? registrationErrorBorder
@@ -868,7 +872,7 @@ struct RegisterFormView: View {
                         "Please select gender"
                     )
                 )
-                .font(.system(size: 12, weight: .semibold))
+                .kmiFont(size: 12, weight: .semibold)
                 .foregroundStyle(registrationErrorBorder)
                 .frame(
                     maxWidth: .infinity,
@@ -1531,14 +1535,8 @@ struct RegisterFormView: View {
             spacing: 10
         ) {
             Text(title)
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(
-                    Color(
-                        red: 0.12,
-                        green: 0.16,
-                        blue: 0.22
-                    )
-                )
+                .kmiFont(size: 15, weight: .bold)
+                .foregroundStyle(registrationFieldTextColor)
                 .frame(
                     maxWidth: .infinity,
                     alignment: formFrameAlignment
@@ -1546,13 +1544,7 @@ struct RegisterFormView: View {
                 .multilineTextAlignment(formTextAlignment)
 
             Rectangle()
-                .fill(
-                    Color(
-                        red: 0.85,
-                        green: 0.80,
-                        blue: 0.91
-                    )
-                )
+                .fill(registrationFieldBorder)
                 .frame(height: 1)
 
             content()
@@ -1573,33 +1565,28 @@ struct RegisterFormView: View {
                 style: .continuous
             )
             .fill(
-                Color(
-                    red: 0.96,
-                    green: 0.93,
-                    blue: 0.97
-                )
-                .opacity(0.96)
+                isDarkMode
+                    ? Color(hex: 0xFF172033).opacity(0.97)
+                    : Color(hex: 0xFFF5EDF7).opacity(0.96)
             )
-            .overlay(
-                RoundedRectangle(
-                    cornerRadius: 18,
-                    style: .continuous
-                )
-                .stroke(
-                    Color(
-                        red: 0.85,
-                        green: 0.80,
-                        blue: 0.91
-                    ),
-                    lineWidth: 1
-                )
+        )
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: 18,
+                style: .continuous
             )
-            .shadow(
-                color: Color.black.opacity(0.10),
-                radius: 4,
-                x: 0,
-                y: 2
+            .stroke(
+                isDarkMode
+                    ? Color.white.opacity(0.14)
+                    : Color(hex: 0xFFD9CCE8),
+                lineWidth: 1
             )
+        )
+        .shadow(
+            color: Color.black.opacity(isDarkMode ? 0.24 : 0.10),
+            radius: 4,
+            x: 0,
+            y: 2
         )
     }
 
@@ -1618,7 +1605,7 @@ struct RegisterFormView: View {
             spacing: 6
         ) {
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .kmiFont(size: 14, weight: .semibold)
                 .foregroundStyle(
                     showError
                         ? registrationErrorBorder
@@ -1641,6 +1628,7 @@ struct RegisterFormView: View {
             .keyboardType(keyboard)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
+            .kmiFont(size: 15, weight: .semibold)
             .multilineTextAlignment(
                 forceLtr
                     ? .leading
@@ -1652,13 +1640,18 @@ struct RegisterFormView: View {
                     ? .leftToRight
                     : screenLayoutDirection
             )
-            .foregroundStyle(.black)
+            .foregroundStyle(registrationFieldTextColor)
+            .tint(
+                isDarkMode
+                    ? Color.white.opacity(0.88)
+                    : registrationPrimaryPurple
+            )
             .padding(.horizontal, 12)
             .frame(minHeight: 46)
             .background(
                 showError
                     ? registrationMissingBackground
-                    : Color.white
+                    : registrationFieldBackground
             )
             .clipShape(
                 RoundedRectangle(
@@ -1686,7 +1679,7 @@ struct RegisterFormView: View {
                         keyboard: keyboard
                     )
                 )
-                .font(.system(size: 12, weight: .semibold))
+                .kmiFont(size: 12, weight: .semibold)
                 .foregroundStyle(registrationErrorBorder)
                 .frame(
                     maxWidth: .infinity,
@@ -1914,8 +1907,7 @@ struct RegisterFormView: View {
                 )
             },
             set: { newValue in
-                let digits =
-                    newValue.filter { $0.isNumber }
+                let digits = newValue.filter { $0.isNumber }
 
                 binding.wrappedValue = String(
                     digits.prefix(maxLength)
@@ -1925,7 +1917,7 @@ struct RegisterFormView: View {
 
         return VStack(spacing: 6) {
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
+                .kmiFont(size: 12, weight: .semibold)
                 .foregroundStyle(
                     showError
                         ? registrationErrorBorder
@@ -1945,15 +1937,20 @@ struct RegisterFormView: View {
                 \.layoutDirection,
                 .leftToRight
             )
-            .font(.system(size: 17, weight: .bold))
-            .foregroundStyle(.black)
+            .kmiFont(size: 17, weight: .bold)
+            .foregroundStyle(registrationFieldTextColor)
+            .tint(
+                isDarkMode
+                    ? Color.white.opacity(0.88)
+                    : registrationPrimaryPurple
+            )
             .padding(.horizontal, 6)
             .frame(maxWidth: .infinity)
             .frame(height: 52)
             .background(
                 showError
                     ? registrationMissingBackground
-                    : Color.white
+                    : registrationFieldBackground
             )
             .clipShape(
                 RoundedRectangle(
@@ -1976,15 +1973,8 @@ struct RegisterFormView: View {
 
             if showError {
                 Text(errorMessage)
-                    .font(
-                        .system(
-                            size: 10,
-                            weight: .semibold
-                        )
-                    )
-                    .foregroundStyle(
-                        registrationErrorBorder
-                    )
+                    .kmiFont(size: 10, weight: .semibold)
+                    .foregroundStyle(registrationErrorBorder)
                     .lineLimit(2)
                     .minimumScaleFactor(0.75)
                     .multilineTextAlignment(.center)
@@ -2000,7 +1990,7 @@ struct RegisterFormView: View {
             spacing: 6
         ) {
             Text(tr("סיסמה", "Password"))
-                .font(.system(size: 14, weight: .semibold))
+                .kmiFont(size: 14, weight: .semibold)
                 .foregroundStyle(
                     showPasswordError
                         ? registrationErrorBorder
@@ -2011,94 +2001,26 @@ struct RegisterFormView: View {
                     alignment: formFrameAlignment
                 )
                 .multilineTextAlignment(formTextAlignment)
-                .environment(
-                    \.layoutDirection,
-                    screenLayoutDirection
-                )
 
             HStack(spacing: 10) {
                 if isEnglish {
-                    Group {
-                        if s.showPassword {
-                            TextField(
-                                tr("סיסמה", "Password"),
-                                text: $s.password
-                            )
-                        } else {
-                            SecureField(
-                                tr("סיסמה", "Password"),
-                                text: $s.password
-                            )
-                        }
-                    }
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .multilineTextAlignment(.leading)
-                    .environment(
-                        \.layoutDirection,
-                        .leftToRight
-                    )
-                    .foregroundStyle(.black)
+                    passwordInput
 
                     Button {
                         s.showPassword.toggle()
                     } label: {
-                        Image(
-                            systemName: s.showPassword
-                                ? "eye.slash.fill"
-                                : "eye.fill"
-                        )
-                        .font(
-                            .system(
-                                size: 16,
-                                weight: .semibold
-                            )
-                        )
-                        .foregroundStyle(Color.gray)
-                        .frame(width: 30, height: 30)
+                        passwordEyeIcon
                     }
                     .buttonStyle(.plain)
                 } else {
                     Button {
                         s.showPassword.toggle()
                     } label: {
-                        Image(
-                            systemName: s.showPassword
-                                ? "eye.slash.fill"
-                                : "eye.fill"
-                        )
-                        .font(
-                            .system(
-                                size: 16,
-                                weight: .semibold
-                            )
-                        )
-                        .foregroundStyle(Color.gray)
-                        .frame(width: 30, height: 30)
+                        passwordEyeIcon
                     }
                     .buttonStyle(.plain)
 
-                    Group {
-                        if s.showPassword {
-                            TextField(
-                                tr("סיסמה", "Password"),
-                                text: $s.password
-                            )
-                        } else {
-                            SecureField(
-                                tr("סיסמה", "Password"),
-                                text: $s.password
-                            )
-                        }
-                    }
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .multilineTextAlignment(.trailing)
-                    .environment(
-                        \.layoutDirection,
-                        .rightToLeft
-                    )
-                    .foregroundStyle(.black)
+                    passwordInput
                 }
             }
             .padding(.horizontal, 12)
@@ -2106,7 +2028,7 @@ struct RegisterFormView: View {
             .background(
                 showPasswordError
                     ? registrationMissingBackground
-                    : Color.white
+                    : registrationFieldBackground
             )
             .clipShape(
                 RoundedRectangle(
@@ -2126,6 +2048,10 @@ struct RegisterFormView: View {
                     lineWidth: showPasswordError ? 2 : 1
                 )
             )
+            .environment(
+                \.layoutDirection,
+                screenLayoutDirection
+            )
 
             if showPasswordError {
                 Text(
@@ -2134,7 +2060,7 @@ struct RegisterFormView: View {
                         "Password must contain at least 6 characters"
                     )
                 )
-                .font(.system(size: 12, weight: .semibold))
+                .kmiFont(size: 12, weight: .semibold)
                 .foregroundStyle(registrationErrorBorder)
                 .frame(
                     maxWidth: .infinity,
@@ -2143,6 +2069,50 @@ struct RegisterFormView: View {
                 .multilineTextAlignment(formTextAlignment)
             }
         }
+    }
+
+    @ViewBuilder
+    private var passwordInput: some View {
+        Group {
+            if s.showPassword {
+                TextField(
+                    tr("סיסמה", "Password"),
+                    text: $s.password
+                )
+            } else {
+                SecureField(
+                    tr("סיסמה", "Password"),
+                    text: $s.password
+                )
+            }
+        }
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .kmiFont(size: 15, weight: .semibold)
+        .foregroundStyle(registrationFieldTextColor)
+        .tint(
+            isDarkMode
+                ? Color.white.opacity(0.88)
+                : registrationPrimaryPurple
+        )
+        .multilineTextAlignment(formTextAlignment)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var passwordEyeIcon: some View {
+        Image(
+            systemName:
+                s.showPassword
+                    ? "eye.slash.fill"
+                    : "eye.fill"
+        )
+        .font(.system(size: 16, weight: .semibold))
+        .foregroundStyle(
+            isDarkMode
+                ? Color.white.opacity(0.68)
+                : Color.gray
+        )
+        .frame(width: 30, height: 30)
     }
 
     private var regionPicker: some View {
@@ -2155,7 +2125,7 @@ struct RegisterFormView: View {
                     ? tr("מדינה", "Country")
                     : tr("אזור", "Region")
             )
-            .font(.system(size: 14, weight: .semibold))
+            .kmiFont(size: 14, weight: .semibold)
             .foregroundStyle(
                 showRegionError
                     ? Color.red
@@ -2186,6 +2156,7 @@ struct RegisterFormView: View {
                 }
             }
             .pickerStyle(.menu)
+            .tint(registrationFieldTextColor)
             .frame(
                 maxWidth: .infinity,
                 alignment: formFrameAlignment
@@ -2194,8 +2165,8 @@ struct RegisterFormView: View {
             .frame(height: 52)
             .background(
                 showRegionError
-                    ? Color.red.opacity(0.06)
-                    : Color.white
+                    ? registrationMissingBackground
+                    : registrationFieldBackground
             )
             .clipShape(
                 RoundedRectangle(
@@ -2232,7 +2203,7 @@ struct RegisterFormView: View {
                             "Region is required"
                         )
                 )
-                .font(.system(size: 12, weight: .semibold))
+                .kmiFont(size: 12, weight: .semibold)
                 .foregroundStyle(Color.red)
                 .frame(
                     maxWidth: .infinity,
@@ -2249,14 +2220,8 @@ struct RegisterFormView: View {
             spacing: 8
         ) {
             Text(tr("בחירת סוג סניף", "Branch type"))
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(
-                    Color(
-                        red: 0.28,
-                        green: 0.33,
-                        blue: 0.41
-                    )
-                )
+                .kmiFont(size: 14, weight: .semibold)
+                .foregroundStyle(registrationLabelColor)
                 .frame(
                     maxWidth: .infinity,
                     alignment: formFrameAlignment
@@ -2298,20 +2263,36 @@ struct RegisterFormView: View {
     ) -> some View {
         Button(action: onTap) {
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(isSelected ? .white : Color(red: 0.28, green: 0.33, blue: 0.41))
+                .kmiFont(size: 14, weight: .semibold)
+                .foregroundStyle(
+                    isSelected
+                        ? Color.white
+                        : registrationFieldTextColor
+                )
                 .frame(maxWidth: .infinity)
                 .frame(height: 38)
                 .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(isSelected ? Color(red: 0.486, green: 0.302, blue: 1.0) : Color.white)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(
-                                    isSelected ? Color(red: 0.424, green: 0.302, blue: 1.0) : Color(red: 0.82, green: 0.77, blue: 0.89),
-                                    lineWidth: isSelected ? 2 : 1
-                                )
-                        )
+                    RoundedRectangle(
+                        cornerRadius: 12,
+                        style: .continuous
+                    )
+                    .fill(
+                        isSelected
+                            ? registrationPrimaryPurple
+                            : registrationFieldBackground
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(
+                        cornerRadius: 12,
+                        style: .continuous
+                    )
+                    .stroke(
+                        isSelected
+                            ? registrationPrimaryPurple
+                            : registrationFieldBorder,
+                        lineWidth: isSelected ? 2 : 1
+                    )
                 )
         }
         .buttonStyle(.plain)
@@ -2344,14 +2325,14 @@ struct RegisterFormView: View {
             s.gender = value
         } label: {
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .kmiFont(size: 14, weight: .semibold)
                 .foregroundStyle(
                     selected
                         ? Color.white
                         : (
                             showGenderError
                                 ? registrationErrorBorder
-                                : registrationLabelColor
+                                : registrationFieldTextColor
                         )
                 )
                 .frame(maxWidth: .infinity)
@@ -2367,27 +2348,27 @@ struct RegisterFormView: View {
                             : (
                                 showGenderError
                                     ? registrationMissingBackground
-                                    : Color.white
+                                    : registrationFieldBackground
                             )
                     )
-                    .overlay(
-                        RoundedRectangle(
-                            cornerRadius: 12,
-                            style: .continuous
-                        )
-                        .stroke(
-                            selected
-                                ? selectedColor
-                                : (
-                                    showGenderError
-                                        ? registrationErrorBorder
-                                        : registrationFieldBorder
-                                ),
-                            lineWidth:
-                                selected || showGenderError
-                                    ? 2
-                                    : 1
-                        )
+                )
+                .overlay(
+                    RoundedRectangle(
+                        cornerRadius: 12,
+                        style: .continuous
+                    )
+                    .stroke(
+                        selected
+                            ? selectedColor
+                            : (
+                                showGenderError
+                                    ? registrationErrorBorder
+                                    : registrationFieldBorder
+                            ),
+                        lineWidth:
+                            selected || showGenderError
+                                ? 2
+                                : 1
                     )
                 )
         }
@@ -2405,7 +2386,7 @@ struct RegisterFormView: View {
                     "Current KAMI belt rank"
                 )
             )
-            .font(.system(size: 14, weight: .semibold))
+            .kmiFont(size: 14, weight: .semibold)
             .foregroundStyle(
                 showBeltError
                     ? registrationErrorBorder
@@ -2456,7 +2437,7 @@ struct RegisterFormView: View {
                 }
             }
             .pickerStyle(.menu)
-            .tint(Color.black)
+            .tint(registrationFieldTextColor)
             .frame(
                 maxWidth: .infinity,
                 alignment: formFrameAlignment
@@ -2466,7 +2447,7 @@ struct RegisterFormView: View {
             .background(
                 showBeltError
                     ? registrationMissingBackground
-                    : Color.white
+                    : registrationFieldBackground
             )
             .clipShape(
                 RoundedRectangle(
@@ -2498,7 +2479,7 @@ struct RegisterFormView: View {
                         "Belt rank is required"
                     )
                 )
-                .font(.system(size: 12, weight: .semibold))
+                .kmiFont(size: 12, weight: .semibold)
                 .foregroundStyle(registrationErrorBorder)
                 .frame(
                     maxWidth: .infinity,
@@ -2517,9 +2498,7 @@ struct RegisterFormView: View {
         onTap: @escaping () -> Void
     ) -> some View {
         let cleanValue = valueText
-            .trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
         let displayValue = cleanValue.isEmpty
             ? tr("בחר…", "Choose…")
@@ -2531,8 +2510,12 @@ struct RegisterFormView: View {
                 spacing: 6
             ) {
                 Text(title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(registrationLabelColor)
+                    .kmiFont(size: 14, weight: .semibold)
+                    .foregroundStyle(
+                        showError
+                            ? registrationErrorBorder
+                            : registrationLabelColor
+                    )
                     .frame(
                         maxWidth: .infinity,
                         alignment: formFrameAlignment
@@ -2546,9 +2529,11 @@ struct RegisterFormView: View {
                 HStack(alignment: .center, spacing: 10) {
                     if isEnglish {
                         Text(displayValue)
-                            .font(.system(size: 15, weight: .semibold))
+                            .kmiFont(size: 15, weight: .semibold)
                             .foregroundStyle(
-                                cleanValue.isEmpty ? .gray : .black
+                                cleanValue.isEmpty
+                                    ? registrationLabelColor
+                                    : registrationFieldTextColor
                             )
                             .fixedSize(
                                 horizontal: false,
@@ -2562,16 +2547,18 @@ struct RegisterFormView: View {
 
                         Image(systemName: "chevron.down")
                             .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(Color.gray)
+                            .foregroundStyle(registrationLabelColor)
                     } else {
                         Image(systemName: "chevron.down")
                             .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(Color.gray)
+                            .foregroundStyle(registrationLabelColor)
 
                         Text(displayValue)
-                            .font(.system(size: 15, weight: .semibold))
+                            .kmiFont(size: 15, weight: .semibold)
                             .foregroundStyle(
-                                cleanValue.isEmpty ? .gray : .black
+                                cleanValue.isEmpty
+                                    ? registrationLabelColor
+                                    : registrationFieldTextColor
                             )
                             .fixedSize(
                                 horizontal: false,
@@ -2593,7 +2580,7 @@ struct RegisterFormView: View {
                 .background(
                     showError
                         ? registrationMissingBackground
-                        : Color.white
+                        : registrationFieldBackground
                 )
                 .clipShape(
                     RoundedRectangle(
@@ -2620,7 +2607,7 @@ struct RegisterFormView: View {
 
                 if showError && !errorMessage.isEmpty {
                     Text(errorMessage)
-                        .font(.system(size: 12, weight: .semibold))
+                        .kmiFont(size: 12, weight: .semibold)
                         .foregroundStyle(registrationErrorBorder)
                         .frame(
                             maxWidth: .infinity,
@@ -2649,7 +2636,7 @@ struct RegisterFormView: View {
             .fill(
                 isChecked
                     ? registrationPrimaryPurple
-                    : Color.white
+                    : registrationFieldBackground
             )
 
             RoundedRectangle(

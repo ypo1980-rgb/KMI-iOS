@@ -214,7 +214,7 @@ private enum HomeVisualTheme {
         for colorScheme: ColorScheme
     ) -> Color {
         colorScheme == .dark
-            ? Color(hex: 0xFF111827).opacity(0.97)
+            ? Color(hex: 0xFF16243A).opacity(0.98)
             : Color.white.opacity(0.96)
     }
 
@@ -222,7 +222,7 @@ private enum HomeVisualTheme {
         for colorScheme: ColorScheme
     ) -> Color {
         colorScheme == .dark
-            ? Color(hex: 0xFF172033).opacity(0.98)
+            ? Color(hex: 0xFF24344D).opacity(0.98)
             : Color.white.opacity(0.92)
     }
 
@@ -4754,7 +4754,7 @@ private struct HomeTrainingCardAndroidStyle: View {
                 }
                 .environment(
                     \.layoutDirection,
-                    rowDirection
+                    .leftToRight
                 )
                 .padding(.horizontal, 10)
                 .padding(.vertical, 7)
@@ -4915,21 +4915,56 @@ private struct HomeTrainingCardAndroidStyle: View {
     }
 
     private var navigationTextBlock: some View {
-        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 3) {
-            Text(isEnglish ? "Navigate" : "ניווט")
-                .font(.system(size: 13, weight: .black))
-                .foregroundStyle(Color(hex: 0xFF0B1220))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: frameAlignment)
-                .multilineTextAlignment(textAlignment)
+        VStack(
+            alignment: isEnglish ? .leading : .trailing,
+            spacing: 3
+        ) {
+            Text(
+                isEnglish
+                    ? "Navigate"
+                    : "ניווט"
+            )
+            .kmiFont(
+                size: 13,
+                weight: .black
+            )
+            .foregroundStyle(
+                colorScheme == .dark
+                    ? Color.white
+                    : Color(hex: 0xFF0B1220)
+            )
+            .lineLimit(1)
+            .frame(
+                maxWidth: .infinity,
+                alignment: frameAlignment
+            )
+            .multilineTextAlignment(textAlignment)
 
-            Text(addressText.isEmpty ? (isEnglish ? "No address" : "אין כתובת") : addressText)
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(Color(hex: 0xFF475569))
-                .lineLimit(2)
-                .minimumScaleFactor(0.78)
-                .frame(maxWidth: .infinity, alignment: frameAlignment)
-                .multilineTextAlignment(textAlignment)
+            Text(
+                addressText.isEmpty
+                    ? (
+                        isEnglish
+                            ? "No address"
+                            : "אין כתובת"
+                    )
+                    : addressText
+            )
+            .kmiFont(
+                size: 10.5,
+                weight: .semibold
+            )
+            .foregroundStyle(
+                colorScheme == .dark
+                    ? Color.white.opacity(0.72)
+                    : Color(hex: 0xFF475569)
+            )
+            .lineLimit(2)
+            .minimumScaleFactor(0.78)
+            .frame(
+                maxWidth: .infinity,
+                alignment: frameAlignment
+            )
+            .multilineTextAlignment(textAlignment)
         }
     }
 }

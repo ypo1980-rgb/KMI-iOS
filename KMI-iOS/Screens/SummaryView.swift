@@ -185,6 +185,10 @@ struct SummaryView: View {
     @State private var showProgressCard: Bool = false
     @State private var showComparisonCard: Bool = false
     @State private var marksRevision: Int = 0
+
+    @State private var cachedBlocks: [SummaryTopicBlock] = []
+    @State private var isSummaryLoading: Bool = true
+
     @State private var comparisonTraineesCount: Int = 0
     @State private var comparisonAveragePercent: Int = 0
     @State private var comparisonBetterThanPercent: Int = 0
@@ -630,6 +634,10 @@ struct SummaryView: View {
     }
     
     private var blocks: [SummaryTopicBlock] {
+        cachedBlocks
+    }
+
+    private func buildSummaryBlocks() -> [SummaryTopicBlock] {
         catalogTopics.map { topicBlock in
             var seen = Set<String>()
 
@@ -1284,7 +1292,33 @@ struct SummaryView: View {
                             .transition(.opacity.combined(with: .move(edge: .top)))
                         }
 
-                        if blocks.isEmpty {
+                        if isSummaryLoading {
+                            WhiteCard {
+                                VStack(spacing: 12) {
+                                    ProgressView()
+                                        .controlSize(.large)
+                                        .tint(summaryPrimaryTextColor)
+
+                                    Text(
+                                        tr(
+                                            "טוען את נתוני הסיכום...",
+                                            "Loading summary data..."
+                                        )
+                                    )
+                                    .kmiFont(
+                                        size: 16,
+                                        weight: .bold
+                                    )
+                                    .foregroundStyle(
+                                        summaryPrimaryTextColor
+                                    )
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 24)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                        } else if blocks.isEmpty {
                             WhiteCard {
                                 VStack(spacing: 10) {
                                     Text(
@@ -1374,7 +1408,14 @@ struct SummaryView: View {
 
             postSummaryTopTitleOverride()
 
+            isSummaryLoading = true
+
             DispatchQueue.main.async {
+                cachedBlocks =
+                    buildSummaryBlocks()
+
+                isSummaryLoading = false
+
                 postSummaryTopTitleOverride()
             }
 
@@ -1420,12 +1461,20 @@ struct SummaryView: View {
                 currentRoleId
 
             /*
-             * גורם ל־blocks להיבנות מחדש ולקרוא
+             * מרענן פעם אחת את מטמון הסיכום וקורא
              * רק את הסימונים של התפקיד הפעיל.
              */
             marksRevision &+= 1
+            isSummaryLoading = true
 
-            postSummaryTopTitleOverride()
+            DispatchQueue.main.async {
+                cachedBlocks =
+                    buildSummaryBlocks()
+
+                isSummaryLoading = false
+
+                postSummaryTopTitleOverride()
+            }
         }
     }
     
@@ -2131,11 +2180,18 @@ struct SummaryView: View {
                             weight: .black
                         )
                         .foregroundStyle(primaryTextColor)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.78)
-                            .frame(maxWidth: .infinity, alignment: frameAlignment)
-                            .multilineTextAlignment(textAlignment)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: frameAlignment
+                        )
+                        .multilineTextAlignment(textAlignment)
                     }
+                    .environment(
+                        \.layoutDirection,
+                        .leftToRight
+                    )
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
                 }

@@ -242,16 +242,61 @@ final class AppNavModel: ObservableObject {
 
     @Published var path: [AppRoute] = []
 
+    @Published
+    private(set) var isTransitionLoading: Bool = false
+
+    private var automaticTransitionActive: Bool = false
+    private var automaticTransitionID = UUID()
+    private var manualLoadingDepth: Int = 0
+
     init() {
         AppNavModel.sharedInstance = self
     }
 
-    func push(_ r: AppRoute) {
-        if path.last == r {
+    func push(_ route: AppRoute) {
+        if path.last == route {
             return
         }
 
-        path.append(r)
+        let transitionID = UUID()
+
+        automaticTransitionID = transitionID
+        automaticTransitionActive = true
+        refreshLoadingVisibility()
+
+        /*
+         * מאפשר ל־SwiftUI לצייר את האנימציה לפני
+         * שהוא מתחיל לבנות את המסך הבא.
+         */
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + 0.08
+        ) { [weak self] in
+            guard let self else {
+                return
+            }
+
+            guard self.path.last != route else {
+                self.finishAutomaticTransition(
+                    id: transitionID
+                )
+                return
+            }
+
+            self.path.append(route)
+
+            /*
+             * הגנת ברירת מחדל למעברים רגילים.
+             * מסכים בעלי טעינה ארוכה משתמשים בנוסף
+             * ב־beginLoading ו־endLoading.
+             */
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + 0.85
+            ) { [weak self] in
+                self?.finishAutomaticTransition(
+                    id: transitionID
+                )
+            }
+        }
     }
 
     func pop() {
@@ -264,6 +309,65 @@ final class AppNavModel: ObservableObject {
 
     func popToRoot() {
         path.removeAll()
+        automaticTransitionActive = false
+        manualLoadingDepth = 0
+        refreshLoadingVisibility()
+    }
+
+    /*
+     * יש לקרוא בתחילת פעולה אסינכרונית ארוכה.
+     * אפשר לבצע כמה פעולות במקביל בלי שהאנימציה
+     * תיעלם לפני שכולן הסתיימו.
+     */
+    func beginLoading() {
+        manualLoadingDepth += 1
+        refreshLoadingVisibility()
+    }
+
+    /*
+     * יש לקרוא בסיום הפעולה האסינכרונית.
+     */
+    func endLoading() {
+        manualLoadingDepth =
+            max(
+                0,
+                manualLoadingDepth - 1
+            )
+
+        refreshLoadingVisibility()
+    }
+
+    func cancelAllLoading() {
+        automaticTransitionActive = false
+        manualLoadingDepth = 0
+        refreshLoadingVisibility()
+    }
+
+    private func finishAutomaticTransition(
+        id: UUID
+    ) {
+        guard automaticTransitionID == id else {
+            return
+        }
+
+        automaticTransitionActive = false
+        refreshLoadingVisibility()
+    }
+
+    private func refreshLoadingVisibility() {
+        let shouldShow =
+            automaticTransitionActive ||
+            manualLoadingDepth > 0
+
+        guard isTransitionLoading != shouldShow else {
+            return
+        }
+
+        withAnimation(
+            .easeInOut(duration: 0.18)
+        ) {
+            isTransitionLoading = shouldShow
+        }
     }
 }
 
@@ -1868,6 +1972,11 @@ struct ContentView: View {
                 }
             }
             .environmentObject(nav)
+            .overlay {
+                if nav.isTransitionLoading {
+                    KmiLoadingOverlay()
+                }
+            }
             .fullScreenCover(
                 isPresented: Binding(
                     get: {

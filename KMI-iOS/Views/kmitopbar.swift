@@ -550,8 +550,18 @@ struct KmiTopBar: View {
                     )
                     .foregroundStyle(resolvedTitleColor)
                     .lineLimit(1)
+                    .allowsTightening(true)
                     .minimumScaleFactor(0.68)
                     .multilineTextAlignment(.center)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .center
+                    )
+                    .fixedSize(
+                        horizontal: false,
+                        vertical: true
+                    )
+                    .layoutPriority(1)
 
                 if let rightText,
                    !rightText
@@ -575,6 +585,7 @@ struct KmiTopBar: View {
                 maxWidth: .infinity,
                 alignment: .center
             )
+            .layoutPriority(1)
 
             Spacer(minLength: 4)
 

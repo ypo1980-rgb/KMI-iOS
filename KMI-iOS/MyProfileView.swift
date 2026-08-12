@@ -71,10 +71,45 @@ struct MyProfileView: View {
     @AppStorage("address") private var address: String = ""
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var firestoreInfo = MyProfileFirestoreInfo()
     @State private var isLoadingFirestoreProfile: Bool = false
     @State private var passwordVisible: Bool = false
+
+    private var isDarkMode: Bool {
+        colorScheme == .dark
+    }
+
+    private var profilePrimaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.94)
+            : Color(hex: 0xFF111827)
+    }
+
+    private var profileSecondaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.68)
+            : Color(hex: 0xFF52627A)
+    }
+
+    private var profileAccentTextColor: Color {
+        isDarkMode
+            ? Color(hex: 0xFF8AB4F8)
+            : Color(hex: 0xFF31528A)
+    }
+
+    private var profileCardColor: Color {
+        isDarkMode
+            ? Color(hex: 0xFF1E293B).opacity(0.96)
+            : Color(hex: 0xFFEAF2FF)
+    }
+
+    private var profileCardBorderColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.16)
+            : Color(hex: 0xFFD8E3F5)
+    }
 
     private var effectiveLanguageCode: String {
         let orderedValues = [
@@ -110,15 +145,15 @@ struct MyProfileView: View {
     }
 
     private var profileTextAlignment: TextAlignment {
-        isEnglish ? .leading : .trailing
+        .leading
     }
 
     private var profileFrameAlignment: Alignment {
-        isEnglish ? .leading : .trailing
+        .leading
     }
 
     private var profileStackAlignment: HorizontalAlignment {
-        isEnglish ? .leading : .trailing
+        .leading
     }
 
     private func tr(_ he: String, _ en: String) -> String {
@@ -369,13 +404,21 @@ struct MyProfileView: View {
 
     private var profileBackground: some View {
         LinearGradient(
-            colors: [
-                Color(hex: 0xFFF8FBFF),
-                Color(hex: 0xFFEAF4FF),
-                Color(hex: 0xFFB7DDF7),
-                Color(hex: 0xFF1F78B4),
-                Color(hex: 0xFF062B4A)
-            ],
+            colors: isDarkMode
+                ? [
+                    Color(hex: 0xFF0F172A),
+                    Color(hex: 0xFF111827),
+                    Color(hex: 0xFF10243A),
+                    Color(hex: 0xFF0A3657),
+                    Color(hex: 0xFF041E33)
+                ]
+                : [
+                    Color(hex: 0xFFF8FBFF),
+                    Color(hex: 0xFFEAF4FF),
+                    Color(hex: 0xFFB7DDF7),
+                    Color(hex: 0xFF1F78B4),
+                    Color(hex: 0xFF062B4A)
+                ],
             startPoint: .top,
             endPoint: .bottom
         )
@@ -384,7 +427,7 @@ struct MyProfileView: View {
 
     private var syncingBadge: some View {
         Text(tr("מסנכרן פרופיל...", "Syncing profile..."))
-            .font(.system(size: 13, weight: .bold))
+            .kmiFont(size: 13, weight: .bold)
             .foregroundStyle(.white)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -416,18 +459,22 @@ struct MyProfileView: View {
 
             trainingTowardBeltCard
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 16)
-        .padding(.bottom, 16)
+        .padding(.horizontal, 22)
+        .padding(.vertical, 22)
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(Color(red: 0.91, green: 0.95, blue: 1.00))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(Color(red: 0.74, green: 0.82, blue: 0.94), lineWidth: 1)
-                )
-                .shadow(color: Color.black.opacity(0.18), radius: 12, x: 0, y: 7)
+                .fill(profileCardColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(profileCardBorderColor, lineWidth: 1)
+        )
+        .shadow(
+            color: Color.black.opacity(isDarkMode ? 0.28 : 0.14),
+            radius: isDarkMode ? 10 : 8,
+            x: 0,
+            y: 4
         )
     }
 
@@ -464,19 +511,19 @@ struct MyProfileView: View {
         frameAlignment: Alignment,
         textAlignment: TextAlignment
     ) -> some View {
-        VStack(alignment: alignment, spacing: 4) {
+        VStack(alignment: alignment, spacing: 6) {
             Text(displayedUserName)
-                .font(.system(size: 24, weight: .heavy))
-                .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.18))
+                .kmiFont(size: 24, weight: .heavy)
+                .foregroundStyle(profilePrimaryTextColor)
                 .lineLimit(2)
                 .minimumScaleFactor(0.72)
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
                 .multilineTextAlignment(textAlignment)
 
             Text(displayedBelt)
-                .font(.system(size: 17, weight: .heavy))
-                .foregroundStyle(Color(red: 0.16, green: 0.24, blue: 0.58))
-                .lineLimit(1)
+                .kmiFont(size: 15, weight: .semibold)
+                .foregroundStyle(profileAccentTextColor)
+                .lineLimit(2)
                 .minimumScaleFactor(0.78)
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
                 .multilineTextAlignment(textAlignment)
@@ -526,11 +573,7 @@ struct MyProfileView: View {
 
     private var editProfileButton: some View {
         Button {
-            dismiss()
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
-                AppNavModel.sharedInstance?.push(.editProfile)
-            }
+            AppNavModel.sharedInstance?.push(.editProfile)
         } label: {
             Text(tr("עריכת פרופיל", "Edit profile"))
                 .font(.system(size: 16, weight: .heavy))
@@ -606,28 +649,51 @@ struct MyProfileView: View {
         }
     }
 
-    private func labeledValueBlock(label: String, value: String) -> some View {
-        VStack(alignment: profileStackAlignment, spacing: 3) {
+    private func labeledValueBlock(
+        label: String,
+        value: String
+    ) -> some View {
+        VStack(
+            alignment: profileStackAlignment,
+            spacing: 3
+        ) {
             Text(label)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Color(red: 0.35, green: 0.40, blue: 0.50))
-                .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
+                .kmiFont(size: 13, weight: .medium)
+                .foregroundStyle(profileSecondaryTextColor)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: profileFrameAlignment
+                )
                 .multilineTextAlignment(profileTextAlignment)
 
-            Text(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "—" : value)
-                .font(.system(size: 15, weight: .heavy))
-                .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.18))
-                .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
-                .multilineTextAlignment(profileTextAlignment)
-                .lineLimit(4)
-                .minimumScaleFactor(0.80)
+            Text(
+                value.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ).isEmpty
+                    ? "—"
+                    : value
+            )
+            .kmiFont(size: 15, weight: .heavy)
+            .foregroundStyle(profilePrimaryTextColor)
+            .frame(
+                maxWidth: .infinity,
+                alignment: profileFrameAlignment
+            )
+            .multilineTextAlignment(profileTextAlignment)
+            .lineLimit(4)
+            .minimumScaleFactor(0.80)
 
-            Spacer().frame(height: 5)
+            Spacer()
+                .frame(height: 5)
 
             Rectangle()
-                .fill(Color(red: 0.72, green: 0.79, blue: 0.89))
+                .fill(profileCardBorderColor)
                 .frame(height: 1)
         }
+        .frame(
+            maxWidth: .infinity,
+            alignment: profileFrameAlignment
+        )
         .padding(.vertical, 5)
     }
 
@@ -637,29 +703,35 @@ struct MyProfileView: View {
     ) -> some View {
         VStack(alignment: profileStackAlignment, spacing: 8) {
             Text(label)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Color(red: 0.35, green: 0.40, blue: 0.50))
+                .kmiFont(size: 13, weight: .medium)
+                .foregroundStyle(profileSecondaryTextColor)
                 .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                 .multilineTextAlignment(profileTextAlignment)
 
             if entries.isEmpty {
                 Text("—")
-                    .font(.system(size: 15, weight: .heavy))
-                    .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.18))
+                    .kmiFont(size: 15, weight: .bold)
+                    .foregroundStyle(profilePrimaryTextColor)
                     .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                     .multilineTextAlignment(profileTextAlignment)
             } else {
                 ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                     VStack(alignment: profileStackAlignment, spacing: 4) {
                         Text(entry.branch.ifBlankDash())
-                            .font(.system(size: 15, weight: .heavy))
-                            .foregroundStyle(Color(red: 0.12, green: 0.23, blue: 0.54))
+                            .kmiFont(size: 15, weight: .heavy)
+                            .foregroundStyle(profileAccentTextColor)
                             .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                             .multilineTextAlignment(profileTextAlignment)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.78)
 
                         Text(entry.address.ifBlankDash())
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(red: 0.22, green: 0.25, blue: 0.32))
+                            .kmiFont(size: 14, weight: .semibold)
+                            .foregroundStyle(
+                                isDarkMode
+                                    ? Color.white.opacity(0.74)
+                                    : Color(hex: 0xFF374151)
+                            )
                             .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                             .multilineTextAlignment(profileTextAlignment)
 
@@ -667,14 +739,14 @@ struct MyProfileView: View {
                             .frame(height: 4)
 
                         Text(tr("קבוצה:", "Group:"))
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Color(red: 0.35, green: 0.40, blue: 0.50))
+                            .kmiFont(size: 13, weight: .medium)
+                            .foregroundStyle(profileSecondaryTextColor)
                             .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                             .multilineTextAlignment(profileTextAlignment)
 
                         Text(entry.group.ifBlankDash())
-                            .font(.system(size: 14, weight: .heavy))
-                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.18))
+                            .kmiFont(size: 14, weight: .heavy)
+                            .foregroundStyle(profilePrimaryTextColor)
                             .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                             .multilineTextAlignment(profileTextAlignment)
 
@@ -682,14 +754,14 @@ struct MyProfileView: View {
                             .frame(height: 2)
 
                         Text(tr("מאמן:", "Coach:"))
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Color(red: 0.35, green: 0.40, blue: 0.50))
+                            .kmiFont(size: 13, weight: .medium)
+                            .foregroundStyle(profileSecondaryTextColor)
                             .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                             .multilineTextAlignment(profileTextAlignment)
 
                         Text(entry.coach.ifBlankDash())
-                            .font(.system(size: 14, weight: .heavy))
-                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.18))
+                            .kmiFont(size: 14, weight: .heavy)
+                            .foregroundStyle(profilePrimaryTextColor)
                             .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                             .multilineTextAlignment(profileTextAlignment)
                     }
@@ -697,71 +769,109 @@ struct MyProfileView: View {
                     .padding(.vertical, 10)
                     .background(
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(index.isMultiple(of: 2) ? Color(red: 0.87, green: 0.92, blue: 1.00) : Color(red: 0.95, green: 0.97, blue: 1.00))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .stroke(Color(red: 0.75, green: 0.82, blue: 0.91), lineWidth: 1)
+                            .fill(
+                                isDarkMode
+                                    ? (
+                                        index.isMultiple(of: 2)
+                                            ? Color(hex: 0xFF111827)
+                                            : Color(hex: 0xFF1E293B)
+                                    )
+                                    : (
+                                        index.isMultiple(of: 2)
+                                            ? Color(hex: 0xFFDDEAFF)
+                                            : Color(hex: 0xFFF3F7FF)
+                                    )
                             )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(profileCardBorderColor, lineWidth: 1)
+                    )
+                    .padding(
+                        .bottom,
+                        index == entries.count - 1 ? 0 : 8
                     )
                 }
             }
 
             Rectangle()
-                .fill(Color(red: 0.72, green: 0.79, blue: 0.89))
+                .fill(profileCardBorderColor)
                 .frame(height: 1)
         }
         .padding(.vertical, 6)
     }
 
-    private func passwordRow(label: String, password: String) -> some View {
-        VStack(spacing: 0) {
+    private func passwordRow(
+        label: String,
+        password: String
+    ) -> some View {
+        VStack(
+            alignment: profileStackAlignment,
+            spacing: 5
+        ) {
+            Text(label)
+                .kmiFont(size: 13, weight: .medium)
+                .foregroundStyle(profileSecondaryTextColor)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: profileFrameAlignment
+                )
+                .multilineTextAlignment(profileTextAlignment)
+
             HStack(spacing: 8) {
                 if isEnglish {
-                    Text(label)
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color(red: 0.35, green: 0.40, blue: 0.50))
-
-                    Spacer()
-
-                    Text(passwordVisible ? password : "••••••••")
-                        .font(.system(size: 15, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.18))
-
                     Button {
                         passwordVisible.toggle()
                     } label: {
-                        Image(systemName: passwordVisible ? "eye.slash" : "eye")
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundStyle(Color(red: 0.28, green: 0.24, blue: 0.62))
+                        passwordVisibilityIcon
                     }
                     .buttonStyle(.plain)
+
+                    Text(passwordVisible ? password : "••••••••")
+                        .kmiFont(size: 15, weight: .heavy)
+                        .foregroundStyle(profilePrimaryTextColor)
+
+                    Spacer(minLength: 0)
                 } else {
+                    Spacer(minLength: 0)
+
+                    Text(passwordVisible ? password : "••••••••")
+                        .kmiFont(size: 15, weight: .heavy)
+                        .foregroundStyle(profilePrimaryTextColor)
+
                     Button {
                         passwordVisible.toggle()
                     } label: {
-                        Image(systemName: passwordVisible ? "eye.slash" : "eye")
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundStyle(Color(red: 0.28, green: 0.24, blue: 0.62))
+                        passwordVisibilityIcon
                     }
                     .buttonStyle(.plain)
-
-                    Text(passwordVisible ? password : "••••••••")
-                        .font(.system(size: 15, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.18))
-
-                    Spacer()
-
-                    Text(label)
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color(red: 0.35, green: 0.40, blue: 0.50))
                 }
             }
-            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity)
+            .environment(\.layoutDirection, .leftToRight)
 
             Rectangle()
-                .fill(Color(red: 0.72, green: 0.79, blue: 0.89))
+                .fill(profileCardBorderColor)
                 .frame(height: 1)
         }
+        .frame(
+            maxWidth: .infinity,
+            alignment: profileFrameAlignment
+        )
+        .padding(.vertical, 5)
+    }
+
+    private var passwordVisibilityIcon: some View {
+        Image(
+            systemName:
+                passwordVisible
+                    ? "eye.slash"
+                    : "eye"
+        )
+        .font(.system(size: 18, weight: .bold))
+        .foregroundStyle(profileAccentTextColor)
+        .frame(width: 28, height: 28)
+        .contentShape(Rectangle())
     }
 
     private var trainingTowardBeltCard: some View {
@@ -835,6 +945,9 @@ struct MyProfileView: View {
 
         isLoadingFirestoreProfile = true
 
+        AppNavModel.sharedInstance?
+            .beginLoading()
+
         Firestore.firestore()
             .collection("users")
             .document(uid)
@@ -842,9 +955,13 @@ struct MyProfileView: View {
                 DispatchQueue.main.async {
                     defer {
                         isLoadingFirestoreProfile = false
+
+                        AppNavModel.sharedInstance?
+                            .endLoading()
                     }
 
-                    guard let data = snapshot?.data(), snapshot?.exists == true else {
+                    guard let data = snapshot?.data(),
+                          snapshot?.exists == true else {
                         return
                     }
 
@@ -890,11 +1007,13 @@ struct MyProfileView: View {
                         branch: firstFirestoreString(
                             data,
                             keys: [
-                                "activeBranch",
-                                "active_branch",
-                                "branch",
+                                "branches",
                                 "branchesCsv",
-                                "branches"
+                                "selectedBranches",
+                                "selected_branches",
+                                "branch",
+                                "activeBranch",
+                                "active_branch"
                             ]
                         ),
                         branchAddress: firstFirestoreString(
@@ -910,15 +1029,19 @@ struct MyProfileView: View {
                         group: firstFirestoreString(
                             data,
                             keys: [
-                                "activeGroup",
-                                "active_group",
+                                "groups",
+                                "groupsCsv",
+                                "selectedGroups",
+                                "selected_groups",
+                                "ageGroups",
+                                "age_groups",
+                                "group",
                                 "primaryGroup",
                                 "groupKey",
                                 "group_key",
                                 "age_group",
-                                "group",
-                                "groupsCsv",
-                                "groups"
+                                "activeGroup",
+                                "active_group"
                             ]
                         ),
                         belt: firstFirestoreString(

@@ -683,7 +683,10 @@ struct MaterialsView: View {
                                         "General notes"
                                     )
                                 )
-                                .font(.system(size: 13.5, weight: .bold))
+                                .kmiFont(
+                                    size: 13.5,
+                                    weight: .bold
+                                )
                             }
                             .foregroundStyle(
                                 Color(
@@ -840,9 +843,13 @@ struct MaterialsView: View {
                                 )
 
                                 if idx != rows.count - 1 {
-                                    Divider()
-                                        .background(BeltPaletteByMaterials.color(for: belt).opacity(0.30))
-                                        .padding(.horizontal, 8)
+                                    Rectangle()
+                                        .fill(
+                                            Color(hex: 0xFF607D8B)
+                                                .opacity(0.42)
+                                        )
+                                        .frame(height: 1)
+                                        .padding(.horizontal, 14)
                                 }
                             }
                         }
@@ -1092,25 +1099,27 @@ struct MaterialsView: View {
 
                 VStack(spacing: 6) {
                     Text(isEnglish ? "No material found" : "לא נמצא חומר להצגה")
-                        .font(.system(size: 20, weight: .black))
+                        .kmiFont(size: 20, weight: .black)
                         .foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.24))
                         .multilineTextAlignment(textAlignment)
                         .frame(maxWidth: .infinity, alignment: frameAlignment)
 
                     Text(title)
-                        .font(.system(size: 15, weight: .bold))
+                        .kmiFont(size: 15, weight: .bold)
                         .foregroundStyle(Color(red: 0.30, green: 0.36, blue: 0.46))
                         .multilineTextAlignment(textAlignment)
                         .frame(maxWidth: .infinity, alignment: frameAlignment)
 
-                    Text(isEnglish
-                         ? "This topic is connected to the real content repository, but no exercises were returned for this exact belt and topic."
-                         : "המסך מחובר למאגר התוכן האמיתי, אבל לא חזרו תרגילים עבור החגורה והנושא המדויקים האלה.")
-                        .font(.system(size: 13.5, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.46, green: 0.52, blue: 0.62))
-                        .lineSpacing(3)
-                        .multilineTextAlignment(textAlignment)
-                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                    Text(
+                        isEnglish
+                            ? "This topic is connected to the real content repository, but no exercises were returned for this exact belt and topic."
+                            : "המסך מחובר למאגר התוכן האמיתי, אבל לא חזרו תרגילים עבור החגורה והנושא המדויקים האלה."
+                    )
+                    .kmiFont(size: 13.5, weight: .semibold)
+                    .foregroundStyle(Color(red: 0.46, green: 0.52, blue: 0.62))
+                    .lineSpacing(3)
+                    .multilineTextAlignment(textAlignment)
+                    .frame(maxWidth: .infinity, alignment: frameAlignment)
                 }
             }
             .padding(.horizontal, 18)
@@ -2076,35 +2085,45 @@ struct MaterialsView: View {
 }
 
 private struct MaterialsScreenSoftBackground: View {
+    @Environment(\.colorScheme)
+    private var colorScheme
+
     let belt: Belt
 
     var body: some View {
-        LinearGradient(
-            colors: [
-                Color.white.opacity(0.98),
-                BeltPaletteByMaterials.color(for: belt).opacity(0.10),
-                Color.white.opacity(0.94)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
+        ZStack {
+            if colorScheme == .dark {
+                Color(hex: 0xFF111827)
+            } else {
+                Color.white
+
+                BeltPaletteByMaterials
+                    .color(for: belt)
+                    .opacity(0.12)
+            }
+        }
         .ignoresSafeArea()
     }
 }
 
 private struct MaterialsBeltLightBackground: View {
+    @Environment(\.colorScheme)
+    private var colorScheme
+
     let belt: Belt
 
     var body: some View {
-        LinearGradient(
-            colors: [
-                Color.white.opacity(0.92),
-                BeltPaletteByMaterials.color(for: belt).opacity(0.08),
-                Color.white.opacity(0.90)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
+        ZStack {
+            if colorScheme == .dark {
+                Color(hex: 0xFF111827)
+            } else {
+                Color.white
+
+                BeltPaletteByMaterials
+                    .color(for: belt)
+                    .opacity(0.12)
+            }
+        }
     }
 }
 
@@ -2113,7 +2132,7 @@ private struct MaterialsToastView: View {
 
     var body: some View {
         Text(message)
-            .font(.system(size: 13.5, weight: .bold))
+            .kmiFont(size: 13.5, weight: .bold)
             .foregroundStyle(Color.white)
             .multilineTextAlignment(.center)
             .lineLimit(2)
@@ -2148,7 +2167,7 @@ private struct MaterialsNestedSubTopicPicker: View {
     var body: some View {
         VStack(spacing: 10) {
             Text(isEnglish ? "Choose a sub-topic" : "בחר תת־נושא")
-                .font(.system(size: 18, weight: .black))
+                .kmiFont(size: 18, weight: .black)
                 .foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.24))
                 .multilineTextAlignment(textAlignment)
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
@@ -2161,7 +2180,7 @@ private struct MaterialsNestedSubTopicPicker: View {
                     HStack(spacing: 10) {
                         if isEnglish {
                             Text(KmiEnglishTitleResolver.title(for: title, isEnglish: true))
-                                .font(.system(size: 15.5, weight: .bold))
+                                .kmiFont(size: 15.5, weight: .bold)
                                 .foregroundStyle(Color(red: 0.08, green: 0.10, blue: 0.16))
                                 .multilineTextAlignment(.leading)
                                 .lineLimit(2)
@@ -2177,7 +2196,7 @@ private struct MaterialsNestedSubTopicPicker: View {
                                 .foregroundStyle(beltColor.opacity(0.90))
 
                             Text(KmiEnglishTitleResolver.title(for: title, isEnglish: false))
-                                .font(.system(size: 15.5, weight: .bold))
+                                .kmiFont(size: 15.5, weight: .bold)
                                 .foregroundStyle(Color(red: 0.08, green: 0.10, blue: 0.16))
                                 .multilineTextAlignment(.trailing)
                                 .lineLimit(2)
@@ -2249,10 +2268,10 @@ private struct MaterialsStatsHeader: View {
         VStack(spacing: 4) {
             Text(
                 isEnglish
-                ? "← Swipe sideways to see more stats →"
-                : "→→ הזז לצד כדי לראות עוד נתונים →→"
+                    ? "← Swipe sideways to see more stats →"
+                    : "→→ הזז לצד כדי לראות עוד נתונים →→"
             )
-            .font(.system(size: 10, weight: .semibold))
+            .kmiFont(size: 10, weight: .semibold)
             .foregroundStyle(Color(red: 0.36, green: 0.39, blue: 0.45))
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
@@ -2266,35 +2285,21 @@ private struct MaterialsStatsHeader: View {
                         statChip(
                             title:
                                 isEnglish
-                                ? "Practiced"
-                                : "תורגל",
-                            value: coachPracticedCount,
+                                    ? "Not taught"
+                                    : "לא נלמד",
+                            value: coachNotTaughtCount,
                             color: Color(
-                                red: 0.44,
-                                green: 0.77,
-                                blue: 0.49
+                                red: 0.90,
+                                green: 0.60,
+                                blue: 0.69
                             )
                         )
 
                         statChip(
                             title:
                                 isEnglish
-                                ? "Reinforce"
-                                : "נדרש חיזוק",
-                            value:
-                                coachNeedsReinforcementCount,
-                            color: Color(
-                                red: 0.21,
-                                green: 0.47,
-                                blue: 0.87
-                            )
-                        )
-
-                        statChip(
-                            title:
-                                isEnglish
-                                ? "Taught"
-                                : "נלמד",
+                                    ? "Taught"
+                                    : "נלמד",
                             value: coachTaughtCount,
                             color: Color(
                                 red: 0.95,
@@ -2306,13 +2311,26 @@ private struct MaterialsStatsHeader: View {
                         statChip(
                             title:
                                 isEnglish
-                                ? "Not taught"
-                                : "לא נלמד",
-                            value: coachNotTaughtCount,
+                                    ? "Reinforce"
+                                    : "נדרש חיזוק",
+                            value: coachNeedsReinforcementCount,
                             color: Color(
-                                red: 0.90,
-                                green: 0.60,
-                                blue: 0.69
+                                red: 0.21,
+                                green: 0.47,
+                                blue: 0.87
+                            )
+                        )
+
+                        statChip(
+                            title:
+                                isEnglish
+                                    ? "Practiced"
+                                    : "תורגל",
+                            value: coachPracticedCount,
+                            color: Color(
+                                red: 0.44,
+                                green: 0.77,
+                                blue: 0.49
                             )
                         )
                     } else if isEnglish {
@@ -2443,7 +2461,7 @@ private struct MaterialsStatsHeader: View {
             .environment(\.layoutDirection, .leftToRight)
 
             Text(isEnglish ? "More cards are available off-screen" : "יש עוד כרטיסים בהמשך הגלילה")
-                .font(.system(size: 9, weight: .medium))
+                .kmiFont(size: 9, weight: .medium)
                 .foregroundStyle(Color(red: 0.48, green: 0.51, blue: 0.57))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
@@ -2455,12 +2473,12 @@ private struct MaterialsStatsHeader: View {
     private func statChip(title: String, value: Int, color: Color) -> some View {
         VStack(spacing: 2) {
             Text("\(value)")
-                .font(.system(size: 14, weight: .black))
+                .kmiFont(size: 14, weight: .black)
                 .foregroundStyle(Color.white)
                 .lineLimit(1)
 
             Text(title)
-                .font(.system(size: 10, weight: .heavy))
+                .kmiFont(size: 10, weight: .heavy)
                 .foregroundStyle(Color.white.opacity(0.94))
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
@@ -2624,6 +2642,9 @@ private struct MaterialsHeaderCard: View {
 // MARK: - Row
 
 private struct MaterialsExerciseRow: View {
+    @Environment(\.colorScheme)
+    private var colorScheme
+
     let rowNumber: Int
     let title: String
     let beltColor: Color
@@ -2680,61 +2701,40 @@ private struct MaterialsExerciseRow: View {
     }
     
     var body: some View {
-        HStack(spacing: 9) {
+        HStack(
+            alignment: .center,
+            spacing: 9
+        ) {
             if isEnglish {
-                menuButton
-                numberBadge
-
                 titleBlock
-
                 markButtons
             } else {
                 markButtons
-
                 titleBlock
-
-                numberBadge
-                menuButton
             }
         }
         .environment(\.layoutDirection, .leftToRight)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(minHeight: 66)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(isExcluded ? 0.68 : 0.92))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(rowBorderColor, lineWidth: 1)
-        )
-        .shadow(
-            color: Color.black.opacity(isExcluded ? 0.03 : 0.06),
-            radius: 7,
-            x: 0,
-            y: 4
-        )
-        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .frame(minHeight: 72)
+        .background(Color.clear)
         .opacity(rowOpacity)
         .contentShape(Rectangle())
     }
 
     private var titleBlock: some View {
-        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 4) {
-            Text(title)
-                .font(.system(size: 15.2, weight: .semibold))
-                .foregroundStyle(isExcluded ? Color.gray : Color(red: 0.07, green: 0.09, blue: 0.15))
-                .multilineTextAlignment(textAlignment)
-                .lineLimit(3)
-                .minimumScaleFactor(0.82)
-                .frame(maxWidth: .infinity, alignment: frameAlignment)
+        VStack(
+            alignment: isEnglish ? .leading : .trailing,
+            spacing: 5
+        ) {
+            HStack(spacing: 6) {
+                if isEnglish {
+                    numberBadge
+                    menuButton
 
-            if isFavorite || isExcluded || hasNote {
-                HStack(spacing: 6) {
                     if isFavorite {
                         statusMiniLabel(
-                            text: isEnglish ? "Favorite" : "מועדף",
+                            text: "Favorite",
                             systemName: "star.fill",
                             color: Color.orange.opacity(0.90)
                         )
@@ -2742,7 +2742,7 @@ private struct MaterialsExerciseRow: View {
 
                     if hasNote {
                         statusMiniLabel(
-                            text: isEnglish ? "Note" : "הערה",
+                            text: "Note",
                             systemName: "note.text",
                             color: Color.blue.opacity(0.84)
                         )
@@ -2750,15 +2750,93 @@ private struct MaterialsExerciseRow: View {
 
                     if isExcluded {
                         statusMiniLabel(
-                            text: isEnglish ? "Excluded" : "מוחרג",
+                            text: "Excluded",
                             systemName: "minus.circle.fill",
                             color: Color.gray.opacity(0.82)
                         )
                     }
+
+                    Spacer(minLength: 0)
+                } else {
+                    Spacer(minLength: 0)
+
+                    if isExcluded {
+                        statusMiniLabel(
+                            text: "מוחרג",
+                            systemName: "minus.circle.fill",
+                            color: Color.gray.opacity(0.82)
+                        )
+                    }
+
+                    if hasNote {
+                        statusMiniLabel(
+                            text: "הערה",
+                            systemName: "note.text",
+                            color: Color.blue.opacity(0.84)
+                        )
+                    }
+
+                    if isFavorite {
+                        statusMiniLabel(
+                            text: "מועדף",
+                            systemName: "star.fill",
+                            color: Color.orange.opacity(0.90)
+                        )
+                    }
+
+                    menuButton
+                    numberBadge
                 }
-                .frame(maxWidth: .infinity, alignment: frameAlignment)
-                .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
             }
+            .frame(
+                maxWidth: .infinity,
+                alignment: frameAlignment
+            )
+            .environment(
+                \.layoutDirection,
+                .leftToRight
+            )
+
+            Button {
+                onShowInfo()
+            } label: {
+                Text(title)
+                    .kmiFont(
+                        size: 15.2,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(
+                        isExcluded
+                            ? (
+                                colorScheme == .dark
+                                    ? Color.white.opacity(0.48)
+                                    : Color.gray
+                            )
+                            : (
+                                colorScheme == .dark
+                                    ? Color.white.opacity(0.94)
+                                    : Color(
+                                        red: 0.07,
+                                        green: 0.09,
+                                        blue: 0.15
+                                    )
+                            )
+                    )
+                    .multilineTextAlignment(textAlignment)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.82)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: frameAlignment
+                    )
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                isEnglish
+                    ? "Open explanation for \(title)"
+                    : "פתח הסבר עבור \(title)"
+            )
         }
     }
 
@@ -2781,13 +2859,30 @@ private struct MaterialsExerciseRow: View {
     }
 
     private var numberBadge: some View {
-        Text("\(rowNumber)")
-            .font(.system(size: 11.5, weight: .black))
-            .foregroundStyle(Color(red: 0.18, green: 0.22, blue: 0.30))
-            .frame(width: 27, height: 27)
-            .background(
-                Circle()
-                    .fill(Color.white.opacity(0.94))
+        Text(
+            isEnglish
+                ? "No. \(rowNumber)"
+                : "מס׳ \(rowNumber)"
+        )
+        .kmiFont(size: 11.5, weight: .black)
+        .foregroundStyle(
+                colorScheme == .dark
+                    ? Color.white
+                    : Color(
+                        red: 0.18,
+                        green: 0.22,
+                        blue: 0.30
+                    )
+            )
+        .padding(.horizontal, 9)
+        .frame(height: 27)
+        .background(
+            Capsule()
+                    .fill(
+                        colorScheme == .dark
+                            ? Color.white.opacity(0.14)
+                            : Color.white.opacity(0.94)
+                    )
             )
             .overlay(
                 Circle()
@@ -2911,6 +3006,9 @@ private struct MaterialsExerciseRow: View {
 }
 
 private struct MaterialsCoachStatusSelector: View {
+    @Environment(\.colorScheme)
+    private var colorScheme
+
     let progress:
         MaterialsView.CoachMaterialProgress
 
@@ -3061,30 +3159,32 @@ private struct MaterialsCoachStatusSelector: View {
                 }
 
                 Text(statusLabel)
-                    .font(
-                        .system(
-                            size: 10,
-                            weight: .heavy
-                        )
+                    .kmiFont(
+                        size: 10,
+                        weight: .heavy
                     )
-                    .foregroundStyle(statusColor)
+                    .foregroundStyle(
+                        colorScheme == .dark
+                            ? Color.white.opacity(0.82)
+                            : statusColor
+                    )
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .minimumScaleFactor(0.72)
 
                 Text(dateText)
-                    .font(
-                        .system(
-                            size: 8.5,
-                            weight: .medium
-                        )
+                    .kmiFont(
+                        size: 8.5,
+                        weight: .medium
                     )
                     .foregroundStyle(
-                        Color(
-                            red: 0.40,
-                            green: 0.44,
-                            blue: 0.50
-                        )
+                        colorScheme == .dark
+                            ? Color.white.opacity(0.54)
+                            : Color(
+                                red: 0.40,
+                                green: 0.44,
+                                blue: 0.50
+                            )
                     )
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
@@ -3231,6 +3331,9 @@ private struct MaterialsSingleMarkCircleButton: View {
 // MARK: - Premium Note Sheet
 
 private struct MaterialsPremiumNoteSheet: View {
+    @Environment(\.colorScheme)
+    private var colorScheme
+
     let title: String
     @Binding var noteText: String
     let isEnglish: Bool
@@ -3250,14 +3353,39 @@ private struct MaterialsPremiumNoteSheet: View {
         !noteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var primaryTextColor: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.94)
+            : Color(red: 0.12, green: 0.16, blue: 0.24)
+    }
+
+    private var secondaryTextColor: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.68)
+            : Color(red: 0.39, green: 0.45, blue: 0.55)
+    }
+
+    private var fieldBackgroundColor: Color {
+        colorScheme == .dark
+            ? Color(hex: 0xFF1E293B)
+            : Color.white.opacity(0.96)
+    }
+
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    Color.white,
-                    Color(red: 0.97, green: 0.95, blue: 1.00),
-                    Color.white
-                ],
+                colors:
+                    colorScheme == .dark
+                        ? [
+                            Color(hex: 0xFF0F172A),
+                            Color(hex: 0xFF172033),
+                            Color(hex: 0xFF111827)
+                        ]
+                        : [
+                            Color.white,
+                            Color(red: 0.97, green: 0.95, blue: 1.00),
+                            Color.white
+                        ],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -3266,20 +3394,20 @@ private struct MaterialsPremiumNoteSheet: View {
             VStack(spacing: 16) {
                 VStack(alignment: isEnglish ? .leading : .trailing, spacing: 6) {
                     Text(isEnglish ? "Exercise Note" : "הערה על התרגיל")
-                        .font(.system(size: 24, weight: .black))
-                        .foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.24))
+                        .kmiFont(size: 24, weight: .black)
+                        .foregroundStyle(primaryTextColor)
                         .multilineTextAlignment(textAlignment)
                         .frame(maxWidth: .infinity, alignment: frameAlignment)
 
                     Text(isEnglish ? "Write a personal note that will stay attached to this exercise." : "כתוב הערה אישית שתישמר לתרגיל הזה")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.39, green: 0.45, blue: 0.55))
+                        .kmiFont(size: 13, weight: .semibold)
+                        .foregroundStyle(secondaryTextColor)
                         .multilineTextAlignment(textAlignment)
                         .frame(maxWidth: .infinity, alignment: frameAlignment)
 
                     Text(title)
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(Color(red: 0.23, green: 0.20, blue: 0.38))
+                        .kmiFont(size: 15, weight: .bold)
+                        .foregroundStyle(primaryTextColor)
                         .multilineTextAlignment(textAlignment)
                         .lineLimit(2)
                         .padding(.top, 4)
@@ -3287,14 +3415,16 @@ private struct MaterialsPremiumNoteSheet: View {
                 }
 
                 TextEditor(text: $noteText)
-                    .font(.system(size: 17, weight: .semibold))
+                    .kmiFont(size: 17, weight: .semibold)
+                    .foregroundStyle(primaryTextColor)
+                    .tint(Color(red: 0.49, green: 0.34, blue: 0.76))
                     .multilineTextAlignment(textAlignment)
                     .frame(minHeight: 150, maxHeight: 220)
                     .padding(12)
                     .scrollContentBackground(.hidden)
                     .background(
                         RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .fill(Color.white.opacity(0.96))
+                            .fill(fieldBackgroundColor)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 24, style: .continuous)
@@ -3304,8 +3434,8 @@ private struct MaterialsPremiumNoteSheet: View {
                     .overlay(alignment: isEnglish ? .topLeading : .topTrailing) {
                         if noteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             Text(isEnglish ? "Write a free note" : "הקלד הערה חופשית")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(Color(red: 0.58, green: 0.64, blue: 0.72))
+                                .kmiFont(size: 16, weight: .semibold)
+                                .foregroundStyle(secondaryTextColor)
                                 .padding(.horizontal, 20)
                                 .padding(.vertical, 20)
                                 .allowsHitTesting(false)
@@ -3317,7 +3447,7 @@ private struct MaterialsPremiumNoteSheet: View {
                         onCancel()
                     } label: {
                         Text(isEnglish ? "Cancel" : "בטל")
-                            .font(.system(size: 16, weight: .black))
+                            .kmiFont(size: 16, weight: .black)
                             .foregroundStyle(Color(red: 0.43, green: 0.36, blue: 0.65))
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
@@ -3336,7 +3466,7 @@ private struct MaterialsPremiumNoteSheet: View {
                         onSave()
                     } label: {
                         Text(isEnglish ? "Save" : "שמור")
-                            .font(.system(size: 16, weight: .black))
+                            .kmiFont(size: 16, weight: .black)
                             .foregroundStyle(Color.white)
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
@@ -3354,7 +3484,7 @@ private struct MaterialsPremiumNoteSheet: View {
                         onDelete()
                     } label: {
                         Text(isEnglish ? "Delete note" : "מחק הערה")
-                            .font(.system(size: 15, weight: .bold))
+                            .kmiFont(size: 15, weight: .bold)
                             .foregroundStyle(Color(red: 0.70, green: 0.15, blue: 0.12))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
@@ -3377,7 +3507,10 @@ private struct MaterialsPremiumNoteSheet: View {
 
 // MARK: - General note sheet
 
-private struct MaterialsGeneralNoteSheet: View {
+    private struct MaterialsGeneralNoteSheet: View {
+        @Environment(\.colorScheme)
+        private var colorScheme
+
     let title: String
     let note: String
     let isEnglish: Bool
@@ -3395,11 +3528,18 @@ private struct MaterialsGeneralNoteSheet: View {
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    Color.white,
-                    accentColor.opacity(0.07),
-                    Color.white
-                ],
+                colors:
+                    colorScheme == .dark
+                        ? [
+                            Color(hex: 0xFF0F172A),
+                            Color(hex: 0xFF172033),
+                            Color(hex: 0xFF111827)
+                        ]
+                        : [
+                            Color.white,
+                            accentColor.opacity(0.07),
+                            Color.white
+                        ],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -3452,7 +3592,7 @@ private struct MaterialsGeneralNoteSheet: View {
                             ? "PROFESSIONAL NOTES"
                             : "דגשים מקצועיים"
                     )
-                    .font(.system(size: 12.5, weight: .black))
+                    .kmiFont(size: 12.5, weight: .black)
                     .foregroundStyle(
                         Color(
                             red: 0.10,
@@ -3462,13 +3602,15 @@ private struct MaterialsGeneralNoteSheet: View {
                     )
 
                     Text(title)
-                        .font(.system(size: 21, weight: .black))
+                        .kmiFont(size: 21, weight: .black)
                         .foregroundStyle(
-                            Color(
-                                red: 0.10,
-                                green: 0.14,
-                                blue: 0.21
-                            )
+                            colorScheme == .dark
+                                ? Color.white.opacity(0.94)
+                                : Color(
+                                    red: 0.10,
+                                    green: 0.14,
+                                    blue: 0.21
+                                )
                         )
                         .multilineTextAlignment(.center)
                         .lineLimit(3)
@@ -3482,13 +3624,15 @@ private struct MaterialsGeneralNoteSheet: View {
 
                 ScrollView {
                     Text(note)
-                        .font(.system(size: 15, weight: .semibold))
+                        .kmiFont(size: 15, weight: .semibold)
                         .foregroundStyle(
-                            Color(
-                                red: 0.14,
-                                green: 0.18,
-                                blue: 0.25
-                            )
+                            colorScheme == .dark
+                                ? Color.white.opacity(0.84)
+                                : Color(
+                                    red: 0.14,
+                                    green: 0.18,
+                                    blue: 0.25
+                                )
                         )
                         .lineSpacing(4)
                         .multilineTextAlignment(textAlignment)
@@ -3685,7 +3829,7 @@ private struct MaterialsActionButton: View {
                 }
 
                 Text(title)
-                    .font(.system(size: 16, weight: .bold))
+                    .kmiFont(size: 16, weight: .bold)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
                     .multilineTextAlignment(.center)
@@ -3787,9 +3931,12 @@ private func materialsFormattedExplanation(
 
 // MARK: - Info sheet
 
-private struct MaterialsInfoSheet: View {
-    let title: String
-    let text: String
+    private struct MaterialsInfoSheet: View {
+        @Environment(\.colorScheme)
+        private var colorScheme
+
+        let title: String
+        let text: String
     let isFavorite: Bool
     let isSpeaking: Bool
     let isEnglish: Bool
@@ -3814,11 +3961,18 @@ private struct MaterialsInfoSheet: View {
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    Color.white.opacity(0.99),
-                    accentColor.opacity(0.07),
-                    Color.white.opacity(0.97)
-                ],
+                colors:
+                    colorScheme == .dark
+                        ? [
+                            Color(hex: 0xFF0F172A),
+                            Color(hex: 0xFF172033),
+                            Color(hex: 0xFF111827)
+                        ]
+                        : [
+                            Color.white.opacity(0.99),
+                            accentColor.opacity(0.07),
+                            Color.white.opacity(0.97)
+                        ],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -3840,19 +3994,30 @@ private struct MaterialsInfoSheet: View {
 
                 ScrollView {
                     Text(materialsFormattedExplanation(text))
-                        .font(.system(size: 16.2, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.10, green: 0.12, blue: 0.17))
+                        .kmiFont(size: 16.2, weight: .semibold)
+                        .foregroundStyle(
+                            colorScheme == .dark
+                                ? Color.white.opacity(0.90)
+                                : Color(red: 0.10, green: 0.12, blue: 0.17)
+                        )
                         .lineSpacing(5)
                         .multilineTextAlignment(textAlignment)
                         .frame(maxWidth: .infinity, alignment: frameAlignment)
                         .padding(16)
                         .background(
                             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                .fill(Color.white.opacity(0.97))
+                                .fill(
+                                    colorScheme == .dark
+                                        ? Color(hex: 0xFF1E293B)
+                                        : Color.white.opacity(0.97)
+                                )
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                .stroke(accentColor.opacity(0.17), lineWidth: 1)
+                                .stroke(
+                                    accentColor.opacity(0.17),
+                                    lineWidth: 1
+                                )
                         )
                         .shadow(color: Color.black.opacity(0.07), radius: 8, x: 0, y: 4)
                 }
@@ -3898,8 +4063,12 @@ private struct MaterialsInfoSheet: View {
     private var titleBlock: some View {
         VStack(alignment: isEnglish ? .leading : .trailing, spacing: 7) {
             Text(title)
-                .font(.system(size: 21.5, weight: .black))
-                .foregroundStyle(Color(red: 0.11, green: 0.14, blue: 0.20))
+                .kmiFont(size: 21.5, weight: .black)
+                .foregroundStyle(
+                    colorScheme == .dark
+                        ? Color.white.opacity(0.94)
+                        : Color(red: 0.11, green: 0.14, blue: 0.20)
+                )
                 .multilineTextAlignment(textAlignment)
                 .lineLimit(3)
                 .minimumScaleFactor(0.76)
@@ -3911,10 +4080,10 @@ private struct MaterialsInfoSheet: View {
                         .font(.system(size: 10.5, weight: .black))
 
                     Text("Detailed explanation")
-                        .font(.system(size: 12.5, weight: .bold))
+                        .kmiFont(size: 12.5, weight: .bold)
                 } else {
                     Text("הסבר מפורט")
-                        .font(.system(size: 12.5, weight: .bold))
+                        .kmiFont(size: 12.5, weight: .bold)
 
                     Image(systemName: "doc.text.fill")
                         .font(.system(size: 10.5, weight: .black))
@@ -3980,7 +4149,7 @@ private struct MaterialsInfoActionButton: View {
                     .font(.system(size: 14, weight: .black))
 
                 Text(title)
-                    .font(.system(size: 15, weight: .black))
+                    .kmiFont(size: 15, weight: .black)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
             }

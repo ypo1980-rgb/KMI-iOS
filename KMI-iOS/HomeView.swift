@@ -1078,7 +1078,7 @@ struct HomeView: View {
                             region: resolvedRegion,
                             branch: branch,
                             group: group,
-                            count: 5
+                            count: 50
                         )
 
                     let containsTraining =
@@ -1181,16 +1181,12 @@ struct HomeView: View {
                 }
             }
 
-        return Array(
-            uniqueTrainings
-                .sorted {
-                    left,
-                    right in
+        return uniqueTrainings.sorted {
+            left,
+            right in
 
-                    left.date < right.date
-                }
-                .prefix(5)
-        )
+            left.date < right.date
+        }
     }
 
     private var trainingOccurrenceKeys: Set<String> {

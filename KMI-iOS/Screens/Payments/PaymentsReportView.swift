@@ -1,8 +1,6 @@
 import SwiftUI
 import FirebaseFirestore
 
-private let membershipRequiredAmount: Double = 150.0
-
 enum PaymentStatus: String, CaseIterable, Identifiable {
     case paid = "PAID"
     case unpaid = "UNPAID"
@@ -37,6 +35,13 @@ struct PaymentReportItem: Identifiable, Equatable {
     var id: String { traineeId }
 }
 
+private struct PaymentMergeBucket {
+    var item: PaymentReportItem
+    var uidKeys: Set<String>
+    var phoneKeys: Set<String>
+    var emailKeys: Set<String>
+}
+
 private func paymentNowDateText() -> String {
     let formatter = DateFormatter()
     formatter.dateFormat = "dd/MM/yyyy"
@@ -53,10 +58,18 @@ private func paymentCurrentYear() -> Int {
 
 private func paymentStatusFromAmount(
     paidAmount: Double,
-    requiredAmount: Double = membershipRequiredAmount
+    requiredAmount: Double
 ) -> PaymentStatus {
     if paidAmount <= 0 {
         return .unpaid
+    }
+
+    /*
+     * אם לא הוגדר סכום נדרש במסמך התשלום
+     * או במסמך המשתמש, תשלום חיובי נחשב כמלא.
+     */
+    if requiredAmount <= 0 {
+        return .paid
     }
 
     if paidAmount < requiredAmount {
@@ -141,8 +154,27 @@ private extension DocumentSnapshot {
         return nil
     }
 
+    func paymentRequiredAmountFromAny() -> Double {
+        paymentDouble(
+            [
+                "requiredAmount",
+                "membershipRequiredAmount",
+                "membershipFee",
+                "annualMembershipFee",
+                "feeAmount"
+            ]
+        ) ?? 0.0
+    }
+
     func paymentUserName() -> String {
-        paymentString(["fullName", "name", "displayName", "email"]) ?? documentID
+        paymentString(
+            [
+                "fullName",
+                "name",
+                "displayName",
+                "email"
+            ]
+        ) ?? documentID
     }
 
     func paymentUserPhone() -> String {
@@ -306,54 +338,195 @@ private func loadRealPaymentsReportItems() async throws -> [PaymentReportItem] {
         userDoc.paymentUserBranch()
     }
 
-    func dedupeKey(
-        traineeId: String,
-        fullName: String,
-        phone: String,
-        email: String,
-        branchName: String
+    func normalizedPhone(
+        _ value: String
     ) -> String {
-        let cleanEmail = normalizedKey(email)
-        if !cleanEmail.isEmpty {
-            return "email:\(cleanEmail)"
+        var digits = value.filter {
+            $0.isNumber
         }
 
-        let cleanPhone = normalizedKey(phone)
-        if !cleanPhone.isEmpty {
-            return "phone:\(cleanPhone)"
+        if digits.hasPrefix("00972") {
+            digits = String(
+                digits.dropFirst(5)
+            )
+
+        } else if digits.hasPrefix("972") {
+            digits = String(
+                digits.dropFirst(3)
+            )
+
+        } else if digits.hasPrefix("0") {
+            digits = String(
+                digits.dropFirst()
+            )
         }
 
-        let cleanName = normalizedKey(fullName)
-        let cleanBranch = normalizedKey(branchName)
-
-        if !cleanName.isEmpty {
-            return "name:\(cleanName)|branch:\(cleanBranch)"
+        if digits.count >= 9 {
+            digits = String(
+                digits.suffix(9)
+            )
         }
 
-        return "trainee:\(normalizedKey(traineeId))"
+        return digits
     }
 
-    func betterPaymentItem(_ current: PaymentReportItem, than existing: PaymentReportItem) -> Bool {
-        if current.paidAmount != existing.paidAmount {
-            return current.paidAmount > existing.paidAmount
-        }
-
-        if current.paymentDate?.isEmpty == false && existing.paymentDate?.isEmpty != false {
-            return true
-        }
-
-        if !current.phone.isEmpty && existing.phone.isEmpty {
-            return true
-        }
-
-        if !current.branchName.isEmpty && existing.branchName.isEmpty {
-            return true
-        }
-
-        return current.fullName.count > existing.fullName.count
+    func normalizedEmail(
+        _ value: String
+    ) -> String {
+        value
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased()
+            .replacingOccurrences(
+                of: " ",
+                with: ""
+            )
     }
 
-    var uniqueItemsByKey: [String: PaymentReportItem] = [:]
+    func cleanMergeText(
+        _ value: String
+    ) -> String {
+        value.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+    }
+
+    func preferredMergeText(
+        _ first: String,
+        _ second: String
+    ) -> String {
+        let cleanFirst =
+            cleanMergeText(first)
+
+        let cleanSecond =
+            cleanMergeText(second)
+
+        if cleanFirst.isEmpty {
+            return cleanSecond
+        }
+
+        if cleanSecond.isEmpty {
+            return cleanFirst
+        }
+
+        return cleanSecond.count >
+            cleanFirst.count
+            ? cleanSecond
+            : cleanFirst
+    }
+
+    func preferredOptionalMergeText(
+        _ first: String?,
+        _ second: String?
+    ) -> String? {
+        let cleanFirst =
+            cleanMergeText(first ?? "")
+
+        let cleanSecond =
+            cleanMergeText(second ?? "")
+
+        if cleanFirst.isEmpty &&
+            cleanSecond.isEmpty {
+            return nil
+        }
+
+        if cleanFirst.isEmpty {
+            return cleanSecond
+        }
+
+        if cleanSecond.isEmpty {
+            return cleanFirst
+        }
+
+        return cleanSecond.count >
+            cleanFirst.count
+            ? cleanSecond
+            : cleanFirst
+    }
+
+    func mergePaymentItems(
+        existing: PaymentReportItem,
+        incoming: PaymentReportItem
+    ) -> PaymentReportItem {
+        /*
+         * לא מחברים סכומים, משום שאותו תשלום
+         * עלול להופיע בשני מסמכים כפולים.
+         */
+        let mergedPaidAmount = max(
+            existing.paidAmount,
+            incoming.paidAmount
+        )
+
+        let mergedRequiredAmount = max(
+            existing.requiredAmount,
+            incoming.requiredAmount
+        )
+
+        let preferredPaymentItem =
+            incoming.paidAmount >
+            existing.paidAmount
+            ? incoming
+            : existing
+
+        return PaymentReportItem(
+            traineeId:
+                existing.traineeId.isEmpty
+                ? incoming.traineeId
+                : existing.traineeId,
+
+            fullName:
+                preferredMergeText(
+                    existing.fullName,
+                    incoming.fullName
+                ),
+
+            branchName:
+                preferredMergeText(
+                    existing.branchName,
+                    incoming.branchName
+                ),
+
+            phone:
+                preferredMergeText(
+                    existing.phone,
+                    incoming.phone
+                ),
+
+            requiredAmount:
+                mergedRequiredAmount,
+
+            paidAmount:
+                mergedPaidAmount,
+
+            status:
+                paymentStatusFromAmount(
+                    paidAmount:
+                        mergedPaidAmount,
+                    requiredAmount:
+                        mergedRequiredAmount
+                ),
+
+            paymentMethod:
+                preferredPaymentItem
+                    .paymentMethod,
+
+            paymentDate:
+                preferredOptionalMergeText(
+                    existing.paymentDate,
+                    incoming.paymentDate
+                ),
+
+            notes:
+                preferredOptionalMergeText(
+                    existing.notes,
+                    incoming.notes
+                )
+        )
+    }
+
+    var mergeBuckets:
+        [PaymentMergeBucket] = []
 
     for userDoc in usersDocs {
         let traineeId =
@@ -372,12 +545,24 @@ private func loadRealPaymentsReportItems() async throws -> [PaymentReportItem] {
         let phone = bestPhone(userDoc: userDoc, paymentDoc: paymentDoc)
         let email = bestEmail(userDoc: userDoc, paymentDoc: paymentDoc)
 
+        let paymentRequiredAmount =
+            paymentDoc?
+                .paymentRequiredAmountFromAny()
+            ?? 0.0
+
+        let userRequiredAmount =
+            userDoc
+                .paymentRequiredAmountFromAny()
+
         let requiredAmount =
-            paymentDoc?.paymentDouble(["requiredAmount"]) ??
-            membershipRequiredAmount
+            paymentRequiredAmount > 0
+            ? paymentRequiredAmount
+            : userRequiredAmount
 
         let paidAmount =
-            paymentDoc?.paymentDouble(["paidAmount"]) ??
+            paymentDoc?.paymentDouble(
+                ["paidAmount"]
+            ) ??
             0.0
 
         let status = paymentStatusFromAmount(
@@ -402,32 +587,201 @@ private func loadRealPaymentsReportItems() async throws -> [PaymentReportItem] {
             notes: paymentDoc?.paymentString(["notes"])
         )
 
-        let key = dedupeKey(
-            traineeId: traineeId,
-            fullName: fullName,
-            phone: phone,
-            email: email,
-            branchName: branchName
+        let rawUidValues: [String?] = [
+            traineeId,
+            userDoc.documentID,
+            userDoc.paymentString(
+                ["uid"]
+            ),
+            userDoc.paymentString(
+                ["authUid"]
+            ),
+            paymentDoc?.documentID,
+            paymentDoc?.paymentString(
+                ["traineeId"]
+            ),
+            paymentDoc?.paymentString(
+                ["userDocId"]
+            ),
+            paymentDoc?.paymentString(
+                ["uid"]
+            ),
+            paymentDoc?.paymentString(
+                ["authUid"]
+            )
+        ]
+
+        let uidKeys = Set(
+            rawUidValues
+                .compactMap { $0 }
+                .map { normalizedKey($0) }
+                .filter { !$0.isEmpty }
         )
 
-        if let existing = uniqueItemsByKey[key] {
-            if betterPaymentItem(item, than: existing) {
-                uniqueItemsByKey[key] = item
-            }
-        } else {
-            uniqueItemsByKey[key] = item
-        }
-    }
+        let rawPhoneValues: [String?] = [
+            phone,
+            userDoc.paymentString(
+                ["phone"]
+            ),
+            userDoc.paymentString(
+                ["phoneNumber"]
+            ),
+            userDoc.paymentString(
+                ["phone_number"]
+            ),
+            paymentDoc?.paymentString(
+                ["phone"]
+            ),
+            paymentDoc?.paymentString(
+                ["phoneNumber"]
+            ),
+            paymentDoc?.paymentString(
+                ["phone_number"]
+            )
+        ]
 
-    return Array(uniqueItemsByKey.values)
-        .sorted {
-            if $0.branchName == $1.branchName {
-                return $0.fullName < $1.fullName
+        let phoneKeys = Set(
+            rawPhoneValues
+                .compactMap { $0 }
+                .map { normalizedPhone($0) }
+                .filter { !$0.isEmpty }
+        )
+
+        let rawEmailValues: [String?] = [
+            email,
+            userDoc.paymentString(
+                ["email"]
+            ),
+            userDoc.paymentString(
+                ["emailAddress"]
+            ),
+            userDoc.paymentString(
+                ["email_address"]
+            ),
+            paymentDoc?.paymentString(
+                ["email"]
+            ),
+            paymentDoc?.paymentString(
+                ["emailAddress"]
+            ),
+            paymentDoc?.paymentString(
+                ["email_address"]
+            )
+        ]
+
+        let emailKeys = Set(
+            rawEmailValues
+                .compactMap { $0 }
+                .map { normalizedEmail($0) }
+                .filter { !$0.isEmpty }
+        )
+
+        var incomingBucket =
+            PaymentMergeBucket(
+                item: item,
+                uidKeys: uidKeys,
+                phoneKeys: phoneKeys,
+                emailKeys: emailKeys
+            )
+
+        /*
+         * משתמש חדש יכול לחבר בין יותר משתי רשומות:
+         * לדוגמה, מסמך אחד עם אותו טלפון
+         * ומסמך אחר עם אותו מייל.
+         */
+        let matchingIndexes =
+            mergeBuckets.indices.filter {
+                index in
+
+                let existingBucket =
+                    mergeBuckets[index]
+
+                let sameUid =
+                    !incomingBucket.uidKeys.isEmpty &&
+                    !existingBucket.uidKeys
+                        .isDisjoint(
+                            with:
+                                incomingBucket.uidKeys
+                        )
+
+                let samePhone =
+                    !incomingBucket.phoneKeys.isEmpty &&
+                    !existingBucket.phoneKeys
+                        .isDisjoint(
+                            with:
+                                incomingBucket.phoneKeys
+                        )
+
+                let sameEmail =
+                    !incomingBucket.emailKeys.isEmpty &&
+                    !existingBucket.emailKeys
+                        .isDisjoint(
+                            with:
+                                incomingBucket.emailKeys
+                        )
+
+                return sameUid ||
+                    samePhone ||
+                    sameEmail
             }
 
-            return $0.branchName < $1.branchName
+        /*
+         * מוחקים מהסוף להתחלה כדי שמיקומי
+         * המערך לא ישתנו בזמן האיחוד.
+         */
+        for index in matchingIndexes.reversed() {
+            let existingBucket =
+                mergeBuckets.remove(
+                    at: index
+                )
+
+            incomingBucket.item =
+                mergePaymentItems(
+                    existing:
+                        existingBucket.item,
+                    incoming:
+                        incomingBucket.item
+                )
+
+            incomingBucket.uidKeys
+                .formUnion(
+                    existingBucket.uidKeys
+                )
+
+            incomingBucket.phoneKeys
+                .formUnion(
+                    existingBucket.phoneKeys
+                )
+
+            incomingBucket.emailKeys
+                .formUnion(
+                    existingBucket.emailKeys
+                )
         }
-}
+
+        mergeBuckets.append(
+            incomingBucket
+        )
+        }
+
+        return mergeBuckets
+            .map(\.item)
+            .sorted {
+                if $0.branchName ==
+                    $1.branchName {
+                    return $0.fullName
+                        .localizedCaseInsensitiveCompare(
+                            $1.fullName
+                        ) == .orderedAscending
+                }
+
+                return $0.branchName
+                    .localizedCaseInsensitiveCompare(
+                        $1.branchName
+                    ) == .orderedAscending
+            }
+        }
+
 
 private func saveManualMembershipPaymentToFirestore(
     item: PaymentReportItem,
@@ -507,12 +861,201 @@ struct PaymentsReportView: View {
     let onOpenTrainees: () -> Void
     let onSaveManualPayment: (String, Double, PaymentMethod, String) -> Void
 
+    @Environment(\.colorScheme)
+    private var colorScheme
+
+    @AppStorage("theme_mode")
+    private var themeMode: String = "system"
+
+    private var normalizedThemeMode: String {
+        themeMode
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased()
+    }
+
+    private var preferredScreenColorScheme: ColorScheme? {
+        switch normalizedThemeMode {
+        case "dark":
+            return .dark
+
+        case "light":
+            return .light
+
+        default:
+            return nil
+        }
+    }
+
+    private var isDarkMode: Bool {
+        switch normalizedThemeMode {
+        case "dark":
+            return true
+
+        case "light":
+            return false
+
+        default:
+            return colorScheme == .dark
+        }
+    }
+
+    /*
+     * המסך כבר מקבל RTL בעברית ו־LTR באנגלית.
+     * לכן leading הוא הצד הנכון בשתי השפות:
+     * ימין בעברית ושמאל באנגלית.
+     */
+    private var screenFrameAlignment: Alignment {
+        .leading
+    }
+
+    private var screenTextAlignment: TextAlignment {
+        .leading
+    }
+
+    private var screenHorizontalAlignment:
+        HorizontalAlignment {
+        .leading
+    }
+
+    private var reportBackgroundColors: [Color] {
+        isDarkMode
+            ? [
+                Color(
+                    red: 0.015,
+                    green: 0.035,
+                    blue: 0.075
+                ),
+                Color(
+                    red: 0.04,
+                    green: 0.08,
+                    blue: 0.15
+                ),
+                Color(
+                    red: 0.06,
+                    green: 0.18,
+                    blue: 0.31
+                ),
+                Color(
+                    red: 0.02,
+                    green: 0.09,
+                    blue: 0.18
+                )
+            ]
+            : [
+                Color(
+                    red: 0.97,
+                    green: 0.985,
+                    blue: 1.00
+                ),
+                Color(
+                    red: 0.92,
+                    green: 0.96,
+                    blue: 0.99
+                ),
+                Color(
+                    red: 0.78,
+                    green: 0.91,
+                    blue: 0.98
+                ),
+                Color(
+                    red: 0.95,
+                    green: 0.98,
+                    blue: 1.00
+                )
+            ]
+    }
+
+    private var reportPanelColor: Color {
+        isDarkMode
+            ? Color(
+                red: 0.055,
+                green: 0.085,
+                blue: 0.145
+            )
+            : Color.white.opacity(0.96)
+    }
+
+    private var reportFieldColor: Color {
+        isDarkMode
+            ? Color(
+                red: 0.075,
+                green: 0.115,
+                blue: 0.19
+            )
+            : Color(
+                red: 0.94,
+                green: 0.965,
+                blue: 0.99
+            )
+    }
+
+    private var reportPrimaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.94)
+            : Color.black.opacity(0.84)
+    }
+
+    private var reportSecondaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.68)
+            : Color.black.opacity(0.55)
+    }
+
+    private var reportBorderColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.12)
+            : Color.black.opacity(0.09)
+    }
+
+    private var reportDividerColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.11)
+            : Color.black.opacity(0.09)
+    }
+
+    private var reportAccentColor: Color {
+        Color(
+            red: 0.11,
+            green: 0.63,
+            blue: 0.95
+        )
+    }
+
+    private var reportErrorBackgroundColor: Color {
+        isDarkMode
+            ? Color.red.opacity(0.17)
+            : Color(
+                red: 1.00,
+                green: 0.89,
+                blue: 0.91
+            )
+    }
+
+    private var reportErrorTextColor: Color {
+        isDarkMode
+            ? Color(
+                red: 1.00,
+                green: 0.66,
+                blue: 0.68
+            )
+            : Color(
+                red: 0.60,
+                green: 0.10,
+                blue: 0.12
+            )
+    }
+
     @State private var items: [PaymentReportItem]
     @State private var query: String = ""
     @State private var filter: String = "ALL"
     @State private var selectedBranch: String
     @State private var selectedManualItem: PaymentReportItem?
+    @State private var pdfShareItem:
+        PaymentsPDFShareItem?
 
+    @State private var isCreatingPDF = false
     @State private var isLoadingPayments = true
     @State private var paymentsError: String?
     @State private var didLoadPayments = false
@@ -562,11 +1105,21 @@ struct PaymentsReportView: View {
                 item.branchName.localizedCaseInsensitiveContains(cleanQuery)
 
             let matchesFilter: Bool
+
             switch filter {
             case "PAID":
-                matchesFilter = item.paidAmount >= item.requiredAmount
+                matchesFilter =
+                    item.status == .paid
+
             case "UNPAID":
-                matchesFilter = item.paidAmount < item.requiredAmount
+                /*
+                 * “לא שילמו” כולל גם מי שלא שילם כלל
+                 * וגם מי ששילם סכום חלקי.
+                 */
+                matchesFilter =
+                    item.status == .unpaid ||
+                    item.status == .partial
+
             default:
                 matchesFilter = true
             }
@@ -588,11 +1141,18 @@ struct PaymentsReportView: View {
     }
 
     private var paidCount: Int {
-        items.filter { $0.paidAmount >= $0.requiredAmount }.count
+        items.filter {
+            $0.status == .paid
+        }
+        .count
     }
 
     private var unpaidCount: Int {
-        items.filter { $0.paidAmount < $0.requiredAmount }.count
+        items.filter {
+            $0.status == .unpaid ||
+            $0.status == .partial
+        }
+        .count
     }
 
     private var collectionPercent: Double {
@@ -610,9 +1170,12 @@ struct PaymentsReportView: View {
 
                     HStack(spacing: 12) {
                         summaryCard(
-                            title: isEnglish ? "Not paid 150" : "לא שילמו",
+                            title: isEnglish
+                                ? "Not paid"
+                                : "לא שילמו",
                             value: "\(unpaidCount)",
-                            systemImage: "person.crop.circle.badge.xmark",
+                            systemImage:
+                                "person.crop.circle.badge.xmark",
                             baseColor: Color(red: 1.0, green: 0.48, blue: 0.35),
                             selectedColor: Color(red: 1.0, green: 0.35, blue: 0.21),
                             selected: filter == "UNPAID"
@@ -621,7 +1184,9 @@ struct PaymentsReportView: View {
                         }
 
                         summaryCard(
-                            title: isEnglish ? "Paid 150" : "שילמו",
+                            title: isEnglish
+                                ? "Paid"
+                                : "שילמו",
                             value: "\(paidCount)",
                             systemImage: "checkmark.seal.fill",
                             baseColor: Color(red: 0.13, green: 0.77, blue: 0.37),
@@ -637,29 +1202,41 @@ struct PaymentsReportView: View {
                     LazyVStack(spacing: 10) {
                         if isLoadingPayments {
                             stateMessageCard(
-                                title: isEnglish ? "Loading real payment data..." : "טוען נתוני תשלום אמיתיים...",
-                                systemImage: "clock.arrow.circlepath",
-                                background: Color.white.opacity(0.94),
-                                foreground: Color(red: 0.12, green: 0.17, blue: 0.32)
+                                title: isEnglish
+                                    ? "Loading real payment data..."
+                                    : "טוען נתוני תשלום אמיתיים...",
+                                systemImage:
+                                    "clock.arrow.circlepath",
+                                background: reportPanelColor,
+                                foreground:
+                                    reportPrimaryTextColor
                             )
+
                         } else if let paymentsError {
                             stateMessageCard(
                                 title: isEnglish
-                                ? "Failed loading payments: \(paymentsError)"
-                                : "טעינת התשלומים נכשלה: \(paymentsError)",
-                                systemImage: "exclamationmark.triangle.fill",
-                                background: Color(red: 1.0, green: 0.89, blue: 0.91),
-                                foreground: Color(red: 0.60, green: 0.10, blue: 0.12)
+                                    ? "Failed loading payments: \(paymentsError)"
+                                    : "טעינת התשלומים נכשלה: \(paymentsError)",
+                                systemImage:
+                                    "exclamationmark.triangle.fill",
+                                background:
+                                    reportErrorBackgroundColor,
+                                foreground:
+                                    reportErrorTextColor
                             )
+
                         } else if filteredItems.isEmpty {
                             stateMessageCard(
                                 title: isEnglish
-                                ? "No trainees matched the current filters."
-                                : "לא נמצאו מתאמנים בהתאם לסינון הנוכחי.",
-                                systemImage: "person.crop.circle.badge.questionmark",
-                                background: Color.white.opacity(0.94),
-                                foreground: Color(red: 0.12, green: 0.17, blue: 0.32)
+                                    ? "No trainees matched the current filters."
+                                    : "לא נמצאו מתאמנים בהתאם לסינון הנוכחי.",
+                                systemImage:
+                                    "person.crop.circle.badge.questionmark",
+                                background: reportPanelColor,
+                                foreground:
+                                    reportPrimaryTextColor
                             )
+
                         } else {
                             ForEach(filteredItems) { item in
                                 paymentRow(item)
@@ -673,7 +1250,13 @@ struct PaymentsReportView: View {
                 .padding(.vertical, 14)
             }
         }
-        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+        .environment(
+            \.layoutDirection,
+            isEnglish ? .leftToRight : .rightToLeft
+        )
+        .preferredColorScheme(
+            preferredScreenColorScheme
+        )
         .task {
             guard !didLoadPayments else { return }
             didLoadPayments = true
@@ -688,7 +1271,9 @@ struct PaymentsReportView: View {
             ManualPaymentSheet(
                 isEnglish: isEnglish,
                 item: item,
-                onDismiss: { selectedManualItem = nil },
+                onDismiss: {
+                    selectedManualItem = nil
+                },
                 onSave: { amount, method, notes in
                     Task {
                         await saveManualPayment(
@@ -702,6 +1287,99 @@ struct PaymentsReportView: View {
             )
             .presentationDetents([.medium])
         }
+        .sheet(item: $pdfShareItem) { shareItem in
+            PaymentsPDFShareSheet(
+                url: shareItem.url
+            )
+        }
+    }
+
+    @MainActor
+    private func createAndSharePaymentsPDF() {
+        guard !isCreatingPDF else {
+            return
+        }
+
+        guard !filteredItems.isEmpty else {
+            paymentsError =
+                isEnglish
+                ? "There are no payment records to export."
+                : "אין רשומות תשלום לייצוא."
+            return
+        }
+
+        isCreatingPDF = true
+
+        do {
+            let pdfURL =
+                try PaymentsReportPDFGenerator
+                    .create(
+                        items: filteredItems,
+                        totalRequired:
+                            filteredItems.reduce(0) {
+                                $0 + $1.requiredAmount
+                            },
+                        totalPaid:
+                            filteredItems.reduce(0) {
+                                $0 + $1.paidAmount
+                            },
+                        paidCount:
+                            filteredItems.filter {
+                                $0.status == .paid
+                            }
+                            .count,
+                        unpaidCount:
+                            filteredItems.filter {
+                                $0.status == .unpaid ||
+                                $0.status == .partial
+                            }
+                            .count,
+                        collectionPercent:
+                            filteredCollectionPercent,
+                        selectedBranch:
+                            selectedBranch,
+                        isEnglish:
+                            isEnglish
+                    )
+
+            pdfShareItem =
+                PaymentsPDFShareItem(
+                    url: pdfURL
+                )
+
+        } catch {
+            paymentsError =
+                isEnglish
+                ? "Creating the PDF failed: \(error.localizedDescription)"
+                : "יצירת דוח ה־PDF נכשלה: \(error.localizedDescription)"
+        }
+
+        isCreatingPDF = false
+    }
+
+    private var filteredCollectionPercent:
+        Double {
+        let required =
+            filteredItems.reduce(0) {
+                $0 + $1.requiredAmount
+            }
+
+        let paid =
+            filteredItems.reduce(0) {
+                $0 + $1.paidAmount
+            }
+
+        guard required > 0 else {
+            return 0
+        }
+
+        return min(
+            max(
+                (paid / required) * 100,
+                0
+            ),
+            100
+        )
     }
 
     @MainActor
@@ -725,11 +1403,7 @@ struct PaymentsReportView: View {
 
     private var reportBackground: some View {
         LinearGradient(
-            colors: [
-                Color(red: 0.05, green: 0.09, blue: 0.19),
-                Color(red: 0.12, green: 0.16, blue: 0.32),
-                Color(red: 0.15, green: 0.46, blue: 0.74)
-            ],
+            colors: reportBackgroundColors,
             startPoint: .top,
             endPoint: .bottom
         )
@@ -737,41 +1411,132 @@ struct PaymentsReportView: View {
     }
 
     private var heroCard: some View {
-        VStack(spacing: 14) {
-            HStack(alignment: .top) {
-                VStack(alignment: isEnglish ? .leading : .trailing, spacing: 8) {
-                    Text(isEnglish ? "Payments Report" : "דו״ח תשלומים")
-                        .font(.title.bold())
-                        .foregroundStyle(.white)
+        VStack(spacing: 10) {
+            VStack(
+                alignment: isEnglish ? .leading : .trailing,
+                spacing: 3
+            ) {
+                Text(
+                    isEnglish
+                        ? "Premium payments dashboard"
+                        : "דשבורד תשלומים פרימיום"
+                )
+                .kmiFont(size: 17, weight: .heavy)
+                .foregroundStyle(reportPrimaryTextColor)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: screenFrameAlignment
+                )
+                .multilineTextAlignment(
+                    screenTextAlignment
+                )
+                .lineLimit(2)
+                .minimumScaleFactor(0.78)
 
-                    Text(isEnglish ? "Premium payments dashboard for coaches and admins" : "דשבורד תשלומים פרימיום למאמנים ולמנהלים")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.80))
+                Text(
+                    isEnglish
+                        ? "For trainees, coaches and managers"
+                        : "למתאמנים, למאמנים ולמנהלים"
+                )
+                .kmiFont(size: 13, weight: .regular)
+                .foregroundStyle(reportSecondaryTextColor)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: screenFrameAlignment
+                )
+                .multilineTextAlignment(
+                    screenTextAlignment
+                )
+                .lineLimit(2)
+                .minimumScaleFactor(0.78)
 
-                    Text(isEnglish
-                         ? "Collected ₪\(Int(totalPaid)) of ₪\(Int(totalRequired))"
-                         : "נגבה \(Int(totalPaid)) ₪ מתוך \(Int(totalRequired)) ₪")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                }
-
-                Spacer()
-
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .foregroundStyle(.white)
-                        .frame(width: 42, height: 42)
-                        .background(Color.white.opacity(0.10))
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                }
+                Text(
+                    isEnglish
+                        ? "Collected ₪\(Int(totalPaid)) of ₪\(Int(totalRequired))"
+                        : "נגבה \(Int(totalPaid)) ₪ מתוך \(Int(totalRequired)) ₪"
+                )
+                .kmiFont(size: 13, weight: .bold)
+                .foregroundStyle(reportAccentColor)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: screenFrameAlignment
+                )
+                .multilineTextAlignment(
+                    screenTextAlignment
+                )
+                .lineLimit(2)
+                .minimumScaleFactor(0.75)
             }
+
+            Button {
+                createAndSharePaymentsPDF()
+            } label: {
+                HStack(spacing: 8) {
+                    if isCreatingPDF {
+                        ProgressView()
+                            .tint(Color.white)
+                    } else {
+                        Image(
+                            systemName:
+                                "square.and.arrow.up"
+                        )
+                    }
+
+                    Text(
+                        isEnglish
+                            ? "Create and share PDF"
+                            : "יצירה ושיתוף דוח PDF"
+                    )
+                    .kmiFont(
+                        size: 13,
+                        weight: .bold
+                    )
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.75)
+                }
+                .foregroundStyle(Color.white)
+                .frame(maxWidth: .infinity)
+                .padding(
+                    .horizontal,
+                    12
+                )
+                .padding(
+                    .vertical,
+                    11
+                )
+                .background(
+                    RoundedRectangle(
+                        cornerRadius: 15,
+                        style: .continuous
+                    )
+                    .fill(reportAccentColor)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(
+                isCreatingPDF ||
+                filteredItems.isEmpty
+            )
+            .opacity(
+                filteredItems.isEmpty
+                    ? 0.55
+                    : 1.0
+            )
 
             HStack(spacing: 12) {
                 topMetricCard(
-                    title: isEnglish ? "Collection" : "אחוז גבייה",
-                    value: "\(Int(collectionPercent.rounded()))%",
-                    systemImage: "chart.line.uptrend.xyaxis",
-                    color: Color(red: 0.11, green: 0.63, blue: 0.95)
+                    title: isEnglish
+                        ? "Collection"
+                        : "אחוז גבייה",
+                    value:
+                        "\(Int(collectionPercent.rounded()))%",
+                    systemImage:
+                        "chart.line.uptrend.xyaxis",
+                    color: Color(
+                        red: 0.11,
+                        green: 0.63,
+                        blue: 0.95
+                    )
                 )
 
                 Button {
@@ -779,7 +1544,9 @@ struct PaymentsReportView: View {
                     onOpenTrainees()
                 } label: {
                     topMetricCard(
-                        title: isEnglish ? "Trainees" : "מתאמנים",
+                        title: isEnglish
+                            ? "Trainees"
+                            : "מתאמנים",
                         value: "\(items.count)",
                         systemImage: "person.3.fill",
                         color: Color.purple
@@ -788,95 +1555,294 @@ struct PaymentsReportView: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(18)
-        .background(Color(red: 0.17, green: 0.26, blue: 0.45))
-        .clipShape(RoundedRectangle(cornerRadius: 30))
-        .shadow(color: .black.opacity(0.22), radius: 10, y: 6)
+        .padding(
+            .horizontal,
+            14
+        )
+        .padding(
+            .vertical,
+            10
+        )
+        .background(reportPanelColor)
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: 30,
+                style: .continuous
+            )
+            .stroke(
+                reportBorderColor,
+                lineWidth: 1
+            )
+        )
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 30,
+                style: .continuous
+            )
+        )
+        .shadow(
+            color: Color.black.opacity(
+                isDarkMode ? 0.24 : 0.10
+            ),
+            radius: 8,
+            x: 0,
+            y: 5
+        )
     }
 
     private var searchFilterCard: some View {
-        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 12) {
-            Text(isEnglish ? "Search & filters" : "חיפוש וסינון")
-                .font(.headline.bold())
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
+        VStack(
+            alignment: isEnglish ? .leading : .trailing,
+            spacing: 12
+        ) {
+            Text(
+                isEnglish
+                    ? "Search & filters"
+                    : "חיפוש וסינון"
+            )
+            .kmiFont(size: 15, weight: .heavy)
+            .foregroundStyle(reportPrimaryTextColor)
+            .frame(
+                maxWidth: .infinity,
+                alignment: screenFrameAlignment
+            )
+            .multilineTextAlignment(
+                screenTextAlignment
+            )
 
             Menu {
-                ForEach(branchOptions, id: \.self) { branch in
+                ForEach(
+                    branchOptions,
+                    id: \.self
+                ) { branch in
                     Button(branch) {
                         selectedBranch = branch
                     }
                 }
             } label: {
-                HStack {
-                    Image(systemName: "building.2.fill")
+                HStack(spacing: 10) {
+                    Image(
+                        systemName:
+                            "building.2.fill"
+                    )
+                    .foregroundStyle(
+                        reportAccentColor
+                    )
 
                     Text(selectedBranch)
-                        .lineLimit(1)
+                        .kmiFont(
+                            size: 14,
+                            weight: .bold
+                        )
+                        .foregroundStyle(
+                            reportPrimaryTextColor
+                        )
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.75)
 
-                    Spacer()
+                    Spacer(minLength: 8)
 
-                    Image(systemName: "chevron.down")
+                    Image(
+                        systemName:
+                            "chevron.down"
+                    )
+                    .foregroundStyle(
+                        reportSecondaryTextColor
+                    )
                 }
-                .foregroundStyle(.white)
-                .padding()
-                .background(Color(red: 0.14, green: 0.21, blue: 0.37))
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .padding(
+                    .horizontal,
+                    14
+                )
+                .frame(minHeight: 54)
+                .background(reportFieldColor)
+                .overlay(
+                    RoundedRectangle(
+                        cornerRadius: 16,
+                        style: .continuous
+                    )
+                    .stroke(
+                        reportBorderColor,
+                        lineWidth: 1
+                    )
+                )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 16,
+                        style: .continuous
+                    )
+                )
             }
 
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.white.opacity(0.70))
+            HStack(spacing: 10) {
+                Image(
+                    systemName:
+                        "magnifyingglass"
+                )
+                .foregroundStyle(
+                    reportSecondaryTextColor
+                )
 
                 TextField(
-                    isEnglish ? "Search by name / phone / branch" : "חיפוש לפי שם / טלפון / סניף",
+                    isEnglish
+                        ? "Search by name / phone / branch"
+                        : "חיפוש לפי שם / טלפון / סניף",
                     text: $query
                 )
-                .foregroundStyle(.white)
-                .textInputAutocapitalization(.never)
-                .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                .kmiFont(
+                    size: 13,
+                    weight: .regular
+                )
+                .foregroundStyle(
+                    reportPrimaryTextColor
+                )
+                .textInputAutocapitalization(
+                    .never
+                )
+                .multilineTextAlignment(
+                    screenTextAlignment
+                )
             }
-            .padding()
-            .background(Color(red: 0.14, green: 0.21, blue: 0.37))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(
+                .horizontal,
+                14
+            )
+            .frame(minHeight: 56)
+            .background(reportFieldColor)
+            .overlay(
+                RoundedRectangle(
+                    cornerRadius: 16,
+                    style: .continuous
+                )
+                .stroke(
+                    reportBorderColor,
+                    lineWidth: 1
+                )
+            )
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: 16,
+                    style: .continuous
+                )
+            )
 
             HStack(spacing: 8) {
-                filterChip(title: isEnglish ? "All\ntrainees" : "כל\nהמתאמנים", key: "ALL")
-                filterChip(title: isEnglish ? "Paid\n150" : "שילמו\n150", key: "PAID")
-                filterChip(title: isEnglish ? "Not\npaid" : "לא\nשילמו", key: "UNPAID")
+                filterChip(
+                    title: isEnglish
+                        ? "All\ntrainees"
+                        : "כל\nהמתאמנים",
+                    key: "ALL"
+                )
+
+                filterChip(
+                    title: isEnglish
+                        ? "Paid"
+                        : "שילמו",
+                    key: "PAID"
+                )
+
+                filterChip(
+                    title: isEnglish
+                        ? "Not\npaid"
+                        : "לא\nשילמו",
+                    key: "UNPAID"
+                )
             }
 
-            Text(isEnglish ? "Results: \(filteredItems.count)" : "תוצאות: \(filteredItems.count)")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.80))
-                .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
+            Text(
+                isEnglish
+                    ? "Results: \(filteredItems.count)"
+                    : "תוצאות: \(filteredItems.count)"
+            )
+            .kmiFont(size: 12, weight: .regular)
+            .foregroundStyle(
+                reportSecondaryTextColor
+            )
+            .frame(
+                maxWidth: .infinity,
+                alignment: screenFrameAlignment
+            )
+            .multilineTextAlignment(
+                screenTextAlignment
+            )
         }
         .padding(16)
-        .background(Color(red: 0.14, green: 0.23, blue: 0.40))
-        .clipShape(RoundedRectangle(cornerRadius: 28))
+        .background(reportPanelColor)
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: 28,
+                style: .continuous
+            )
+            .stroke(
+                reportBorderColor,
+                lineWidth: 1
+            )
+        )
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 28,
+                style: .continuous
+            )
+        )
     }
 
-    private func topMetricCard(title: String, value: String, systemImage: String, color: Color) -> some View {
-        VStack(spacing: 10) {
+    private func topMetricCard(
+        title: String,
+        value: String,
+        systemImage: String,
+        color: Color
+    ) -> some View {
+        VStack(spacing: 5) {
             Image(systemName: systemImage)
-                .foregroundStyle(.white)
-                .frame(width: 42, height: 42)
-                .background(Color.white.opacity(0.18))
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .font(
+                    .system(
+                        size: 18,
+                        weight: .bold
+                    )
+                )
+                .foregroundStyle(Color.white)
+                .frame(
+                    width: 32,
+                    height: 32
+                )
+                .background(
+                    Color.white.opacity(0.18)
+                )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 12,
+                        style: .continuous
+                    )
+                )
 
             Text(title)
-                .font(.caption.bold())
-                .foregroundStyle(.white.opacity(0.82))
-                .lineLimit(1)
+                .kmiFont(size: 12, weight: .bold)
+                .foregroundStyle(
+                    Color.white.opacity(0.86)
+                )
+                .lineLimit(2)
+                .minimumScaleFactor(0.72)
+                .multilineTextAlignment(.center)
 
             Text(value)
-                .font(.title3.bold())
-                .foregroundStyle(.white)
+                .kmiFont(size: 18, weight: .heavy)
+                .foregroundStyle(Color.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 132)
+        .frame(minHeight: 96)
+        .padding(
+            .horizontal,
+            6
+        )
         .background(color)
-        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 20,
+                style: .continuous
+            )
+        )
     }
 
     private func summaryCard(
@@ -889,43 +1855,121 @@ struct PaymentsReportView: View {
         onTap: @escaping () -> Void
     ) -> some View {
         Button(action: onTap) {
-            VStack(spacing: 12) {
+            VStack(spacing: 5) {
                 Image(systemName: systemImage)
-                    .foregroundStyle(.white)
-                    .frame(width: 42, height: 42)
-                    .background(Color.white.opacity(selected ? 0.22 : 0.16))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .font(
+                        .system(
+                            size: 18,
+                            weight: .bold
+                        )
+                    )
+                    .foregroundStyle(Color.white)
+                    .frame(
+                        width: 32,
+                        height: 32
+                    )
+                    .background(
+                        Color.white.opacity(
+                            selected ? 0.24 : 0.17
+                        )
+                    )
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius: 12,
+                            style: .continuous
+                        )
+                    )
 
                 Text(title)
-                    .font(.caption.bold())
-                    .foregroundStyle(.white.opacity(0.88))
-                    .lineLimit(1)
+                    .kmiFont(size: 12, weight: .bold)
+                    .foregroundStyle(
+                        Color.white.opacity(0.88)
+                    )
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.72)
 
                 Text(value)
-                    .font(.title.bold())
-                    .foregroundStyle(.white)
+                    .kmiFont(size: 18, weight: .heavy)
+                    .foregroundStyle(Color.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 138)
-            .background(selected ? selectedColor : baseColor)
-            .clipShape(RoundedRectangle(cornerRadius: 26))
-            .shadow(color: .black.opacity(selected ? 0.24 : 0.14), radius: selected ? 10 : 6, y: selected ? 6 : 4)
+            .frame(minHeight: 96)
+            .padding(
+                .horizontal,
+                6
+            )
+            .background(
+                selected
+                    ? selectedColor
+                    : baseColor
+            )
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: 20,
+                    style: .continuous
+                )
+            )
+            .shadow(
+                color: Color.black.opacity(
+                    selected ? 0.22 : 0.10
+                ),
+                radius: selected ? 8 : 4,
+                x: 0,
+                y: selected ? 5 : 3
+            )
         }
         .buttonStyle(.plain)
     }
 
-    private func filterChip(title: String, key: String) -> some View {
-        Button {
+    private func filterChip(
+        title: String,
+        key: String
+    ) -> some View {
+        let isSelected = filter == key
+
+        return Button {
             filter = key
         } label: {
             Text(title)
-                .font(.caption.bold())
+                .kmiFont(size: 12, weight: .bold)
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.white)
+                .foregroundStyle(
+                    isSelected
+                        ? Color.white
+                        : reportPrimaryTextColor
+                )
                 .frame(maxWidth: .infinity)
-                .frame(height: 58)
-                .background(filter == key ? Color.purple : Color.white.opacity(0.10))
-                .clipShape(RoundedRectangle(cornerRadius: 20))
+                .frame(minHeight: 54)
+                .padding(
+                    .horizontal,
+                    5
+                )
+                .background(
+                    isSelected
+                        ? Color.purple
+                        : reportFieldColor
+                )
+                .overlay(
+                    RoundedRectangle(
+                        cornerRadius: 18,
+                        style: .continuous
+                    )
+                    .stroke(
+                        isSelected
+                            ? Color.purple.opacity(0.85)
+                            : reportBorderColor,
+                        lineWidth: 1
+                    )
+                )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 18,
+                        style: .continuous
+                    )
+                )
         }
         .buttonStyle(.plain)
     }
@@ -938,85 +1982,251 @@ struct PaymentsReportView: View {
     ) -> some View {
         VStack(spacing: 10) {
             Image(systemName: systemImage)
-                .font(.title2.bold())
+                .font(
+                    .system(
+                        size: 24,
+                        weight: .bold
+                    )
+                )
 
             Text(title)
-                .font(.headline.bold())
+                .kmiFont(size: 15, weight: .bold)
                 .multilineTextAlignment(.center)
+                .fixedSize(
+                    horizontal: false,
+                    vertical: true
+                )
         }
         .foregroundStyle(foreground)
         .frame(maxWidth: .infinity)
         .padding(18)
         .background(background)
-        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+            .stroke(
+                reportBorderColor,
+                lineWidth: 1
+            )
+        )
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+        )
     }
 
-    private func paymentRow(_ item: PaymentReportItem) -> some View {
-        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 12) {
-            HStack(alignment: .top) {
-                VStack(alignment: isEnglish ? .leading : .trailing, spacing: 4) {
+    private func paymentRow(
+        _ item: PaymentReportItem
+    ) -> some View {
+        VStack(
+            alignment:
+                screenHorizontalAlignment,
+            spacing: 12
+        ) {
+            HStack(
+                alignment: .top,
+                spacing: 10
+            ) {
+                VStack(
+                    alignment:
+                        screenHorizontalAlignment,
+                    spacing: 4
+                ) {
                     Text(item.fullName)
-                        .font(.title3.bold())
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
-
-                    Text("\(item.branchName) • \(item.phone)")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.74))
+                        .kmiFont(
+                            size: 17,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            reportPrimaryTextColor
+                        )
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment:
+                                screenFrameAlignment
+                        )
+                        .multilineTextAlignment(
+                            screenTextAlignment
+                        )
                         .lineLimit(2)
-                        .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
+                        .minimumScaleFactor(0.75)
+
+                    Text(
+                        "\(item.branchName) • \(item.phone)"
+                    )
+                    .kmiFont(
+                        size: 13,
+                        weight: .regular
+                    )
+                    .foregroundStyle(
+                        reportSecondaryTextColor
+                    )
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment:
+                            screenFrameAlignment
+                    )
+                    .multilineTextAlignment(
+                        screenTextAlignment
+                    )
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.75)
                 }
 
-                Spacer(minLength: 10)
-
-                Text(statusLabel(item.status))
-                    .font(.caption.bold())
-                    .foregroundStyle(statusColor(item.status))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(statusColor(item.status).opacity(0.18))
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                Text(
+                    statusLabel(item.status)
+                )
+                .kmiFont(size: 11, weight: .bold)
+                .foregroundStyle(
+                    statusColor(item.status)
+                )
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.75)
+                .padding(
+                    .horizontal,
+                    10
+                )
+                .padding(
+                    .vertical,
+                    6
+                )
+                .background(
+                    statusColor(item.status)
+                        .opacity(
+                            isDarkMode
+                                ? 0.20
+                                : 0.13
+                        )
+                )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 14,
+                        style: .continuous
+                    )
+                )
             }
 
             Divider()
-                .background(Color.white.opacity(0.10))
+                .overlay(
+                    reportDividerColor
+                )
 
-            Text(isEnglish
-                 ? "Membership fee: ₪\(Int(item.paidAmount)) / ₪\(Int(item.requiredAmount))"
-                 : "דמי חבר: \(Int(item.paidAmount)) ₪ / \(Int(item.requiredAmount)) ₪")
-                .font(.headline)
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
+            Text(
+                isEnglish
+                    ? "Membership fee: ₪\(Int(item.paidAmount)) / ₪\(Int(item.requiredAmount))"
+                    : "דמי חבר: \(Int(item.paidAmount)) ₪ / \(Int(item.requiredAmount)) ₪"
+            )
+            .kmiFont(size: 15, weight: .bold)
+            .foregroundStyle(
+                reportPrimaryTextColor
+            )
+            .frame(
+                maxWidth: .infinity,
+                alignment: screenFrameAlignment
+            )
+            .multilineTextAlignment(
+                screenTextAlignment
+            )
+            .fixedSize(
+                horizontal: false,
+                vertical: true
+            )
 
-            Text(isEnglish
-                 ? "Payment method: \(paymentMethodLabel(item.paymentMethod, isEnglish: isEnglish))"
-                 : "אמצעי תשלום: \(paymentMethodLabel(item.paymentMethod, isEnglish: isEnglish))")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.70))
-                .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
+            Text(
+                isEnglish
+                    ? "Payment method: \(paymentMethodLabel(item.paymentMethod, isEnglish: isEnglish))"
+                    : "אמצעי תשלום: \(paymentMethodLabel(item.paymentMethod, isEnglish: isEnglish))"
+            )
+            .kmiFont(size: 12, weight: .regular)
+            .foregroundStyle(
+                reportSecondaryTextColor
+            )
+            .frame(
+                maxWidth: .infinity,
+                alignment: screenFrameAlignment
+            )
+            .multilineTextAlignment(
+                screenTextAlignment
+            )
 
-            if let date = item.paymentDate, !date.isEmpty {
-                Text(isEnglish ? "Last update: \(date)" : "עדכון אחרון: \(date)")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.68))
-                    .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
+            if let date = item.paymentDate,
+               !date.isEmpty {
+                Text(
+                    isEnglish
+                        ? "Last update: \(date)"
+                        : "עדכון אחרון: \(date)"
+                )
+                .kmiFont(
+                    size: 12,
+                    weight: .regular
+                )
+                .foregroundStyle(
+                    reportSecondaryTextColor
+                )
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: screenFrameAlignment
+                )
+                .multilineTextAlignment(
+                    screenTextAlignment
+                )
             }
 
             Button {
                 selectedManualItem = item
             } label: {
-                Label(isEnglish ? "Add Membership Payment" : "הוסף דמי חבר", systemImage: "creditcard.and.123")
-                    .font(.subheadline.bold())
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+                Label(
+                    isEnglish
+                        ? "Add Membership Payment"
+                        : "הוסף דמי חבר",
+                    systemImage:
+                        "creditcard.and.123"
+                )
+                .kmiFont(size: 14, weight: .bold)
+                .frame(maxWidth: .infinity)
+                .padding(
+                    .horizontal,
+                    10
+                )
+                .padding(
+                    .vertical,
+                    11
+                )
             }
             .buttonStyle(.borderedProminent)
-            .tint(.purple)
+            .tint(Color.purple)
         }
         .padding(16)
-        .background(Color(red: 0.16, green: 0.24, blue: 0.40))
-        .clipShape(RoundedRectangle(cornerRadius: 26))
-        .shadow(color: .black.opacity(0.14), radius: 6, y: 4)
+        .background(reportPanelColor)
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: 26,
+                style: .continuous
+            )
+            .stroke(
+                reportBorderColor,
+                lineWidth: 1
+            )
+        )
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 26,
+                style: .continuous
+            )
+        )
+        .shadow(
+            color: Color.black.opacity(
+                isDarkMode ? 0.18 : 0.08
+            ),
+            radius: 6,
+            x: 0,
+            y: 4
+        )
     }
 
     private func statusLabel(_ status: PaymentStatus) -> String {
@@ -1077,64 +2287,132 @@ private struct ManualPaymentSheet: View {
     let item: PaymentReportItem
     let onDismiss: () -> Void
     let onSave: (Double, PaymentMethod, String) -> Void
-
+    
+    @Environment(\.colorScheme)
+    private var colorScheme
+    
+    @AppStorage("theme_mode")
+    private var themeMode: String = "system"
+    
+    private var normalizedThemeMode: String {
+        themeMode
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased()
+    }
+    
+    private var preferredSheetColorScheme: ColorScheme? {
+        switch normalizedThemeMode {
+        case "dark":
+            return .dark
+            
+        case "light":
+            return .light
+            
+        default:
+            return nil
+        }
+    }
+    
     @State private var amountText: String = ""
     @State private var method: PaymentMethod = .manual
     @State private var notes: String = ""
-
+    
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     Text(item.fullName)
-                        .font(.headline)
-                        .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
-
-                    TextField(isEnglish ? "Amount" : "סכום", text: $amountText)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(isEnglish ? .leading : .trailing)
-
+                        .kmiFont(size: 17, weight: .bold)
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment:
+                                isEnglish
+                            ? .leading
+                            : .trailing
+                        )
+                        .multilineTextAlignment(
+                            isEnglish
+                            ? .leading
+                            : .trailing
+                        )
+                    
+                    TextField(
+                        isEnglish
+                        ? "Amount"
+                        : "סכום",
+                        text: $amountText
+                    )
+                    .kmiFont(size: 15, weight: .regular)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(
+                        isEnglish
+                        ? .leading
+                        : .trailing
+                    )
+                    
                     Picker(isEnglish ? "Payment Method" : "אמצעי תשלום", selection: $method) {
                         ForEach(PaymentMethod.allCases) { option in
                             Text(paymentMethodLabel(option, isEnglish: isEnglish))
                                 .tag(option)
                         }
                     }
-
-                    TextField(isEnglish ? "Notes" : "הערות", text: $notes, axis: .vertical)
-                        .lineLimit(3...5)
-                        .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                    
+                    TextField(
+                        isEnglish
+                        ? "Notes"
+                        : "הערות",
+                        text: $notes,
+                        axis: .vertical
+                    )
+                    .kmiFont(size: 15, weight: .regular)
+                    .lineLimit(3...5)
+                    .multilineTextAlignment(
+                        isEnglish
+                        ? .leading
+                        : .trailing
+                    )
                 }
-            }
-            .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
-            .navigationTitle(isEnglish ? "Manual Payment Update" : "עדכון תשלום ידני")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(isEnglish ? "Cancel" : "ביטול", action: onDismiss)
-                }
-
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(isEnglish ? "Save" : "שמור") {
-                        let amount = Double(
-                            amountText
-                                .trimmingCharacters(in: .whitespacesAndNewlines)
-                                .replacingOccurrences(of: ",", with: ".")
-                        ) ?? 0
-
-                        guard amount > 0 else { return }
-
-                        onSave(
-                            amount,
-                            method,
-                            notes.trimmingCharacters(in: .whitespacesAndNewlines)
-                        )
+                .environment(
+                    \.layoutDirection,
+                     isEnglish
+                     ? .leftToRight
+                     : .rightToLeft
+                )
+                .preferredColorScheme(
+                    preferredSheetColorScheme
+                )
+                .navigationTitle(
+                    isEnglish ? "Manual Payment Update" : "עדכון תשלום ידני")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(isEnglish ? "Cancel" : "ביטול", action: onDismiss)
+                    }
+                    
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(isEnglish ? "Save" : "שמור") {
+                            let amount = Double(
+                                amountText
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                                    .replacingOccurrences(of: ",", with: ".")
+                            ) ?? 0
+                            
+                            guard amount > 0 else { return }
+                            
+                            onSave(
+                                amount,
+                                method,
+                                notes.trimmingCharacters(in: .whitespacesAndNewlines)
+                            )
+                        }
                     }
                 }
             }
         }
     }
-}
-
-#Preview {
-    PaymentsReportView(isEnglish: false)
+    
+    #Preview {
+        PaymentsReportView(isEnglish: false)
+    }
 }

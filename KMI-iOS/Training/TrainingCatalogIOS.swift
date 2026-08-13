@@ -864,12 +864,83 @@ enum TrainingCatalogIOS {
                 continue
             }
 
-            if candidateDate > now {
+            let durationMinutes =
+                trainingDay.durationMinutes > 0
+                ? trainingDay.durationMinutes
+                : 90
+
+            let candidateEndDate =
+                candidateDate.addingTimeInterval(
+                    TimeInterval(durationMinutes * 60)
+                )
+
+            /*
+             * מחזירים גם אימון שכבר התחיל,
+             * כל עוד שעת הסיום שלו עדיין לא חלפה.
+             */
+            if candidateEndDate > now {
                 return candidateDate
             }
         }
 
         return nil
+    }
+
+    /*
+     * מחשב את מועד הסיום המלא של האימון.
+     *
+     * endText מכיל שעה בלבד, ולכן משלבים אותה
+     * עם התאריך של תחילת האימון.
+     */
+    private static func trainingEndDate(
+        for training: TrainingData,
+        calendar: Calendar
+    ) -> Date {
+        guard let endTime = timeComponents(
+            from: training.endText
+        ) else {
+            return training.date.addingTimeInterval(
+                90 * 60
+            )
+        }
+
+        var components =
+            calendar.dateComponents(
+                [
+                    .year,
+                    .month,
+                    .day
+                ],
+                from: training.date
+            )
+
+        components.hour = endTime.hour
+        components.minute = endTime.minute
+        components.second = 0
+        components.nanosecond = 0
+
+        guard var endDate =
+            calendar.date(
+                from: components
+            ) else {
+            return training.date.addingTimeInterval(
+                90 * 60
+            )
+        }
+
+        /*
+         * תמיכה גם באימון שמסתיים לאחר חצות.
+         */
+        if endDate <= training.date {
+            endDate =
+                calendar.date(
+                    byAdding: .day,
+                    value: 1,
+                    to: endDate
+                ) ?? endDate
+        }
+
+        return endDate
     }
 
     static func trainingsFor(
@@ -995,13 +1066,27 @@ enum TrainingCatalogIOS {
             group: group
         )
         .filter { training in
-            training.date >= now &&
-            training.date <= endOfSeventhDay
+            let endDate =
+                trainingEndDate(
+                    for: training,
+                    calendar: calendar
+                )
+
+            /*
+             * אימון נחשב קרוב אם הוא טרם הסתיים,
+             * גם כאשר שעת ההתחלה שלו כבר חלפה.
+             */
+            return endDate > now &&
+                training.date <= endOfSeventhDay
         }
         .sorted { left, right in
             left.date < right.date
         }
 
-        return Array(upcoming.prefix(max(0, count)))
+        return Array(
+            upcoming.prefix(
+                max(0, count)
+            )
+        )
     }
 }

@@ -208,12 +208,12 @@ final class HomeTrainingsViewModel: ObservableObject {
         for branch in branches {
             for group in groups {
                 let matchingTrainings =
-                    TrainingCatalogIOS.upcomingFor(
-                        region: region,
-                        branch: branch,
-                        group: group,
-                        count: 5
-                    )
+                TrainingCatalogIOS.upcomingFor(
+                    region: region,
+                    branch: branch,
+                    group: group,
+                    count: 50
+                )
 
                 collectedTrainings += matchingTrainings
             }

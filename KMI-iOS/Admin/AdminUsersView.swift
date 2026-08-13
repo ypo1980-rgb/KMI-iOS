@@ -3,8 +3,69 @@ import FirebaseFirestore
 
 struct AdminUsersView: View {
 
+    @Environment(\.colorScheme)
+    private var colorScheme
+
     @State private var users: [AdminUser] = []
     @State private var filteredUsers: [AdminUser] = []
+
+    private var isDarkMode: Bool {
+        colorScheme == .dark
+    }
+
+    private var primaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.94)
+            : Color.black.opacity(0.84)
+    }
+
+    private var secondaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.68)
+            : Color.black.opacity(0.58)
+    }
+
+    private var sectionTitleColor: Color {
+        isDarkMode
+            ? Color(red: 0.89, green: 0.94, blue: 1.00)
+            : Color(red: 0.06, green: 0.15, blue: 0.28)
+    }
+
+    private var panelColor: Color {
+        isDarkMode
+            ? Color(red: 0.04, green: 0.07, blue: 0.13).opacity(0.94)
+            : Color.white.opacity(0.90)
+    }
+
+    private var elevatedPanelColor: Color {
+        isDarkMode
+            ? Color(red: 0.01, green: 0.03, blue: 0.09).opacity(0.95)
+            : Color.white.opacity(0.96)
+    }
+
+    private var fieldColor: Color {
+        isDarkMode
+            ? Color(red: 0.09, green: 0.14, blue: 0.23).opacity(0.98)
+            : Color.white.opacity(0.96)
+    }
+
+    private var borderColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.12)
+            : Color.black.opacity(0.10)
+    }
+
+    private var fieldTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.92)
+            : Color.black.opacity(0.82)
+    }
+
+    private var fieldIconColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.50)
+            : Color.black.opacity(0.35)
+    }
 
     @State private var searchText: String = ""
     @State private var selectedRole: UserRoleFilter = .all
@@ -108,12 +169,17 @@ struct AdminUsersView: View {
 
         ZStack {
             LinearGradient(
-                colors: [
-                    Color(red: 0.02, green: 0.04, blue: 0.11),
-                    Color(red: 0.07, green: 0.12, blue: 0.22),
-                    Color(red: 0.08, green: 0.30, blue: 0.55),
-                    Color(red: 0.03, green: 0.64, blue: 0.89)
-                ],
+                colors: isDarkMode
+                    ? [
+                        Color(red: 0.059, green: 0.090, blue: 0.165),
+                        Color(red: 0.118, green: 0.161, blue: 0.231),
+                        Color(red: 0.055, green: 0.647, blue: 0.914)
+                    ]
+                    : [
+                        Color(red: 0.965, green: 0.980, blue: 1.000),
+                        Color(red: 0.900, green: 0.955, blue: 0.990),
+                        Color(red: 0.600, green: 0.850, blue: 0.965)
+                    ],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -162,12 +228,22 @@ struct AdminUsersView: View {
     private var loadingUsersState: some View {
         VStack(spacing: 12) {
             ProgressView()
-                .tint(.white)
+                .tint(
+                    isDarkMode
+                        ? Color.white
+                        : Color(red: 0.03, green: 0.48, blue: 0.78)
+                )
+                .controlSize(.large)
 
-            Text(tr("טוען משתמשים מהשרת...", "Loading users from the server..."))
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(.white.opacity(0.88))
-                .multilineTextAlignment(.center)
+            Text(
+                tr(
+                    "טוען משתמשים מהשרת...",
+                    "Loading users from the server..."
+                )
+            )
+            .kmiFont(size: 15, weight: .bold)
+            .foregroundStyle(secondaryTextColor)
+            .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 40)
@@ -176,36 +252,66 @@ struct AdminUsersView: View {
 
     private var emptyUsersState: some View {
         VStack(spacing: 12) {
-            Image(systemName: "person.crop.circle.badge.questionmark")
-                .font(.system(size: 42, weight: .bold))
-                .foregroundStyle(.white.opacity(0.92))
+            Image(
+                systemName:
+                    "person.crop.circle.badge.questionmark"
+            )
+            .font(.system(size: 42, weight: .bold))
+            .foregroundStyle(
+                isDarkMode
+                    ? Color.white.opacity(0.92)
+                    : Color(red: 0.08, green: 0.42, blue: 0.70)
+            )
 
-            Text(tr("לא נמצאו משתמשים תואמים", "No matching users found"))
-                .font(.system(size: 18, weight: .heavy))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
+            Text(
+                tr(
+                    "לא נמצאו משתמשים תואמים",
+                    "No matching users found"
+                )
+            )
+            .kmiFont(size: 18, weight: .heavy)
+            .foregroundStyle(primaryTextColor)
+            .multilineTextAlignment(.center)
 
-            Text(tr("נסה לשנות חיפוש או סינון", "Try changing the search or filters"))
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.72))
-                .multilineTextAlignment(.center)
+            Text(
+                tr(
+                    "נסה לשנות חיפוש או סינון",
+                    "Try changing the search or filters"
+                )
+            )
+            .kmiFont(size: 14, weight: .semibold)
+            .foregroundStyle(secondaryTextColor)
+            .multilineTextAlignment(.center)
 
             Button {
                 clearAllFilters()
             } label: {
-                Text(tr("נקה סינון", "Clear filters"))
-                    .font(.system(size: 14, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(0.88))
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 10)
-                    .background(
-                        Capsule()
-                            .fill(Color.white.opacity(0.94))
+                Text(
+                    tr(
+                        "נקה סינון",
+                        "Clear filters"
                     )
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.white.opacity(0.24), lineWidth: 1)
-                    )
+                )
+                .kmiFont(size: 14, weight: .heavy)
+                .foregroundStyle(
+                    isDarkMode
+                        ? Color.black.opacity(0.88)
+                        : Color.white
+                )
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+                .background(
+                    Capsule()
+                        .fill(
+                            isDarkMode
+                                ? Color.white.opacity(0.94)
+                                : Color(
+                                    red: 0.03,
+                                    green: 0.48,
+                                    blue: 0.78
+                                )
+                        )
+                )
             }
             .buttonStyle(.plain)
             .padding(.top, 4)
@@ -268,25 +374,34 @@ struct AdminUsersView: View {
         users: [AdminUser],
         emptyMessage: String
     ) -> some View {
-
-        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 10) {
-
+        VStack(
+            alignment: isEnglish ? .leading : .trailing,
+            spacing: 10
+        ) {
             Text(title)
-                .font(.system(size: 16, weight: .black))
-                .foregroundStyle(Color(red: 0.89, green: 0.94, blue: 1.0))
-                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                .kmiFont(size: 16, weight: .black)
+                .foregroundStyle(sectionTitleColor)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: screenFrameAlignment
+                )
                 .multilineTextAlignment(screenTextAlignment)
+                .fixedSize(horizontal: false, vertical: true)
 
             if users.isEmpty {
                 Text(emptyMessage)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.62))
-                    .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                    .kmiFont(size: 13, weight: .semibold)
+                    .foregroundStyle(secondaryTextColor)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: screenFrameAlignment
+                    )
                     .multilineTextAlignment(screenTextAlignment)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.vertical, 8)
 
             } else {
-                VStack(spacing: 8) {
+                LazyVStack(spacing: 8) {
                     ForEach(users) { user in
                         NavigationLink {
                             AdminUserDetailsView(user: user)
@@ -301,36 +416,66 @@ struct AdminUsersView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(red: 0.04, green: 0.07, blue: 0.13).opacity(0.92))
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+            .fill(panelColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+            .stroke(borderColor, lineWidth: 1)
+        )
+        .shadow(
+            color: Color.black.opacity(
+                isDarkMode ? 0.14 : 0.07
+            ),
+            radius: 7,
+            x: 0,
+            y: 3
         )
     }
 
     private var unlikeQuestionsCard: some View {
+        VStack(
+            alignment: isEnglish ? .leading : .trailing,
+            spacing: 10
+        ) {
+            Text(
+                tr(
+                    "שאלות לסקירה (UNLIKE)",
+                    "Questions for review (UNLIKE)"
+                )
+            )
+            .kmiFont(size: 16, weight: .black)
+            .foregroundStyle(sectionTitleColor)
+            .frame(
+                maxWidth: .infinity,
+                alignment: screenFrameAlignment
+            )
+            .multilineTextAlignment(screenTextAlignment)
+            .fixedSize(horizontal: false, vertical: true)
 
-        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 10) {
-
-            Text(tr("שאלות לסקירה (UNLIKE)", "Questions for review (UNLIKE)"))
-                .font(.system(size: 16, weight: .black))
-                .foregroundStyle(Color(red: 0.89, green: 0.94, blue: 1.0))
-                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-                .multilineTextAlignment(screenTextAlignment)
-
-            Text(tr(
-                "רשימת שאלות שהעוזר לא ענה עליהן טוב – לסקירה ולשיפור מאגר התכנים.",
-                "Questions where the assistant response was marked as not helpful — for review and content improvement."
-            ))
-            .font(.system(size: 12.5, weight: .semibold))
-            .foregroundStyle(Color.white.opacity(0.66))
-            .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+            Text(
+                tr(
+                    "רשימת שאלות שהעוזר לא ענה עליהן טוב – לסקירה ולשיפור מאגר התכנים.",
+                    "Questions where the assistant response was marked as not helpful — for review and content improvement."
+                )
+            )
+            .kmiFont(size: 12.5, weight: .semibold)
+            .foregroundStyle(secondaryTextColor)
+            .frame(
+                maxWidth: .infinity,
+                alignment: screenFrameAlignment
+            )
             .multilineTextAlignment(screenTextAlignment)
             .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
 
-            VStack(spacing: 8) {
+            LazyVStack(spacing: 8) {
                 ForEach(unlikeQuestions.prefix(20)) { item in
                     unlikeQuestionRow(item)
                 }
@@ -340,106 +485,225 @@ struct AdminUsersView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(red: 0.01, green: 0.03, blue: 0.09).opacity(0.95))
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+            .fill(elevatedPanelColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color(red: 0.22, green: 0.74, blue: 0.97).opacity(0.36), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+            .stroke(
+                Color(
+                    red: 0.22,
+                    green: 0.74,
+                    blue: 0.97
+                )
+                .opacity(isDarkMode ? 0.36 : 0.24),
+                lineWidth: 1
+            )
         )
     }
 
-    private func unlikeQuestionRow(_ item: AssistantFeedbackQuestion) -> some View {
-
-        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 4) {
+    private func unlikeQuestionRow(
+        _ item: AssistantFeedbackQuestion
+    ) -> some View {
+        VStack(
+            alignment: isEnglish ? .leading : .trailing,
+            spacing: 4
+        ) {
             Text("• \(item.question)")
-                .font(.system(size: 12.5, weight: .bold))
-                .foregroundStyle(Color.white.opacity(0.90))
-                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                .kmiFont(size: 12.5, weight: .bold)
+                .foregroundStyle(primaryTextColor)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: screenFrameAlignment
+                )
                 .multilineTextAlignment(screenTextAlignment)
-                .lineLimit(3)
+                .lineLimit(4)
+                .fixedSize(horizontal: false, vertical: true)
 
-            let meta = item.metaLine(isEnglish: isEnglish)
+            let meta = item.metaLine(
+                isEnglish: isEnglish
+            )
 
             if !meta.isEmpty {
                 Text(meta)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.52))
-                    .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                    .kmiFont(size: 11, weight: .semibold)
+                    .foregroundStyle(secondaryTextColor)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: screenFrameAlignment
+                    )
                     .multilineTextAlignment(screenTextAlignment)
-                    .lineLimit(2)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.vertical, 9)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(red: 0.02, green: 0.06, blue: 0.14).opacity(0.92))
+            RoundedRectangle(
+                cornerRadius: 14,
+                style: .continuous
+            )
+            .fill(fieldColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 14,
+                style: .continuous
+            )
+            .stroke(borderColor, lineWidth: 1)
         )
     }
 
     // MARK: Screen header
 
     private var screenHeader: some View {
+        VStack(
+            alignment: isEnglish ? .leading : .trailing,
+            spacing: 5
+        ) {
+            Text(
+                tr(
+                    "ניהול משתמשים",
+                    "User management"
+                )
+            )
+            .kmiFont(size: 24, weight: .black)
+            .foregroundStyle(primaryTextColor)
+            .frame(
+                maxWidth: .infinity,
+                alignment: screenFrameAlignment
+            )
+            .multilineTextAlignment(screenTextAlignment)
+            .fixedSize(horizontal: false, vertical: true)
 
-        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 5) {
-            Text(tr("ניהול משתמשים", "User management"))
-                .font(.system(size: 24, weight: .black))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-                .multilineTextAlignment(screenTextAlignment)
-
-            Text(tr("משתמשים אמיתיים מ־Firestore", "Real users from Firestore"))
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(.white.opacity(0.72))
-                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-                .multilineTextAlignment(screenTextAlignment)
+            Text(
+                tr(
+                    "משתמשים אמיתיים מ־Firestore",
+                    "Real users from Firestore"
+                )
+            )
+            .kmiFont(size: 14, weight: .bold)
+            .foregroundStyle(secondaryTextColor)
+            .frame(
+                maxWidth: .infinity,
+                alignment: screenFrameAlignment
+            )
+            .multilineTextAlignment(screenTextAlignment)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 16)
         .padding(.top, 10)
     }
 
-    private func errorMessageCard(_ message: String) -> some View {
-
+    private func errorMessageCard(
+        _ message: String
+    ) -> some View {
         HStack(spacing: 10) {
             if isEnglish {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 16, weight: .heavy))
-                    .foregroundStyle(Color(red: 1.0, green: 0.70, blue: 0.70))
+                errorMessageIcon
 
-                Text(message)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(red: 1.0, green: 0.82, blue: 0.82))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .multilineTextAlignment(.leading)
-
+                errorMessageText(message)
             } else {
-                Text(message)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(red: 1.0, green: 0.82, blue: 0.82))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .multilineTextAlignment(.trailing)
+                errorMessageText(message)
 
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 16, weight: .heavy))
-                    .foregroundStyle(Color(red: 1.0, green: 0.70, blue: 0.70))
+                errorMessageIcon
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(red: 0.35, green: 0.04, blue: 0.08).opacity(0.72))
+            RoundedRectangle(
+                cornerRadius: 16,
+                style: .continuous
+            )
+            .fill(
+                isDarkMode
+                    ? Color(
+                        red: 0.35,
+                        green: 0.04,
+                        blue: 0.08
+                    )
+                    .opacity(0.72)
+                    : Color(
+                        red: 1.00,
+                        green: 0.91,
+                        blue: 0.92
+                    )
+            )
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.red.opacity(0.26), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 16,
+                style: .continuous
+            )
+            .stroke(
+                Color.red.opacity(
+                    isDarkMode ? 0.30 : 0.20
+                ),
+                lineWidth: 1
+            )
         )
         .padding(.horizontal, 14)
+    }
+
+    private var errorMessageIcon: some View {
+        Image(
+            systemName:
+                "exclamationmark.triangle.fill"
+        )
+        .font(.system(size: 16, weight: .heavy))
+        .foregroundStyle(
+            isDarkMode
+                ? Color(
+                    red: 1.00,
+                    green: 0.70,
+                    blue: 0.70
+                )
+                : Color(
+                    red: 0.72,
+                    green: 0.08,
+                    blue: 0.12
+                )
+        )
+        .accessibilityHidden(true)
+    }
+
+    private func errorMessageText(
+        _ message: String
+    ) -> some View {
+        Text(message)
+            .kmiFont(size: 13, weight: .semibold)
+            .foregroundStyle(
+                isDarkMode
+                    ? Color(
+                        red: 1.00,
+                        green: 0.82,
+                        blue: 0.82
+                    )
+                    : Color(
+                        red: 0.55,
+                        green: 0.04,
+                        blue: 0.08
+                    )
+            )
+            .frame(
+                maxWidth: .infinity,
+                alignment: screenFrameAlignment
+            )
+            .multilineTextAlignment(
+                screenTextAlignment
+            )
+            .fixedSize(
+                horizontal: false,
+                vertical: true
+            )
     }
 
     // MARK: Header stats
@@ -531,37 +795,72 @@ struct AdminUsersView: View {
         _ value: String,
         icon: String
     ) -> some View {
-
         VStack(spacing: 5) {
-
             Image(systemName: icon)
-                .font(.system(size: 14, weight: .heavy))
-                .foregroundStyle(Color(red: 0.72, green: 0.91, blue: 1.0))
+                .font(.system(size: 15, weight: .heavy))
+                .foregroundStyle(
+                    Color(
+                        red: 0.08,
+                        green: 0.58,
+                        blue: 0.88
+                    )
+                )
+                .frame(minHeight: 18)
 
             Text(value)
-                .font(.system(size: 18, weight: .black))
-                .foregroundStyle(.white)
+                .kmiFont(size: 18, weight: .black)
+                .foregroundStyle(primaryTextColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
 
             Text(title)
-                .font(.system(size: 10.5, weight: .bold))
-                .foregroundStyle(.white.opacity(0.72))
+                .kmiFont(size: 10.5, weight: .bold)
+                .foregroundStyle(secondaryTextColor)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
-                .minimumScaleFactor(0.75)
+                .minimumScaleFactor(0.72)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
-        .frame(minHeight: 82)
+        .frame(minHeight: 88)
         .padding(.horizontal, 6)
         .padding(.vertical, 9)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color(red: 0.02, green: 0.06, blue: 0.14).opacity(0.82))
+            RoundedRectangle(
+                cornerRadius: 18,
+                style: .continuous
+            )
+            .fill(elevatedPanelColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color(red: 0.22, green: 0.74, blue: 0.97).opacity(0.32), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 18,
+                style: .continuous
+            )
+            .stroke(
+                isDarkMode
+                    ? Color(
+                        red: 0.22,
+                        green: 0.74,
+                        blue: 0.97
+                    )
+                    .opacity(0.32)
+                    : Color(
+                        red: 0.08,
+                        green: 0.48,
+                        blue: 0.78
+                    )
+                    .opacity(0.20),
+                lineWidth: 1
+            )
+        )
+        .shadow(
+            color: Color.black.opacity(
+                isDarkMode ? 0.14 : 0.08
+            ),
+            radius: 6,
+            x: 0,
+            y: 3
         )
     }
 
@@ -571,11 +870,20 @@ struct AdminUsersView: View {
 
         VStack(alignment: isEnglish ? .leading : .trailing, spacing: 10) {
 
-            Text(tr("סינון משתמשים", "User filters"))
-                .font(.system(size: 15, weight: .black))
-                .foregroundStyle(.white.opacity(0.92))
-                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-                .multilineTextAlignment(screenTextAlignment)
+            Text(
+                tr(
+                    "סינון משתמשים",
+                    "User filters"
+                )
+            )
+            .kmiFont(size: 15, weight: .black)
+            .foregroundStyle(primaryTextColor)
+            .frame(
+                maxWidth: .infinity,
+                alignment: screenFrameAlignment
+            )
+            .multilineTextAlignment(screenTextAlignment)
+            .fixedSize(horizontal: false, vertical: true)
 
             filterScrollRow {
                 filterChip(
@@ -692,12 +1000,26 @@ struct AdminUsersView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color(red: 0.02, green: 0.06, blue: 0.14).opacity(0.72))
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .fill(panelColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .stroke(borderColor, lineWidth: 1)
+        )
+        .shadow(
+            color: Color.black.opacity(
+                isDarkMode ? 0.12 : 0.07
+            ),
+            radius: 7,
+            x: 0,
+            y: 3
         )
         .padding(.horizontal, 14)
     }
@@ -719,37 +1041,68 @@ struct AdminUsersView: View {
         isSelected: Bool,
         action: @escaping () -> Void
     ) -> some View {
+        let chipTextColor: Color = {
+            if isSelected {
+                return Color.white
+            }
 
-        let textColor: Color = isSelected
-            ? Color.black.opacity(0.90)
-            : Color.white.opacity(0.92)
+            return isDarkMode
+                ? Color.white.opacity(0.90)
+                : Color.black.opacity(0.72)
+        }()
 
-        let backgroundColor: Color = isSelected
-            ? Color(red: 0.87, green: 0.96, blue: 1.0).opacity(0.98)
-            : Color.white.opacity(0.12)
+        let chipBackgroundColor: Color = {
+            if isSelected {
+                return Color(
+                    red: 0.055,
+                    green: 0.647,
+                    blue: 0.914
+                )
+            }
 
-        let borderColor: Color = isSelected
-            ? Color.white.opacity(0.32)
-            : Color.white.opacity(0.16)
+            return isDarkMode
+                ? Color.white.opacity(0.12)
+                : Color.black.opacity(0.055)
+        }()
+
+        let chipBorderColor: Color = {
+            if isSelected {
+                return Color(
+                    red: 0.13,
+                    green: 0.70,
+                    blue: 0.96
+                )
+            }
+
+            return borderColor
+        }()
 
         return Button(action: action) {
             Text(title)
-                .font(.system(size: 12.5, weight: .heavy))
-                .foregroundColor(textColor)
+                .kmiFont(size: 12.5, weight: .heavy)
+                .foregroundStyle(chipTextColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.vertical, 9)
                 .background(
                     Capsule()
-                        .fill(backgroundColor)
+                        .fill(chipBackgroundColor)
                 )
                 .overlay(
                     Capsule()
-                        .stroke(borderColor, lineWidth: 1)
+                        .stroke(
+                            chipBorderColor,
+                            lineWidth: 1
+                        )
                 )
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(
+            isSelected ? .isSelected : []
+        )
     }
 
     // MARK: Admin dashboard distributions
@@ -764,69 +1117,129 @@ struct AdminUsersView: View {
     }
 
     private var genderDistributionCard: some View {
+        let maleCount = users.filter {
+            isMaleGender($0.gender)
+        }.count
 
-        let maleCount = users.filter { isMaleGender($0.gender) }.count
-        let femaleCount = users.filter { isFemaleGender($0.gender) }.count
-        let unknownCount = max(0, users.count - maleCount - femaleCount)
-        let maxValue = max(maleCount, femaleCount, unknownCount, 1)
+        let femaleCount = users.filter {
+            isFemaleGender($0.gender)
+        }.count
 
-        return VStack(alignment: isEnglish ? .leading : .trailing, spacing: 10) {
+        let unknownCount = max(
+            0,
+            users.count - maleCount - femaleCount
+        )
 
-            Text(tr("חלוקה לפי מין", "Gender distribution"))
-                .font(.system(size: 15, weight: .black))
-                .foregroundStyle(Color(red: 0.90, green: 0.95, blue: 1.0))
-                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-                .multilineTextAlignment(screenTextAlignment)
+        let maxValue = max(
+            maleCount,
+            femaleCount,
+            unknownCount,
+            1
+        )
+
+        return VStack(
+            alignment: isEnglish ? .leading : .trailing,
+            spacing: 10
+        ) {
+            Text(
+                tr(
+                    "חלוקה לפי מין",
+                    "Gender distribution"
+                )
+            )
+            .kmiFont(size: 15, weight: .black)
+            .foregroundStyle(sectionTitleColor)
+            .frame(
+                maxWidth: .infinity,
+                alignment: screenFrameAlignment
+            )
+            .multilineTextAlignment(screenTextAlignment)
+            .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 8) {
                 distributionBarItem(
                     title: tr("זכר", "Male"),
                     value: loading ? nil : maleCount,
                     maxValue: maxValue,
-                    accent: Color(red: 0.22, green: 0.74, blue: 0.97)
+                    accent: Color(
+                        red: 0.22,
+                        green: 0.74,
+                        blue: 0.97
+                    )
                 )
 
                 distributionBarItem(
                     title: tr("נקבה", "Female"),
                     value: loading ? nil : femaleCount,
                     maxValue: maxValue,
-                    accent: Color(red: 0.90, green: 0.44, blue: 0.78)
+                    accent: Color(
+                        red: 0.90,
+                        green: 0.44,
+                        blue: 0.78
+                    )
                 )
 
                 distributionBarItem(
                     title: tr("לא ידוע", "Unknown"),
                     value: loading ? nil : unknownCount,
                     maxValue: maxValue,
-                    accent: Color(red: 0.62, green: 0.68, blue: 0.78)
+                    accent: Color(
+                        red: 0.62,
+                        green: 0.68,
+                        blue: 0.78
+                    )
                 )
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color(red: 0.01, green: 0.03, blue: 0.09).opacity(0.88))
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .fill(elevatedPanelColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .stroke(borderColor, lineWidth: 1)
         )
     }
 
     private var beltDistributionCard: some View {
-
         let beltItems = beltDistributionItems
-        let maxValue = max(beltItems.map { $0.count }.max() ?? 0, 1)
 
-        return VStack(alignment: isEnglish ? .leading : .trailing, spacing: 10) {
+        let maxValue = max(
+            beltItems.map { $0.count }.max() ?? 0,
+            1
+        )
 
-            Text(tr("חלוקה לפי חגורה", "Belt distribution"))
-                .font(.system(size: 15, weight: .black))
-                .foregroundStyle(Color(red: 0.90, green: 0.95, blue: 1.0))
-                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-                .multilineTextAlignment(screenTextAlignment)
+        return VStack(
+            alignment: isEnglish ? .leading : .trailing,
+            spacing: 10
+        ) {
+            Text(
+                tr(
+                    "חלוקה לפי חגורה",
+                    "Belt distribution"
+                )
+            )
+            .kmiFont(size: 15, weight: .black)
+            .foregroundStyle(sectionTitleColor)
+            .frame(
+                maxWidth: .infinity,
+                alignment: screenFrameAlignment
+            )
+            .multilineTextAlignment(screenTextAlignment)
+            .fixedSize(horizontal: false, vertical: true)
 
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(
+                .horizontal,
+                showsIndicators: false
+            ) {
                 HStack(spacing: 10) {
                     ForEach(beltItems) { item in
                         beltDistributionItem(
@@ -836,19 +1249,31 @@ struct AdminUsersView: View {
                     }
                 }
                 .padding(.vertical, 2)
-                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: screenFrameAlignment
+                )
             }
-            .environment(\.layoutDirection, screenLayoutDirection)
+            .environment(
+                \.layoutDirection,
+                screenLayoutDirection
+            )
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color(red: 0.01, green: 0.03, blue: 0.09).opacity(0.88))
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .fill(elevatedPanelColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .stroke(borderColor, lineWidth: 1)
         )
     }
 
@@ -858,33 +1283,61 @@ struct AdminUsersView: View {
         maxValue: Int,
         accent: Color
     ) -> some View {
-
         let safeValue = value ?? 0
-        let ratio = CGFloat(safeValue) / CGFloat(max(maxValue, 1))
-        let barHeight = max(8, 58 * ratio)
+
+        let ratio =
+            CGFloat(safeValue) /
+            CGFloat(max(maxValue, 1))
+
+        let barHeight = max(
+            8,
+            58 * ratio
+        )
 
         return VStack(spacing: 5) {
             ZStack(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: 999, style: .continuous)
-                    .fill(Color(red: 0.11, green: 0.16, blue: 0.25).opacity(0.92))
-                    .frame(height: 58)
+                RoundedRectangle(
+                    cornerRadius: 999,
+                    style: .continuous
+                )
+                .fill(
+                    isDarkMode
+                        ? Color(
+                            red: 0.11,
+                            green: 0.16,
+                            blue: 0.25
+                        )
+                        .opacity(0.92)
+                        : Color.black.opacity(0.08)
+                )
+                .frame(height: 58)
 
-                RoundedRectangle(cornerRadius: 999, style: .continuous)
-                    .fill(accent.opacity(0.92))
-                    .frame(height: value == nil ? 18 : barHeight)
+                RoundedRectangle(
+                    cornerRadius: 999,
+                    style: .continuous
+                )
+                .fill(accent.opacity(0.92))
+                .frame(
+                    height: value == nil
+                        ? 18
+                        : barHeight
+                )
             }
             .frame(maxWidth: .infinity)
 
-            Text(value.map { "\($0)" } ?? "…")
-                .font(.system(size: 12.5, weight: .black))
-                .foregroundStyle(.white)
-                .lineLimit(1)
+            Text(
+                value.map { "\($0)" } ?? "…"
+            )
+            .kmiFont(size: 12.5, weight: .black)
+            .foregroundStyle(primaryTextColor)
+            .lineLimit(1)
+            .minimumScaleFactor(0.72)
 
             Text(title)
-                .font(.system(size: 10.5, weight: .bold))
-                .foregroundStyle(.white.opacity(0.68))
+                .kmiFont(size: 10.5, weight: .bold)
+                .foregroundStyle(secondaryTextColor)
                 .lineLimit(1)
-                .minimumScaleFactor(0.72)
+                .minimumScaleFactor(0.68)
         }
         .frame(maxWidth: .infinity)
     }
@@ -893,30 +1346,53 @@ struct AdminUsersView: View {
         item: BeltDistributionItem,
         maxValue: Int
     ) -> some View {
+        let ratio =
+            CGFloat(item.count) /
+            CGFloat(max(maxValue, 1))
 
-        let ratio = CGFloat(item.count) / CGFloat(max(maxValue, 1))
-        let beltWidth = max(30, 68 * ratio)
+        let beltWidth = max(
+            30,
+            68 * ratio
+        )
 
         return VStack(spacing: 5) {
-
-            RoundedRectangle(cornerRadius: 999, style: .continuous)
-                .fill(item.color.opacity(0.94))
-                .frame(width: loading ? 42 : beltWidth, height: 34)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 999, style: .continuous)
-                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 999,
+                style: .continuous
+            )
+            .fill(item.color.opacity(0.94))
+            .frame(
+                width: loading ? 42 : beltWidth,
+                height: 34
+            )
+            .overlay(
+                RoundedRectangle(
+                    cornerRadius: 999,
+                    style: .continuous
                 )
+                .stroke(
+                    isDarkMode
+                        ? Color.white.opacity(0.18)
+                        : Color.black.opacity(0.18),
+                    lineWidth: 1
+                )
+            )
 
-            Text(loading ? "…" : "\(item.count)")
-                .font(.system(size: 11.5, weight: .black))
-                .foregroundStyle(.white)
-                .lineLimit(1)
+            Text(
+                loading
+                    ? "…"
+                    : "\(item.count)"
+            )
+            .kmiFont(size: 11.5, weight: .black)
+            .foregroundStyle(primaryTextColor)
+            .lineLimit(1)
+            .minimumScaleFactor(0.70)
 
             Text(item.label)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.white.opacity(0.68))
+                .kmiFont(size: 10, weight: .bold)
+                .foregroundStyle(secondaryTextColor)
                 .lineLimit(1)
-                .minimumScaleFactor(0.65)
+                .minimumScaleFactor(0.62)
         }
         .frame(width: 76)
     }
@@ -924,164 +1400,289 @@ struct AdminUsersView: View {
     // MARK: Search
 
     private var searchBar: some View {
-
         HStack(spacing: 10) {
             if isEnglish {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(Color.black.opacity(0.35))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(fieldIconColor)
 
-                TextField(tr("חיפוש משתמש...", "Search user..."), text: $searchText)
-                    .foregroundStyle(Color.black.opacity(0.82))
-                    .multilineTextAlignment(.leading)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-
+                searchTextField
             } else {
-                TextField(tr("חיפוש משתמש...", "Search user..."), text: $searchText)
-                    .foregroundStyle(Color.black.opacity(0.82))
-                    .multilineTextAlignment(.trailing)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
+                searchTextField
 
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(Color.black.opacity(0.35))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(fieldIconColor)
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.96))
+            RoundedRectangle(
+                cornerRadius: 14,
+                style: .continuous
+            )
+            .fill(fieldColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.20), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 14,
+                style: .continuous
+            )
+            .stroke(borderColor, lineWidth: 1)
+        )
+        .shadow(
+            color: Color.black.opacity(
+                isDarkMode ? 0.12 : 0.06
+            ),
+            radius: 5,
+            x: 0,
+            y: 2
         )
         .padding(.horizontal, 14)
+    }
+
+    private var searchTextField: some View {
+        TextField(
+            tr(
+                "חיפוש משתמש...",
+                "Search user..."
+            ),
+            text: $searchText
+        )
+        .kmiFont(size: 15, weight: .medium)
+        .foregroundStyle(fieldTextColor)
+        .multilineTextAlignment(
+            isEnglish ? .leading : .trailing
+        )
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
     }
 
     // MARK: Row
 
-    private func userRow(_ user: AdminUser) -> some View {
-
+    private func userRow(
+        _ user: AdminUser
+    ) -> some View {
         HStack(spacing: 12) {
-
             if isEnglish {
-                VStack(alignment: .leading, spacing: 6) {
-                    userTexts(user)
-                }
-
-                Spacer(minLength: 0)
+                userTexts(user)
 
                 Image(systemName: rowChevronName)
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color.black.opacity(0.28))
+                    .foregroundStyle(fieldIconColor)
+                    .frame(width: 18)
 
             } else {
                 Image(systemName: rowChevronName)
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color.black.opacity(0.28))
+                    .foregroundStyle(fieldIconColor)
+                    .frame(width: 18)
 
-                Spacer(minLength: 0)
-
-                VStack(alignment: .trailing, spacing: 6) {
-                    userTexts(user)
-                }
+                userTexts(user)
             }
         }
+        .environment(
+            \.layoutDirection,
+            .leftToRight
+        )
+        .frame(
+            maxWidth: .infinity,
+            alignment: isEnglish ? .leading : .trailing
+        )
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.white.opacity(0.96))
+            RoundedRectangle(
+                cornerRadius: 16,
+                style: .continuous
+            )
+            .fill(fieldColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.white.opacity(0.20), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 16,
+                style: .continuous
+            )
+            .stroke(borderColor, lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.10), radius: 8, x: 0, y: 4)
+        .shadow(
+            color: Color.black.opacity(
+                isDarkMode ? 0.14 : 0.08
+            ),
+            radius: 7,
+            x: 0,
+            y: 3
+        )
+        .contentShape(
+            RoundedRectangle(
+                cornerRadius: 16,
+                style: .continuous
+            )
+        )
     }
 
-    private func userTexts(_ user: AdminUser) -> some View {
-        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 6) {
-
-            if isEnglish {
-                HStack(spacing: 8) {
+    private func userTexts(
+        _ user: AdminUser
+    ) -> some View {
+        VStack(
+            alignment: isEnglish ? .leading : .trailing,
+            spacing: 6
+        ) {
+            HStack(spacing: 8) {
+                if isEnglish {
                     Text(user.fullName)
-                        .font(.system(size: 17, weight: .heavy))
-                        .foregroundStyle(Color.black.opacity(0.84))
-                        .lineLimit(1)
+                        .kmiFont(size: 17, weight: .heavy)
+                        .foregroundStyle(primaryTextColor)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.75)
+                        .multilineTextAlignment(.leading)
 
                     roleBadge(user.role)
 
                     Spacer(minLength: 0)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
 
-            } else {
-                HStack(spacing: 8) {
+                } else {
                     Spacer(minLength: 0)
 
                     roleBadge(user.role)
 
                     Text(user.fullName)
-                        .font(.system(size: 17, weight: .heavy))
-                        .foregroundStyle(Color.black.opacity(0.84))
-                        .lineLimit(1)
+                        .kmiFont(size: 17, weight: .heavy)
+                        .foregroundStyle(primaryTextColor)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.75)
+                        .multilineTextAlignment(.trailing)
                 }
-                .frame(maxWidth: .infinity, alignment: .trailing)
             }
+            .environment(
+                \.layoutDirection,
+                .leftToRight
+            )
+            .frame(
+                maxWidth: .infinity,
+                alignment: isEnglish ? .leading : .trailing
+            )
 
-            if !user.email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if !user.email
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .isEmpty {
+
                 Text(user.email)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.black.opacity(0.52))
-                    .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-                    .multilineTextAlignment(screenTextAlignment)
-                    .lineLimit(1)
+                    .kmiFont(size: 13, weight: .medium)
+                    .foregroundStyle(secondaryTextColor)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: isEnglish ? .leading : .trailing
+                    )
+                    .multilineTextAlignment(
+                        isEnglish ? .leading : .trailing
+                    )
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.75)
             }
 
-            if !user.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(isEnglish ? "Phone: \(user.phone)" : "טלפון: \(user.phone)")
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(Color.black.opacity(0.50))
-                    .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-                    .multilineTextAlignment(screenTextAlignment)
-                    .lineLimit(1)
-            }
+            if !user.phone
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .isEmpty {
 
-            Text(user.branchGroupLine(isEnglish: isEnglish))
-                .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(Color.black.opacity(0.50))
-                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-                .multilineTextAlignment(screenTextAlignment)
+                Text(
+                    isEnglish
+                        ? "Phone: \(user.phone)"
+                        : "טלפון: \(user.phone)"
+                )
+                .kmiFont(size: 12.5, weight: .medium)
+                .foregroundStyle(secondaryTextColor)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: isEnglish ? .leading : .trailing
+                )
+                .multilineTextAlignment(
+                    isEnglish ? .leading : .trailing
+                )
                 .lineLimit(2)
+                .minimumScaleFactor(0.75)
+            }
+
+            Text(
+                user.branchGroupLine(
+                    isEnglish: isEnglish
+                )
+            )
+            .kmiFont(size: 12.5, weight: .semibold)
+            .foregroundStyle(secondaryTextColor)
+            .frame(
+                maxWidth: .infinity,
+                alignment: isEnglish ? .leading : .trailing
+            )
+            .multilineTextAlignment(
+                isEnglish ? .leading : .trailing
+            )
+            .lineLimit(3)
+            .fixedSize(
+                horizontal: false,
+                vertical: true
+            )
 
             Text(userMetaLine(user))
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(Color.black.opacity(0.46))
-                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-                .multilineTextAlignment(screenTextAlignment)
-                .lineLimit(2)
+                .kmiFont(size: 12, weight: .bold)
+                .foregroundStyle(secondaryTextColor)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: isEnglish ? .leading : .trailing
+                )
+                .multilineTextAlignment(
+                    isEnglish ? .leading : .trailing
+                )
+                .lineLimit(3)
+                .fixedSize(
+                    horizontal: false,
+                    vertical: true
+                )
         }
+        .environment(
+            \.layoutDirection,
+            .leftToRight
+        )
+        .frame(
+            maxWidth: .infinity,
+            alignment: isEnglish ? .leading : .trailing
+        )
     }
 
-    private func roleBadge(_ role: String) -> some View {
-
+    private func roleBadge(
+        _ role: String
+    ) -> some View {
         HStack(spacing: 5) {
             Image(systemName: roleIcon(role))
                 .font(.system(size: 10, weight: .black))
 
             Text(roleTextForUi(role))
-                .font(.system(size: 11, weight: .black))
+                .kmiFont(size: 11, weight: .black)
                 .lineLimit(1)
+                .minimumScaleFactor(0.72)
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(Color.white)
         .padding(.horizontal, 9)
-        .padding(.vertical, 5)
+        .padding(.vertical, 6)
         .background(
             Capsule()
                 .fill(roleColor(role))
+        )
+        .overlay(
+            Capsule()
+                .stroke(
+                    Color.white.opacity(0.18),
+                    lineWidth: 1
+                )
+        )
+        .fixedSize(
+            horizontal: true,
+            vertical: false
         )
     }
 
@@ -1372,21 +1973,66 @@ struct AdminUsersView: View {
                         user.hasRealAdminListContent
                     }
 
-                var uniqueByKey: [String: AdminUser] = [:]
+                var mergedUsers: [AdminUser] = []
 
                 for user in rawUsers {
-                    let key = user.uniqueMergeKey
-                    guard !key.isEmpty else { continue }
-
-                    if let existing = uniqueByKey[key] {
-                        uniqueByKey[key] = AdminUser.merged(existing: existing, incoming: user)
-                    } else {
-                        uniqueByKey[key] = user
+                    let matchingIndices = mergedUsers.indices.filter {
+                        mergedUsers[$0].sharesIdentity(with: user)
                     }
+
+                    guard !matchingIndices.isEmpty else {
+                        mergedUsers.append(user)
+                        continue
+                    }
+
+                    var mergedUser = user
+
+                    for index in matchingIndices.reversed() {
+                        mergedUser = AdminUser.merged(
+                            existing: mergedUsers[index],
+                            incoming: mergedUser
+                        )
+
+                        mergedUsers.remove(at: index)
+                    }
+
+                    /*
+                     * ייתכן שהמיזוג הוסיף מייל או טלפון שמחברים
+                     * את הרשומה לקבוצה נוספת. לכן מבצעים מעבר
+                     * נוסף עד שאין יותר התאמות.
+                     */
+                    var foundAdditionalMatch = true
+
+                    while foundAdditionalMatch {
+                        foundAdditionalMatch = false
+
+                        if let additionalIndex = mergedUsers.firstIndex(
+                            where: {
+                                $0.sharesIdentity(
+                                    with: mergedUser
+                                )
+                            }
+                        ) {
+                            mergedUser = AdminUser.merged(
+                                existing: mergedUsers[additionalIndex],
+                                incoming: mergedUser
+                            )
+
+                            mergedUsers.remove(
+                                at: additionalIndex
+                            )
+
+                            foundAdditionalMatch = true
+                        }
+                    }
+
+                    mergedUsers.append(mergedUser)
                 }
 
-                users = uniqueByKey.values.sorted {
-                    $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending
+                users = mergedUsers.sorted {
+                    $0.fullName.localizedCaseInsensitiveCompare(
+                        $1.fullName
+                    ) == .orderedAscending
                 }
 
                 errorMessage = nil
@@ -2001,33 +2647,99 @@ struct AdminUser: Identifiable {
             : "\(branchText) • \(groupText)"
     }
 
-    var uniqueMergeKey: String {
-        let emailKey = email
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    private var normalizedMergeEmail: String {
+        email
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased()
+            .replacingOccurrences(
+                of: " ",
+                with: ""
+            )
+    }
+
+    private var normalizedMergePhone: String {
+        var digits = phone.filter {
+            $0.isNumber
+        }
+
+        if digits.hasPrefix("00972") {
+            digits = String(
+                digits.dropFirst(5)
+            )
+
+        } else if digits.hasPrefix("972") {
+            digits = String(
+                digits.dropFirst(3)
+            )
+
+        } else if digits.hasPrefix("0") {
+            digits = String(
+                digits.dropFirst()
+            )
+        }
+
+        /*
+         * מספר סלולרי ישראלי ללא קידומת מדינה
+         * אמור להכיל תשע ספרות. לקיחת תשע הספרות
+         * האחרונות מאחדת 05X ו־+9725X.
+         */
+        if digits.count >= 9 {
+            digits = String(
+                digits.suffix(9)
+            )
+        }
+
+        return digits
+    }
+
+    private var normalizedMergeUid: String {
+        let storedUid = uidField
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
             .lowercased()
 
-        if !emailKey.isEmpty {
-            return "email:\(emailKey)"
+        if !storedUid.isEmpty {
+            return storedUid
         }
 
-        let phoneKey = phone
-            .filter { $0.isNumber }
-
-        if !phoneKey.isEmpty {
-            return "phone:\(phoneKey)"
-        }
-
-        let nameKey = AdminUser.normalizedHumanNameKey(fullName)
-
-        if !nameKey.isEmpty {
-            return "name:\(nameKey)"
-        }
-
-        let uidKey = uidField
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return id
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
             .lowercased()
+    }
 
-        return uidKey.isEmpty ? "" : "uid:\(uidKey)"
+    func sharesIdentity(
+        with other: AdminUser
+    ) -> Bool {
+        let firstEmail = normalizedMergeEmail
+        let secondEmail = other.normalizedMergeEmail
+
+        if !firstEmail.isEmpty &&
+            firstEmail == secondEmail {
+            return true
+        }
+
+        let firstPhone = normalizedMergePhone
+        let secondPhone = other.normalizedMergePhone
+
+        if !firstPhone.isEmpty &&
+            firstPhone == secondPhone {
+            return true
+        }
+
+        let firstUid = normalizedMergeUid
+        let secondUid = other.normalizedMergeUid
+
+        if !firstUid.isEmpty &&
+            firstUid == secondUid {
+            return true
+        }
+
+        return false
     }
 
     static func isAdminRole(_ role: String) -> Bool {

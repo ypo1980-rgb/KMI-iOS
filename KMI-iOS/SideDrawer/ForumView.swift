@@ -269,7 +269,96 @@ struct ForumView: View {
     }
 
     private var forumStatusBackButtonColor: Color {
-        isDarkMode ? Color.white.opacity(0.16) : Color.black.opacity(0.06)
+        isDarkMode
+            ? Color.white.opacity(0.16)
+            : Color.black.opacity(0.06)
+    }
+
+    private var forumLockCardColor: Color {
+        isDarkMode
+            ? Color(
+                red: 2.0 / 255.0,
+                green: 6.0 / 255.0,
+                blue: 23.0 / 255.0
+            )
+            .opacity(0.92)
+            : Color(
+                red: 234.0 / 255.0,
+                green: 242.0 / 255.0,
+                blue: 255.0 / 255.0
+            )
+    }
+
+    private var forumLockBorderColor: Color {
+        isDarkMode
+            ? Color.clear
+            : Color(
+                red: 212.0 / 255.0,
+                green: 225.0 / 255.0,
+                blue: 247.0 / 255.0
+            )
+    }
+
+    private var forumLockIconBackground: Color {
+        isDarkMode
+            ? Color.white.opacity(0.08)
+            : Color(
+                red: 246.0 / 255.0,
+                green: 249.0 / 255.0,
+                blue: 255.0 / 255.0
+            )
+    }
+
+    private var forumLockAccentColor: Color {
+        isDarkMode
+            ? Color(
+                red: 191.0 / 255.0,
+                green: 219.0 / 255.0,
+                blue: 254.0 / 255.0
+            )
+            : Color(
+                red: 37.0 / 255.0,
+                green: 99.0 / 255.0,
+                blue: 235.0 / 255.0
+            )
+    }
+
+    private var forumLockTitleColor: Color {
+        isDarkMode
+            ? forumLockAccentColor
+            : Color(
+                red: 30.0 / 255.0,
+                green: 58.0 / 255.0,
+                blue: 138.0 / 255.0
+            )
+    }
+
+    private var forumLockBodyColor: Color {
+        isDarkMode
+            ? Color(
+                red: 229.0 / 255.0,
+                green: 231.0 / 255.0,
+                blue: 235.0 / 255.0
+            )
+            : Color(
+                red: 51.0 / 255.0,
+                green: 65.0 / 255.0,
+                blue: 85.0 / 255.0
+            )
+    }
+
+    private var forumLockCaptionColor: Color {
+        isDarkMode
+            ? Color(
+                red: 156.0 / 255.0,
+                green: 163.0 / 255.0,
+                blue: 175.0 / 255.0
+            )
+            : Color(
+                red: 100.0 / 255.0,
+                green: 116.0 / 255.0,
+                blue: 139.0 / 255.0
+            )
     }
 
     private var isEnglish: Bool {
@@ -506,122 +595,305 @@ struct ForumView: View {
     // MARK: - UI
 
     private var lockedView: some View {
-        forumStatusView(
-            icon: "lock.fill",
-            title: tr("גישה לפורום", "Forum Access"),
-            message: lockText.isEmpty
-            ? tr("מסך הפורום זמין למנויים בלבד.", "The forum is available to subscribers only.")
-            : lockText,
-            primaryTitle: tr("עבור למסך המנוי", "Go to Subscription"),
-            primaryAction: onOpenSubscription,
-            showsPrimaryAction: true
-        )
-    }
+        VStack(spacing: 0) {
+            Spacer()
+                .frame(height: 24)
 
-    private var missingGroupView: some View {
-        forumStatusView(
-            icon: "person.crop.circle.badge.exclamationmark",
-            title: tr("לא אותרו סניף או קבוצה", "Branch or group not found"),
-            message: tr(
-                "ודאו שפרטי הסניף והקבוצה מוגדרים בפרופיל המשתמש.",
-                "Please make sure your branch and group are set in your profile."
-            ),
-            primaryTitle: "",
-            primaryAction: {},
-            showsPrimaryAction: false
-        )
-    }
-
-    private func forumStatusView(
-        icon: String,
-        title: String,
-        message: String,
-        primaryTitle: String,
-        primaryAction: @escaping () -> Void,
-        showsPrimaryAction: Bool
-    ) -> some View {
-        VStack(spacing: 16) {
-            Spacer(minLength: 44)
-
-            VStack(spacing: 14) {
-                Image(systemName: icon)
-                    .font(.system(size: 34, weight: .heavy))
-                    .foregroundStyle(forumStatusIconColor)
-                    .frame(width: 68, height: 68)
-                    .background(
-                        Circle()
-                            .fill(forumStatusIconBackground)
+            VStack(spacing: 0) {
+                ZStack {
+                    RoundedRectangle(
+                        cornerRadius: 22,
+                        style: .continuous
                     )
-                    .overlay(
-                        Circle()
-                            .stroke(forumCardBorderColor, lineWidth: 1)
+                    .fill(forumLockIconBackground)
+
+                    RoundedRectangle(
+                        cornerRadius: 22,
+                        style: .continuous
+                    )
+                    .stroke(
+                        isDarkMode
+                            ? Color.white.opacity(0.12)
+                            : forumLockBorderColor,
+                        lineWidth: 1
                     )
 
-                Text(title)
-                    .font(.system(size: 22, weight: .heavy))
-                    .foregroundStyle(forumPrimaryTextColor)
-                    .multilineTextAlignment(.center)
-
-                Text(message)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(forumSecondaryTextColor)
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(4)
-                    .padding(.horizontal, 6)
-
-                if showsPrimaryAction {
-                    Button(action: primaryAction) {
-                        Text(primaryTitle)
-                            .font(.system(size: 16, weight: .heavy))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 46)
-                            .background(
-                                Capsule(style: .continuous)
-                                    .fill(forumSuccessGreen)
+                    Image(systemName: "lock.fill")
+                        .font(
+                            .system(
+                                size: 30,
+                                weight: .heavy
                             )
-                            .shadow(color: Color.black.opacity(0.14), radius: 4, x: 0, y: 2)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 2)
-                }
-
-                Button(action: onClose) {
-                    Text(tr("חזרה", "Back"))
-                        .font(.system(size: showsPrimaryAction ? 14 : 16, weight: .bold))
-                        .foregroundStyle(showsPrimaryAction ? forumSecondaryTextColor : .white)
-                        .frame(maxWidth: showsPrimaryAction ? nil : .infinity)
-                        .frame(height: showsPrimaryAction ? nil : 46)
-                        .padding(.horizontal, showsPrimaryAction ? 0 : 12)
-                        .background(
-                            Group {
-                                if showsPrimaryAction {
-                                    Color.clear
-                                } else {
-                                    Capsule(style: .continuous)
-                                        .fill(forumStatusBackButtonColor)
-                                }
-                            }
                         )
+                        .foregroundStyle(
+                            forumLockAccentColor
+                        )
+                }
+                .frame(width: 64, height: 64)
+
+                Spacer()
+                    .frame(height: 14)
+
+                Text(
+                    tr(
+                        "גישה לפורום",
+                        "Forum Access"
+                    )
+                )
+                .kmiFont(
+                    size: 22,
+                    weight: .heavy
+                )
+                .foregroundStyle(
+                    forumLockTitleColor
+                )
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+
+                Spacer()
+                    .frame(height: 12)
+
+                Text(
+                    lockText.isEmpty
+                        ? tr(
+                            "מסך הפורום זמין למנויים בלבד.",
+                            "The forum is available to subscribers only."
+                        )
+                        : lockText
+                )
+                .kmiFont(
+                    size: 15,
+                    weight: .semibold
+                )
+                .foregroundStyle(
+                    forumLockBodyColor
+                )
+                .multilineTextAlignment(.center)
+                .lineSpacing(4)
+                .frame(maxWidth: .infinity)
+
+                Spacer()
+                    .frame(height: 18)
+
+                Button {
+                    onOpenSubscription()
+                } label: {
+                    Text(
+                        tr(
+                            "עבור למסך המנוי",
+                            "Go to Subscription"
+                        )
+                    )
+                    .kmiFont(
+                        size: 16,
+                        weight: .heavy
+                    )
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(
+                                Color(
+                                    red: 37.0 / 255.0,
+                                    green: 99.0 / 255.0,
+                                    blue: 235.0 / 255.0
+                                )
+                            )
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+                    .frame(height: 12)
+
+                Text(
+                    tr(
+                        "ניתן לחזור תמיד למסך זה לאחר רכישת מנוי.",
+                        "You can always return to this screen after purchasing a subscription."
+                    )
+                )
+                .kmiFont(
+                    size: 12,
+                    weight: .semibold
+                )
+                .foregroundStyle(
+                    forumLockCaptionColor
+                )
+                .multilineTextAlignment(.center)
+                .lineSpacing(2)
+                .frame(maxWidth: .infinity)
+
+                Spacer()
+                    .frame(height: 12)
+
+                Button {
+                    onClose()
+                } label: {
+                    Text(
+                        tr(
+                            "חזרה",
+                            "Back"
+                        )
+                    )
+                    .kmiFont(
+                        size: 14,
+                        weight: .bold
+                    )
+                    .foregroundStyle(
+                        forumLockCaptionColor
+                    )
+                    .padding(.horizontal, 18)
+                    .frame(height: 34)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 18)
-            .padding(.vertical, 20)
+            .padding(.vertical, 26)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(forumCardColor)
+                RoundedRectangle(
+                    cornerRadius: 20,
+                    style: .continuous
+                )
+                .fill(forumLockCardColor)
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(forumCardBorderColor, lineWidth: 1)
+            .overlay {
+                RoundedRectangle(
+                    cornerRadius: 20,
+                    style: .continuous
+                )
+                .stroke(
+                    forumLockBorderColor,
+                    lineWidth: 1
+                )
+            }
+            .shadow(
+                color: Color.black.opacity(
+                    isDarkMode ? 0.22 : 0.10
+                ),
+                radius: 8,
+                x: 0,
+                y: 4
             )
-            .shadow(color: Color.black.opacity(isDarkMode ? 0.16 : 0.08), radius: 8, x: 0, y: 4)
-            .padding(.horizontal, 18)
+            .padding(.horizontal, 12)
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var missingGroupView: some View {
+        VStack(spacing: 14) {
+            Spacer(minLength: 44)
+
+            Image(
+                systemName:
+                    "person.crop.circle.badge.exclamationmark"
+            )
+            .font(
+                .system(
+                    size: 34,
+                    weight: .heavy
+                )
+            )
+            .foregroundStyle(
+                Color(
+                    red: 1.0,
+                    green: 107.0 / 255.0,
+                    blue: 107.0 / 255.0
+                )
+            )
+            .frame(width: 68, height: 68)
+            .background(
+                Circle()
+                    .fill(
+                        isDarkMode
+                            ? Color.white.opacity(0.08)
+                            : Color.white.opacity(0.82)
+                    )
+            )
+            .overlay {
+                Circle()
+                    .stroke(
+                        isDarkMode
+                            ? Color.white.opacity(0.12)
+                            : forumCardBorderColor,
+                        lineWidth: 1
+                    )
+            }
+
+            Text(
+                tr(
+                    "לא אותרו סניף או קבוצה",
+                    "Branch or group not found"
+                )
+            )
+            .kmiFont(
+                size: 20,
+                weight: .heavy
+            )
+            .foregroundStyle(
+                Color(
+                    red: 1.0,
+                    green: 107.0 / 255.0,
+                    blue: 107.0 / 255.0
+                )
+            )
+            .multilineTextAlignment(.center)
+
+            Text(
+                tr(
+                    "לא אותרו סניף או קבוצה בפרופיל המשתמש.\nודאו שפרטי הסניף והקבוצה מעודכנים.",
+                    "No branch or group was found for this user.\nPlease make sure the branch and group are set in the profile."
+                )
+            )
+            .kmiFont(
+                size: 15,
+                weight: .semibold
+            )
+            .foregroundStyle(
+                forumSecondaryTextColor
+            )
+            .multilineTextAlignment(.center)
+            .lineSpacing(4)
+            .frame(maxWidth: .infinity)
+
+            Button {
+                onClose()
+            } label: {
+                Text(
+                    tr(
+                        "חזרה",
+                        "Back"
+                    )
+                )
+                .kmiFont(
+                    size: 16,
+                    weight: .bold
+                )
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 46)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(
+                            isDarkMode
+                                ? Color.white.opacity(0.16)
+                                : Color(
+                                    red: 37.0 / 255.0,
+                                    green: 99.0 / 255.0,
+                                    blue: 235.0 / 255.0
+                                )
+                        )
+                )
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
 
             Spacer(minLength: 44)
         }
+        .padding(.horizontal, 18)
     }
 
     private var chatView: some View {
@@ -667,146 +939,395 @@ struct ForumView: View {
             }
 
 #if canImport(FirebaseStorage)
-if attachedMediaType != nil {
+if let attachedMediaType {
     HStack(spacing: 10) {
+        Image(
+            systemName:
+                attachedMediaType == "image"
+                ? "photo.fill"
+                : attachedMediaType == "video"
+                ? "video.fill"
+                : "paperclip"
+        )
+        .font(
+            .system(
+                size: 15,
+                weight: .bold
+            )
+        )
+        .foregroundStyle(
+            attachedMediaType == "image"
+                ? Color.blue
+                : Color.purple
+        )
+        .frame(width: 30, height: 30)
+        .background(
+            Circle()
+                .fill(
+                    (
+                        attachedMediaType == "image"
+                        ? Color.blue
+                        : Color.purple
+                    )
+                    .opacity(
+                        isDarkMode ? 0.18 : 0.10
+                    )
+                )
+        )
+
         Text(
             attachedMediaType == "image"
-            ? tr("תמונה מצורפת לשליחה", "Image attached")
-            : attachedMediaType == "video"
-            ? tr("סרטון מצורף לשליחה", "Video attached")
-            : tr("קובץ מצורף", "Attachment")
+                ? tr(
+                    "תמונה מצורפת לשליחה",
+                    "Image attached"
+                )
+                : attachedMediaType == "video"
+                ? tr(
+                    "סרטון מצורף לשליחה",
+                    "Video attached"
+                )
+                : tr(
+                    "קובץ מצורף",
+                    "Attachment"
+                )
         )
-        .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(forumSecondaryTextColor)
+        .kmiFont(
+            size: 13,
+            weight: .semibold
+        )
+        .foregroundStyle(
+            forumSecondaryTextColor
+        )
         .lineLimit(1)
-        .frame(maxWidth: .infinity, alignment: frameAlignment)
-        .multilineTextAlignment(textAlignment)
+        .minimumScaleFactor(0.76)
+        .frame(
+            maxWidth: .infinity,
+            alignment: frameAlignment
+        )
+        .multilineTextAlignment(
+            textAlignment
+        )
 
         Button {
             clearAttachment()
         } label: {
-            Text(tr("הסר", "Remove"))
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(forumPrimaryTextColor)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+            Image(systemName: "xmark")
+                .font(
+                    .system(
+                        size: 12,
+                        weight: .black
+                    )
+                )
+                .foregroundStyle(
+                    forumDangerTextColor
+                )
+                .frame(width: 30, height: 30)
+                .background(
+                    Circle()
+                        .fill(
+                            forumDangerTextColor.opacity(
+                                isDarkMode ? 0.16 : 0.09
+                            )
+                        )
+                )
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(
+            tr(
+                "הסר קובץ מצורף",
+                "Remove attachment"
+            )
+        )
     }
+    .environment(
+        \.layoutDirection,
+        isEnglish
+            ? .leftToRight
+            : .rightToLeft
+    )
     .padding(.horizontal, 12)
     .padding(.vertical, 8)
     .frame(maxWidth: .infinity)
     .background(
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .fill(forumCardColor)
+        RoundedRectangle(
+            cornerRadius: 18,
+            style: .continuous
+        )
+        .fill(forumCardColor)
     )
-    .overlay(
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .stroke(forumCardBorderColor, lineWidth: 1)
+    .overlay {
+        RoundedRectangle(
+            cornerRadius: 18,
+            style: .continuous
+        )
+        .stroke(
+            forumCardBorderColor,
+            lineWidth: 1
+        )
+    }
+    .shadow(
+        color: Color.black.opacity(
+            isDarkMode ? 0.14 : 0.06
+        ),
+        radius: 3,
+        x: 0,
+        y: 2
     )
     .padding(.horizontal, 12)
     .padding(.bottom, 6)
+    .transition(
+        .opacity.combined(
+            with: .move(edge: .bottom)
+        )
+    )
 }
 #endif
 
-            composer
-                .padding(.horizontal, 12)
-                .padding(.bottom, 10)
+composer
+    .padding(.horizontal, 12)
+    .padding(.bottom, 10)
         }
     }
 
     private var forumControlsMiniHandle: some View {
-        Button {
-            withAnimation(.easeOut(duration: 0.18)) {
+        let selectedRoomText =
+            branch.isEmpty && groupKey.isEmpty
+            ? tr(
+                "לחץ לבחירת חדר הפורום ומשתתפים",
+                "Tap to choose forum room and participants"
+            )
+            : "\(branch.ifEmpty("—")) • \(groupKey.ifEmpty("—"))"
+
+        return Button {
+            withAnimation(
+                .easeOut(duration: 0.18)
+            ) {
                 isForumControlsCollapsed = false
+                showRoomDetails = true
             }
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: 9) {
                 if isEnglish {
                     forumHandleLines
                 }
 
-                Text(tr("לחץ לבחירת חדר הפורום ומשתתפים", "Tap to choose forum room and participants"))
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(forumSecondaryTextColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .multilineTextAlignment(textAlignment)
+                VStack(
+                    alignment: stackAlignment,
+                    spacing: 1
+                ) {
+                    Text(
+                        tr(
+                            "חדר הפורום",
+                            "Forum room"
+                        )
+                    )
+                    .kmiFont(
+                        size: 10,
+                        weight: .black
+                    )
+                    .foregroundStyle(
+                        forumPrimaryTextColor
+                    )
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: frameAlignment
+                    )
+
+                    Text(selectedRoomText)
+                        .kmiFont(
+                            size: 11,
+                            weight: .bold
+                        )
+                        .foregroundStyle(
+                            forumSecondaryTextColor
+                        )
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: frameAlignment
+                        )
+                }
+                .multilineTextAlignment(
+                    textAlignment
+                )
+
+                Image(systemName: "chevron.down")
+                    .font(
+                        .system(
+                            size: 11,
+                            weight: .black
+                        )
+                    )
+                    .foregroundStyle(
+                        forumSuccessGreen
+                    )
+                    .frame(width: 28, height: 28)
+                    .background(
+                        RoundedRectangle(
+                            cornerRadius: 12,
+                            style: .continuous
+                        )
+                        .fill(
+                            forumSuccessGreen.opacity(
+                                isDarkMode ? 0.14 : 0.10
+                            )
+                        )
+                    )
 
                 if !isEnglish {
                     forumHandleLines
                 }
             }
+            .environment(
+                \.layoutDirection,
+                .leftToRight
+            )
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity)
-            .frame(height: 32)
+            .frame(minHeight: 42)
             .background(
                 Capsule(style: .continuous)
                     .fill(forumCardColor)
             )
-            .overlay(
+            .overlay {
                 Capsule(style: .continuous)
-                    .stroke(forumCardBorderColor, lineWidth: 1)
+                    .stroke(
+                        forumCardBorderColor,
+                        lineWidth: 1
+                    )
+            }
+            .shadow(
+                color: Color.black.opacity(
+                    isDarkMode ? 0.10 : 0.10
+                ),
+                radius: 5,
+                x: 0,
+                y: 2
             )
-            .shadow(color: Color.black.opacity(isDarkMode ? 0.00 : 0.10), radius: 5, x: 0, y: 2)
+            .contentShape(
+                Capsule(style: .continuous)
+            )
         }
         .buttonStyle(.plain)
     }
 
     private var forumControlsExpandedCard: some View {
-        VStack(spacing: 7) {
+        VStack(spacing: 8) {
             Button {
-                withAnimation(.easeOut(duration: 0.18)) {
+                withAnimation(
+                    .easeOut(duration: 0.18)
+                ) {
                     showRoomDetails.toggle()
                 }
             } label: {
                 forumControlRow(
                     icon: "house.fill",
-                    title: tr("בחירת חדר פורום", "Forum room"),
-                    subtitle: "\(branch.ifEmpty("—")) • \(groupKey.ifEmpty("—"))",
+                    title: tr(
+                        "בחירת חדר פורום",
+                        "Forum room"
+                    ),
+                    subtitle:
+                        "\(branch.ifEmpty("—")) • \(groupKey.ifEmpty("—"))",
                     isExpanded: showRoomDetails,
-                    accent: Color.blue.opacity(0.86)
+                    accent: Color(
+                        red: 37.0 / 255.0,
+                        green: 99.0 / 255.0,
+                        blue: 235.0 / 255.0
+                    )
                 )
             }
             .buttonStyle(.plain)
 
             if showRoomDetails {
                 roomLabelCard
+                    .transition(
+                        .opacity.combined(
+                            with: .move(edge: .top)
+                        )
+                    )
             }
 
             Divider()
-                .opacity(0.18)
+                .overlay(
+                    forumCardBorderColor
+                )
+                .opacity(
+                    isDarkMode ? 0.65 : 0.80
+                )
+                .padding(.horizontal, 2)
 
             Button {
+                guard
+                    !isParticipantsLoading,
+                    !forumParticipants.isEmpty
+                else {
+                    return
+                }
+
                 showParticipantsSheet = true
             } label: {
                 forumControlRow(
                     icon: "person.2.fill",
-                    title: isParticipantsLoading
-                    ? tr("טוען משתתפים...", "Loading participants...")
-                    : (
-                        forumParticipants.isEmpty
-                        ? tr("משתתפים בפורום", "Forum participants")
-                        : tr("משתתפים בפורום (\(forumParticipants.count))", "Forum participants (\(forumParticipants.count))")
-                    ),
-                    subtitle: isParticipantsLoading
-                    ? tr("בודק מי רשום לחדר הזה", "Checking who belongs to this room")
-                    : (
-                        forumParticipants.isEmpty
-                        ? tr("אין משתתפים רשומים בקבוצה הזו עדיין", "No registered participants in this group yet")
-                        : tr("לחץ להצגת הרשימה", "Tap to show the list")
-                    ),
-                    isExpanded: false,
-                    accent: Color.purple.opacity(0.82)
+                    title:
+                        isParticipantsLoading
+                        ? tr(
+                            "טוען משתתפים...",
+                            "Loading participants..."
+                        )
+                        : (
+                            forumParticipants.isEmpty
+                            ? tr(
+                                "משתתפים בפורום",
+                                "Forum participants"
+                            )
+                            : tr(
+                                "משתתפים בפורום (\(forumParticipants.count))",
+                                "Forum participants (\(forumParticipants.count))"
+                            )
+                        ),
+                    subtitle:
+                        isParticipantsLoading
+                        ? tr(
+                            "בודק מי רשום לחדר הזה",
+                            "Checking who belongs to this room"
+                        )
+                        : (
+                            forumParticipants.isEmpty
+                            ? tr(
+                                "אין משתתפים רשומים בקבוצה הזו עדיין",
+                                "No registered participants in this group yet"
+                            )
+                            : tr(
+                                "לחץ להצגת הרשימה",
+                                "Tap to show the list"
+                            )
+                        ),
+                    isExpanded: showParticipantsSheet,
+                    accent: Color(
+                        red: 124.0 / 255.0,
+                        green: 58.0 / 255.0,
+                        blue: 237.0 / 255.0
+                    )
                 )
             }
             .buttonStyle(.plain)
-            .disabled(isParticipantsLoading || forumParticipants.isEmpty)
-            .opacity((isParticipantsLoading || forumParticipants.isEmpty) ? 0.62 : 1.0)
-            
+            .disabled(
+                isParticipantsLoading ||
+                forumParticipants.isEmpty
+            )
+            .opacity(
+                isParticipantsLoading ||
+                forumParticipants.isEmpty
+                    ? 0.62
+                    : 1.0
+            )
+
             Button {
-                withAnimation(.easeOut(duration: 0.18)) {
+                withAnimation(
+                    .easeOut(duration: 0.18)
+                ) {
                     showRoomDetails = false
                     isForumControlsCollapsed = true
                 }
@@ -817,18 +1338,35 @@ if attachedMediaType != nil {
             .padding(.top, 2)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(forumCardColor)
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+            .fill(forumCardColor)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(forumCardBorderColor, lineWidth: 1)
+        .overlay {
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+            .stroke(
+                forumCardBorderColor,
+                lineWidth: 1
+            )
+        }
+        .shadow(
+            color: Color.black.opacity(
+                isDarkMode ? 0.12 : 0.12
+            ),
+            radius: 8,
+            x: 0,
+            y: 4
         )
-        .shadow(color: Color.black.opacity(isDarkMode ? 0.00 : 0.12), radius: 8, x: 0, y: 4)
     }
-    
+
     private func forumControlRow(
         icon: String,
         title: String,
@@ -838,51 +1376,127 @@ if attachedMediaType != nil {
     ) -> some View {
         HStack(spacing: 9) {
             if isEnglish {
-                forumControlIcon(icon: icon, accent: accent)
+                forumControlIcon(
+                    icon: icon,
+                    accent: accent
+                )
             }
 
-            VStack(alignment: stackAlignment, spacing: 3) {
+            VStack(
+                alignment: stackAlignment,
+                spacing: 4
+            ) {
                 Text(title)
-                    .font(.system(size: 12, weight: .black))
-                    .foregroundStyle(forumPrimaryTextColor)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .multilineTextAlignment(textAlignment)
-
-                Text(subtitle)
-                    .font(.system(size: 9.5, weight: .bold))
-                    .foregroundStyle(forumSecondaryTextColor)
+                    .kmiFont(
+                        size: 12,
+                        weight: .black
+                    )
+                    .foregroundStyle(
+                        forumPrimaryTextColor
+                    )
                     .lineLimit(1)
                     .minimumScaleFactor(0.76)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(accent.opacity(0.10))
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: frameAlignment
                     )
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .stroke(accent.opacity(0.18), lineWidth: 1)
+                    .multilineTextAlignment(
+                        textAlignment
                     )
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
+
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .kmiFont(
+                            size: 9.5,
+                            weight: .bold
+                        )
+                        .foregroundStyle(
+                            forumSecondaryTextColor
+                        )
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.70)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            Capsule(
+                                style: .continuous
+                            )
+                            .fill(
+                                accent.opacity(
+                                    isDarkMode ? 0.15 : 0.09
+                                )
+                            )
+                        )
+                        .overlay {
+                            Capsule(
+                                style: .continuous
+                            )
+                            .stroke(
+                                accent.opacity(
+                                    isDarkMode ? 0.28 : 0.18
+                                ),
+                                lineWidth: 1
+                            )
+                        }
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: frameAlignment
+                        )
+                }
             }
 
-            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                .font(.system(size: 12, weight: .black))
-                .foregroundStyle(accent)
-                .frame(width: 30, height: 30)
-                .background(
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .fill(accent.opacity(0.10))
+            Image(
+                systemName:
+                    isExpanded
+                    ? "chevron.up"
+                    : "chevron.down"
+            )
+            .font(
+                .system(
+                    size: 12,
+                    weight: .black
                 )
+            )
+            .foregroundStyle(accent)
+            .frame(width: 32, height: 32)
+            .background(
+                RoundedRectangle(
+                    cornerRadius: 13,
+                    style: .continuous
+                )
+                .fill(
+                    accent.opacity(
+                        isDarkMode ? 0.16 : 0.10
+                    )
+                )
+            )
+            .overlay {
+                RoundedRectangle(
+                    cornerRadius: 13,
+                    style: .continuous
+                )
+                .stroke(
+                    accent.opacity(
+                        isDarkMode ? 0.24 : 0.14
+                    ),
+                    lineWidth: 1
+                )
+            }
 
             if !isEnglish {
-                forumControlIcon(icon: icon, accent: accent)
+                forumControlIcon(
+                    icon: icon,
+                    accent: accent
+                )
             }
         }
-        .environment(\.layoutDirection, .leftToRight)
+        .environment(
+            \.layoutDirection,
+            .leftToRight
+        )
         .padding(.horizontal, 2)
-        .padding(.vertical, 2)
+        .padding(.vertical, 3)
+        .contentShape(Rectangle())
     }
 
     private func forumControlIcon(
@@ -890,64 +1504,135 @@ if attachedMediaType != nil {
         accent: Color
     ) -> some View {
         Image(systemName: icon)
-            .font(.system(size: 14, weight: .black))
+            .font(
+                .system(
+                    size: 14,
+                    weight: .black
+                )
+            )
             .foregroundStyle(accent)
-            .frame(width: 34, height: 34)
+            .frame(width: 36, height: 36)
             .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(accent.opacity(0.12))
+                RoundedRectangle(
+                    cornerRadius: 14,
+                    style: .continuous
+                )
+                .fill(
+                    accent.opacity(
+                        isDarkMode ? 0.17 : 0.11
+                    )
+                )
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(accent.opacity(0.24), lineWidth: 1)
-            )
+            .overlay {
+                RoundedRectangle(
+                    cornerRadius: 14,
+                    style: .continuous
+                )
+                .stroke(
+                    accent.opacity(
+                        isDarkMode ? 0.30 : 0.22
+                    ),
+                    lineWidth: 1
+                )
+            }
     }
-    
+
     private var forumCollapseHandle: some View {
         VStack(spacing: 2) {
-            ForEach(0..<3, id: \.self) { _ in
+            ForEach(
+                0..<3,
+                id: \.self
+            ) { _ in
                 Capsule()
-                    .fill(forumSuccessGreen.opacity(0.72))
+                    .fill(
+                        forumSuccessGreen.opacity(0.78)
+                    )
                     .frame(width: 36, height: 2)
             }
         }
-        .frame(width: 86, height: 22)
+        .frame(width: 88, height: 24)
         .background(
             Capsule(style: .continuous)
-                .fill(Color.white.opacity(isDarkMode ? 0.06 : 0.62))
+                .fill(
+                    isDarkMode
+                        ? Color.white.opacity(0.07)
+                        : Color.white.opacity(0.72)
+                )
         )
-        .overlay(
+        .overlay {
             Capsule(style: .continuous)
-                .stroke(forumCardBorderColor.opacity(0.85), lineWidth: 1)
+                .stroke(
+                    forumCardBorderColor.opacity(0.90),
+                    lineWidth: 1
+                )
+        }
+        .contentShape(
+            Capsule(style: .continuous)
         )
     }
-    
+
     private var forumHandleLines: some View {
         VStack(spacing: 2) {
-            ForEach(0..<3, id: \.self) { _ in
+            ForEach(
+                0..<3,
+                id: \.self
+            ) { _ in
                 Capsule()
-                    .fill(forumSuccessGreen.opacity(0.72))
-                    .frame(width: 32, height: 2)
+                    .fill(
+                        forumSuccessGreen.opacity(0.78)
+                    )
+                    .frame(width: 30, height: 2)
             }
         }
+        .frame(width: 34, height: 24)
     }
-    
+
     private var emptyForumMessagesView: some View {
         VStack(spacing: 10) {
-            Image(systemName: "bubble.left.and.bubble.right")
-                .font(.system(size: 28, weight: .semibold))
-                .foregroundStyle(forumPlaceholderTextColor)
+            Image(
+                systemName:
+                    "bubble.left.and.bubble.right"
+            )
+            .font(
+                .system(
+                    size: 28,
+                    weight: .semibold
+                )
+            )
+            .foregroundStyle(
+                forumPlaceholderTextColor
+            )
 
-            Text(tr("עדיין אין הודעות בפורום", "No forum messages yet"))
-                .font(.system(size: 15, weight: .heavy))
-                .foregroundStyle(forumPrimaryTextColor)
-                .multilineTextAlignment(.center)
+            Text(
+                tr(
+                    "עדיין אין הודעות בפורום",
+                    "No forum messages yet"
+                )
+            )
+            .kmiFont(
+                size: 15,
+                weight: .heavy
+            )
+            .foregroundStyle(
+                forumPrimaryTextColor
+            )
+            .multilineTextAlignment(.center)
 
-            Text(tr("אפשר לכתוב את ההודעה הראשונה לסניף.", "You can write the first message for the branch."))
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(forumSecondaryTextColor)
-                .multilineTextAlignment(.center)
-                .lineSpacing(3)
+            Text(
+                tr(
+                    "אפשר לכתוב את ההודעה הראשונה לסניף.",
+                    "You can write the first message for the branch."
+                )
+            )
+            .kmiFont(
+                size: 13,
+                weight: .semibold
+            )
+            .foregroundStyle(
+                forumSecondaryTextColor
+            )
+            .multilineTextAlignment(.center)
+            .lineSpacing(3)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 16)
@@ -964,28 +1649,74 @@ if attachedMediaType != nil {
     }
     
     private var roomLabelCard: some View {
-        Text(
+        HStack(spacing: 8) {
+            Image(systemName: "mappin.and.ellipse")
+                .font(
+                    .system(
+                        size: 13,
+                        weight: .bold
+                    )
+                )
+                .foregroundStyle(
+                    Color(
+                        red: 37.0 / 255.0,
+                        green: 99.0 / 255.0,
+                        blue: 235.0 / 255.0
+                    )
+                )
+
+            Text(
+                isEnglish
+                    ? "Branch: \(branch) • Group: \(groupKey)"
+                    : "סניף: \(branch) • קבוצה: \(groupKey)"
+            )
+            .kmiFont(
+                size: 11,
+                weight: .bold
+            )
+            .foregroundStyle(
+                forumSecondaryTextColor
+            )
+            .multilineTextAlignment(
+                textAlignment
+            )
+            .lineLimit(2)
+            .minimumScaleFactor(0.74)
+            .frame(
+                maxWidth: .infinity,
+                alignment: frameAlignment
+            )
+        }
+        .environment(
+            \.layoutDirection,
             isEnglish
-            ? "Branch: \(branch)  •  Group: \(groupKey)"
-            : "סניף: \(branch)  •  קבוצה: \(groupKey)"
+                ? .leftToRight
+                : .rightToLeft
         )
-        .font(.system(size: 11, weight: .bold))
-        .foregroundStyle(forumSecondaryTextColor)
-        .multilineTextAlignment(.center)
-        .lineLimit(2)
-        .minimumScaleFactor(0.78)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(forumCardColor)
+            RoundedRectangle(
+                cornerRadius: 16,
+                style: .continuous
+            )
+            .fill(
+                isDarkMode
+                    ? Color.white.opacity(0.055)
+                    : Color.white.opacity(0.70)
+            )
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(forumCardBorderColor, lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(isDarkMode ? 0.10 : 0.06), radius: 3, x: 0, y: 2)
+        .overlay {
+            RoundedRectangle(
+                cornerRadius: 16,
+                style: .continuous
+            )
+            .stroke(
+                forumCardBorderColor,
+                lineWidth: 1
+            )
+        }
     }
     
     private var forumParticipants: [ForumParticipantUi] {
@@ -1046,62 +1777,208 @@ if attachedMediaType != nil {
             }
     }
 
-    private var participantsCard: some View {
-        Button {
-            showParticipantsSheet = true
-        } label: {
-            Text(isEnglish ? "Forum participants (\(forumParticipants.count))" : "משתתפים בפורום (\(forumParticipants.count))")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(forumSecondaryTextColor)
-                .multilineTextAlignment(.center)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(forumCardColor)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(forumCardBorderColor, lineWidth: 1)
-                )
-                .shadow(color: Color.black.opacity(isDarkMode ? 0.10 : 0.06), radius: 3, x: 0, y: 2)
-        }
-        .buttonStyle(.plain)
-    }
-
     private var participantsSheet: some View {
         NavigationStack {
-            ScrollView {
-                LazyVStack(alignment: stackAlignment, spacing: 8) {
-                    ForEach(forumParticipants) { participant in
-                        Text(
-                            participant.isMe
-                            ? tr("\(participant.name) (אני)", "\(participant.name) (me)")
-                            : participant.name
-                        )
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color.primary)
-                        .multilineTextAlignment(textAlignment)
-                        .frame(maxWidth: .infinity, alignment: frameAlignment)
-                        .padding(.vertical, 4)
+            ZStack {
+                gradient
+                    .ignoresSafeArea()
+
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(
+                            Array(
+                                forumParticipants.enumerated()
+                            ),
+                            id: \.element.id
+                        ) { index, participant in
+                            HStack(spacing: 12) {
+                                if isEnglish {
+                                    participantAvatar(
+                                        participant,
+                                        index: index
+                                    )
+                                }
+
+                                VStack(
+                                    alignment: stackAlignment,
+                                    spacing: 2
+                                ) {
+                                    Text(participant.name)
+                                        .kmiFont(
+                                            size: 15,
+                                            weight:
+                                                participant.isMe
+                                                ? .black
+                                                : .semibold
+                                        )
+                                        .foregroundStyle(
+                                            forumPrimaryTextColor
+                                        )
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.76)
+                                        .frame(
+                                            maxWidth: .infinity,
+                                            alignment: frameAlignment
+                                        )
+
+                                    if participant.isMe {
+                                        Text(
+                                            tr(
+                                                "המשתמש שלי",
+                                                "My account"
+                                            )
+                                        )
+                                        .kmiFont(
+                                            size: 11,
+                                            weight: .bold
+                                        )
+                                        .foregroundStyle(
+                                            forumSuccessGreen
+                                        )
+                                        .frame(
+                                            maxWidth: .infinity,
+                                            alignment: frameAlignment
+                                        )
+                                    }
+                                }
+                                .multilineTextAlignment(
+                                    textAlignment
+                                )
+
+                                if !isEnglish {
+                                    participantAvatar(
+                                        participant,
+                                        index: index
+                                    )
+                                }
+                            }
+                            .environment(
+                                \.layoutDirection,
+                                .leftToRight
+                            )
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 58)
+                            .background(
+                                RoundedRectangle(
+                                    cornerRadius: 16,
+                                    style: .continuous
+                                )
+                                .fill(forumCardColor)
+                            )
+                            .overlay {
+                                RoundedRectangle(
+                                    cornerRadius: 16,
+                                    style: .continuous
+                                )
+                                .stroke(
+                                    participant.isMe
+                                        ? forumSuccessGreen.opacity(0.40)
+                                        : forumCardBorderColor,
+                                    lineWidth: 1
+                                )
+                            }
+                        }
                     }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 14)
                 }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 14)
             }
-            .navigationTitle(isEnglish ? "Forum participants (\(forumParticipants.count))" : "משתתפים בפורום (\(forumParticipants.count))")
+            .navigationTitle(
+                isEnglish
+                    ? "Forum participants (\(forumParticipants.count))"
+                    : "משתתפים בפורום (\(forumParticipants.count))"
+            )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: isEnglish ? .topBarTrailing : .topBarLeading) {
-                    Button(tr("סגור", "Close")) {
+                ToolbarItem(
+                    placement:
+                        isEnglish
+                        ? .topBarTrailing
+                        : .topBarLeading
+                ) {
+                    Button {
                         showParticipantsSheet = false
+                    } label: {
+                        Text(
+                            tr(
+                                "סגור",
+                                "Close"
+                            )
+                        )
+                        .kmiFont(
+                            size: 14,
+                            weight: .bold
+                        )
                     }
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .environment(
+            \.layoutDirection,
+            layoutDirection
+        )
+        .presentationDetents([
+            .medium,
+            .large
+        ])
+    }
+
+    private func participantAvatar(
+        _ participant: ForumParticipantUi,
+        index: Int
+    ) -> some View {
+        let cleanName =
+            participant.name.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let initial =
+            cleanName.first.map {
+                String($0)
+            } ?? "?"
+
+        let colors: [Color] = [
+            Color(
+                red: 37.0 / 255.0,
+                green: 99.0 / 255.0,
+                blue: 235.0 / 255.0
+            ),
+            Color(
+                red: 124.0 / 255.0,
+                green: 58.0 / 255.0,
+                blue: 237.0 / 255.0
+            ),
+            forumSuccessGreen,
+            Color(
+                red: 234.0 / 255.0,
+                green: 88.0 / 255.0,
+                blue: 12.0 / 255.0
+            )
+        ]
+
+        let avatarColor =
+            participant.isMe
+            ? forumSuccessGreen
+            : colors[index % colors.count]
+
+        return Text(initial)
+            .kmiFont(
+                size: 16,
+                weight: .black
+            )
+            .foregroundStyle(.white)
+            .frame(width: 38, height: 38)
+            .background(
+                Circle()
+                    .fill(avatarColor)
+            )
+            .overlay {
+                Circle()
+                    .stroke(
+                        Color.white.opacity(0.22),
+                        lineWidth: 1
+                    )
+            }
     }
 
     private func messageBubble(_ msg: ForumUiMessage) -> some View {
@@ -1193,28 +2070,65 @@ if attachedMediaType != nil {
 
                     VStack(alignment: innerAlignment, spacing: 1) {
                         Text(displayedAuthorName)
-                            .font(.caption.weight(.black))
-                            .foregroundStyle(authorTextColor)
+                            .kmiFont(
+                                size: 11,
+                                weight: .black
+                            )
+                            .foregroundStyle(
+                                authorTextColor
+                            )
                             .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: bubbleAlignment)
-                            .multilineTextAlignment(innerTextAlignment)
+                            .minimumScaleFactor(0.74)
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: bubbleAlignment
+                            )
+                            .multilineTextAlignment(
+                                innerTextAlignment
+                            )
 
-                        Text(formatDate(msg.createdAt))
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(metaTextColor)
-                            .frame(maxWidth: .infinity, alignment: bubbleAlignment)
-                            .multilineTextAlignment(innerTextAlignment)
+                        Text(
+                            formatDate(msg.createdAt)
+                        )
+                        .kmiFont(
+                            size: 9.5,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(
+                            metaTextColor
+                        )
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: bubbleAlignment
+                        )
+                        .multilineTextAlignment(
+                            innerTextAlignment
+                        )
                     }
                 }
 
                 if !msg.text.isEmpty {
                     Text(msg.text)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(mainTextColor)
-                        .multilineTextAlignment(innerTextAlignment)
-                        .frame(maxWidth: 260, alignment: bubbleAlignment)
-                        .fixedSize(horizontal: false, vertical: true)
-                    }
+                        .kmiFont(
+                            size: 13,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(
+                            mainTextColor
+                        )
+                        .multilineTextAlignment(
+                            innerTextAlignment
+                        )
+                        .lineSpacing(2)
+                        .frame(
+                            maxWidth: 272,
+                            alignment: bubbleAlignment
+                        )
+                        .fixedSize(
+                            horizontal: false,
+                            vertical: true
+                        )
+                }
                 
                 if let urlStr = msg.mediaUrl,
                    let type = msg.mediaType,
@@ -1253,12 +2167,30 @@ if attachedMediaType != nil {
                                     .font(.system(size: 17, weight: .bold))
 
                                 VStack(alignment: isEnglish ? .leading : .trailing, spacing: 1) {
-                                    Text(tr("סרטון מצורף", "Attached video"))
-                                        .font(.system(size: 14, weight: .heavy))
+                                    Text(
+                                        tr(
+                                            "סרטון מצורף",
+                                            "Attached video"
+                                        )
+                                    )
+                                    .kmiFont(
+                                        size: 14,
+                                        weight: .heavy
+                                    )
 
-                                    Text(tr("לחיצה לפתיחה בנגן", "Tap to open in player"))
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(metaTextColor)
+                                    Text(
+                                        tr(
+                                            "לחיצה לפתיחה בנגן",
+                                            "Tap to open in player"
+                                        )
+                                    )
+                                    .kmiFont(
+                                        size: 11,
+                                        weight: .semibold
+                                    )
+                                    .foregroundStyle(
+                                        metaTextColor
+                                    )
                                 }
 
                                 Spacer(minLength: 0)
@@ -1299,139 +2231,451 @@ if attachedMediaType != nil {
 
     private var composer: some View {
         VStack(spacing: 8) {
-
-            HStack(alignment: .center, spacing: 8) {
-
-                HStack(spacing: 6) {
+            HStack(
+                alignment: .bottom,
+                spacing: 8
+            ) {
+                HStack(
+                    alignment: .bottom,
+                    spacing: 4
+                ) {
                     #if canImport(FirebaseStorage)
-                    PhotosPicker(selection: $imagePickerItem, matching: .images, photoLibrary: .shared()) {
+                    PhotosPicker(
+                        selection: $imagePickerItem,
+                        matching: .images,
+                        photoLibrary: .shared()
+                    ) {
                         Image(systemName: "plus")
-                            .font(.system(size: 16, weight: .heavy))
-                            .foregroundStyle(forumPlaceholderTextColor)
-                            .frame(width: 36, height: 36)
+                            .font(
+                                .system(
+                                    size: 16,
+                                    weight: .heavy
+                                )
+                            )
+                            .foregroundStyle(
+                                forumPlaceholderTextColor
+                            )
+                            .frame(
+                                width: 36,
+                                height: 42
+                            )
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        tr(
+                            "צרף תמונה",
+                            "Attach image"
+                        )
+                    )
                     #endif
 
-                    ZStack(alignment: isEnglish ? .leading : .trailing) {
-                        if currentComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text(editingMessageId == nil ? tr("הודעה", "Message") : tr("עריכת הודעה.", "Editing message."))
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(forumPlaceholderTextColor)
-                                .frame(maxWidth: .infinity, alignment: frameAlignment)
-                                .multilineTextAlignment(textAlignment)
-                                .padding(.horizontal, 8)
-                                .allowsHitTesting(false)
+                    ZStack(
+                        alignment:
+                            isEnglish
+                            ? .topLeading
+                            : .topTrailing
+                    ) {
+                        if currentComposerText
+                            .trimmingCharacters(
+                                in: .whitespacesAndNewlines
+                            )
+                            .isEmpty {
+                            Text(
+                                editingMessageId == nil
+                                    ? tr(
+                                        "הודעה",
+                                        "Message"
+                                    )
+                                    : tr(
+                                        "עריכת הודעה...",
+                                        "Editing message..."
+                                    )
+                            )
+                            .kmiFont(
+                                size: 15,
+                                weight: .semibold
+                            )
+                            .foregroundStyle(
+                                forumPlaceholderTextColor
+                            )
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: frameAlignment
+                            )
+                            .multilineTextAlignment(
+                                textAlignment
+                            )
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 10)
+                            .allowsHitTesting(false)
                         }
 
-                        TextField("", text: composerBinding, axis: .horizontal)
-                            .textFieldStyle(.plain)
-                            .focused($isComposerFocused)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(forumPrimaryTextColor)
-                            .multilineTextAlignment(textAlignment)
-                            .lineLimit(1)
-                            .submitLabel(.send)
-                            .onSubmit {
-                                if canSend {
-                                    Task { await sendOrUpdate() }
-                                }
+                        TextField(
+                            "",
+                            text: composerBinding,
+                            axis: .vertical
+                        )
+                        .textFieldStyle(.plain)
+                        .focused($isComposerFocused)
+                        .kmiFont(
+                            size: 15,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(
+                            forumPrimaryTextColor
+                        )
+                        .multilineTextAlignment(
+                            textAlignment
+                        )
+                        .lineLimit(4)
+                        .fixedSize(
+                            horizontal: false,
+                            vertical: true
+                        )
+                        .submitLabel(.send)
+                        .onSubmit {
+                            guard canSend else {
+                                return
                             }
-                            .padding(.horizontal, 8)
+
+                            Task {
+                                await sendOrUpdate()
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 9)
+                        .frame(
+                            minHeight: 42,
+                            alignment:
+                                isEnglish
+                                ? .leading
+                                : .trailing
+                        )
                     }
                     .frame(maxWidth: .infinity)
-                    .frame(height: 52)
 
                     #if canImport(FirebaseStorage)
-                    PhotosPicker(selection: $videoPickerItem, matching: .videos, photoLibrary: .shared()) {
-                        Image(systemName: "video.fill")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(forumPlaceholderTextColor)
-                            .frame(width: 36, height: 36)
+                    PhotosPicker(
+                        selection: $videoPickerItem,
+                        matching: .videos,
+                        photoLibrary: .shared()
+                    ) {
+                        Image(
+                            systemName:
+                                "video.fill"
+                        )
+                        .font(
+                            .system(
+                                size: 15,
+                                weight: .bold
+                            )
+                        )
+                        .foregroundStyle(
+                            forumPlaceholderTextColor
+                        )
+                        .frame(
+                            width: 36,
+                            height: 42
+                        )
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        tr(
+                            "צרף סרטון",
+                            "Attach video"
+                        )
+                    )
                     #endif
                 }
                 .padding(.horizontal, 6)
-                .frame(maxWidth: .infinity)
-                .frame(height: 52)
+                .padding(.vertical, 5)
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: 52
+                )
                 .background(
-                    Capsule(style: .continuous)
-                        .fill(forumComposerColor)
+                    RoundedRectangle(
+                        cornerRadius: 25,
+                        style: .continuous
+                    )
+                    .fill(forumComposerColor)
                 )
-                .overlay(
-                    Capsule(style: .continuous)
-                        .stroke(forumCardBorderColor, lineWidth: 1)
+                .overlay {
+                    RoundedRectangle(
+                        cornerRadius: 25,
+                        style: .continuous
+                    )
+                    .stroke(
+                        isComposerFocused
+                            ? forumSuccessGreen.opacity(0.52)
+                            : forumCardBorderColor,
+                        lineWidth:
+                            isComposerFocused
+                            ? 1.4
+                            : 1
+                    )
+                }
+                .shadow(
+                    color: Color.black.opacity(
+                        isDarkMode ? 0.18 : 0.10
+                    ),
+                    radius: 4,
+                    x: 0,
+                    y: 2
                 )
-                .shadow(color: Color.black.opacity(0.12), radius: 4, x: 0, y: 2)
+                .animation(
+                    .easeInOut(duration: 0.18),
+                    value: isComposerFocused
+                )
 
                 Button {
-                    if canSend {
-                        Task { await sendOrUpdate() }
+                    guard canSend else {
+                        isComposerFocused = true
+                        return
+                    }
+
+                    Task {
+                        await sendOrUpdate()
                     }
                 } label: {
-                    Image(systemName: canSend ? (editingMessageId == nil ? "paperplane.fill" : "checkmark") : "mic.fill")
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(canSend ? .white : (isDarkMode ? Color.white.opacity(0.92) : Color(red: 0.110, green: 0.300, blue: 0.240)))
-                        .frame(width: 48, height: 48)
-                        .background(
-                            Circle()
-                                .fill(canSend ? forumSuccessGreen : forumMutedActionColor)
+                    Image(
+                        systemName:
+                            canSend
+                            ? (
+                                editingMessageId == nil
+                                ? "paperplane.fill"
+                                : "checkmark"
+                            )
+                            : "mic.fill"
+                    )
+                    .font(
+                        .system(
+                            size: 18,
+                            weight: .heavy
                         )
-                        .overlay(
-                            Circle()
-                                .stroke(canSend ? Color.clear : forumCardBorderColor, lineWidth: 1)
-                        )
-                        .shadow(color: Color.black.opacity(isDarkMode ? 0.16 : 0.08), radius: 3, x: 0, y: 2)
+                    )
+                    .foregroundStyle(
+                        canSend
+                            ? Color.white
+                            : (
+                                isDarkMode
+                                ? Color.white.opacity(0.92)
+                                : Color(
+                                    red: 0.110,
+                                    green: 0.300,
+                                    blue: 0.240
+                                )
+                            )
+                    )
+                    .frame(
+                        width: 48,
+                        height: 48
+                    )
+                    .background(
+                        Circle()
+                            .fill(
+                                canSend
+                                    ? forumSuccessGreen
+                                    : forumMutedActionColor
+                            )
+                    )
+                    .overlay {
+                        Circle()
+                            .stroke(
+                                canSend
+                                    ? Color.clear
+                                    : forumCardBorderColor,
+                                lineWidth: 1
+                            )
+                    }
+                    .shadow(
+                        color: Color.black.opacity(
+                            isDarkMode ? 0.18 : 0.10
+                        ),
+                        radius: 3,
+                        x: 0,
+                        y: 2
+                    )
+                    .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .disabled(!canSend)
-                .opacity(canSend ? 1.0 : 0.96)
+                .accessibilityLabel(
+                    canSend
+                        ? (
+                            editingMessageId == nil
+                            ? tr(
+                                "שלח הודעה",
+                                "Send message"
+                            )
+                            : tr(
+                                "שמור עריכה",
+                                "Save edit"
+                            )
+                        )
+                        : tr(
+                            "הקלד הודעה",
+                            "Type a message"
+                        )
+                )
             }
-            .frame(height: 60)
+            .environment(
+                \.layoutDirection,
+                .leftToRight
+            )
+            .animation(
+                .easeInOut(duration: 0.18),
+                value: currentComposerText
+            )
 
             if editingMessageId != nil {
                 HStack(spacing: 10) {
+                    if isEnglish {
+                        Image(systemName: "pencil")
+                            .font(
+                                .system(
+                                    size: 13,
+                                    weight: .bold
+                                )
+                            )
+                            .foregroundStyle(
+                                forumSuccessGreen
+                            )
+                    }
+
+                    Text(
+                        tr(
+                            "מצב עריכת הודעה",
+                            "Editing message"
+                        )
+                    )
+                    .kmiFont(
+                        size: 12,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(
+                        forumSecondaryTextColor
+                    )
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: frameAlignment
+                    )
+                    .multilineTextAlignment(
+                        textAlignment
+                    )
+
                     Button {
                         editingMessageId = nil
                         editText = ""
+                        isComposerFocused = false
                     } label: {
-                        Text(tr("ביטול עריכה", "Cancel edit"))
-                            .font(.footnote.weight(.bold))
-                            .foregroundStyle(forumPrimaryTextColor)
+                        Text(
+                            tr(
+                                "ביטול עריכה",
+                                "Cancel edit"
+                            )
+                        )
+                        .kmiFont(
+                            size: 12,
+                            weight: .bold
+                        )
+                        .foregroundStyle(
+                            forumDangerTextColor
+                        )
+                        .padding(.horizontal, 10)
+                        .frame(height: 30)
+                        .background(
+                            Capsule(
+                                style: .continuous
+                            )
+                            .fill(
+                                forumDangerTextColor.opacity(
+                                    isDarkMode ? 0.16 : 0.09
+                                )
+                            )
+                        )
                     }
                     .buttonStyle(.plain)
 
-                    Spacer()
-
-                    Text(tr("מצב עריכת הודעה", "Editing message"))
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(forumSecondaryTextColor)
+                    if !isEnglish {
+                        Image(systemName: "pencil")
+                            .font(
+                                .system(
+                                    size: 13,
+                                    weight: .bold
+                                )
+                            )
+                            .foregroundStyle(
+                                forumSuccessGreen
+                            )
+                    }
                 }
+                .environment(
+                    \.layoutDirection,
+                    .leftToRight
+                )
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
                 .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(forumCardColor)
+                    RoundedRectangle(
+                        cornerRadius: 14,
+                        style: .continuous
+                    )
+                    .fill(forumCardColor)
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(forumCardBorderColor, lineWidth: 1)
-                )
+                .overlay {
+                    RoundedRectangle(
+                        cornerRadius: 14,
+                        style: .continuous
+                    )
+                    .stroke(
+                        forumSuccessGreen.opacity(0.32),
+                        lineWidth: 1
+                    )
+                }
             }
 
-            if let err = errorText, !err.isEmpty {
+            if let err = errorText,
+               !err.isEmpty {
                 Text(err)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(forumDangerTextColor)
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .multilineTextAlignment(textAlignment)
+                    .kmiFont(
+                        size: 12,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(
+                        forumDangerTextColor
+                    )
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: frameAlignment
+                    )
+                    .multilineTextAlignment(
+                        textAlignment
+                    )
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(forumDangerTextColor.opacity(isDarkMode ? 0.14 : 0.08))
+                        RoundedRectangle(
+                            cornerRadius: 14,
+                            style: .continuous
+                        )
+                        .fill(
+                            forumDangerTextColor.opacity(
+                                isDarkMode ? 0.14 : 0.08
+                            )
+                        )
                     )
+                    .overlay {
+                        RoundedRectangle(
+                            cornerRadius: 14,
+                            style: .continuous
+                        )
+                        .stroke(
+                            forumDangerTextColor.opacity(0.24),
+                            lineWidth: 1
+                        )
+                    }
             }
         }
     }
@@ -2386,7 +3630,11 @@ private struct ForumExerciseExplanationSheet: View {
         isEnglish ? en : he
     }
 
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismiss)
+    private var dismiss
+
+    @Environment(\.colorScheme)
+    private var colorScheme
 
     @State private var explanationText: String = ""
     @State private var explanationSourceText: String = ""
@@ -2398,6 +3646,112 @@ private struct ForumExerciseExplanationSheet: View {
 
     @State private var favorites: Set<String> = []
 
+    private var isDarkMode: Bool {
+        colorScheme == .dark
+    }
+
+    private var sheetBackground: LinearGradient {
+        LinearGradient(
+            colors:
+                isDarkMode
+                ? [
+                    Color(
+                        red: 11.0 / 255.0,
+                        green: 20.0 / 255.0,
+                        blue: 26.0 / 255.0
+                    ),
+                    Color(
+                        red: 15.0 / 255.0,
+                        green: 27.0 / 255.0,
+                        blue: 34.0 / 255.0
+                    ),
+                    Color(
+                        red: 17.0 / 255.0,
+                        green: 27.0 / 255.0,
+                        blue: 33.0 / 255.0
+                    )
+                ]
+                : [
+                    Color(
+                        red: 0.97,
+                        green: 0.98,
+                        blue: 1.00
+                    ),
+                    Color(
+                        red: 0.91,
+                        green: 0.95,
+                        blue: 1.00
+                    )
+                ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private var sheetCardColor: Color {
+        isDarkMode
+            ? Color(
+                red: 32.0 / 255.0,
+                green: 44.0 / 255.0,
+                blue: 51.0 / 255.0
+            )
+            : Color.white.opacity(0.94)
+    }
+
+    private var sheetSecondaryCardColor: Color {
+        isDarkMode
+            ? Color(
+                red: 24.0 / 255.0,
+                green: 34.0 / 255.0,
+                blue: 41.0 / 255.0
+            )
+            : Color.white.opacity(0.92)
+    }
+
+    private var sheetBorderColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.12)
+            : Color.black.opacity(0.06)
+    }
+
+    private var sheetPrimaryTextColor: Color {
+        isDarkMode
+            ? Color(
+                red: 233.0 / 255.0,
+                green: 237.0 / 255.0,
+                blue: 239.0 / 255.0
+            )
+            : Color.black.opacity(0.84)
+    }
+
+    private var sheetSecondaryTextColor: Color {
+        isDarkMode
+            ? Color(
+                red: 191.0 / 255.0,
+                green: 200.0 / 255.0,
+                blue: 205.0 / 255.0
+            )
+            : Color.black.opacity(0.56)
+    }
+
+    private var sheetMutedTextColor: Color {
+        isDarkMode
+            ? Color(
+                red: 134.0 / 255.0,
+                green: 150.0 / 255.0,
+                blue: 160.0 / 255.0
+            )
+            : Color.black.opacity(0.46)
+    }
+
+    private var sheetAccentColor: Color {
+        Color(
+            red: 37.0 / 255.0,
+            green: 99.0 / 255.0,
+            blue: 235.0 / 255.0
+        )
+    }
+
     private var db: Firestore {
         Firestore.firestore()
     }
@@ -2405,15 +3759,8 @@ private struct ForumExerciseExplanationSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.97, green: 0.98, blue: 1.00),
-                        Color(red: 0.91, green: 0.95, blue: 1.00)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
+                sheetBackground
+                    .ignoresSafeArea()
 
                 VStack(spacing: 14) {
                     header
@@ -2421,43 +3768,139 @@ private struct ForumExerciseExplanationSheet: View {
                     if isLoading {
                         VStack(spacing: 12) {
                             ProgressView()
-                            Text(tr("טוען הסבר...", "Loading explanation..."))
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                                .tint(sheetAccentColor)
+
+                            Text(
+                                tr(
+                                    "טוען הסבר...",
+                                    "Loading explanation..."
+                                )
+                            )
+                            .kmiFont(
+                                size: 13,
+                                weight: .semibold
+                            )
+                            .foregroundStyle(
+                                sheetSecondaryTextColor
+                            )
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(
+                            maxWidth: .infinity,
+                            maxHeight: .infinity
+                        )
                     } else {
                         ScrollView {
-                            VStack(alignment: stackAlignment, spacing: 14) {
-                                VStack(alignment: stackAlignment, spacing: 10) {
-                                    Text(tr("הסבר", "Explanation"))
-                                        .font(.system(size: 18, weight: .heavy))
-                                        .foregroundStyle(Color.black.opacity(0.82))
-                                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                            VStack(
+                                alignment: stackAlignment,
+                                spacing: 14
+                            ) {
+                                VStack(
+                                    alignment: stackAlignment,
+                                    spacing: 10
+                                ) {
+                                    Text(
+                                        tr(
+                                            "הסבר",
+                                            "Explanation"
+                                        )
+                                    )
+                                    .kmiFont(
+                                        size: 18,
+                                        weight: .heavy
+                                    )
+                                    .foregroundStyle(
+                                        sheetPrimaryTextColor
+                                    )
+                                    .frame(
+                                        maxWidth: .infinity,
+                                        alignment: frameAlignment
+                                    )
 
-                                    Text(explanationText.isEmpty ? tr("אין כרגע הסבר לתרגיל הזה.", "There is no explanation for this exercise yet.") : explanationText)
-                                        .font(.system(size: 16, weight: .semibold))
-                                        .foregroundStyle(Color.black.opacity(0.78))
-                                        .frame(maxWidth: .infinity, alignment: frameAlignment)
-                                        .multilineTextAlignment(textAlignment)
-                                        .lineSpacing(5)
+                                    Text(
+                                        explanationText.isEmpty
+                                            ? tr(
+                                                "אין כרגע הסבר לתרגיל הזה.",
+                                                "There is no explanation for this exercise yet."
+                                            )
+                                            : explanationText
+                                    )
+                                    .kmiFont(
+                                        size: 16,
+                                        weight: .semibold
+                                    )
+                                    .foregroundStyle(
+                                        sheetPrimaryTextColor.opacity(0.94)
+                                    )
+                                    .frame(
+                                        maxWidth: .infinity,
+                                        alignment: frameAlignment
+                                    )
+                                    .multilineTextAlignment(
+                                        textAlignment
+                                    )
+                                    .lineSpacing(5)
+                                    .fixedSize(
+                                        horizontal: false,
+                                        vertical: true
+                                    )
                                 }
                                 .padding(16)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                        .fill(Color.white.opacity(0.94))
+                                    RoundedRectangle(
+                                        cornerRadius: 20,
+                                        style: .continuous
+                                    )
+                                    .fill(sheetCardColor)
                                 )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                        .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                                .overlay {
+                                    RoundedRectangle(
+                                        cornerRadius: 20,
+                                        style: .continuous
+                                    )
+                                    .stroke(
+                                        sheetBorderColor,
+                                        lineWidth: 1
+                                    )
+                                }
+                                .shadow(
+                                    color: Color.black.opacity(
+                                        isDarkMode ? 0.18 : 0.06
+                                    ),
+                                    radius: 5,
+                                    x: 0,
+                                    y: 2
                                 )
 
-                                if let errorText, !errorText.isEmpty {
+                                if let errorText,
+                                   !errorText.isEmpty {
                                     Text(errorText)
-                                        .font(.footnote.weight(.semibold))
-                                        .foregroundStyle(.red)
-                                        .frame(maxWidth: .infinity, alignment: .trailing)
-                                        .multilineTextAlignment(textAlignment)
+                                        .kmiFont(
+                                            size: 12,
+                                            weight: .semibold
+                                        )
+                                        .foregroundStyle(
+                                            Color.red
+                                        )
+                                        .frame(
+                                            maxWidth: .infinity,
+                                            alignment: frameAlignment
+                                        )
+                                        .multilineTextAlignment(
+                                            textAlignment
+                                        )
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(
+                                            RoundedRectangle(
+                                                cornerRadius: 14,
+                                                style: .continuous
+                                            )
+                                            .fill(
+                                                Color.red.opacity(
+                                                    isDarkMode ? 0.16 : 0.08
+                                                )
+                                            )
+                                        )
                                 }
 
                                 infoCard
@@ -2470,15 +3913,32 @@ private struct ForumExerciseExplanationSheet: View {
                     Button {
                         dismiss()
                     } label: {
-                        Text(tr("סגור", "Close"))
-                            .font(.system(size: 17, weight: .heavy))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(Color.blue.opacity(0.86))
+                        Text(
+                            tr(
+                                "סגור",
+                                "Close"
                             )
+                        )
+                        .kmiFont(
+                            size: 17,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(
+                            RoundedRectangle(
+                                cornerRadius: 16,
+                                style: .continuous
+                            )
+                            .fill(sheetAccentColor)
+                        )
+                        .shadow(
+                            color: sheetAccentColor.opacity(0.24),
+                            radius: 5,
+                            x: 0,
+                            y: 3
+                        )
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 16)
@@ -2494,26 +3954,52 @@ private struct ForumExerciseExplanationSheet: View {
                 await loadExplanation()
             }
         }
+        .environment(
+            \.layoutDirection,
+            isEnglish
+                ? .leftToRight
+                : .rightToLeft
+        )
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(
+            alignment: .center,
+            spacing: 12
+        ) {
             HStack(spacing: 8) {
                 Button {
                     toggleFavorite()
                 } label: {
-                    Image(systemName: isFavorite ? "star.fill" : "star")
-                        .font(.system(size: 17, weight: .heavy))
-                        .foregroundStyle(isFavorite ? Color.yellow : Color.gray.opacity(0.75))
-                        .frame(width: 40, height: 40)
-                        .background(
-                            Circle()
-                                .fill(Color.white.opacity(0.95))
+                    Image(
+                        systemName:
+                            isFavorite
+                            ? "star.fill"
+                            : "star"
+                    )
+                    .font(
+                        .system(
+                            size: 17,
+                            weight: .heavy
                         )
-                        .overlay(
-                            Circle()
-                                .stroke(Color.black.opacity(0.06), lineWidth: 1)
-                        )
+                    )
+                    .foregroundStyle(
+                        isFavorite
+                            ? Color.yellow
+                            : sheetMutedTextColor
+                    )
+                    .frame(width: 40, height: 40)
+                    .background(
+                        Circle()
+                            .fill(sheetSecondaryCardColor)
+                    )
+                    .overlay {
+                        Circle()
+                            .stroke(
+                                sheetBorderColor,
+                                lineWidth: 1
+                            )
+                    }
                 }
                 .buttonStyle(.plain)
 
@@ -2521,68 +4007,156 @@ private struct ForumExerciseExplanationSheet: View {
                     draftText = explanationText
                     showEditor = true
                 } label: {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 17, weight: .heavy))
-                        .foregroundStyle(Color.blue)
-                        .frame(width: 40, height: 40)
-                        .background(
-                            Circle()
-                                .fill(Color.white.opacity(0.95))
+                    Image(
+                        systemName:
+                            "square.and.pencil"
+                    )
+                    .font(
+                        .system(
+                            size: 17,
+                            weight: .heavy
                         )
-                        .overlay(
-                            Circle()
-                                .stroke(Color.black.opacity(0.06), lineWidth: 1)
-                        )
+                    )
+                    .foregroundStyle(
+                        sheetAccentColor
+                    )
+                    .frame(width: 40, height: 40)
+                    .background(
+                        Circle()
+                            .fill(sheetSecondaryCardColor)
+                    )
+                    .overlay {
+                        Circle()
+                            .stroke(
+                                sheetBorderColor,
+                                lineWidth: 1
+                            )
+                    }
                 }
                 .buttonStyle(.plain)
             }
 
             Spacer(minLength: 0)
 
-            VStack(alignment: stackAlignment, spacing: 4) {
+            VStack(
+                alignment: stackAlignment,
+                spacing: 4
+            ) {
                 Text(hit.displayName)
-                    .font(.system(size: 22, weight: .heavy))
-                    .foregroundStyle(Color.black.opacity(0.88))
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .multilineTextAlignment(textAlignment)
+                    .kmiFont(
+                        size: 22,
+                        weight: .heavy
+                    )
+                    .foregroundStyle(
+                        sheetPrimaryTextColor
+                    )
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: frameAlignment
+                    )
+                    .multilineTextAlignment(
+                        textAlignment
+                    )
                     .lineLimit(2)
+                    .minimumScaleFactor(0.76)
 
-                Text("\(isEnglish ? hit.belt.id.capitalized : hit.belt.heb)\(hit.topic.isEmpty ? "" : " · \(hit.topic)")")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.black.opacity(0.52))
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .multilineTextAlignment(textAlignment)
-                    .lineLimit(2)
+                Text(
+                    "\(isEnglish ? hit.belt.id.capitalized : hit.belt.heb)"
+                    + (
+                        hit.topic.isEmpty
+                            ? ""
+                            : " · \(hit.topic)"
+                    )
+                )
+                .kmiFont(
+                    size: 13,
+                    weight: .semibold
+                )
+                .foregroundStyle(
+                    sheetSecondaryTextColor
+                )
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: frameAlignment
+                )
+                .multilineTextAlignment(
+                    textAlignment
+                )
+                .lineLimit(2)
             }
         }
+        .environment(
+            \.layoutDirection,
+            .leftToRight
+        )
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white.opacity(0.92))
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .fill(sheetCardColor)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+        .overlay {
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .stroke(
+                sheetBorderColor,
+                lineWidth: 1
+            )
+        }
+        .shadow(
+            color: Color.black.opacity(
+                isDarkMode ? 0.18 : 0.06
+            ),
+            radius: 5,
+            x: 0,
+            y: 2
         )
         .padding(.horizontal, 16)
         .padding(.top, 16)
     }
 
     private var infoCard: some View {
-        VStack(alignment: stackAlignment, spacing: 8) {
+        VStack(
+            alignment: stackAlignment,
+            spacing: 8
+        ) {
             HStack(spacing: 8) {
                 if !isEnglish {
                     Spacer(minLength: 0)
                 }
 
-                Text(tr("מסך אמת", "Live Screen"))
-                    .font(.footnote.weight(.heavy))
-                    .foregroundStyle(Color.black.opacity(0.76))
+                Text(
+                    tr(
+                        "מסך אמת",
+                        "Live Screen"
+                    )
+                )
+                .kmiFont(
+                    size: 12,
+                    weight: .heavy
+                )
+                .foregroundStyle(
+                    sheetPrimaryTextColor
+                )
 
-                Image(systemName: "checkmark.seal.fill")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Color.green.opacity(0.85))
+                Image(
+                    systemName:
+                        "checkmark.seal.fill"
+                )
+                .font(
+                    .system(
+                        size: 15,
+                        weight: .bold
+                    )
+                )
+                .foregroundStyle(
+                    Color.green.opacity(0.90)
+                )
 
                 if isEnglish {
                     Spacer(minLength: 0)
@@ -2591,119 +4165,250 @@ private struct ForumExerciseExplanationSheet: View {
 
             Text(
                 explanationSourceText.isEmpty
-                ? tr(
-                    "ההסבר מוצג מתוך נתוני האפליקציה.",
-                    "The explanation is shown from the app data."
-                )
-                : (
-                    isEnglish
-                    ? "Explanation source: \(explanationSourceText)"
-                    : "מקור ההסבר: \(explanationSourceText)"
-                )
+                    ? tr(
+                        "ההסבר מוצג מתוך נתוני האפליקציה.",
+                        "The explanation is shown from the app data."
+                    )
+                    : (
+                        isEnglish
+                            ? "Explanation source: \(explanationSourceText)"
+                            : "מקור ההסבר: \(explanationSourceText)"
+                    )
             )
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(Color.black.opacity(0.55))
-            .frame(maxWidth: .infinity, alignment: frameAlignment)
-            .multilineTextAlignment(textAlignment)
+            .kmiFont(
+                size: 12,
+                weight: .semibold
+            )
+            .foregroundStyle(
+                sheetSecondaryTextColor
+            )
+            .frame(
+                maxWidth: .infinity,
+                alignment: frameAlignment
+            )
+            .multilineTextAlignment(
+                textAlignment
+            )
 
-            if !branch.isEmpty || !groupKey.isEmpty {
+            if !branch.isEmpty ||
+                !groupKey.isEmpty {
                 Text(
                     isEnglish
-                    ? "Forum: \(branch) / \(groupKey)"
-                    : "פורום: \(branch) / \(groupKey)"
+                        ? "Forum: \(branch) / \(groupKey)"
+                        : "פורום: \(branch) / \(groupKey)"
                 )
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color.black.opacity(0.46))
-                .frame(maxWidth: .infinity, alignment: frameAlignment)
-                .multilineTextAlignment(textAlignment)
+                .kmiFont(
+                    size: 10.5,
+                    weight: .semibold
+                )
+                .foregroundStyle(
+                    sheetMutedTextColor
+                )
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: frameAlignment
+                )
+                .multilineTextAlignment(
+                    textAlignment
+                )
             }
         }
         .padding(14)
-        .frame(maxWidth: .infinity, alignment: frameAlignment)
+        .frame(
+            maxWidth: .infinity,
+            alignment: frameAlignment
+        )
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.92))
+            RoundedRectangle(
+                cornerRadius: 18,
+                style: .continuous
+            )
+            .fill(sheetSecondaryCardColor)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.black.opacity(0.06), lineWidth: 1)
-        )
+        .overlay {
+            RoundedRectangle(
+                cornerRadius: 18,
+                style: .continuous
+            )
+            .stroke(
+                sheetBorderColor,
+                lineWidth: 1
+            )
+        }
     }
 
     private var explanationEditorSheet: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                VStack(alignment: .trailing, spacing: 8) {
-                    Text(tr("עריכת הסבר", "Edit Explanation"))
-                        .font(.system(size: 22, weight: .heavy))
-                        .foregroundStyle(Color.black.opacity(0.86))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+            ZStack {
+                sheetBackground
+                    .ignoresSafeArea()
 
-                    Text(hit.displayName)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
+                VStack(spacing: 16) {
+                    VStack(
+                        alignment: stackAlignment,
+                        spacing: 8
+                    ) {
+                        Text(
+                            tr(
+                                "עריכת הסבר",
+                                "Edit Explanation"
+                            )
+                        )
+                        .kmiFont(
+                            size: 22,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            sheetPrimaryTextColor
+                        )
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: frameAlignment
+                        )
 
-                TextEditor(text: $draftText)
-                    .padding(12)
-                    .frame(minHeight: 280)
-                    .scrollContentBackground(.hidden)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(Color(.secondarySystemBackground))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(Color.black.opacity(0.06), lineWidth: 1)
-                    )
-                    .multilineTextAlignment(.trailing)
+                        Text(hit.displayName)
+                            .kmiFont(
+                                size: 12,
+                                weight: .semibold
+                            )
+                            .foregroundStyle(
+                                sheetSecondaryTextColor
+                            )
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: frameAlignment
+                            )
+                    }
 
-                if let errorText, !errorText.isEmpty {
-                    Text(errorText)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .multilineTextAlignment(textAlignment)
-                }
+                    TextEditor(text: $draftText)
+                        .kmiFont(
+                            size: 16,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(
+                            sheetPrimaryTextColor
+                        )
+                        .padding(12)
+                        .frame(minHeight: 280)
+                        .scrollContentBackground(.hidden)
+                        .background(
+                            RoundedRectangle(
+                                cornerRadius: 18,
+                                style: .continuous
+                            )
+                            .fill(sheetCardColor)
+                        )
+                        .overlay {
+                            RoundedRectangle(
+                                cornerRadius: 18,
+                                style: .continuous
+                            )
+                            .stroke(
+                                sheetBorderColor,
+                                lineWidth: 1
+                            )
+                        }
+                        .multilineTextAlignment(
+                            textAlignment
+                        )
 
-                HStack(spacing: 12) {
-                    Button {
-                        showEditor = false
-                    } label: {
-                        Text(tr("בטל", "Cancel"))
-                            .font(.system(size: 16, weight: .heavy))
-                            .foregroundStyle(Color.black.opacity(0.72))
+                    if let errorText,
+                       !errorText.isEmpty {
+                        Text(errorText)
+                            .kmiFont(
+                                size: 12,
+                                weight: .semibold
+                            )
+                            .foregroundStyle(.red)
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: frameAlignment
+                            )
+                            .multilineTextAlignment(
+                                textAlignment
+                            )
+                    }
+
+                    HStack(spacing: 12) {
+                        Button {
+                            showEditor = false
+                        } label: {
+                            Text(
+                                tr(
+                                    "בטל",
+                                    "Cancel"
+                                )
+                            )
+                            .kmiFont(
+                                size: 16,
+                                weight: .heavy
+                            )
+                            .foregroundStyle(
+                                sheetPrimaryTextColor
+                            )
                             .frame(maxWidth: .infinity)
                             .frame(height: 46)
                             .background(
-                                RoundedRectangle(cornerRadius: 15, style: .continuous)
-                                    .fill(Color.black.opacity(0.06))
+                                RoundedRectangle(
+                                    cornerRadius: 15,
+                                    style: .continuous
+                                )
+                                .fill(sheetSecondaryCardColor)
                             )
-                    }
-                    .buttonStyle(.plain)
+                            .overlay {
+                                RoundedRectangle(
+                                    cornerRadius: 15,
+                                    style: .continuous
+                                )
+                                .stroke(
+                                    sheetBorderColor,
+                                    lineWidth: 1
+                                )
+                            }
+                        }
+                        .buttonStyle(.plain)
 
-                    Button {
-                        Task { await saveExplanation() }
-                    } label: {
-                        Text(tr("שמור", "Save"))
-                            .font(.system(size: 16, weight: .heavy))
+                        Button {
+                            Task {
+                                await saveExplanation()
+                            }
+                        } label: {
+                            Text(
+                                tr(
+                                    "שמור",
+                                    "Save"
+                                )
+                            )
+                            .kmiFont(
+                                size: 16,
+                                weight: .heavy
+                            )
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
                             .frame(height: 46)
                             .background(
-                                RoundedRectangle(cornerRadius: 15, style: .continuous)
-                                    .fill(Color.blue.opacity(0.86))
+                                RoundedRectangle(
+                                    cornerRadius: 15,
+                                    style: .continuous
+                                )
+                                .fill(sheetAccentColor)
                             )
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
-                }
 
-                Spacer()
+                    Spacer()
+                }
+                .padding(16)
             }
-            .padding(16)
             .navigationBarTitleDisplayMode(.inline)
         }
+        .environment(
+            \.layoutDirection,
+            isEnglish
+                ? .leftToRight
+                : .rightToLeft
+        )
     }
 
     private var isFavorite: Bool {

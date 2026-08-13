@@ -758,21 +758,41 @@ private struct KmiIntroGateScreen: View {
         }
     }
 
+    private var introBackgroundAssetName: String {
+        colorScheme == .dark
+            ? "intro_welcome_screen_v2_dark"
+            : "intro_welcome_screen_v2"
+    }
+
     private var introBackgroundImage: some View {
         Group {
-            if let image = UIImage(named: "intro_welcome_screen_v2") {
+            if let image = UIImage(
+                named: introBackgroundAssetName
+            ) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
             } else {
                 ZStack {
-                    Color(red: 0.03, green: 0.07, blue: 0.10)
+                    colorScheme == .dark
+                        ? Color.black
+                        : Color.white
 
-                    Text("Missing asset:\nintro_welcome_screen_v2")
-                        .font(.system(size: 18, weight: .heavy, design: .rounded))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-                        .padding()
+                    Text(
+                        "Missing asset:\n\(introBackgroundAssetName)"
+                    )
+                    .kmiFont(
+                        size: 18,
+                        weight: .heavy,
+                        design: .rounded
+                    )
+                    .foregroundStyle(
+                        colorScheme == .dark
+                            ? Color.white
+                            : adaptivePrimaryText
+                    )
+                    .multilineTextAlignment(.center)
+                    .padding()
                 }
             }
         }
@@ -831,57 +851,114 @@ private struct KmiIntroGateScreen: View {
     }
 
     @ViewBuilder
-    private func beltRow(isCompactHeight: Bool) -> some View {
-        if let rank = currentRank {
-            HStack(spacing: isCompactHeight ? 8 : 12) {
-                Text(isEnglish ? rank.en : rank.he)
-                    .font(
-                        .system(
-                            size: isCompactHeight ? 19 : 22,
-                            weight: .heavy,
-                            design: .rounded
-                        )
-                    )
-                    .foregroundStyle(rank.color)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
+    private func beltRow(
+        isCompactHeight: Bool
+    ) -> some View {
+        let rowHeight: CGFloat =
+            isCompactHeight ? 72 : 82
 
-                beltImageWithoutWhiteBackground(rank.imageName)
-                    .frame(
-                        width: isCompactHeight ? 112 : 128,
-                        height: isCompactHeight ? 34 : 42
-                    )
-                    .accessibilityHidden(true)
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: isCompactHeight ? 40 : 46)
-            .padding(.horizontal, 10)
-        } else {
-            Text(isEnglish ? "Belt has not been updated yet" : "עדיין לא עודכנה חגורה")
-                .font(
-                    .system(
-                        size: isCompactHeight ? 13 : 15,
-                        weight: .heavy,
-                        design: .rounded
-                    )
+        let imageWidth: CGFloat =
+            isCompactHeight ? 130 : 150
+
+        let imageHeight: CGFloat =
+            isCompactHeight ? 30 : 36
+
+        if let rank = currentRank {
+            VStack(
+                spacing:
+                    isCompactHeight ? 3 : 5
+            ) {
+                Text(
+                    isEnglish
+                        ? rank.en
+                        : rank.he
                 )
-                .foregroundStyle(Color(red: 0.09, green: 0.13, blue: 0.20))
+                .kmiFont(
+                    size:
+                        isCompactHeight
+                        ? 23
+                        : 27,
+                    weight: .heavy,
+                    design: .rounded
+                )
+                .foregroundStyle(
+                    rank.id == "white"
+                        ? Color(
+                            red: 0.60,
+                            green: 0.64,
+                            blue: 0.70
+                        )
+                        : rank.color
+                )
                 .multilineTextAlignment(.center)
                 .lineLimit(1)
-                .minimumScaleFactor(0.78)
+                .minimumScaleFactor(0.76)
                 .frame(maxWidth: .infinity)
-                .frame(height: isCompactHeight ? 40 : 46)
-                .padding(.horizontal, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color.white.opacity(0.86))
-                        .shadow(color: Color.black.opacity(0.18), radius: 4, x: 0, y: 2)
+
+                beltImageWithoutWhiteBackground(
+                    rank.imageName
                 )
-                .padding(.horizontal, 22)
+                .frame(
+                    width: imageWidth,
+                    height: imageHeight
+                )
+                .accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: rowHeight)
+        } else {
+            Text(
+                isEnglish
+                    ? "Belt has not been updated yet"
+                    : "עדיין לא עודכנה חגורה"
+            )
+            .kmiFont(
+                size:
+                    isCompactHeight
+                    ? 13
+                    : 15,
+                weight: .heavy,
+                design: .rounded
+            )
+            .foregroundStyle(
+                adaptivePrimaryText
+            )
+            .multilineTextAlignment(.center)
+            .lineLimit(1)
+            .minimumScaleFactor(0.76)
+            .frame(maxWidth: .infinity)
+            .frame(height: rowHeight)
+            .padding(.horizontal, 12)
+            .background(
+                RoundedRectangle(
+                    cornerRadius: 16,
+                    style: .continuous
+                )
+                .fill(adaptiveCardBackground)
+                .shadow(
+                    color: Color.black.opacity(
+                        colorScheme == .dark
+                            ? 0.34
+                            : 0.18
+                    ),
+                    radius: 4,
+                    x: 0,
+                    y: 2
+                )
+            )
+            .overlay {
+                RoundedRectangle(
+                    cornerRadius: 16,
+                    style: .continuous
+                )
+                .stroke(
+                    adaptiveCardBorder,
+                    lineWidth: 1
+                )
+            }
         }
     }
-        
+
     @ViewBuilder
     private var beltBadge: some View {
         if let rank = currentRank {
@@ -918,19 +995,21 @@ private struct KmiIntroGateScreen: View {
             let horizontalPadding: CGFloat = isCompactHeight ? 24 : 30
 
             ZStack {
+                Color(
+                    colorScheme == .dark
+                        ? UIColor.systemBackground
+                        : UIColor.white
+                )
+                .ignoresSafeArea()
+
                 introBackgroundImage
                     .frame(
                         width: geo.size.width,
                         height: geo.size.height
                     )
                     .clipped()
-                    .overlay {
-                        if colorScheme == .dark {
-                            Color.black.opacity(0.36)
-                        }
-                    }
                     .ignoresSafeArea()
-                
+
                 VStack(spacing: 0) {
                     Spacer()
                         .frame(height: height * 0.185)
@@ -941,8 +1020,13 @@ private struct KmiIntroGateScreen: View {
                     Spacer()
                         .frame(height: height * 0.455)
 
-                    beltRow(isCompactHeight: isCompactHeight)
-                        .padding(.horizontal, horizontalPadding)
+                    beltRow(
+                        isCompactHeight: isCompactHeight
+                    )
+                    .padding(.horizontal, horizontalPadding)
+                    .offset(
+                        y: -(height * 0.015)
+                    )
 
                     Spacer(minLength: 0)
 
@@ -1042,18 +1126,34 @@ private struct KmiIntroGateScreen: View {
             }
         } label: {
             ZStack {
-                RoundedRectangle(cornerRadius: 27, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.13, green: 0.53, blue: 0.93),
-                                Color(red: 0.36, green: 0.20, blue: 0.72)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
+                RoundedRectangle(
+                    cornerRadius: 24,
+                    style: .continuous
+                )
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(
+                                red: 18.0 / 255.0,
+                                green: 168.0 / 255.0,
+                                blue: 244.0 / 255.0
+                            ),
+                            Color(
+                                red: 76.0 / 255.0,
+                                green: 24.0 / 255.0,
+                                blue: 216.0 / 255.0
+                            )
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
                     )
-                    .shadow(color: Color.black.opacity(0.28), radius: 10, x: 0, y: 8)
+                )
+                .shadow(
+                    color: Color.black.opacity(0.28),
+                    radius: 6,
+                    x: 0,
+                    y: 4
+                )
 
                 Circle()
                     .fill(
@@ -1075,33 +1175,28 @@ private struct KmiIntroGateScreen: View {
                     ProgressView()
                         .tint(.white)
                 } else {
-                    HStack(spacing: 8) {
-                        Image(systemName: "star.fill")
-                            .kmiFont(
-                                size: 16,
-                                weight: .bold
+                    Text(
+                        canContinueExistingUser
+                            ? (
+                                isEnglish
+                                    ? "Continue"
+                                    : "המשך"
                             )
-
-                        Text(
-                            canContinueExistingUser
-                                ? (
-                                    isEnglish
-                                        ? "Continue"
-                                        : "המשך"
-                                )
-                                : (
-                                    isEnglish
-                                        ? "Continue with Google"
-                                        : "התחברות עם Google"
-                                )
-                        )
-                        .kmiFont(
-                            size: 18,
-                            weight: .bold,
-                            design: .rounded
-                        )
-                    }
+                            : (
+                                isEnglish
+                                    ? "★ Continue with Google"
+                                    : "התחברות עם Google ★"
+                            )
+                    )
+                    .kmiFont(
+                        size: 18,
+                        weight: .bold,
+                        design: .rounded
+                    )
                     .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.76)
                 }
             }
             .frame(maxWidth: .infinity)

@@ -9,6 +9,65 @@ struct SubscriptionPlansScreen: View {
 
     @StateObject private var repo = BillingRepository()
 
+    @Environment(\.colorScheme)
+    private var colorScheme
+
+    private var isDarkMode: Bool {
+        colorScheme == .dark
+    }
+
+    private var screenBackgroundColors: [Color] {
+        if isDarkMode {
+            return [
+                Color(red: 0.035, green: 0.051, blue: 0.094),
+                Color(red: 0.063, green: 0.094, blue: 0.153),
+                Color(red: 0.075, green: 0.145, blue: 0.220)
+            ]
+        }
+
+        return [
+            Color(red: 0.97, green: 0.95, blue: 1.0),
+            Color(red: 0.95, green: 0.97, blue: 1.0),
+            Color(red: 1.0, green: 0.98, blue: 1.0)
+        ]
+    }
+
+    private var primaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.94)
+            : Color.black.opacity(0.84)
+    }
+
+    private var secondaryTextColor: Color {
+        isDarkMode
+            ? Color.white.opacity(0.68)
+            : Color.black.opacity(0.58)
+    }
+
+    private var mainCardColor: Color {
+        isDarkMode
+            ? Color(red: 0.075, green: 0.102, blue: 0.165)
+            : .white
+    }
+
+    private var innerCardColor: Color {
+        isDarkMode
+            ? Color(red: 0.105, green: 0.137, blue: 0.210)
+            : Color(red: 0.973, green: 0.980, blue: 0.988)
+    }
+
+    private var loadingCardColor: Color {
+        isDarkMode
+            ? Color(red: 0.24, green: 0.14, blue: 0.07)
+            : Color(red: 1.0, green: 0.97, blue: 0.93)
+    }
+
+    private var loadingTextColor: Color {
+        isDarkMode
+            ? Color(red: 1.0, green: 0.72, blue: 0.42)
+            : Color(red: 0.60, green: 0.20, blue: 0.07)
+    }
+
     @State private var purchaseMessage: String? = nil
     @State private var didStartPurchaseFlow: Bool = false
     @State private var unavailableProductMessage: String? = nil
@@ -69,34 +128,65 @@ struct SubscriptionPlansScreen: View {
             VStack(spacing: 16) {
                 Text(
                     isAssociationMember
-                    ? tr("זכאות זוהתה למחיר חבר עמותה", "Association member pricing detected")
-                    : tr("בחר/י במסלול המתאים לך:", "Choose the plan that fits you:")
-                )
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(Color.black.opacity(0.82))
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity, alignment: .center)
-
-                if !repo.state.productsLoaded || repo.state.error != nil {
-                    Text(
-                        repo.state.error != nil
                         ? tr(
-                            "הרכישות אינן זמינות כרגע. נסה שוב מאוחר יותר.",
-                            "Purchases are temporarily unavailable. Please try again later."
+                            "זוהתה זכאות למחיר חבר עמותה",
+                            "Association member pricing detected"
                         )
                         : tr(
-                            "טוען מחירי מנויים מ־App Store...",
-                            "Loading subscription prices from the App Store..."
+                            "בחר/י במסלול המתאים לך:",
+                            "Choose the plan that fits you:"
                         )
+                )
+                .kmiFont(
+                    size: 18,
+                    weight: .semibold
+                )
+                .foregroundStyle(primaryTextColor)
+                .multilineTextAlignment(.center)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: .center
+                )
+
+                if !repo.state.productsLoaded ||
+                   repo.state.error != nil {
+                    Text(
+                        repo.state.error != nil
+                            ? tr(
+                                "הרכישות אינן זמינות כרגע. נסה שוב מאוחר יותר.",
+                                "Purchases are temporarily unavailable. Please try again later."
+                            )
+                            : tr(
+                                "טוען מחירי מנויים מ־App Store...",
+                                "Loading subscription prices from the App Store..."
+                            )
                     )
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Color(red: 0.60, green: 0.20, blue: 0.07))
+                    .kmiFont(
+                        size: 14,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(loadingTextColor)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
                     .padding(12)
                     .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color(red: 1.0, green: 0.97, blue: 0.93))
+                        RoundedRectangle(
+                            cornerRadius: 16,
+                            style: .continuous
+                        )
+                        .fill(loadingCardColor)
+                    )
+                    .overlay(
+                        RoundedRectangle(
+                            cornerRadius: 16,
+                            style: .continuous
+                        )
+                        .stroke(
+                            loadingTextColor.opacity(
+                                isDarkMode ? 0.28 : 0.14
+                            ),
+                            lineWidth: 1
+                        )
                     )
                 }
 
@@ -215,32 +305,59 @@ struct SubscriptionPlansScreen: View {
                         )
                 }
 
-                Button {
-                    Task {
-                        await restorePurchases()
-                    }
-                } label: {
-                    Text(tr("שחזור רכישות", "Restore purchases"))
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(repo.state.isLoading)
-
                 Button(action: onBack) {
-                    Text(tr("חזרה למסך ניהול המנוי", "Back to subscription screen"))
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
+                    Text(
+                        tr(
+                            "חזרה למסך ניהול המנוי",
+                            "Back to subscription screen"
+                        )
+                    )
+                    .kmiFont(
+                        size: 16,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(primaryTextColor)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .background(
+                        RoundedRectangle(
+                            cornerRadius: 24,
+                            style: .continuous
+                        )
+                        .fill(mainCardColor)
+                    )
+                    .overlay(
+                        RoundedRectangle(
+                            cornerRadius: 24,
+                            style: .continuous
+                        )
+                        .stroke(
+                            isDarkMode
+                                ? Color.white.opacity(0.14)
+                                : Color.black.opacity(0.12),
+                            lineWidth: 1
+                        )
+                    )
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
 
                 Spacer(minLength: 24)
             }
-            .padding(16)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
         }
-        .environment(\.layoutDirection, screenLayoutDirection)
+        .background(
+            LinearGradient(
+                colors: screenBackgroundColors,
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        )
+        .environment(
+            \.layoutDirection,
+            screenLayoutDirection
+        )
         .task {
             repo.start()
         }
@@ -284,23 +401,85 @@ struct SubscriptionPlansScreen: View {
         }
     }
 
-    private func buyPlan(_ productId: BillingRepository.ProductId) async {
+    private func buyPlan(
+        _ productId: BillingRepository.ProductId
+    ) async {
         didStartPurchaseFlow = true
         purchaseMessage = nil
         unavailableProductMessage = nil
         accessOpenedDialogMessage = nil
         purchasedProductId = productId.rawValue
 
-        await repo.purchase(productId: productId.rawValue)
+        /*
+         * ייתכן שהמסך נוצר לפני סיום טעינת מוצרי StoreKit.
+         * לכן, אם המוצר אינו נמצא בזמן הלחיצה,
+         * מבצעים טעינה חוזרת לפני שמבטלים את הרכישה.
+         */
+        if repo.product(
+            for: productId.rawValue
+        ) == nil {
+            await repo.loadProducts()
+        }
 
-        if repo.state.active {
+        guard repo.product(
+            for: productId.rawValue
+        ) != nil else {
+            didStartPurchaseFlow = false
+
+            let loadedIds =
+                repo.state.loadedProductIds
+                    .joined(separator: ", ")
+
+            unavailableProductMessage = tr(
+                """
+                המוצר \(productId.rawValue) לא הוחזר מ־App Store.
+                מוצרים שנטענו: \(loadedIds.isEmpty ? "לא נטענו מוצרים" : loadedIds)
+                """,
+                """
+                Product \(productId.rawValue) was not returned by the App Store.
+                Loaded products: \(loadedIds.isEmpty ? "No products loaded" : loadedIds)
+                """
+            )
+
+            return
+        }
+
+        await repo.purchase(
+            productId: productId.rawValue
+        )
+
+        if repo.state.active ||
+           KmiAccess.hasFullAccess() {
             purchaseMessage = tr(
                 "הרכישה הושלמה בהצלחה. התכנים פתוחים כעת.",
                 "The purchase was completed successfully. Content is now unlocked."
             )
+
             showPurchaseSuccessDialog = true
+
+            NotificationCenter.default.post(
+                name: Notification.Name(
+                    "KMI_ACCESS_CHANGED"
+                ),
+                object: nil
+            )
         } else {
             didStartPurchaseFlow = false
+
+            if let storeError =
+                repo.state.error?
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    ),
+               !storeError.isEmpty {
+                unavailableProductMessage =
+                    storeError
+            } else {
+                unavailableProductMessage = tr(
+                    "הרכישה לא הושלמה או שהמנוי עדיין לא אושר ב־App Store.",
+                    "The purchase was not completed or the subscription has not yet been approved by the App Store."
+                )
+            }
         }
     }
 
@@ -317,41 +496,24 @@ struct SubscriptionPlansScreen: View {
         return tr("המנוי החודשי", "monthly subscription")
     }
 
-    private func restorePurchases() async {
-        didStartPurchaseFlow = false
-        purchaseMessage = nil
-
-        await repo.restorePurchases()
-
-        if let error = repo.state.error, !error.isEmpty {
-            purchaseMessage = nil
-            return
-        }
-
-        let active =
-            UserDefaults.standard.bool(forKey: "has_full_access") ||
-            UserDefaults.standard.bool(forKey: "full_access") ||
-            UserDefaults.standard.bool(forKey: "subscription_active") ||
-            UserDefaults.standard.bool(forKey: "is_subscribed")
-
-        purchaseMessage = active
-        ? tr(
-            "נמצא מנוי פעיל. התכנים הנעולים פתוחים כעת.",
-            "An active subscription was found. Locked content is now open."
-        )
-        : tr(
-            "לא נמצא מנוי פעיל לשחזור.",
-            "No active subscription was found to restore."
-        )
-    }
-    
     private var tariffCard: some View {
         VStack(spacing: 12) {
-            Text(tr("תעריפון האפליקציה", "App pricing"))
-                .font(.title2.weight(.heavy))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .multilineTextAlignment(.center)
+            Text(
+                tr(
+                    "תעריפון האפליקציה",
+                    "App pricing"
+                )
+            )
+            .kmiFont(
+                size: 22,
+                weight: .heavy
+            )
+            .foregroundStyle(.white)
+            .frame(
+                maxWidth: .infinity,
+                alignment: .center
+            )
+            .multilineTextAlignment(.center)
 
             Text(
                 tr(
@@ -359,16 +521,31 @@ struct SubscriptionPlansScreen: View {
                     "Price comparison between regular users and K.M.I. association members"
                 )
             )
-            .font(.footnote.weight(.semibold))
+            .kmiFont(
+                size: 14,
+                weight: .semibold
+            )
             .foregroundStyle(.white.opacity(0.78))
-            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(
+                maxWidth: .infinity,
+                alignment: .center
+            )
             .multilineTextAlignment(.center)
 
             VStack(spacing: 10) {
                 tariffRow(
-                    label: tr("סוג משתמש", "User type"),
-                    monthly: tr("חודשי", "Monthly"),
-                    yearly: tr("שנתי", "Yearly"),
+                    label: tr(
+                        "סוג משתמש",
+                        "User type"
+                    ),
+                    monthly: tr(
+                        "חודשי",
+                        "Monthly"
+                    ),
+                    yearly: tr(
+                        "שנתי",
+                        "Yearly"
+                    ),
                     isHeader: true,
                     highlight: false
                 )
@@ -376,7 +553,10 @@ struct SubscriptionPlansScreen: View {
                 tariffDivider
 
                 tariffRow(
-                    label: tr("משתמש רגיל", "Regular user"),
+                    label: tr(
+                        "משתמש רגיל",
+                        "Regular user"
+                    ),
                     monthly: storePrice(
                         for: .regularMonthly,
                         fallback: "₪25"
@@ -392,7 +572,10 @@ struct SubscriptionPlansScreen: View {
                 tariffDivider
 
                 tariffRow(
-                    label: tr("חבר עמותת ק.מ.י", "K.M.I. member"),
+                    label: tr(
+                        "חבר עמותת ק.מ.י",
+                        "K.M.I. member"
+                    ),
                     monthly: storePrice(
                         for: .memberMonthly,
                         fallback: "₪20"
@@ -408,16 +591,46 @@ struct SubscriptionPlansScreen: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(0.08))
+                RoundedRectangle(
+                    cornerRadius: 18,
+                    style: .continuous
+                )
+                .fill(Color.white.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(
+                    cornerRadius: 18,
+                    style: .continuous
+                )
+                .stroke(
+                    Color.white.opacity(0.08),
+                    lineWidth: 1
+                )
             )
 
             VStack(spacing: 4) {
-                Text(tr("חבר עמותת ק.מ.י חוסך ₪50 בשנה", "K.M.I. members save ₪50 per year"))
-                    .font(.body.weight(.bold))
-                    .foregroundStyle(Color(red: 0.53, green: 0.94, blue: 0.67))
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .multilineTextAlignment(.center)
+                Text(
+                    tr(
+                        "חבר עמותת ק.מ.י חוסך ₪50 בשנה",
+                        "K.M.I. members save ₪50 per year"
+                    )
+                )
+                .kmiFont(
+                    size: 16,
+                    weight: .bold
+                )
+                .foregroundStyle(
+                    Color(
+                        red: 0.53,
+                        green: 0.94,
+                        blue: 0.67
+                    )
+                )
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: .center
+                )
+                .multilineTextAlignment(.center)
 
                 Text(
                     tr(
@@ -425,31 +638,84 @@ struct SubscriptionPlansScreen: View {
                         "Member pricing will be applied after membership verification."
                     )
                 )
-                .font(.footnote.weight(.semibold))
+                .kmiFont(
+                    size: 14,
+                    weight: .semibold
+                )
                 .foregroundStyle(.white.opacity(0.92))
-                .frame(maxWidth: .infinity, alignment: .center)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: .center
+                )
                 .multilineTextAlignment(.center)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color(red: 0.02, green: 0.37, blue: 0.27).opacity(0.32))
+                RoundedRectangle(
+                    cornerRadius: 18,
+                    style: .continuous
+                )
+                .fill(
+                    Color(
+                        red: 0.02,
+                        green: 0.37,
+                        blue: 0.27
+                    )
+                    .opacity(0.32)
+                )
+            )
+            .overlay(
+                RoundedRectangle(
+                    cornerRadius: 18,
+                    style: .continuous
+                )
+                .stroke(
+                    Color(
+                        red: 0.53,
+                        green: 0.94,
+                        blue: 0.67
+                    )
+                    .opacity(0.18),
+                    lineWidth: 1
+                )
             )
         }
         .padding(18)
         .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(red: 0.07, green: 0.09, blue: 0.15))
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+            .fill(
+                Color(
+                    red: 0.07,
+                    green: 0.09,
+                    blue: 0.15
+                )
+            )
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+            .stroke(
+                Color.white.opacity(0.14),
+                lineWidth: 1
+            )
         )
-        .shadow(color: Color.black.opacity(0.16), radius: 12, x: 0, y: 7)
+        .shadow(
+            color: Color.black.opacity(
+                isDarkMode ? 0.34 : 0.16
+            ),
+            radius: 12,
+            x: 0,
+            y: 7
+        )
     }
-
+    
     private func tariffRow(
         label: String,
         monthly: String,
@@ -458,46 +724,107 @@ struct SubscriptionPlansScreen: View {
         highlight: Bool
     ) -> some View {
         let textColor: Color = {
-            if isHeader { return .white }
-            if highlight { return Color(red: 0.53, green: 0.94, blue: 0.67) }
+            if isHeader {
+                return .white
+            }
+
+            if highlight {
+                return Color(
+                    red: 0.53,
+                    green: 0.94,
+                    blue: 0.67
+                )
+            }
+
             return Color.white.opacity(0.96)
         }()
 
-        let fontWeight: Font.Weight = isHeader ? .heavy : .semibold
+        let fontWeight: Font.Weight =
+            isHeader ? .heavy : .semibold
 
-        return HStack(spacing: 10) {
+        return HStack(spacing: 8) {
             if isEnglish {
-                Text(label)
-                    .font(.body.weight(fontWeight))
-                    .foregroundStyle(textColor)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                tariffText(
+                    label,
+                    color: textColor,
+                    weight: fontWeight,
+                    alignment: .leading,
+                    width: nil
+                )
 
-                Text(monthly)
-                    .font(.body.weight(fontWeight))
-                    .foregroundStyle(textColor)
-                    .frame(width: 72, alignment: .center)
+                tariffText(
+                    monthly,
+                    color: textColor,
+                    weight: fontWeight,
+                    alignment: .center,
+                    width: 72
+                )
 
-                Text(yearly)
-                    .font(.body.weight(fontWeight))
-                    .foregroundStyle(textColor)
-                    .frame(width: 72, alignment: .center)
+                tariffText(
+                    yearly,
+                    color: textColor,
+                    weight: fontWeight,
+                    alignment: .center,
+                    width: 72
+                )
             } else {
-                Text(yearly)
-                    .font(.body.weight(fontWeight))
-                    .foregroundStyle(textColor)
-                    .frame(width: 72, alignment: .center)
+                tariffText(
+                    yearly,
+                    color: textColor,
+                    weight: fontWeight,
+                    alignment: .center,
+                    width: 72
+                )
 
-                Text(monthly)
-                    .font(.body.weight(fontWeight))
-                    .foregroundStyle(textColor)
-                    .frame(width: 72, alignment: .center)
+                tariffText(
+                    monthly,
+                    color: textColor,
+                    weight: fontWeight,
+                    alignment: .center,
+                    width: 72
+                )
 
-                Text(label)
-                    .font(.body.weight(fontWeight))
-                    .foregroundStyle(textColor)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                tariffText(
+                    label,
+                    color: textColor,
+                    weight: fontWeight,
+                    alignment: .trailing,
+                    width: nil
+                )
             }
         }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func tariffText(
+        _ text: String,
+        color: Color,
+        weight: Font.Weight,
+        alignment: Alignment,
+        width: CGFloat?
+    ) -> some View {
+        Text(text)
+            .kmiFont(
+                size: 15,
+                weight: weight
+            )
+            .foregroundStyle(color)
+            .lineLimit(2)
+            .minimumScaleFactor(0.72)
+            .multilineTextAlignment(
+                alignment == .leading
+                    ? .leading
+                    : alignment == .trailing
+                        ? .trailing
+                        : .center
+            )
+            .frame(
+                minWidth: width,
+                maxWidth: width == nil
+                    ? .infinity
+                    : width,
+                alignment: alignment
+            )
     }
 
     private var tariffDivider: some View {
@@ -521,65 +848,138 @@ struct SubscriptionPlansScreen: View {
                 if isEnglish {
                     associationIcon
 
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("Join K.M.I. association")
-                            .font(.headline.weight(.heavy))
-                            .foregroundStyle(Color.black.opacity(0.86))
+                    associationTextBlock(
+                        title: "Join K.M.I. association",
+                        subtitle: "Association members receive discounted app subscription pricing.",
+                        alignment: .leading,
+                        textAlignment: .leading
+                    )
 
-                        Text("Association members receive discounted app subscription pricing.")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(Color.black.opacity(0.58))
-                            .multilineTextAlignment(.leading)
-                    }
-
-                    Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 15, weight: .heavy))
-                        .foregroundStyle(Color.purple.opacity(0.72))
+                    associationChevron
                 } else {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 15, weight: .heavy))
-                        .foregroundStyle(Color.purple.opacity(0.72))
+                    associationChevron
 
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 5) {
-                        Text("הצטרפות לעמותת ק.מ.י")
-                            .font(.headline.weight(.heavy))
-                            .foregroundStyle(Color.black.opacity(0.86))
-
-                        Text("חברי עמותה מקבלים מחיר מוזל למנוי האפליקציה.")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(Color.black.opacity(0.58))
-                            .multilineTextAlignment(.trailing)
-                    }
+                    associationTextBlock(
+                        title: "הצטרפות לעמותת ק.מ.י",
+                        subtitle: "חברי עמותה מקבלים מחיר מוזל למנוי האפליקציה.",
+                        alignment: .trailing,
+                        textAlignment: .trailing
+                    )
 
                     associationIcon
                 }
             }
+            .environment(
+                \.layoutDirection,
+                .leftToRight
+            )
             .padding(16)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color.white)
+                RoundedRectangle(
+                    cornerRadius: 22,
+                    style: .continuous
+                )
+                .fill(mainCardColor)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(Color.purple.opacity(0.16), lineWidth: 1)
+                RoundedRectangle(
+                    cornerRadius: 22,
+                    style: .continuous
+                )
+                .stroke(
+                    Color.purple.opacity(
+                        isDarkMode ? 0.34 : 0.16
+                    ),
+                    lineWidth: 1
+                )
             )
-            .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 5)
+            .shadow(
+                color: Color.black.opacity(
+                    isDarkMode ? 0.28 : 0.08
+                ),
+                radius: 10,
+                x: 0,
+                y: 5
+            )
         }
         .buttonStyle(.plain)
     }
 
+    private func associationTextBlock(
+        title: String,
+        subtitle: String,
+        alignment: HorizontalAlignment,
+        textAlignment: TextAlignment
+    ) -> some View {
+        VStack(
+            alignment: alignment,
+            spacing: 5
+        ) {
+            Text(title)
+                .kmiFont(
+                    size: 17,
+                    weight: .heavy
+                )
+                .foregroundStyle(primaryTextColor)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: textAlignment == .leading
+                        ? .leading
+                        : .trailing
+                )
+                .multilineTextAlignment(textAlignment)
+
+            Text(subtitle)
+                .kmiFont(
+                    size: 14,
+                    weight: .semibold
+                )
+                .foregroundStyle(secondaryTextColor)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: textAlignment == .leading
+                        ? .leading
+                        : .trailing
+                )
+                .multilineTextAlignment(textAlignment)
+        }
+    }
+
+    private var associationChevron: some View {
+        Image(
+            systemName: isEnglish
+                ? "chevron.right"
+                : "chevron.left"
+        )
+        .font(
+            .system(
+                size: 15,
+                weight: .heavy
+            )
+        )
+        .foregroundStyle(
+            isDarkMode
+                ? Color.purple.opacity(0.94)
+                : Color.purple.opacity(0.72)
+        )
+        .frame(width: 24)
+    }
+    
     private var associationIcon: some View {
         ZStack {
             Circle()
-                .fill(Color.purple.opacity(0.12))
+                .fill(
+                    Color.purple.opacity(
+                        isDarkMode ? 0.26 : 0.12
+                    )
+                )
 
             Text("👑")
-                .font(.system(size: 20))
+                .kmiFont(
+                    size: 20,
+                    weight: .regular
+                )
         }
         .frame(width: 44, height: 44)
     }
@@ -680,108 +1080,288 @@ private struct PurchaseSuccessView: View {
 
     @State private var pulse = false
 
+    private var layoutDirection: LayoutDirection {
+        isEnglish
+            ? .leftToRight
+            : .rightToLeft
+    }
+
+    private var goldColor: Color {
+        Color(
+            red: 1.0,
+            green: 0.85,
+            blue: 0.47
+        )
+    }
+
     var body: some View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.02, green: 0.07, blue: 0.12),
-                    Color(red: 0.04, green: 0.09, blue: 0.16),
-                    Color(red: 0.02, green: 0.04, blue: 0.08)
+                    Color(
+                        red: 0.02,
+                        green: 0.07,
+                        blue: 0.12
+                    ),
+                    Color(
+                        red: 0.04,
+                        green: 0.09,
+                        blue: 0.16
+                    ),
+                    Color(
+                        red: 0.02,
+                        green: 0.04,
+                        blue: 0.08
+                    )
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
             .ignoresSafeArea()
 
-            VStack(spacing: 18) {
-                Text("✦   ✧   ✦   ✧")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(Color(red: 1.0, green: 0.85, blue: 0.47).opacity(0.70))
+            ScrollView {
+                VStack(spacing: 18) {
+                    Spacer(minLength: 12)
 
-                Text("👑")
-                    .font(.system(size: 42))
-                    .frame(width: 82, height: 82)
+                    Text("✦   ✧   ✦   ✧")
+                        .kmiFont(
+                            size: 18,
+                            weight: .bold
+                        )
+                        .foregroundStyle(
+                            goldColor.opacity(0.70)
+                        )
+                        .multilineTextAlignment(.center)
+
+                    Text("👑")
+                        .kmiFont(
+                            size: 42,
+                            weight: .regular
+                        )
+                        .frame(
+                            width: 82,
+                            height: 82
+                        )
+                        .background(
+                            RadialGradient(
+                                colors: [
+                                    Color(
+                                        red: 1.0,
+                                        green: 0.95,
+                                        blue: 0.72
+                                    ),
+                                    Color(
+                                        red: 0.91,
+                                        green: 0.72,
+                                        blue: 0.29
+                                    ),
+                                    Color(
+                                        red: 0.47,
+                                        green: 0.31,
+                                        blue: 0.05
+                                    )
+                                ],
+                                center: .center,
+                                startRadius: 2,
+                                endRadius: 46
+                            )
+                        )
+                        .clipShape(Circle())
+                        .overlay(
+                            Circle()
+                                .stroke(
+                                    goldColor.opacity(0.45),
+                                    lineWidth: 1
+                                )
+                        )
+                        .shadow(
+                            color: goldColor.opacity(0.28),
+                            radius: 18,
+                            x: 0,
+                            y: 8
+                        )
+                        .scaleEffect(
+                            pulse ? 1.07 : 1.0
+                        )
+
+                    HStack(spacing: 10) {
+                        if isEnglish {
+                            purchaseApprovedTitle
+                            purchaseApprovedIcon
+                        } else {
+                            purchaseApprovedIcon
+                            purchaseApprovedTitle
+                        }
+                    }
+                    .environment(
+                        \.layoutDirection,
+                        .leftToRight
+                    )
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 10)
                     .background(
-                        RadialGradient(
+                        LinearGradient(
                             colors: [
-                                Color(red: 1.0, green: 0.95, blue: 0.72),
-                                Color(red: 0.91, green: 0.72, blue: 0.29),
-                                Color(red: 0.47, green: 0.31, blue: 0.05)
+                                .purple,
+                                .blue,
+                                .cyan
                             ],
-                            center: .center,
-                            startRadius: 2,
-                            endRadius: 46
+                            startPoint: .leading,
+                            endPoint: .trailing
                         )
                     )
-                    .clipShape(Circle())
-                    .scaleEffect(pulse ? 1.07 : 1.0)
-
-                HStack(spacing: 10) {
-                    Text(isEnglish ? "Purchase approved" : "רכישה אושרה")
-                    Image(systemName: "checkmark.circle.fill")
-                }
-                .font(.system(size: 22, weight: .black, design: .rounded))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 22)
-                .padding(.vertical, 10)
-                .background(
-                    LinearGradient(
-                        colors: [.purple, .blue, .cyan],
-                        startPoint: .leading,
-                        endPoint: .trailing
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(
+                                Color.white.opacity(0.24),
+                                lineWidth: 1
+                            )
                     )
-                )
-                .clipShape(Capsule())
 
-                Text(isEnglish ? "Congratulations!" : "ברכות!")
-                    .font(.system(size: 38, weight: .black, design: .rounded))
-                    .foregroundStyle(Color(red: 1.0, green: 0.85, blue: 0.47))
+                    Text(
+                        isEnglish
+                            ? "Congratulations!"
+                            : "ברכות!"
+                    )
+                    .kmiFont(
+                        size: 34,
+                        weight: .heavy
+                    )
+                    .foregroundStyle(goldColor)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.78)
 
-                Text(
-                    isEnglish
-                    ? "Your \(planLabel) purchase was completed successfully. You can now continue to the content."
-                    : "הרכישה של \(planLabel) בוצעה בהצלחה. כעת ניתן להמשיך לתוכן."
-                )
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.93))
-                .multilineTextAlignment(.center)
-                .lineSpacing(5)
+                    Text(
+                        isEnglish
+                            ? "Your \(planLabel) purchase was completed successfully. You can now continue to the content."
+                            : "הרכישה של \(planLabel) בוצעה בהצלחה. כעת ניתן להמשיך לתוכן."
+                    )
+                    .kmiFont(
+                        size: 19,
+                        weight: .bold
+                    )
+                    .foregroundStyle(
+                        .white.opacity(0.93)
+                    )
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(5)
+                    .frame(maxWidth: .infinity)
 
-                Button(action: onContinue) {
-                    Text(isEnglish ? "Continue to content" : "המשך לתוכן")
-                        .font(.system(size: 21, weight: .black, design: .rounded))
-                        .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.15))
+                    Button(action: onContinue) {
+                        Text(
+                            isEnglish
+                                ? "Continue to content"
+                                : "המשך לתוכן"
+                        )
+                        .kmiFont(
+                            size: 19,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            Color(
+                                red: 0.07,
+                                green: 0.10,
+                                blue: 0.15
+                            )
+                        )
                         .frame(maxWidth: .infinity)
-                        .frame(height: 58)
-                        .background(Color(red: 0.91, green: 0.72, blue: 0.29))
-                        .clipShape(RoundedRectangle(cornerRadius: 25, style: .continuous))
+                        .frame(minHeight: 58)
+                        .padding(.horizontal, 14)
+                        .background(goldColor)
+                        .clipShape(
+                            RoundedRectangle(
+                                cornerRadius: 25,
+                                style: .continuous
+                            )
+                        )
+                        .overlay(
+                            RoundedRectangle(
+                                cornerRadius: 25,
+                                style: .continuous
+                            )
+                            .stroke(
+                                Color.white.opacity(0.24),
+                                lineWidth: 1
+                            )
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    Divider()
+                        .overlay(
+                            goldColor.opacity(0.30)
+                        )
+
+                    Text(
+                        isEnglish
+                            ? "🛡️ Secure purchase • Full content access"
+                            : "🛡️ רכישה מאובטחת • גישה מלאה לתכנים"
+                    )
+                    .kmiFont(
+                        size: 15,
+                        weight: .bold
+                    )
+                    .foregroundStyle(goldColor)
+                    .multilineTextAlignment(.center)
+
+                    Spacer(minLength: 18)
                 }
-                .buttonStyle(.plain)
-
-                Divider()
-                    .overlay(Color(red: 1.0, green: 0.85, blue: 0.47).opacity(0.30))
-
-                Text(
-                    isEnglish
-                    ? "🛡️ Secure purchase • Full content access"
-                    : "🛡️ רכישה מאובטחת • גישה מלאה לתכנים"
+                .padding(.horizontal, 22)
+                .padding(.vertical, 26)
+                .frame(
+                    maxWidth: 620,
+                    alignment: .center
                 )
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Color(red: 1.0, green: 0.85, blue: 0.47))
-                .multilineTextAlignment(.center)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: .center
+                )
             }
-            .padding(.horizontal, 22)
-            .padding(.vertical, 26)
         }
-        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+        .environment(
+            \.layoutDirection,
+            layoutDirection
+        )
         .onAppear {
             withAnimation(
                 .easeInOut(duration: 1.4)
-                .repeatForever(autoreverses: true)
+                    .repeatForever(
+                        autoreverses: true
+                    )
             ) {
                 pulse = true
             }
         }
+    }
+
+    private var purchaseApprovedTitle: some View {
+        Text(
+            isEnglish
+                ? "Purchase approved"
+                : "רכישה אושרה"
+        )
+        .kmiFont(
+            size: 20,
+            weight: .heavy
+        )
+        .lineLimit(2)
+        .minimumScaleFactor(0.76)
+        .multilineTextAlignment(.center)
+    }
+
+    private var purchaseApprovedIcon: some View {
+        Image(
+            systemName: "checkmark.circle.fill"
+        )
+        .font(
+            .system(
+                size: 21,
+                weight: .heavy
+            )
+        )
+        .accessibilityHidden(true)
     }
 }
 
@@ -800,7 +1380,18 @@ private struct PlanCard: View {
     let onUnavailable: (String) -> Void
     let onBuy: () -> Void
 
+    @Environment(\.colorScheme)
+    private var colorScheme
+
+    private var isDarkMode: Bool {
+        colorScheme == .dark
+    }
+
     private var stackAlignment: HorizontalAlignment {
+        isEnglish ? .leading : .trailing
+    }
+
+    private var frameAlignment: Alignment {
         isEnglish ? .leading : .trailing
     }
 
@@ -809,10 +1400,10 @@ private struct PlanCard: View {
             return loadingTitle
         }
 
-        if !isProductLoaded {
-            return unavailableTitle
-        }
-
+        /*
+         * גם כשהמוצר טרם נטען, הלחיצה תנסה לטעון
+         * מחדש את קטלוג המוצרים מה־App Store.
+         */
         return buyTitle
     }
 
@@ -821,79 +1412,98 @@ private struct PlanCard: View {
     }
 
     var body: some View {
-        VStack(alignment: stackAlignment, spacing: 14) {
+        VStack(
+            alignment: stackAlignment,
+            spacing: 14
+        ) {
             Text(title)
-                .font(.title3.weight(.heavy))
+                .kmiFont(
+                    size: 19,
+                    weight: .heavy
+                )
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, alignment: .center)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: .center
+                )
+                .lineSpacing(3)
 
             Text(priceLine)
-                .font(.title2.weight(.heavy))
+                .kmiFont(
+                    size: 23,
+                    weight: .heavy
+                )
                 .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, alignment: .center)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: .center
+                )
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.76)
 
-            VStack(alignment: stackAlignment, spacing: 9) {
-                ForEach(points, id: \.self) { line in
-                    HStack(spacing: 8) {
-                        if isEnglish {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundStyle(.white.opacity(0.95))
-
-                            Text(line)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.92))
-                                .multilineTextAlignment(.leading)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        } else {
-                            Text(line)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.92))
-                                .multilineTextAlignment(.trailing)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundStyle(.white.opacity(0.95))
-                        }
-                    }
+            VStack(
+                alignment: stackAlignment,
+                spacing: 9
+            ) {
+                ForEach(
+                    points,
+                    id: \.self
+                ) { line in
+                    planPointRow(line)
                 }
             }
+            .frame(
+                maxWidth: .infinity,
+                alignment: frameAlignment
+            )
 
             Button {
-                if !isProductLoaded {
-                    onUnavailable(unavailableMessage)
+                guard !isLoading else {
                     return
                 }
 
+                /*
+                 * מסך האב מבצע טעינה חוזרת של מוצרי StoreKit
+                 * לפני ניסיון הרכישה. אין לעצור את הזרימה כאן
+                 * לפי ערך isProductLoaded שנקבע בזמן יצירת הכרטיס.
+                 */
                 onBuy()
             } label: {
                 HStack(spacing: 8) {
                     if isEnglish {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 14, weight: .bold))
-
-                        Text(buttonTitle)
-                            .font(.headline.weight(.heavy))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
+                        purchaseLockIcon
+                        purchaseButtonTitle
                     } else {
-                        Text(buttonTitle)
-                            .font(.headline.weight(.heavy))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 14, weight: .bold))
+                        purchaseButtonTitle
+                        purchaseLockIcon
                     }
                 }
+                .environment(
+                    \.layoutDirection,
+                    .leftToRight
+                )
                 .foregroundStyle(accent)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 13)
+                .frame(minHeight: 50)
+                .padding(.horizontal, 14)
                 .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color.white.opacity(0.94))
+                    RoundedRectangle(
+                        cornerRadius: 18,
+                        style: .continuous
+                    )
+                    .fill(Color.white.opacity(0.94))
+                )
+                .overlay(
+                    RoundedRectangle(
+                        cornerRadius: 18,
+                        style: .continuous
+                    )
+                    .stroke(
+                        Color.white.opacity(0.36),
+                        lineWidth: 1
+                    )
                 )
             }
             .buttonStyle(.plain)
@@ -903,24 +1513,130 @@ private struct PlanCard: View {
         .padding(18)
         .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            accent,
-                            accent.opacity(0.84),
-                            accent.opacity(0.68)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
+            RoundedRectangle(
+                cornerRadius: 26,
+                style: .continuous
+            )
+            .fill(
+                LinearGradient(
+                    colors: [
+                        accent,
+                        accent.opacity(
+                            isDarkMode ? 0.78 : 0.84
+                        ),
+                        accent.opacity(
+                            isDarkMode ? 0.58 : 0.68
+                        )
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
                 )
+            )
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .stroke(Color.white.opacity(0.22), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 26,
+                style: .continuous
+            )
+            .stroke(
+                Color.white.opacity(
+                    isDarkMode ? 0.28 : 0.22
+                ),
+                lineWidth: 1
+            )
         )
-        .shadow(color: accent.opacity(0.20), radius: 14, x: 0, y: 8)
+        .shadow(
+            color: accent.opacity(
+                isDarkMode ? 0.34 : 0.20
+            ),
+            radius: 14,
+            x: 0,
+            y: 8
+        )
+    }
+
+    private func planPointRow(
+        _ line: String
+    ) -> some View {
+        HStack(
+            alignment: .firstTextBaseline,
+            spacing: 8
+        ) {
+            if isEnglish {
+                pointCheckIcon
+
+                Text(line)
+                    .kmiFont(
+                        size: 15,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(
+                        .white.opacity(0.92)
+                    )
+                    .multilineTextAlignment(.leading)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .leading
+                    )
+            } else {
+                Text(line)
+                    .kmiFont(
+                        size: 15,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(
+                        .white.opacity(0.92)
+                    )
+                    .multilineTextAlignment(.trailing)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .trailing
+                    )
+
+                pointCheckIcon
+            }
+        }
+        .frame(
+            maxWidth: .infinity,
+            alignment: frameAlignment
+        )
+    }
+
+    private var pointCheckIcon: some View {
+        Image(
+            systemName: "checkmark.circle.fill"
+        )
+        .font(
+            .system(
+                size: 16,
+                weight: .bold
+            )
+        )
+        .foregroundStyle(.white.opacity(0.95))
+        .accessibilityHidden(true)
+    }
+
+    private var purchaseLockIcon: some View {
+        Image(systemName: "lock.fill")
+            .font(
+                .system(
+                    size: 14,
+                    weight: .bold
+                )
+            )
+            .accessibilityHidden(true)
+    }
+
+    private var purchaseButtonTitle: some View {
+        Text(buttonTitle)
+            .kmiFont(
+                size: 16,
+                weight: .heavy
+            )
+            .lineLimit(2)
+            .minimumScaleFactor(0.76)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
     }
 }
 

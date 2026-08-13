@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import AVKit
 
 private struct KmiLoadingStage: Identifiable {
@@ -12,6 +13,9 @@ struct KmiStartupLoadingScreen: View {
 
     let isEnglish: Bool
     let onFinished: () -> Void
+
+    @Environment(\.colorScheme)
+    private var colorScheme
 
     @State private var currentStageIndex: Int = 0
     @State private var completedStagesInCycle: Int = 0
@@ -105,21 +109,47 @@ struct KmiStartupLoadingScreen: View {
         onFinished()
     }
 
+    private var backgroundAssetName: String {
+        colorScheme == .dark
+            ? "kmi_startup_loading_bg_dark"
+            : "kmi_startup_loading_bg"
+    }
+
     private var backgroundView: some View {
         Group {
-            if let image = UIImage(named: "kmi_startup_loading_bg") {
+            if let image = UIImage(
+                named: backgroundAssetName
+            ) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
             } else {
                 ZStack {
-                    Color.white
+                    colorScheme == .dark
+                        ? Color.black
+                        : Color.white
 
-                    Text("Missing asset:\nkmi_startup_loading_bg")
-                        .font(.system(size: 18, weight: .heavy, design: .rounded))
-                        .foregroundStyle(Color(red: 0.09, green: 0.13, blue: 0.20))
-                        .multilineTextAlignment(.center)
-                        .padding()
+                    Text(
+                        "Missing asset:\n\(backgroundAssetName)"
+                    )
+                    .font(
+                        .system(
+                            size: 18,
+                            weight: .heavy,
+                            design: .rounded
+                        )
+                    )
+                    .foregroundStyle(
+                        colorScheme == .dark
+                            ? Color.white
+                            : Color(
+                                red: 0.09,
+                                green: 0.13,
+                                blue: 0.20
+                            )
+                    )
+                    .multilineTextAlignment(.center)
+                    .padding()
                 }
             }
         }
@@ -144,14 +174,38 @@ struct KmiStartupLoadingScreen: View {
                 .scaleEffect(pulseScale)
                 .opacity(glowOpacity)
 
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(red: 0.06, green: 0.10, blue: 0.15).opacity(0.96))
-                .frame(width: 214, height: 88)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(Color.white.opacity(0.14), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+            .fill(
+                videoBackgroundColor.opacity(0.96)
+            )
+            .frame(width: 214, height: 88)
+            .overlay(
+                RoundedRectangle(
+                    cornerRadius: 24,
+                    style: .continuous
                 )
-                .shadow(color: Color.black.opacity(0.30), radius: 16, x: 0, y: 10)
+                .stroke(
+                    Color.white.opacity(
+                        colorScheme == .dark
+                            ? 0.18
+                            : 0.14
+                    ),
+                    lineWidth: 1
+                )
+            )
+            .shadow(
+                color: Color.black.opacity(
+                    colorScheme == .dark
+                        ? 0.42
+                        : 0.30
+                ),
+                radius: 16,
+                x: 0,
+                y: 10
+            )
 
             KmiLoopingStartupVideoView()
                 .frame(width: 214, height: 88)
@@ -234,81 +288,230 @@ struct KmiStartupLoadingScreen: View {
     }
     
     private var accentBlue: Color {
-        Color(red: 0.09, green: 0.55, blue: 1.0)
+        Color(
+            red: 0.09,
+            green: 0.55,
+            blue: 1.0
+        )
     }
 
     private var accentPurple: Color {
-        Color(red: 0.36, green: 0.21, blue: 0.96)
+        Color(
+            red: 0.36,
+            green: 0.21,
+            blue: 0.96
+        )
     }
 
     private var textPrimary: Color {
-        Color(red: 0.09, green: 0.13, blue: 0.20)
+        colorScheme == .dark
+            ? Color.white.opacity(0.94)
+            : Color(
+                red: 0.09,
+                green: 0.13,
+                blue: 0.20
+            )
     }
 
     private var textSecondary: Color {
-        Color(red: 0.40, green: 0.44, blue: 0.52)
+        colorScheme == .dark
+            ? Color.white.opacity(0.68)
+            : Color(
+                red: 0.40,
+                green: 0.44,
+                blue: 0.52
+            )
+    }
+
+    private var progressTextColor: Color {
+        colorScheme == .dark
+            ? Color(
+                red: 0.43,
+                green: 0.72,
+                blue: 1.0
+            )
+            : Color(
+                red: 0.07,
+                green: 0.24,
+                blue: 0.49
+            )
+    }
+
+    private var loadingCardBackground: Color {
+        Color(
+            uiColor:
+                colorScheme == .dark
+                ? UIColor.secondarySystemBackground
+                : UIColor.systemBackground
+        )
+        .opacity(
+            colorScheme == .dark
+                ? 0.94
+                : 0.96
+        )
+    }
+
+    private var loadingCardShadowColor: Color {
+        colorScheme == .dark
+            ? Color.black.opacity(0.40)
+            : Color.black.opacity(0.14)
+    }
+
+    private var progressTrackColor: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.16)
+            : Color(
+                red: 0.90,
+                green: 0.91,
+                blue: 0.93
+            )
+    }
+
+    private var videoBackgroundColor: Color {
+        colorScheme == .dark
+            ? Color(
+                uiColor:
+                    UIColor.tertiarySystemBackground
+            )
+            : Color(
+                red: 0.06,
+                green: 0.10,
+                blue: 0.15
+            )
     }
 
     private var loadingCardView: some View {
-        let currentStage = stages[currentStageIndex]
+        let currentStage =
+            stages[currentStageIndex]
 
         return VStack(spacing: 0) {
             Group {
                 if isEnglish {
                     HStack(spacing: 12) {
-                        Image(systemName: currentStage.systemImage)
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundColor(accentColor)
-                            .frame(width: 30, height: 30)
+                        Image(
+                            systemName:
+                                currentStage.systemImage
+                        )
+                        .font(
+                            .system(
+                                size: 24,
+                                weight: .semibold
+                            )
+                        )
+                        .foregroundColor(accentColor)
+                        .frame(width: 30, height: 30)
 
-                        VStack(alignment: .leading, spacing: 3) {
+                        VStack(
+                            alignment: .leading,
+                            spacing: 3
+                        ) {
                             Text("Current stage")
-                                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                .foregroundColor(textSecondary)
+                                .kmiFont(
+                                    size: 14,
+                                    weight: .semibold
+                                )
+                                .foregroundColor(
+                                    textSecondary
+                                )
 
                             Text(currentStage.titleEn)
-                                .font(.system(size: 18, weight: .black, design: .rounded))
-                                .foregroundColor(textPrimary)
+                                .kmiFont(
+                                    size: 18,
+                                    weight: .black
+                                )
+                                .foregroundColor(
+                                    textPrimary
+                                )
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.80)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: .leading
+                        )
 
-                        Text("\(Int(progress * 100))%")
-                            .font(.system(size: 17, weight: .black, design: .rounded))
-                            .foregroundColor(Color(red: 0.07, green: 0.24, blue: 0.49))
-                            .frame(width: 48, alignment: .center)
-                            .offset(y: -10)
+                        Text(
+                            "\(Int(progress * 100))%"
+                        )
+                        .kmiFont(
+                            size: 17,
+                            weight: .black
+                        )
+                        .foregroundColor(
+                            progressTextColor
+                        )
+                        .frame(
+                            width: 48,
+                            alignment: .center
+                        )
+                        .offset(y: -10)
                     }
                 } else {
                     HStack(spacing: 12) {
-                        Text("\(Int(progress * 100))%")
-                            .font(.system(size: 17, weight: .black, design: .rounded))
-                            .foregroundColor(Color(red: 0.07, green: 0.24, blue: 0.49))
-                            .frame(width: 48, alignment: .center)
-                            .offset(y: -10)
+                        Text(
+                            "\(Int(progress * 100))%"
+                        )
+                        .kmiFont(
+                            size: 17,
+                            weight: .black
+                        )
+                        .foregroundColor(
+                            progressTextColor
+                        )
+                        .frame(
+                            width: 48,
+                            alignment: .center
+                        )
+                        .offset(y: -10)
 
-                        VStack(alignment: .trailing, spacing: 3) {
+                        VStack(
+                            alignment: .trailing,
+                            spacing: 3
+                        ) {
                             Text("שלב נוכחי")
-                                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                .foregroundColor(textSecondary)
+                                .kmiFont(
+                                    size: 14,
+                                    weight: .semibold
+                                )
+                                .foregroundColor(
+                                    textSecondary
+                                )
 
                             Text(currentStage.titleHe)
-                                .font(.system(size: 18, weight: .black, design: .rounded))
-                                .foregroundColor(textPrimary)
+                                .kmiFont(
+                                    size: 18,
+                                    weight: .black
+                                )
+                                .foregroundColor(
+                                    textPrimary
+                                )
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.80)
                         }
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: .trailing
+                        )
 
-                        Image(systemName: currentStage.systemImage)
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundColor(accentColor)
-                            .frame(width: 30, height: 30)
+                        Image(
+                            systemName:
+                                currentStage.systemImage
+                        )
+                        .font(
+                            .system(
+                                size: 24,
+                                weight: .semibold
+                            )
+                        )
+                        .foregroundColor(accentColor)
+                        .frame(width: 30, height: 30)
                     }
                 }
             }
-            .environment(\.layoutDirection, .leftToRight)
+            .environment(
+                \.layoutDirection,
+                .leftToRight
+            )
 
             Spacer()
                 .frame(height: 7)
@@ -328,17 +531,35 @@ struct KmiStartupLoadingScreen: View {
                 Button {
                     finishOnce()
                 } label: {
-                    Text(isEnglish ? "Skip" : "דלג")
-                        .font(.system(size: 17, weight: .black, design: .rounded))
-                        .foregroundColor(Color(red: 0.07, green: 0.24, blue: 0.49))
+                    Text(
+                        isEnglish
+                            ? "Skip"
+                            : "דלג"
+                    )
+                    .kmiFont(
+                        size: 17,
+                        weight: .black
+                    )
+                    .foregroundColor(
+                        progressTextColor
+                    )
                 }
                 .buttonStyle(.plain)
 
                 Spacer()
 
-                Text(isEnglish ? "Please wait..." : "אנא המתן...")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundColor(Color(red: 0.07, green: 0.24, blue: 0.49))
+                Text(
+                    isEnglish
+                        ? "Please wait..."
+                        : "אנא המתן..."
+                )
+                .kmiFont(
+                    size: 13,
+                    weight: .semibold
+                )
+                .foregroundColor(
+                    progressTextColor
+                )
 
                 Spacer()
                     .frame(width: 52)
@@ -350,22 +571,45 @@ struct KmiStartupLoadingScreen: View {
         .padding(.bottom, 6)
         .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white.opacity(0.94))
-                .shadow(color: Color.black.opacity(0.14), radius: 8, x: 0, y: 5)
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .fill(loadingCardBackground)
+            .shadow(
+                color: loadingCardShadowColor,
+                radius: 8,
+                x: 0,
+                y: 5
+            )
         )
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+        )
     }
-    
+ 
     private var progressBar: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(Color(red: 0.90, green: 0.91, blue: 0.93))
+                    .fill(progressTrackColor)
 
                 Capsule()
-                    .fill(Color(red: 0.06, green: 0.64, blue: 0.42))
-                    .frame(width: geo.size.width * progress)
+                    .fill(
+                        Color(
+                            red: 0.06,
+                            green: 0.64,
+                            blue: 0.42
+                        )
+                    )
+                    .frame(
+                        width:
+                            geo.size.width
+                            * progress
+                    )
             }
         }
         .frame(height: 8)
@@ -373,48 +617,138 @@ struct KmiStartupLoadingScreen: View {
 
     private var checklistView: some View {
         VStack(spacing: 5) {
-            ForEach(Array(stages.enumerated()), id: \.element.id) { index, stage in
-                let done = index < completedStagesInCycle
-                let active = index == currentStageIndex
+            ForEach(
+                Array(stages.enumerated()),
+                id: \.element.id
+            ) { index, stage in
+                let done =
+                    index < completedStagesInCycle
+
+                let active =
+                    index == currentStageIndex
 
                 Group {
                     if isEnglish {
                         HStack(spacing: 8) {
-                            Image(systemName: done ? "checkmark.circle.fill" : stage.systemImage)
-                                .font(.system(size: 17, weight: .semibold))
-                                .foregroundColor(iconColor(done: done, active: active))
-                                .scaleEffect(done ? 1.14 : 1.0)
-                                .animation(.easeInOut(duration: 0.22), value: done)
+                            Image(
+                                systemName:
+                                    done
+                                    ? "checkmark.circle.fill"
+                                    : stage.systemImage
+                            )
+                            .font(
+                                .system(
+                                    size: 17,
+                                    weight: .semibold
+                                )
+                            )
+                            .foregroundColor(
+                                iconColor(
+                                    done: done,
+                                    active: active
+                                )
+                            )
+                            .scaleEffect(
+                                done ? 1.14 : 1.0
+                            )
+                            .animation(
+                                .easeInOut(
+                                    duration: 0.22
+                                ),
+                                value: done
+                            )
 
                             Text(stage.titleEn)
-                                .font(.system(size: 13.2, weight: active ? .bold : .semibold, design: .rounded))
+                                .kmiFont(
+                                    size: 13.2,
+                                    weight:
+                                        active
+                                        ? .bold
+                                        : .semibold
+                                )
                                 .lineLimit(1)
-                                .foregroundColor(active || done ? textPrimary : textSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .minimumScaleFactor(0.76)
+                                .foregroundColor(
+                                    active || done
+                                        ? textPrimary
+                                        : textSecondary
+                                )
+                                .frame(
+                                    maxWidth: .infinity,
+                                    alignment: .leading
+                                )
                         }
                     } else {
                         HStack(spacing: 8) {
                             Text(stage.titleHe)
-                                .font(.system(size: 13.2, weight: active ? .bold : .semibold, design: .rounded))
+                                .kmiFont(
+                                    size: 13.2,
+                                    weight:
+                                        active
+                                        ? .bold
+                                        : .semibold
+                                )
                                 .lineLimit(1)
-                                .foregroundColor(active || done ? textPrimary : textSecondary)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                .minimumScaleFactor(0.76)
+                                .foregroundColor(
+                                    active || done
+                                        ? textPrimary
+                                        : textSecondary
+                                )
+                                .frame(
+                                    maxWidth: .infinity,
+                                    alignment: .trailing
+                                )
 
-                            Image(systemName: done ? "checkmark.circle.fill" : stage.systemImage)
-                                .font(.system(size: 17, weight: .semibold))
-                                .foregroundColor(iconColor(done: done, active: active))
-                                .scaleEffect(done ? 1.14 : 1.0)
-                                .animation(.easeInOut(duration: 0.22), value: done)
+                            Image(
+                                systemName:
+                                    done
+                                    ? "checkmark.circle.fill"
+                                    : stage.systemImage
+                            )
+                            .font(
+                                .system(
+                                    size: 17,
+                                    weight: .semibold
+                                )
+                            )
+                            .foregroundColor(
+                                iconColor(
+                                    done: done,
+                                    active: active
+                                )
+                            )
+                            .scaleEffect(
+                                done ? 1.14 : 1.0
+                            )
+                            .animation(
+                                .easeInOut(
+                                    duration: 0.22
+                                ),
+                                value: done
+                            )
                         }
                     }
                 }
-                .environment(\.layoutDirection, .leftToRight)
-                .opacity(active || done ? 1.0 : 0.48)
-                .animation(.easeInOut(duration: 0.28), value: currentStageIndex)
+                .environment(
+                    \.layoutDirection,
+                    .leftToRight
+                )
+                .opacity(
+                    active || done
+                        ? 1.0
+                        : 0.48
+                )
+                .animation(
+                    .easeInOut(
+                        duration: 0.28
+                    ),
+                    value: currentStageIndex
+                )
             }
         }
     }
-    
+ 
     private var accentColor: Color {
         Color(red: 0.08, green: 0.77, blue: 0.50)
     }

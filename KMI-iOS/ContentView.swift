@@ -1204,18 +1204,30 @@ struct ContentView: View {
 
                     case .forum:
                         KmiRootLayout(
-                            title: "פורום הסניף",
+                            title: tr(
+                                "פורום הסניף",
+                                "Branch Forum"
+                            ),
                             nav: nav,
                             selectedIcon: nil,
                             onPickSearchResult: { key in
                                 NotificationCenter.default.post(
-                                    name: Notification.Name("KMI_GLOBAL_SEARCH_PICK"),
+                                    name: Notification.Name(
+                                        "KMI_GLOBAL_SEARCH_PICK"
+                                    ),
                                     object: key
                                 )
                             }
                         ) {
-                            ForumView(onClose: { nav.pop() })
-                                .navigationBarBackButtonHidden(true)
+                            ForumView(
+                                onClose: {
+                                    nav.pop()
+                                },
+                                onOpenSubscription: {
+                                    nav.push(.subscription)
+                                }
+                            )
+                            .navigationBarBackButtonHidden(true)
                         }
 
                     case .myProfile:

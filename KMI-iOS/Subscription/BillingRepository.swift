@@ -169,21 +169,50 @@ final class BillingRepository: ObservableObject {
 
             switch result {
             case .success(let verification):
-                let transaction = try checkVerified(verification)
-                await apply(transaction: transaction)
+                let transaction =
+                    try checkVerified(
+                        verification
+                    )
+
+                await apply(
+                    transaction: transaction
+                )
+
                 await transaction.finish()
 
+                /*
+                 * קוראים שוב את הזכאויות לאחר סיום העסקה,
+                 * כדי לוודא שגם state וגם UserDefaults
+                 * משקפים את המנוי שאושר ב-App Store.
+                 */
+                await refreshPurchases()
+
             case .userCancelled:
-                break
+                /*
+                 * StoreKit מחזיר userCancelled גם כאשר חלון
+                 * הרכישה נסגר לפני אישור מלא.
+                 */
+                state.error =
+                    "StoreKit החזיר: הרכישה בוטלה לפני שהושלמה."
 
             case .pending:
-                state.error = "הרכישה ממתינה לאישור"
+                state.error =
+                    "StoreKit החזיר: הרכישה ממתינה לאישור. ייתכן שנדרש אישור חשבון, אמצעי תשלום או אישור משפחתי."
 
             @unknown default:
-                state.error = "סטטוס רכישה לא מוכר"
+                state.error =
+                    "StoreKit החזיר סטטוס רכישה לא מוכר."
             }
         } catch {
-            state.error = error.localizedDescription
+            let nsError =
+                error as NSError
+
+            state.error =
+                """
+                שגיאת StoreKit:
+                \(error.localizedDescription)
+                קוד: \(nsError.domain) / \(nsError.code)
+                """
         }
 
         state.isLoading = false
@@ -208,16 +237,60 @@ final class BillingRepository: ObservableObject {
 
         var activeTransaction: Transaction?
 
+        let supportedProductIds =
+            Set(
+                ProductId.allCases.map(
+                    \.rawValue
+                )
+            )
+
         for await result in Transaction.currentEntitlements {
             do {
-                let transaction = try checkVerified(result)
+                let transaction =
+                    try checkVerified(result)
 
-                if ProductId.allCases.map(\.rawValue).contains(transaction.productID) {
-                    activeTransaction = transaction
-                    break
+                guard supportedProductIds.contains(
+                    transaction.productID
+                ) else {
+                    continue
+                }
+
+                guard transaction.revocationDate == nil else {
+                    continue
+                }
+
+                guard !transaction.isUpgraded else {
+                    continue
+                }
+
+                if let expirationDate =
+                    transaction.expirationDate,
+                   expirationDate <= Date() {
+                    continue
+                }
+
+                if let current =
+                    activeTransaction {
+                    let currentExpiration =
+                        current.expirationDate ??
+                        .distantFuture
+
+                    let candidateExpiration =
+                        transaction.expirationDate ??
+                        .distantFuture
+
+                    if candidateExpiration >
+                        currentExpiration {
+                        activeTransaction =
+                            transaction
+                    }
+                } else {
+                    activeTransaction =
+                        transaction
                 }
             } catch {
-                state.error = error.localizedDescription
+                state.error =
+                    error.localizedDescription
             }
         }
 
@@ -250,8 +323,18 @@ final class BillingRepository: ObservableObject {
         }
     }
 
-    private func apply(transaction: Transaction) async {
-        let token = String(transaction.originalID)
+    private func apply(
+        transaction: Transaction
+    ) async {
+        /*
+         * transaction.id הוא המזהה של העסקה הנוכחית.
+         *
+         * אין להשתמש כאן ב-originalID:
+         * במנוי מתחדש originalID נשאר קבוע לכל שרשרת
+         * המנוי, ולכן עסקת חידוש עלולה להיחשב בטעות
+         * לעסקה ישנה שכבר פגה.
+         */
+        let token = String(transaction.id)
 
         let accessUntil = writeAccessEverywhere(
             enabled: true,
@@ -261,14 +344,28 @@ final class BillingRepository: ObservableObject {
             expirationDate: transaction.expirationDate
         )
 
-        let active = accessUntil > currentTimeMillis()
+        let active =
+            accessUntil > currentTimeMillis()
 
         state.connected = true
         state.active = active
-        state.productId = active ? transaction.productID : nil
-        state.purchaseToken = active ? token : nil
-        state.renewalDate = active ? accessUntil : nil
-        state.error = nil
+        state.productId =
+            active
+                ? transaction.productID
+                : nil
+        state.purchaseToken =
+            active
+                ? token
+                : nil
+        state.renewalDate =
+            active
+                ? accessUntil
+                : nil
+
+        state.error =
+            active
+                ? nil
+                : "הרכישה אומתה, אך לא נמצא מנוי פעיל בתוקף"
 
         refreshPriceState()
     }

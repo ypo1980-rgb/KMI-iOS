@@ -14,6 +14,7 @@
 		7E7F771D2FA493C90048059D /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 7E7F771C2FA493C90048059D /* GoogleSignIn */; };
 		7E7F771F2FA493C90048059D /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 7E7F771E2FA493C90048059D /* GoogleSignInSwift */; };
 		7E8199B230115468009FB046 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 7E8199B130115468009FB046 /* GoogleService-Info.plist */; };
+		7E84EE46302E59F7001E749E /* KMI.storekit in Resources */ = {isa = PBXBuildFile; fileRef = 7E84EE45302E59F7001E749E /* KMI.storekit */; };
 		7E8684E63001872E00C0A3F2 /* branches.json in Resources */ = {isa = PBXBuildFile; fileRef = 7E8684E53001872E00C0A3F2 /* branches.json */; };
 /* End PBXBuildFile section */
 
@@ -21,6 +22,7 @@
 		7E6CF5212F3907D90061115C /* KMI-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "KMI-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7E6D2C3D2FA6473A00EB82B2 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		7E8199B130115468009FB046 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
+		7E84EE45302E59F7001E749E /* KMI.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = KMI.storekit; sourceTree = "<group>"; };
 		7E8684E53001872E00C0A3F2 /* branches.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = branches.json; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -70,6 +72,7 @@
 		7E6CF5182F3907D90061115C = {
 			isa = PBXGroup;
 			children = (
+				7E84EE45302E59F7001E749E /* KMI.storekit */,
 				7E8684E53001872E00C0A3F2 /* branches.json */,
 				7E6D2C3D2FA6473A00EB82B2 /* LaunchScreen.storyboard */,
 				7E8E72EC2F4A3AB20099E4E5 /* KMI-iOS */,
@@ -168,6 +171,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7E84EE46302E59F7001E749E /* KMI.storekit in Resources */,
 				7E6D2C3E2FA6473A00EB82B2 /* LaunchScreen.storyboard in Resources */,
 				7E8199B230115468009FB046 /* GoogleService-Info.plist in Resources */,
 				7E8684E63001872E00C0A3F2 /* branches.json in Resources */,

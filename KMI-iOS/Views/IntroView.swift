@@ -6,6 +6,9 @@ struct IntroView: View {
 
     let onContinue: () -> Void
 
+    @Environment(\.colorScheme)
+    private var colorScheme
+
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("selected_language_code") private var selectedLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
@@ -49,6 +52,39 @@ struct IntroView: View {
         isEnglish ? .leftToRight : .rightToLeft
     }
 
+    private var introBackgroundAssetName: String {
+        colorScheme == .dark
+            ? "intro_welcome_screen_v2_dark"
+            : "intro_welcome_screen_v2"
+    }
+
+    private var introCardBackground: Color {
+        colorScheme == .dark
+            ? Color(
+                red: 0.10,
+                green: 0.14,
+                blue: 0.21
+            )
+            .opacity(0.94)
+            : Color.white.opacity(0.88)
+    }
+
+    private var introPrimaryTextColor: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.94)
+            : Color(
+                red: 0.09,
+                green: 0.13,
+                blue: 0.20
+            )
+    }
+
+    private var introCardShadowColor: Color {
+        colorScheme == .dark
+            ? Color.black.opacity(0.40)
+            : Color.black.opacity(0.18)
+    }
+
     private func tr(_ he: String, _ en: String) -> String {
         isEnglish ? en : he
     }
@@ -76,10 +112,20 @@ struct IntroView: View {
             let horizontalPadding: CGFloat = isCompactHeight ? 24 : 30
 
             ZStack {
-                Image("intro_welcome_screen_v2")
+                Color(
+                    colorScheme == .dark
+                        ? UIColor.systemBackground
+                        : UIColor.white
+                )
+                .ignoresSafeArea()
+
+                Image(introBackgroundAssetName)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: geo.size.width, height: geo.size.height)
+                    .frame(
+                        width: geo.size.width,
+                        height: geo.size.height
+                    )
                     .clipped()
                     .ignoresSafeArea()
 
@@ -120,7 +166,7 @@ struct IntroView: View {
                     design: .rounded
                 )
             )
-            .foregroundStyle(Color(red: 0.09, green: 0.13, blue: 0.20))
+            .foregroundStyle(introPrimaryTextColor)
             .multilineTextAlignment(.center)
             .lineLimit(1)
             .minimumScaleFactor(0.78)
@@ -128,9 +174,17 @@ struct IntroView: View {
             .frame(height: isCompactHeight ? 38 : 42)
             .padding(.horizontal, 10)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.white.opacity(0.88))
-                    .shadow(color: Color.black.opacity(0.18), radius: 4, x: 0, y: 2)
+                RoundedRectangle(
+                    cornerRadius: 10,
+                    style: .continuous
+                )
+                .fill(introCardBackground)
+                .shadow(
+                    color: introCardShadowColor,
+                    radius: 4,
+                    x: 0,
+                    y: 2
+                )
             )
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 22)
@@ -168,27 +222,40 @@ struct IntroView: View {
             .frame(height: isCompactHeight ? 40 : 46)
             .padding(.horizontal, 10)
         } else {
-            Text(tr("עדיין לא עודכנה חגורה", "Belt has not been updated yet"))
-                .font(
-                    .system(
-                        size: isCompactHeight ? 13 : 15,
-                        weight: .heavy,
-                        design: .rounded
-                    )
+            Text(
+                tr(
+                    "עדיין לא עודכנה חגורה",
+                    "Belt has not been updated yet"
                 )
-                .foregroundStyle(Color(red: 0.09, green: 0.13, blue: 0.20))
-                .multilineTextAlignment(.center)
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
-                .frame(maxWidth: .infinity)
-                .frame(height: isCompactHeight ? 40 : 46)
-                .padding(.horizontal, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color.white.opacity(0.86))
-                        .shadow(color: Color.black.opacity(0.18), radius: 4, x: 0, y: 2)
+            )
+            .font(
+                .system(
+                    size: isCompactHeight ? 13 : 15,
+                    weight: .heavy,
+                    design: .rounded
                 )
-                .padding(.horizontal, 22)
+            )
+            .foregroundStyle(introPrimaryTextColor)
+            .multilineTextAlignment(.center)
+            .lineLimit(1)
+            .minimumScaleFactor(0.78)
+            .frame(maxWidth: .infinity)
+            .frame(height: isCompactHeight ? 40 : 46)
+            .padding(.horizontal, 12)
+            .background(
+                RoundedRectangle(
+                    cornerRadius: 16,
+                    style: .continuous
+                )
+                .fill(introCardBackground)
+                .shadow(
+                    color: introCardShadowColor,
+                    radius: 4,
+                    x: 0,
+                    y: 2
+                )
+            )
+            .padding(.horizontal, 22)
         }
     }
 
@@ -196,24 +263,32 @@ struct IntroView: View {
         Button {
             onContinue()
         } label: {
-            Text(tr("כניסה / רישום בדרך הרגילה", "Existing login / regular registration"))
-                .font(
-                    .system(
-                        size: isCompactHeight ? 12 : 14,
-                        weight: .bold,
-                        design: .rounded
-                    )
+            Text(
+                tr(
+                    "כניסה / רישום בדרך הרגילה",
+                    "Existing login / regular registration"
                 )
-                .foregroundStyle(Color(red: 0.09, green: 0.13, blue: 0.20))
-                .multilineTextAlignment(.center)
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
-                .frame(maxWidth: .infinity)
-                .frame(height: isCompactHeight ? 32 : 36)
-                .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(Color.white.opacity(0.88))
+            )
+            .font(
+                .system(
+                    size: isCompactHeight ? 12 : 14,
+                    weight: .bold,
+                    design: .rounded
                 )
+            )
+            .foregroundStyle(introPrimaryTextColor)
+            .multilineTextAlignment(.center)
+            .lineLimit(1)
+            .minimumScaleFactor(0.72)
+            .frame(maxWidth: .infinity)
+            .frame(height: isCompactHeight ? 32 : 36)
+            .background(
+                RoundedRectangle(
+                    cornerRadius: 20,
+                    style: .continuous
+                )
+                .fill(introCardBackground)
+            )
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 8)

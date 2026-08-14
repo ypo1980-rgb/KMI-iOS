@@ -1,4 +1,17 @@
 import SwiftUI
+import UIKit
+
+private struct AttendanceMonthlyPoint:
+    Identifiable,
+    Equatable {
+
+    let monthIso: String
+    let attendedTrainings: Int
+
+    var id: String {
+        monthIso
+    }
+}
 
 struct AttendanceStatsView: View {
 
@@ -24,6 +37,20 @@ struct AttendanceStatsView: View {
 
     @State private var isLoadingStats: Bool = false
     @State private var hasRealAttendanceData: Bool = false
+
+    @State private var monthlyPresentCount: Int = 0
+    @State private var monthlyScheduledCount: Int = 0
+    @State private var yearlyPresentCount: Int = 0
+    @State private var yearlyScheduledCount: Int = 0
+
+    @State private var monthlyAttendance:
+        [AttendanceMonthlyPoint] = []
+
+    @State private var showShareSheet:
+        Bool = false
+
+    @State private var shareItems:
+        [Any] = []
 
     private let repository: AttendanceRepository
 
@@ -99,27 +126,101 @@ struct AttendanceStatsView: View {
             )
             .ignoresSafeArea()
 
-            ScrollView {
-                VStack(spacing: 12) {
-                    heroStatsCard
-                    percentCardsRow
+            if isLoadingStats {
+                AttendanceStatsLoadingRings(
+                    title: tr(
+                        "טוען נתוני נוכחות...",
+                        "Loading attendance data..."
+                    )
+                )
+            } else {
+                ScrollView {
+                    VStack(spacing: 12) {
+                        heroStatsCard
+                        percentCardsRow
 
-                    if !hasRealAttendanceData {
-                        emptyMemberAttendanceStatsCard
+                        if !hasRealAttendanceData {
+                            emptyMemberAttendanceStatsCard
+                        }
+
+                        if !monthlyAttendance.isEmpty {
+                            monthlyAttendanceChartCard
+                        }
+
+                        streakCard
+                        bestDaysCard
+                        lastSessionsCard
                     }
-
-                    streakCard
-                    bestDaysCard
-                    lastSessionsCard
+                    .padding(.horizontal, 16)
+                    .padding(.top, 14)
+                    .padding(.bottom, 120)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 120)
             }
         }
         .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
-        .navigationTitle(tr("סטטיסטיקת נוכחות", "Attendance Statistics"))
+        .navigationTitle(
+            tr(
+                "סטטיסטיקת נוכחות",
+                "Attendance Statistics"
+            )
+        )
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(
+                placement:
+                    .navigationBarTrailing
+            ) {
+                Button {
+                    shareAttendancePdf()
+                } label: {
+                    Image(
+                        systemName:
+                            "square.and.arrow.up"
+                    )
+                    .font(
+                        .system(
+                            size: 16,
+                            weight: .bold
+                        )
+                    )
+                }
+                .disabled(
+                    isLoadingStats ||
+                    !hasRealAttendanceData
+                )
+                .accessibilityLabel(
+                    tr(
+                        "שיתוף דו״ח נוכחות",
+                        "Share attendance report"
+                    )
+                )
+            }
+        }
+        .sheet(
+            isPresented:
+                $showShareSheet
+        ) {
+            AttendanceStatsShareSheet(
+                items: shareItems
+            )
+        }
+        .onReceive(
+            NotificationCenter.default
+                .publisher(
+                    for:
+                        Notification.Name(
+                            "KMI_GLOBAL_SHARE_REQUEST"
+                        )
+                )
+        ) { notification in
+            if let request =
+                notification.object
+                    as? NSMutableDictionary {
+                request["handled"] = true
+            }
+
+            shareAttendancePdf()
+        }
         .onAppear {
             guard !isLoadingStats else {
                 return
@@ -260,25 +361,383 @@ struct AttendanceStatsView: View {
     private var percentCardsRow: some View {
         HStack(spacing: 12) {
             metricCard(
-                title: tr("נוכחות חודשית", "Monthly Attendance"),
+                title: tr(
+                    "נוכחות חודשית",
+                    "Monthly Attendance"
+                ),
                 percent: stats.monthlyPercent,
+                attendedCount:
+                    monthlyPresentCount,
+                scheduledCount:
+                    monthlyScheduledCount,
                 icon: "calendar",
                 gradient: [
-                    Color(red: 0.55, green: 0.36, blue: 0.96),
-                    Color(red: 0.93, green: 0.28, blue: 0.60)
+                    Color(
+                        red: 0.55,
+                        green: 0.36,
+                        blue: 0.96
+                    ),
+                    Color(
+                        red: 0.93,
+                        green: 0.28,
+                        blue: 0.60
+                    )
                 ]
             )
 
             metricCard(
-                title: tr("נוכחות שנתית", "Yearly Attendance"),
+                title: tr(
+                    "נוכחות שנתית",
+                    "Yearly Attendance"
+                ),
                 percent: stats.yearlyPercent,
-                icon: "chart.line.uptrend.xyaxis",
+                attendedCount:
+                    yearlyPresentCount,
+                scheduledCount:
+                    yearlyScheduledCount,
+                icon:
+                    "chart.line.uptrend.xyaxis",
                 gradient: [
-                    Color(red: 0.13, green: 0.77, blue: 0.37),
-                    Color(red: 0.08, green: 0.71, blue: 0.67)
+                    Color(
+                        red: 0.13,
+                        green: 0.77,
+                        blue: 0.37
+                    ),
+                    Color(
+                        red: 0.08,
+                        green: 0.71,
+                        blue: 0.67
+                    )
                 ]
             )
         }
+    }
+
+    private var monthlyAttendanceChartCard:
+        some View {
+
+        let maximumValue =
+            max(
+                1,
+                monthlyAttendance
+                    .map {
+                        $0.attendedTrainings
+                    }
+                    .max() ?? 1
+            )
+
+        return VStack(
+            alignment:
+                screenHorizontalAlignment,
+            spacing: 14
+        ) {
+            HStack(spacing: 10) {
+                if isEnglish {
+                    VStack(
+                        alignment: .leading,
+                        spacing: 4
+                    ) {
+                        Text(
+                            tr(
+                                "נוכחות לפי חודשים",
+                                "Monthly Attendance"
+                            )
+                        )
+                        .font(
+                            .system(
+                                size: 18,
+                                weight: .heavy
+                            )
+                        )
+                        .foregroundStyle(
+                            Color(
+                                red: 0.07,
+                                green: 0.10,
+                                blue: 0.16
+                            )
+                        )
+
+                        Text(
+                            tr(
+                                "מספר האימונים שבהם נכחת",
+                                "Number of attended sessions"
+                            )
+                        )
+                        .font(
+                            .system(
+                                size: 13,
+                                weight: .semibold
+                            )
+                        )
+                        .foregroundStyle(
+                            Color(
+                                red: 0.29,
+                                green: 0.33,
+                                blue: 0.39
+                            )
+                        )
+                    }
+
+                    Spacer()
+
+                    monthlyChartIcon
+                } else {
+                    monthlyChartIcon
+
+                    Spacer()
+
+                    VStack(
+                        alignment: .trailing,
+                        spacing: 4
+                    ) {
+                        Text(
+                            tr(
+                                "נוכחות לפי חודשים",
+                                "Monthly Attendance"
+                            )
+                        )
+                        .font(
+                            .system(
+                                size: 18,
+                                weight: .heavy
+                            )
+                        )
+                        .foregroundStyle(
+                            Color(
+                                red: 0.07,
+                                green: 0.10,
+                                blue: 0.16
+                            )
+                        )
+
+                        Text(
+                            tr(
+                                "מספר האימונים שבהם נכחת",
+                                "Number of attended sessions"
+                            )
+                        )
+                        .font(
+                            .system(
+                                size: 13,
+                                weight: .semibold
+                            )
+                        )
+                        .foregroundStyle(
+                            Color(
+                                red: 0.29,
+                                green: 0.33,
+                                blue: 0.39
+                            )
+                        )
+                    }
+                }
+            }
+
+            ScrollView(
+                .horizontal,
+                showsIndicators: false
+            ) {
+                HStack(
+                    alignment: .bottom,
+                    spacing: 14
+                ) {
+                    ForEach(
+                        monthlyAttendance
+                    ) { point in
+                        VStack(spacing: 7) {
+                            Text(
+                                "\(point.attendedTrainings)"
+                            )
+                            .font(
+                                .system(
+                                    size: 12,
+                                    weight: .black
+                                )
+                            )
+                            .foregroundStyle(
+                                Color(
+                                    red: 0.16,
+                                    green: 0.35,
+                                    blue: 0.78
+                                )
+                            )
+
+                            RoundedRectangle(
+                                cornerRadius: 8,
+                                style: .continuous
+                            )
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color(
+                                            red: 0.13,
+                                            green: 0.77,
+                                            blue: 0.94
+                                        ),
+                                        Color(
+                                            red: 0.31,
+                                            green: 0.27,
+                                            blue: 0.90
+                                        )
+                                    ],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                            .frame(
+                                width: 28,
+                                height:
+                                    max(
+                                        18,
+                                        CGFloat(
+                                            point
+                                                .attendedTrainings
+                                        ) /
+                                        CGFloat(
+                                            maximumValue
+                                        ) *
+                                        108
+                                    )
+                            )
+                            .shadow(
+                                color:
+                                    Color.blue
+                                        .opacity(0.18),
+                                radius: 4,
+                                x: 0,
+                                y: 3
+                            )
+
+                            Text(
+                                chartMonthLabel(
+                                    point.monthIso
+                                )
+                            )
+                            .font(
+                                .system(
+                                    size: 11,
+                                    weight: .bold
+                                )
+                            )
+                            .foregroundStyle(
+                                Color(
+                                    red: 0.35,
+                                    green: 0.39,
+                                    blue: 0.46
+                                )
+                            )
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                            .frame(width: 48)
+                        }
+                        .frame(
+                            height: 160,
+                            alignment: .bottom
+                        )
+                    }
+                }
+                .padding(.horizontal, 4)
+            }
+            .environment(
+                \.layoutDirection,
+                .leftToRight
+            )
+        }
+        .padding(18)
+        .background(
+            Color.white.opacity(0.96)
+        )
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+            .stroke(
+                Color.white.opacity(0.18),
+                lineWidth: 1
+            )
+        )
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+        )
+    }
+
+    private var monthlyChartIcon: some View {
+        Image(
+            systemName:
+                "chart.bar.xaxis"
+        )
+        .font(
+            .system(
+                size: 18,
+                weight: .heavy
+            )
+        )
+        .foregroundStyle(
+            Color(
+                red: 0.31,
+                green: 0.27,
+                blue: 0.90
+            )
+        )
+        .frame(
+            width: 38,
+            height: 38
+        )
+        .background(
+            Color(
+                red: 0.31,
+                green: 0.27,
+                blue: 0.90
+            )
+            .opacity(0.12)
+        )
+        .clipShape(Circle())
+    }
+
+    private func chartMonthLabel(
+        _ monthIso: String
+    ) -> String {
+        let formatter =
+            DateFormatter()
+
+        formatter.locale =
+            Locale(
+                identifier:
+                    "en_US_POSIX"
+            )
+
+        formatter.dateFormat =
+            "yyyy-MM"
+
+        guard let date =
+            formatter.date(
+                from: monthIso
+            )
+        else {
+            return monthIso
+        }
+
+        formatter.locale =
+            isEnglish
+            ? Locale(
+                identifier: "en_US"
+            )
+            : Locale(
+                identifier: "he_IL"
+            )
+
+        formatter.dateFormat =
+            isEnglish
+            ? "MMM yy"
+            : "MMM yy"
+
+        return formatter.string(
+            from: date
+        )
     }
 
     private var emptyMemberAttendanceStatsCard: some View {
@@ -548,6 +1007,463 @@ struct AttendanceStatsView: View {
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
     
+    private func shareAttendancePdf() {
+        guard
+            !isLoadingStats,
+            hasRealAttendanceData
+        else {
+            return
+        }
+
+        do {
+            let pdfUrl =
+                try createAttendancePdf()
+
+            shareItems = [pdfUrl]
+            showShareSheet = true
+        } catch {
+            print(
+                "AttendanceStatsView: failed creating PDF:",
+                error.localizedDescription
+            )
+        }
+    }
+
+    private func createAttendancePdf()
+        throws -> URL {
+
+        let pageBounds =
+            CGRect(
+                x: 0,
+                y: 0,
+                width: 595,
+                height: 842
+            )
+
+        let renderer =
+            UIGraphicsPDFRenderer(
+                bounds: pageBounds
+            )
+
+        let pdfData =
+            renderer.pdfData { context in
+                context.beginPage()
+
+                let graphics =
+                    context.cgContext
+
+                UIColor(
+                    red: 0.96,
+                    green: 0.98,
+                    blue: 1.0,
+                    alpha: 1
+                )
+                .setFill()
+
+                graphics.fill(pageBounds)
+
+                UIColor(
+                    red: 0.02,
+                    green: 0.17,
+                    blue: 0.29,
+                    alpha: 1
+                )
+                .setFill()
+
+                graphics.fill(
+                    CGRect(
+                        x: 0,
+                        y: 0,
+                        width: pageBounds.width,
+                        height: 112
+                    )
+                )
+
+                var currentY: CGFloat = 30
+
+                func drawText(
+                    _ text: String,
+                    font: UIFont,
+                    color: UIColor,
+                    spacingAfter: CGFloat = 8,
+                    forcedAlignment:
+                        NSTextAlignment? = nil
+                ) {
+                    let paragraph =
+                        NSMutableParagraphStyle()
+
+                    paragraph.alignment =
+                        forcedAlignment ??
+                        (
+                            isEnglish
+                            ? .left
+                            : .right
+                        )
+
+                    paragraph
+                        .baseWritingDirection =
+                            isEnglish
+                            ? .leftToRight
+                            : .rightToLeft
+
+                    let attributes:
+                        [NSAttributedString.Key: Any] = [
+                            .font: font,
+                            .foregroundColor:
+                                color,
+                            .paragraphStyle:
+                                paragraph
+                        ]
+
+                    let availableWidth =
+                        pageBounds.width - 48
+
+                    let measured =
+                        (text as NSString)
+                            .boundingRect(
+                                with:
+                                    CGSize(
+                                        width:
+                                            availableWidth,
+                                        height:
+                                            .greatestFiniteMagnitude
+                                    ),
+                                options: [
+                                    .usesLineFragmentOrigin,
+                                    .usesFontLeading
+                                ],
+                                attributes:
+                                    attributes,
+                                context: nil
+                            )
+
+                    let height =
+                        max(
+                            font.lineHeight,
+                            ceil(measured.height)
+                        )
+
+                    let rect =
+                        CGRect(
+                            x: 24,
+                            y: currentY,
+                            width:
+                                availableWidth,
+                            height:
+                                height
+                        )
+
+                    (text as NSString).draw(
+                        with: rect,
+                        options: [
+                            .usesLineFragmentOrigin,
+                            .usesFontLeading
+                        ],
+                        attributes:
+                            attributes,
+                        context: nil
+                    )
+
+                    currentY +=
+                        height +
+                        spacingAfter
+                }
+
+                drawText(
+                    tr(
+                        "דו״ח נוכחות ק.מ.י",
+                        "KAMI Attendance Report"
+                    ),
+                    font:
+                        .systemFont(
+                            ofSize: 27,
+                            weight: .bold
+                        ),
+                    color: .white,
+                    spacingAfter: 8
+                )
+
+                drawText(
+                    memberName.isEmpty
+                    ? tr("מתאמן", "Trainee")
+                    : memberName,
+                    font:
+                        .systemFont(
+                            ofSize: 18,
+                            weight: .semibold
+                        ),
+                    color:
+                        UIColor.white
+                            .withAlphaComponent(
+                                0.90
+                            ),
+                    spacingAfter: 28
+                )
+
+                currentY = 132
+
+                drawText(
+                    tr(
+                        "פרטי המתאמן",
+                        "Trainee Details"
+                    ),
+                    font:
+                        .systemFont(
+                            ofSize: 19,
+                            weight: .bold
+                        ),
+                    color:
+                        UIColor(
+                            red: 0.02,
+                            green: 0.17,
+                            blue: 0.29,
+                            alpha: 1
+                        ),
+                    spacingAfter: 10
+                )
+
+                drawText(
+                    tr(
+                        "סניף: \(branchName)",
+                        "Branch: \(branchName)"
+                    ),
+                    font:
+                        .systemFont(
+                            ofSize: 14,
+                            weight: .medium
+                        ),
+                    color: .darkGray
+                )
+
+                drawText(
+                    tr(
+                        "קבוצה: \(groupKey)",
+                        "Group: \(groupKey)"
+                    ),
+                    font:
+                        .systemFont(
+                            ofSize: 14,
+                            weight: .medium
+                        ),
+                    color: .darkGray
+                )
+
+                drawText(
+                    tr(
+                        "תאריך הפקה: \(displayDateShort(isoString(Date())))",
+                        "Generated: \(displayDateShort(isoString(Date())))"
+                    ),
+                    font:
+                        .systemFont(
+                            ofSize: 14,
+                            weight: .medium
+                        ),
+                    color: .darkGray,
+                    spacingAfter: 22
+                )
+
+                drawText(
+                    tr(
+                        "סיכום נוכחות",
+                        "Attendance Summary"
+                    ),
+                    font:
+                        .systemFont(
+                            ofSize: 19,
+                            weight: .bold
+                        ),
+                    color:
+                        UIColor(
+                            red: 0.02,
+                            green: 0.17,
+                            blue: 0.29,
+                            alpha: 1
+                        ),
+                    spacingAfter: 10
+                )
+
+                drawText(
+                    tr(
+                        "נוכחות חודשית: \(stats.monthlyPercent)% — \(monthlyPresentCount) מתוך \(monthlyScheduledCount) אימונים",
+                        "Monthly attendance: \(stats.monthlyPercent)% — \(monthlyPresentCount) of \(monthlyScheduledCount) sessions"
+                    ),
+                    font:
+                        .systemFont(
+                            ofSize: 15,
+                            weight: .semibold
+                        ),
+                    color:
+                        UIColor(
+                            red: 0.10,
+                            green: 0.38,
+                            blue: 0.76,
+                            alpha: 1
+                        ),
+                    spacingAfter: 8
+                )
+
+                drawText(
+                    tr(
+                        "נוכחות שנתית: \(stats.yearlyPercent)% — \(yearlyPresentCount) מתוך \(yearlyScheduledCount) אימונים",
+                        "Yearly attendance: \(stats.yearlyPercent)% — \(yearlyPresentCount) of \(yearlyScheduledCount) sessions"
+                    ),
+                    font:
+                        .systemFont(
+                            ofSize: 15,
+                            weight: .semibold
+                        ),
+                    color:
+                        UIColor(
+                            red: 0.05,
+                            green: 0.55,
+                            blue: 0.29,
+                            alpha: 1
+                        ),
+                    spacingAfter: 8
+                )
+
+                drawText(
+                    tr(
+                        "רצף נוכחי: \(stats.streakDays) אימונים",
+                        "Current streak: \(stats.streakDays) sessions"
+                    ),
+                    font:
+                        .systemFont(
+                            ofSize: 15,
+                            weight: .semibold
+                        ),
+                    color: .darkGray,
+                    spacingAfter: 22
+                )
+
+                if !monthlyAttendance.isEmpty {
+                    drawText(
+                        tr(
+                            "נוכחות לפי חודשים",
+                            "Monthly Attendance"
+                        ),
+                        font:
+                            .systemFont(
+                                ofSize: 19,
+                                weight: .bold
+                            ),
+                        color:
+                            UIColor(
+                                red: 0.02,
+                                green: 0.17,
+                                blue: 0.29,
+                                alpha: 1
+                            ),
+                        spacingAfter: 10
+                    )
+
+                    let monthlyLine =
+                        monthlyAttendance
+                            .map {
+                                "\(chartMonthLabel($0.monthIso)): \($0.attendedTrainings)"
+                            }
+                            .joined(
+                                separator: "  •  "
+                            )
+
+                    drawText(
+                        monthlyLine,
+                        font:
+                            .systemFont(
+                                ofSize: 13,
+                                weight: .medium
+                            ),
+                        color: .darkGray,
+                        spacingAfter: 22
+                    )
+                }
+
+                drawText(
+                    tr(
+                        "5 אימונים אחרונים",
+                        "Last 5 Sessions"
+                    ),
+                    font:
+                        .systemFont(
+                            ofSize: 19,
+                            weight: .bold
+                        ),
+                    color:
+                        UIColor(
+                            red: 0.02,
+                            green: 0.17,
+                            blue: 0.29,
+                            alpha: 1
+                        ),
+                    spacingAfter: 10
+                )
+
+                if stats.lastSessions.isEmpty {
+                    drawText(
+                        tr(
+                            "אין עדיין נתוני אימונים.",
+                            "No session data yet."
+                        ),
+                        font:
+                            .systemFont(
+                                ofSize: 14,
+                                weight: .medium
+                            ),
+                        color: .gray
+                    )
+                } else {
+                    for session in
+                        stats.lastSessions
+                            .prefix(5) {
+                        drawText(
+                            "• \(localizedSessionLine(session))",
+                            font:
+                                .systemFont(
+                                    ofSize: 14,
+                                    weight: .medium
+                                ),
+                            color: .darkGray,
+                            spacingAfter: 7
+                        )
+                    }
+                }
+            }
+
+        let safeMemberName =
+            (memberName.isEmpty
+             ? "trainee"
+             : memberName)
+                .replacingOccurrences(
+                    of: "/",
+                    with: "-"
+                )
+                .replacingOccurrences(
+                    of: "\\",
+                    with: "-"
+                )
+                .replacingOccurrences(
+                    of: ":",
+                    with: "-"
+                )
+
+        let fileName =
+            "KAMI_Attendance_\(safeMemberName)_\(isoString(Date())).pdf"
+
+        let fileUrl =
+            FileManager.default
+                .temporaryDirectory
+                .appendingPathComponent(
+                    fileName
+                )
+
+        try pdfData.write(
+            to: fileUrl,
+            options: .atomic
+        )
+
+        return fileUrl
+    }
+
     private func loadStats() {
         stats = repository.memberStats(
             ownerUid: ownerUid,
@@ -571,139 +1487,463 @@ struct AttendanceStatsView: View {
             return
         }
 
+        let cleanBranch =
+            branchName.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let cleanGroup =
+            groupKey.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let cleanMemberId =
+            memberId.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        guard
+            !cleanBranch.isEmpty,
+            !cleanGroup.isEmpty,
+            !cleanMemberId.isEmpty
+        else {
+            hasRealAttendanceData = false
+            isLoadingStats = false
+            return
+        }
+
         isLoadingStats = true
 
         let repository = self.repository
-        let ownerUid = self.ownerUid
-        let branchName = self.branchName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let groupKey = self.groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        let memberId = self.memberId
-        let startIso = oneYearBackIso()
-        let endIsoExclusive = tomorrowIso()
+        let requestedFromIso = oneYearBackIso()
+        let toIso = isoString(Date())
 
         Task {
             do {
-                let days = try await repository.listReportDaysInRangeFromFirestore(
-                    ownerUid: ownerUid,
-                    branchName: branchName,
-                    groupKey: groupKey,
-                    startIso: startIso,
-                    endIsoExclusive: endIsoExclusive
-                )
+                let history =
+                    try await repository
+                        .memberAttendanceHistoryFromFirestore(
+                            branchName:
+                                cleanBranch,
+                            groupKey:
+                                cleanGroup,
+                            memberId:
+                                cleanMemberId,
+                            requestedFromIso:
+                                requestedFromIso,
+                            toIso:
+                                toIso
+                        )
 
-                var recordsByDate: [(dateIso: String, record: AttendanceRecord)] = []
-
-                for dateIso in days.sorted(by: >) {
-                    let records = try await repository.loadRecordsFromFirestore(
-                        ownerUid: ownerUid,
-                        branchName: branchName,
-                        groupKey: groupKey,
-                        dateIso: dateIso
+                let result =
+                    makeStats(
+                        from: history,
+                        branchName: cleanBranch,
+                        groupKey: cleanGroup
                     )
 
-                    if let record = records.first(where: { $0.memberId == memberId }) {
-                        recordsByDate.append((dateIso: dateIso, record: record))
-                    }
-                }
+                stats = result.stats
 
-                hasRealAttendanceData = !recordsByDate.isEmpty
+                hasRealAttendanceData =
+                    result.hasRealAttendanceData
 
-                if !recordsByDate.isEmpty {
-                    stats = makeStats(from: recordsByDate)
-                }
+                monthlyPresentCount =
+                    result.monthlyPresentCount
+
+                monthlyScheduledCount =
+                    result.monthlyScheduledCount
+
+                yearlyPresentCount =
+                    result.yearlyPresentCount
+
+                yearlyScheduledCount =
+                    result.yearlyScheduledCount
+
+                monthlyAttendance =
+                    result.monthlyAttendance
 
                 isLoadingStats = false
             } catch {
+                print(
+                    "AttendanceStatsView: failed loading member history:",
+                    error.localizedDescription
+                )
+
+                hasRealAttendanceData =
+                    stats.monthlyPercent > 0 ||
+                    stats.yearlyPercent > 0 ||
+                    stats.streakDays > 0 ||
+                    !stats.bestDays.isEmpty ||
+                    !stats.lastSessions.isEmpty
+
                 isLoadingStats = false
             }
         }
     }
 
+    /*
+     * זהה לחישוב Android:
+     *
+     * המונה מבוסס על תאריכים שבהם המתאמן
+     * סומן כנוכח.
+     *
+     * המכנה מבוסס על כל האימונים המתוכננים
+     * בלוח השבועי של הקבוצה, ממועד תחילת
+     * המתאמן ועד היום.
+     */
     private func makeStats(
-        from recordsByDate: [(dateIso: String, record: AttendanceRecord)]
-    ) -> AttendanceMemberStats {
-        let calendar = Calendar.current
-        let today = Date()
-        let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: today)) ?? today
-        let yearBack = calendar.date(byAdding: .year, value: -1, to: today) ?? today
+        from history:
+            AttendanceMemberHistorySnapshot,
+        branchName: String,
+        groupKey: String
+    ) -> (
+        stats: AttendanceMemberStats,
+        hasRealAttendanceData: Bool,
+        monthlyPresentCount: Int,
+        monthlyScheduledCount: Int,
+        yearlyPresentCount: Int,
+        yearlyScheduledCount: Int,
+        monthlyAttendance:
+            [AttendanceMonthlyPoint]
+    ) {
+        let calendar =
+            Calendar(identifier: .gregorian)
 
-        let monthStartIso = isoString(monthStart)
-        let yearBackIso = isoString(yearBack)
-        let todayIso = isoString(today)
+        let today =
+            calendar.startOfDay(for: Date())
 
-        var monthPresent = 0
-        var monthTotal = 0
-        var yearPresent = 0
-        var yearTotal = 0
+        let todayIso =
+            isoString(today)
 
-        var streakDays = 0
-        var streakOpen = true
+        let currentMonthStart =
+            calendar.date(
+                from:
+                    calendar.dateComponents(
+                        [.year, .month],
+                        from: today
+                    )
+            ) ?? today
 
-        var lastSessions: [String] = []
-        var bestDayCounts: [Int: Int] = [:]
+        let currentMonthStartIso =
+            isoString(currentMonthStart)
 
-        for item in recordsByDate.sorted(by: { $0.dateIso > $1.dateIso }) {
-            let dateIso = item.dateIso
-            let record = item.record
+        /*
+         * קוראים את ימי האימון השבועיים
+         * ממקור האמת הגלובלי.
+         */
+        let exactGroupTrainings =
+            TrainingCatalogIOS.trainingsFor(
+                branch: branchName,
+                group: groupKey
+            )
 
-            let isPresent = record.status == .present
-            let countsInTotals = record.status != .unknown
+        /*
+         * גיבוי זהה לאנדרואיד:
+         * אם שם הקבוצה אינו תואם בדיוק,
+         * משתמשים בכל אימוני הסניף.
+         */
+        let catalogTrainings =
+            exactGroupTrainings.isEmpty
+            ? TrainingCatalogIOS.trainingsFor(
+                branch: branchName,
+                group: nil
+            )
+            : exactGroupTrainings
 
-            if dateIso >= monthStartIso && dateIso <= todayIso && countsInTotals {
-                monthTotal += 1
-                if isPresent {
-                    monthPresent += 1
+        let scheduledWeekdays =
+            Set(
+                catalogTrainings.map {
+                    calendar.component(
+                        .weekday,
+                        from: $0.date
+                    )
                 }
-            }
+            )
 
-            if dateIso >= yearBackIso && dateIso <= todayIso && countsInTotals {
-                yearTotal += 1
-                if isPresent {
-                    yearPresent += 1
+        let historySessions =
+            history.sessions
+                .filter {
+                    $0.dateIso <= todayIso
                 }
-            }
-
-            if isPresent,
-               let date = dateFromIso(dateIso) {
-                let weekday = calendar.component(.weekday, from: date)
-                bestDayCounts[weekday, default: 0] += 1
-            }
-
-            if lastSessions.count < 8 {
-                lastSessions.append("\(displayDateShort(dateIso)) – \(localizedStatus(record.status))")
-            }
-
-            if isPresent {
-                if streakOpen {
-                    streakDays += 1
+                .sorted {
+                    $0.dateIso > $1.dateIso
                 }
-            } else if countsInTotals {
-                streakOpen = false
+
+        /*
+         * אם מועד יצירת המתאמן מאוחר מתחילת
+         * החודש, אך קיימת לו נוכחות מוקדמת יותר
+         * באותו חודש, מתחילים מתחילת החודש.
+         */
+        let hasSessionInCurrentMonth =
+            historySessions.contains {
+                $0.dateIso >= currentMonthStartIso &&
+                $0.dateIso <= todayIso
+            }
+
+        let requestedStartIso: String
+
+        if history.memberStartDateIso >
+                currentMonthStartIso,
+           hasSessionInCurrentMonth {
+            requestedStartIso =
+                currentMonthStartIso
+        } else {
+            requestedStartIso =
+                history.memberStartDateIso
+        }
+
+        let scheduleStartDate =
+            dateFromIso(requestedStartIso)
+                .map {
+                    calendar.startOfDay(for: $0)
+                } ?? currentMonthStart
+
+        /*
+         * יצירת כל מועדי האימון המתוכננים
+         * שכבר התקיימו. תאריכים עתידיים אינם
+         * נכנסים למכנה.
+         */
+        var scheduledDateIsos = Set<String>()
+
+        if !scheduledWeekdays.isEmpty {
+            var cursor = scheduleStartDate
+
+            while cursor <= today {
+                let weekday =
+                    calendar.component(
+                        .weekday,
+                        from: cursor
+                    )
+
+                if scheduledWeekdays.contains(
+                    weekday
+                ) {
+                    scheduledDateIsos.insert(
+                        isoString(cursor)
+                    )
+                }
+
+                guard let nextDate =
+                    calendar.date(
+                        byAdding: .day,
+                        value: 1,
+                        to: cursor
+                    )
+                else {
+                    break
+                }
+
+                cursor = nextDate
             }
         }
 
-        let monthlyPercent = monthTotal > 0 ? Int((Double(monthPresent) / Double(monthTotal)) * 100.0) : 0
-        let yearlyPercent = yearTotal > 0 ? Int((Double(yearPresent) / Double(yearTotal)) * 100.0) : 0
+        let monthlyScheduledDates =
+            scheduledDateIsos.filter {
+                $0 >= currentMonthStartIso &&
+                $0 <= todayIso
+            }
 
-        let bestDays = bestDayCounts
-            .sorted { lhs, rhs in
-                if lhs.value == rhs.value {
-                    return lhs.key < rhs.key
+        /*
+         * כל תאריך נוכחות נספר פעם אחת בלבד.
+         */
+        let presentDateIsos =
+            Set(
+                historySessions
+                    .filter {
+                        $0.status == .present
+                    }
+                    .map {
+                        $0.dateIso
+                    }
+            )
+
+        let monthlyPresentCount =
+            presentDateIsos.filter {
+                $0 >= currentMonthStartIso &&
+                $0 <= todayIso
+            }
+            .count
+
+        let yearlyPresentCount =
+            presentDateIsos.filter {
+                $0 >= requestedStartIso &&
+                $0 <= todayIso
+            }
+            .count
+
+        let monthlyScheduledCount =
+            monthlyScheduledDates.count
+
+        let yearlyScheduledCount =
+            scheduledDateIsos.count
+
+        let monthlyPercent: Int
+
+        if monthlyScheduledCount > 0 {
+            monthlyPercent =
+                min(
+                    100,
+                    max(
+                        0,
+                        Int(
+                            Double(
+                                monthlyPresentCount
+                            ) *
+                            100.0 /
+                            Double(
+                                monthlyScheduledCount
+                            )
+                        )
+                    )
+                )
+        } else {
+            monthlyPercent = 0
+        }
+
+        let yearlyPercent: Int
+
+        if yearlyScheduledCount > 0 {
+            yearlyPercent =
+                min(
+                    100,
+                    max(
+                        0,
+                        Int(
+                            Double(
+                                yearlyPresentCount
+                            ) *
+                            100.0 /
+                            Double(
+                                yearlyScheduledCount
+                            )
+                        )
+                    )
+                )
+        } else {
+            yearlyPercent = 0
+        }
+
+        var streakDays = 0
+        var streakIsOpen = true
+        var bestDayCounts: [Int: Int] = [:]
+
+        for session in historySessions {
+            if session.status == .present {
+                if streakIsOpen {
+                    streakDays += 1
                 }
 
-                return lhs.value > rhs.value
+                if let date =
+                    dateFromIso(
+                        session.dateIso
+                    ) {
+                    let weekday =
+                        calendar.component(
+                            .weekday,
+                            from: date
+                        )
+
+                    bestDayCounts[
+                        weekday,
+                        default: 0
+                    ] += 1
+                }
+            } else if session.status != .unknown {
+                streakIsOpen = false
             }
-            .prefix(6)
-            .map { weekday, _ in
-                localizedWeekday(weekday)
+        }
+
+        let bestDays =
+            bestDayCounts
+                .sorted { left, right in
+                    if left.value == right.value {
+                        return left.key <
+                            right.key
+                    }
+
+                    return left.value >
+                        right.value
+                }
+                .prefix(6)
+                .map { weekday, _ in
+                    localizedWeekday(weekday)
+                }
+
+        let lastSessions =
+            historySessions
+                .prefix(5)
+                .map { session in
+                    "\(displayDateShort(session.dateIso)) – \(localizedStatus(session.status))"
+                }
+
+        /*
+         * זהה לאנדרואיד:
+         * בגרף מוצגים רק חודשים שבהם הייתה
+         * לפחות נוכחות אחת.
+         */
+        var attendanceByMonth:
+            [String: Int] = [:]
+
+        for dateIso in presentDateIsos {
+            guard dateIso.count >= 7 else {
+                continue
             }
 
-        return AttendanceMemberStats(
-            monthlyPercent: monthlyPercent,
-            yearlyPercent: yearlyPercent,
-            streakDays: streakDays,
-            bestDays: Array(bestDays),
-            lastSessions: lastSessions
+            let monthIso =
+                String(dateIso.prefix(7))
+
+            attendanceByMonth[
+                monthIso,
+                default: 0
+            ] += 1
+        }
+
+        let monthlyAttendance =
+            attendanceByMonth
+                .map { monthIso, count in
+                    AttendanceMonthlyPoint(
+                        monthIso: monthIso,
+                        attendedTrainings: count
+                    )
+                }
+                .filter {
+                    $0.attendedTrainings > 0
+                }
+                .sorted {
+                    $0.monthIso < $1.monthIso
+                }
+                .suffix(12)
+
+        let hasRealAttendanceData =
+            !historySessions.isEmpty ||
+            !scheduledDateIsos.isEmpty
+
+        return (
+            stats:
+                AttendanceMemberStats(
+                    monthlyPercent:
+                        monthlyPercent,
+                    yearlyPercent:
+                        yearlyPercent,
+                    streakDays:
+                        streakDays,
+                    bestDays:
+                        Array(bestDays),
+                    lastSessions:
+                        lastSessions
+                ),
+            hasRealAttendanceData:
+                hasRealAttendanceData,
+            monthlyPresentCount:
+                monthlyPresentCount,
+            monthlyScheduledCount:
+                monthlyScheduledCount,
+            yearlyPresentCount:
+                yearlyPresentCount,
+            yearlyScheduledCount:
+                yearlyScheduledCount,
+            monthlyAttendance:
+                Array(monthlyAttendance)
         )
     }
 
@@ -784,42 +2024,108 @@ struct AttendanceStatsView: View {
     private func metricCard(
         title: String,
         percent: Int,
+        attendedCount: Int,
+        scheduledCount: Int,
         icon: String,
         gradient: [Color]
     ) -> some View {
-        VStack(spacing: 10) {
-            Text(title)
-                .font(.system(size: 14, weight: .heavy))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.82)
+        VStack(spacing: 9) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(
+                        .system(
+                            size: 13,
+                            weight: .heavy
+                        )
+                    )
+
+                Text(title)
+                    .font(
+                        .system(
+                            size: 14,
+                            weight: .heavy
+                        )
+                    )
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.82)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+            .multilineTextAlignment(.center)
 
             ZStack {
                 Circle()
                     .fill(
                         LinearGradient(
                             colors: gradient,
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
+                            startPoint:
+                                .topLeading,
+                            endPoint:
+                                .bottomTrailing
                         )
                     )
-                    .frame(width: 96, height: 96)
+                    .frame(
+                        width: 96,
+                        height: 96
+                    )
 
                 Circle()
                     .fill(Color.white)
-                    .frame(width: 70, height: 70)
+                    .frame(
+                        width: 70,
+                        height: 70
+                    )
 
                 Text("\(percent)%")
-                    .font(.system(size: 20, weight: .black, design: .rounded))
-                    .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
+                    .font(
+                        .system(
+                            size: 20,
+                            weight: .black,
+                            design: .rounded
+                        )
+                    )
+                    .foregroundStyle(
+                        Color(
+                            red: 0.07,
+                            green: 0.10,
+                            blue: 0.16
+                        )
+                    )
             }
 
+            Text(
+                tr(
+                    "\(attendedCount) מתוך \(scheduledCount) אימונים",
+                    "\(attendedCount) of \(scheduledCount) sessions"
+                )
+            )
+            .font(
+                .system(
+                    size: 12,
+                    weight: .heavy
+                )
+            )
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .multilineTextAlignment(.center)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+
             Text(metricFeedback(percent))
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(Color(red: 0.90, green: 0.93, blue: 0.98))
+                .font(
+                    .system(
+                        size: 12,
+                        weight: .bold
+                    )
+                )
+                .foregroundStyle(
+                    Color(
+                        red: 0.90,
+                        green: 0.93,
+                        blue: 0.98
+                    )
+                )
                 .frame(maxWidth: .infinity)
                 .multilineTextAlignment(.center)
                 .lineLimit(1)
@@ -827,8 +2133,25 @@ struct AttendanceStatsView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity)
-        .background(Color.white.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background(
+            Color.white.opacity(0.10)
+        )
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+            .stroke(
+                Color.white.opacity(0.16),
+                lineWidth: 1
+            )
+        )
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 24,
+                style: .continuous
+            )
+        )
     }
 
     private func statPill(title: String, value: String, tint: Color) -> some View {
@@ -965,5 +2288,133 @@ struct AttendanceStatsView: View {
         }
 
         return Color(red: 0.94, green: 0.27, blue: 0.27)
+    }
+}
+
+private struct AttendanceStatsLoadingRings: View {
+    let title: String
+
+    @State private var rotation: Double = 0
+
+    var body: some View {
+        VStack(spacing: 20) {
+            ZStack {
+                loadingRing(
+                    size: 92,
+                    lineWidth: 7,
+                    color:
+                        Color(
+                            red: 0.13,
+                            green: 0.83,
+                            blue: 0.93
+                        ),
+                    trimEnd: 0.72,
+                    reversed: false
+                )
+
+                loadingRing(
+                    size: 66,
+                    lineWidth: 6,
+                    color:
+                        Color(
+                            red: 0.55,
+                            green: 0.36,
+                            blue: 0.96
+                        ),
+                    trimEnd: 0.62,
+                    reversed: true
+                )
+
+                loadingRing(
+                    size: 40,
+                    lineWidth: 5,
+                    color:
+                        Color(
+                            red: 0.13,
+                            green: 0.77,
+                            blue: 0.37
+                        ),
+                    trimEnd: 0.54,
+                    reversed: false
+                )
+            }
+            .frame(width: 100, height: 100)
+
+            Text(title)
+                .font(
+                    .system(
+                        size: 16,
+                        weight: .heavy
+                    )
+                )
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+        }
+        .padding(24)
+        .onAppear {
+            rotation = 360
+        }
+    }
+
+    private func loadingRing(
+        size: CGFloat,
+        lineWidth: CGFloat,
+        color: Color,
+        trimEnd: CGFloat,
+        reversed: Bool
+    ) -> some View {
+        Circle()
+            .trim(
+                from: 0.08,
+                to: trimEnd
+            )
+            .stroke(
+                color,
+                style:
+                    StrokeStyle(
+                        lineWidth: lineWidth,
+                        lineCap: .round
+                    )
+            )
+            .frame(
+                width: size,
+                height: size
+            )
+            .rotationEffect(
+                .degrees(
+                    reversed
+                        ? -rotation
+                        : rotation
+                )
+            )
+            .animation(
+                .linear(duration: 1.15)
+                    .repeatForever(
+                        autoreverses: false
+                    ),
+                value: rotation
+            )
+    }
+}
+
+private struct AttendanceStatsShareSheet:
+    UIViewControllerRepresentable {
+
+    let items: [Any]
+
+    func makeUIViewController(
+        context: Context
+    ) -> UIActivityViewController {
+        UIActivityViewController(
+            activityItems: items,
+            applicationActivities: nil
+        )
+    }
+
+    func updateUIViewController(
+        _ uiViewController:
+            UIActivityViewController,
+        context: Context
+    ) {
     }
 }

@@ -13,6 +13,7 @@ private struct AdminDiagnosticLog: Identifiable {
     let appVersion: String
     let deviceModel: String
     let language: String
+    let attemptId: String
     let createdAt: Timestamp?
 }
 
@@ -419,83 +420,24 @@ struct ControlCenterLogsView: View {
     private var filteredLogs: [AdminDiagnosticLog] {
         allLogs.filter { log in
             let createdMillis =
-                log.createdAt?.dateValue().timeIntervalSince1970 ?? 0
+                log.createdAt?
+                    .dateValue()
+                    .timeIntervalSince1970 ?? 0
 
-            let inRange = createdMillis >= rangeStartMillis
+            let inRange =
+                createdMillis >= rangeStartMillis
 
-            guard selectedType != .all else {
-                return inRange
-            }
-
-            let diagnosticText = [
-                log.type,
-                log.area,
-                log.severity,
-                log.title,
-                log.message
-            ]
-            .joined(separator: "\n")
-
-            let inType: Bool
-
-            switch selectedType {
-            case .all:
-                inType = true
-
-            case .errors:
-                inType =
-                    diagnosticText.localizedCaseInsensitiveContains("error") ||
-                    diagnosticText.localizedCaseInsensitiveContains("failed") ||
-                    diagnosticText.localizedCaseInsensitiveContains("failure") ||
-                    diagnosticText.localizedCaseInsensitiveContains("exception") ||
-                    diagnosticText.localizedCaseInsensitiveContains("שגיאה") ||
-                    diagnosticText.localizedCaseInsensitiveContains("תקלה") ||
-                    diagnosticText.localizedCaseInsensitiveContains("כשל") ||
-                    diagnosticText.localizedCaseInsensitiveContains("לא ניתן")
-
-            case .voice:
-                inType =
-                    diagnosticText.localizedCaseInsensitiveContains(
-                        "voice_command"
-                    ) ||
-                    diagnosticText.localizedCaseInsensitiveContains(
-                        "voice_assistant"
-                    ) ||
-                    diagnosticText.localizedCaseInsensitiveContains(
-                        "speech_recognition"
-                    ) ||
-                    diagnosticText.localizedCaseInsensitiveContains(
-                        "voice"
-                    )
-
-            case .login:
-                inType =
-                    diagnosticText.localizedCaseInsensitiveContains("login") ||
-                    diagnosticText.localizedCaseInsensitiveContains(
-                        "google_auth"
-                    ) ||
-                    diagnosticText.localizedCaseInsensitiveContains(
-                        "firebase_result_user_ready"
-                    )
-
-            case .search:
-                inType =
-                    diagnosticText.localizedCaseInsensitiveContains("search")
-
-            case .payments:
-                inType =
-                    diagnosticText.localizedCaseInsensitiveContains("payment")
-
-            case .attendance:
-                inType =
-                    diagnosticText.localizedCaseInsensitiveContains(
-                        "attendance"
-                    )
-
-            case .push:
-                inType =
-                    diagnosticText.localizedCaseInsensitiveContains("push")
-            }
+            let inType =
+                selectedType == .all ||
+                log.type.localizedCaseInsensitiveContains(
+                    selectedType.key
+                ) ||
+                log.area.localizedCaseInsensitiveContains(
+                    selectedType.key
+                ) ||
+                log.severity.localizedCaseInsensitiveContains(
+                    selectedType.key
+                )
 
             return inRange && inType
         }
@@ -656,12 +598,14 @@ struct ControlCenterLogsView: View {
 
     private var groupedLogs: [(key: String, items: [AdminDiagnosticLog])] {
         let order = [
+            "assistant_requests",
             "voice_commands",
             "errors",
             "google_auth",
             "login",
             "search",
             "screen_views",
+            "voice_activity",
             "other"
         ]
 
@@ -865,8 +809,13 @@ struct ControlCenterLogsView: View {
                     "Activity, errors and app diagnostics"
                 )
             )
-            .font(.system(size: 13, weight: .heavy))
-            .foregroundStyle(AdminDiagnosticsTheme.primaryText)
+            .kmiFont(
+                size: 13,
+                weight: .heavy
+            )
+            .foregroundStyle(
+                AdminDiagnosticsTheme.primaryText
+            )
             .lineSpacing(2)
             .multilineTextAlignment(
                 isEnglish ? .leading : .trailing
@@ -945,7 +894,9 @@ struct ControlCenterLogsView: View {
         }
     }
 
-    private func logGroupKey(_ log: AdminDiagnosticLog) -> String {
+    private func logGroupKey(
+        _ log: AdminDiagnosticLog
+    ) -> String {
         let diagnosticText = [
             log.type,
             log.area,
@@ -954,44 +905,126 @@ struct ControlCenterLogsView: View {
         ]
         .joined(separator: "\n")
 
-        if diagnosticText.localizedCaseInsensitiveContains("voice_command") ||
-            diagnosticText.localizedCaseInsensitiveContains("voice_assistant") ||
-            diagnosticText.localizedCaseInsensitiveContains("speech_recognition") {
+        let isAssistantRequest =
+            log.area.caseInsensitiveCompare(
+                "ai_assistant"
+            ) == .orderedSame ||
+            log.type.localizedCaseInsensitiveContains(
+                "assistant_request"
+            ) ||
+            diagnosticText.localizedCaseInsensitiveContains(
+                "assistant_orchestrator"
+            )
+
+        let isVoiceEvent =
+            log.area.caseInsensitiveCompare(
+                "voice_commands"
+            ) == .orderedSame ||
+            diagnosticText.localizedCaseInsensitiveContains(
+                "voice_command"
+            ) ||
+            diagnosticText.localizedCaseInsensitiveContains(
+                "speech_recognition"
+            )
+
+        let isVoiceFailure =
+            isVoiceEvent &&
+            (
+                log.severity.caseInsensitiveCompare(
+                    "warning"
+                ) == .orderedSame ||
+                log.severity.caseInsensitiveCompare(
+                    "error"
+                ) == .orderedSame ||
+                log.type.localizedCaseInsensitiveContains(
+                    "failed"
+                ) ||
+                log.type.localizedCaseInsensitiveContains(
+                    "failure"
+                ) ||
+                log.type.localizedCaseInsensitiveContains(
+                    "unhandled"
+                )
+            )
+
+        if isAssistantRequest {
+            return "assistant_requests"
+        }
+
+        if isVoiceFailure {
             return "voice_commands"
         }
 
-        if log.severity.localizedCaseInsensitiveContains("error") ||
-            log.type.localizedCaseInsensitiveContains("error") ||
-            log.type.localizedCaseInsensitiveContains("failed") ||
-            log.type.localizedCaseInsensitiveContains("failure") {
+        if isVoiceEvent {
+            return "voice_activity"
+        }
+
+        if
+            log.severity.caseInsensitiveCompare(
+                "error"
+            ) == .orderedSame ||
+            log.type.localizedCaseInsensitiveContains(
+                "error"
+            ) ||
+            log.type.localizedCaseInsensitiveContains(
+                "failed"
+            ) ||
+            log.type.localizedCaseInsensitiveContains(
+                "failure"
+            ) {
             return "errors"
         }
 
-        if log.type.localizedCaseInsensitiveContains("screen_view") ||
-            log.area.caseInsensitiveCompare("screen") == .orderedSame {
+        if
+            log.type.localizedCaseInsensitiveContains(
+                "screen_view"
+            ) ||
+            log.area.caseInsensitiveCompare(
+                "screen"
+            ) == .orderedSame {
             return "screen_views"
         }
 
-        if log.type.localizedCaseInsensitiveContains("google_auth") ||
-            log.area.caseInsensitiveCompare("google_auth") == .orderedSame {
+        if
+            log.type.localizedCaseInsensitiveContains(
+                "google_auth"
+            ) ||
+            log.area.caseInsensitiveCompare(
+                "google_auth"
+            ) == .orderedSame {
             return "google_auth"
         }
 
-        if log.type.localizedCaseInsensitiveContains("login") {
+        if log.type.localizedCaseInsensitiveContains(
+            "login"
+        ) {
             return "login"
         }
 
-        if log.type.localizedCaseInsensitiveContains("search") {
+        if log.type.localizedCaseInsensitiveContains(
+            "search"
+        ) {
             return "search"
         }
 
         return "other"
     }
 
-    private func logGroupTitle(_ key: String) -> String {
+    private func logGroupTitle(
+        _ key: String
+    ) -> String {
         switch key {
         case "screen_views":
-            return tr("צפיות במסכים", "Screen views")
+            return tr(
+                "צפיות במסכים",
+                "Screen views"
+            )
+
+        case "assistant_requests":
+            return tr(
+                "בקשות לעוזר שלא נענו",
+                "Unresolved assistant requests"
+            )
 
         case "voice_commands":
             return tr(
@@ -999,45 +1032,74 @@ struct ControlCenterLogsView: View {
                 "Unresolved voice commands"
             )
 
+        case "voice_activity":
+            return tr(
+                "פעילות פקודות קוליות",
+                "Voice command activity"
+            )
+
         case "google_auth":
-            return tr("אירועי אבחון Google", "Google diagnostics")
+            return tr(
+                "אירועי אבחון Google",
+                "Google diagnostics"
+            )
 
         case "login":
-            return tr("אירועי כניסה", "Login events")
+            return tr(
+                "אירועי כניסה",
+                "Login events"
+            )
 
         case "errors":
-            return tr("שגיאות ותקלות", "Errors and issues")
+            return tr(
+                "שגיאות ותקלות",
+                "Errors and issues"
+            )
 
         case "search":
-            return tr("אירועי חיפוש", "Search events")
+            return tr(
+                "אירועי חיפוש",
+                "Search events"
+            )
 
         default:
-            return tr("אירועים נוספים", "Other events")
+            return tr(
+                "אירועים נוספים",
+                "Other events"
+            )
         }
     }
 
-    private func logGroupColor(_ key: String) -> Color {
+    private func logGroupColor(
+        _ key: String
+    ) -> Color {
         switch key {
         case "screen_views":
-            return Color(red: 0.008, green: 0.518, blue: 0.780)
+            return Color(hex: 0xFF0284C7)
+
+        case "assistant_requests":
+            return Color(hex: 0xFF7C3AED)
 
         case "voice_commands":
-            return Color(red: 0.918, green: 0.345, blue: 0.047)
+            return Color(hex: 0xFFEA580C)
+
+        case "voice_activity":
+            return Color(hex: 0xFF0891B2)
 
         case "google_auth":
-            return Color(red: 0.486, green: 0.227, blue: 0.929)
+            return Color(hex: 0xFF6D28D9)
 
         case "login":
-            return Color(red: 0.086, green: 0.639, blue: 0.290)
+            return Color(hex: 0xFF16A34A)
 
         case "errors":
-            return Color(red: 0.882, green: 0.114, blue: 0.282)
+            return Color(hex: 0xFFE11D48)
 
         case "search":
-            return Color(red: 0.851, green: 0.467, blue: 0.024)
+            return Color(hex: 0xFFD97706)
 
         default:
-            return Color(red: 0.278, green: 0.333, blue: 0.412)
+            return Color(hex: 0xFF475569)
         }
     }
 
@@ -1054,7 +1116,7 @@ struct ControlCenterLogsView: View {
         adminListener = db
             .collection("adminLogs")
             .order(by: "createdAt", descending: true)
-            .limit(to: 300)
+            .limit(to: 500)
             .addSnapshotListener { snapshot, error in
                 loadingAdminLogs = false
 
@@ -1064,27 +1126,57 @@ struct ControlCenterLogsView: View {
                     return
                 }
 
-                adminLogs = snapshot?.documents.map { doc in
-                    AdminDiagnosticLog(
-                        id: doc.documentID,
-                        type: doc.get("type") as? String ?? "",
-                        title: doc.get("title") as? String ?? "",
-                        message: doc.get("message") as? String ?? "",
-                        area: doc.get("area") as? String ?? "",
-                        severity: doc.get("severity") as? String ?? "info",
-                        userRole: doc.get("userRole") as? String ?? "unknown",
-                        appVersion: doc.get("appVersion") as? String ?? "",
-                        deviceModel: doc.get("deviceModel") as? String ?? "",
-                        language: doc.get("language") as? String ?? "",
-                        createdAt: doc.get("createdAt") as? Timestamp
-                    )
-                } ?? []
+                adminLogs =
+                    snapshot?.documents.map { doc in
+                        AdminDiagnosticLog(
+                            id: doc.documentID,
+                            type:
+                                doc.get("type") as? String ??
+                                doc.get("action") as? String ??
+                                doc.get("level") as? String ??
+                                "",
+                            title:
+                                doc.get("title") as? String ??
+                                doc.get("action") as? String ??
+                                doc.get("source") as? String ??
+                                "",
+                            message:
+                                doc.get("message") as? String ??
+                                "",
+                            area:
+                                doc.get("area") as? String ??
+                                doc.get("source") as? String ??
+                                "",
+                            severity:
+                                doc.get("severity") as? String ??
+                                doc.get("level") as? String ??
+                                "info",
+                            userRole:
+                                doc.get("userRole") as? String ??
+                                "unknown",
+                            appVersion:
+                                doc.get("appVersion") as? String ??
+                                "",
+                            deviceModel:
+                                doc.get("deviceModel") as? String ??
+                                "",
+                            language:
+                                doc.get("language") as? String ??
+                                "",
+                            attemptId:
+                                doc.get("attemptId") as? String ??
+                                doc.get("attempt_id") as? String ??
+                                "",
+                            createdAt:
+                                doc.get("createdAt") as? Timestamp
+                        )
+                    } ?? []
             }
 
         googleListener = db
             .collection("google_auth_diagnostics")
             .order(by: "createdAt", descending: true)
-            .limit(to: 300)
+            .limit(to: 120)
             .addSnapshotListener { snapshot, error in
                 loadingGoogleLogs = false
 
@@ -1102,7 +1194,7 @@ struct ControlCenterLogsView: View {
         screensListener = db
             .collection("screen_views")
             .order(by: "updatedAt", descending: true)
-            .limit(to: 200)
+            .limit(to: 80)
             .addSnapshotListener { snapshot, error in
                 loadingScreens = false
 
@@ -1151,41 +1243,121 @@ struct ControlCenterLogsView: View {
         screensListener = nil
     }
 
-    private func googleAuthLog(from doc: QueryDocumentSnapshot) -> AdminDiagnosticLog {
-        let stage = doc.get("stage") as? String ?? ""
-        let errorClass = doc.get("errorClass") as? String ?? ""
-        let rawErrorMessage = doc.get("errorMessage") as? String ?? ""
-        let message = doc.get("message") as? String ?? ""
+    private func googleAuthLog(
+        from doc: QueryDocumentSnapshot
+    ) -> AdminDiagnosticLog {
+        let stage =
+            doc.get("stage") as? String ?? ""
+
+        let errorClass =
+            doc.get("errorClass") as? String ?? ""
+
+        let rawErrorMessage =
+            doc.get("errorMessage") as? String ?? ""
+
+        let message =
+            doc.get("message") as? String ?? ""
 
         let apiStatusCode =
-            (doc.get("apiStatusCode") as? NSNumber)?.intValue
+            (doc.get("apiStatusCode") as? NSNumber)?
+                .intValue
+
+        let attemptId =
+            doc.get("attemptId") as? String ??
+            doc.get("attempt_id") as? String ??
+            ""
+
+        let combinedErrorText = [
+            stage,
+            errorClass,
+            rawErrorMessage,
+            message
+        ]
+        .joined(separator: "\n")
 
         let isRealUserCancel =
-            rawErrorMessage.localizedCaseInsensitiveContains("User cancelled") ||
-            rawErrorMessage.localizedCaseInsensitiveContains("Cancelled by user") ||
-            rawErrorMessage.localizedCaseInsensitiveContains("cancelled the selector")
+            combinedErrorText.localizedCaseInsensitiveContains(
+                "User cancelled"
+            ) ||
+            combinedErrorText.localizedCaseInsensitiveContains(
+                "Cancelled by user"
+            ) ||
+            combinedErrorText.localizedCaseInsensitiveContains(
+                "cancelled the selector"
+            ) ||
+            combinedErrorText.localizedCaseInsensitiveContains(
+                "בוטלה"
+            )
 
         let isReauth16 =
-            rawErrorMessage.localizedCaseInsensitiveContains("Account reauth failed") ||
-            rawErrorMessage.localizedCaseInsensitiveContains("reauth failed") ||
-            rawErrorMessage.localizedCaseInsensitiveContains("[16]")
+            combinedErrorText.localizedCaseInsensitiveContains(
+                "Account reauth failed"
+            ) ||
+            combinedErrorText.localizedCaseInsensitiveContains(
+                "reauth failed"
+            ) ||
+            combinedErrorText.localizedCaseInsensitiveContains(
+                "[16]"
+            )
 
         let isError =
-            isReauth16 ||
-            apiStatusCode != nil ||
-            (!errorClass.isEmpty && !isRealUserCancel) ||
-            (!rawErrorMessage.isEmpty && !isRealUserCancel) ||
-            stage.localizedCaseInsensitiveContains("failure") ||
-            stage.localizedCaseInsensitiveContains("failed") ||
-            stage.localizedCaseInsensitiveContains("exception") ||
-            stage.localizedCaseInsensitiveContains("no_credential") ||
-            stage.localizedCaseInsensitiveContains("invalid") ||
-            stage.localizedCaseInsensitiveContains("blank")
+            !isRealUserCancel &&
+            (
+                isReauth16 ||
+                apiStatusCode != nil ||
+                !errorClass.isEmpty ||
+                !rawErrorMessage.isEmpty ||
+                combinedErrorText.localizedCaseInsensitiveContains(
+                    "failure"
+                ) ||
+                combinedErrorText.localizedCaseInsensitiveContains(
+                    "failed"
+                ) ||
+                combinedErrorText.localizedCaseInsensitiveContains(
+                    "exception"
+                ) ||
+                combinedErrorText.localizedCaseInsensitiveContains(
+                    "error"
+                ) ||
+                combinedErrorText.localizedCaseInsensitiveContains(
+                    "no_credential"
+                ) ||
+                combinedErrorText.localizedCaseInsensitiveContains(
+                    "invalid"
+                ) ||
+                combinedErrorText.localizedCaseInsensitiveContains(
+                    "blank"
+                ) ||
+                combinedErrorText.localizedCaseInsensitiveContains(
+                    "לא מוגדרת"
+                ) ||
+                combinedErrorText.localizedCaseInsensitiveContains(
+                    "אינה מוגדרת"
+                ) ||
+                combinedErrorText.localizedCaseInsensitiveContains(
+                    "לא ניתן"
+                ) ||
+                combinedErrorText.localizedCaseInsensitiveContains(
+                    "שגיאה"
+                ) ||
+                combinedErrorText.localizedCaseInsensitiveContains(
+                    "תקלה"
+                ) ||
+                combinedErrorText.localizedCaseInsensitiveContains(
+                    "כשל"
+                )
+            )
 
         let isSuccess =
-            stage.localizedCaseInsensitiveContains("success") ||
-            stage.localizedCaseInsensitiveContains("firebase_success") ||
-            stage.localizedCaseInsensitiveContains("result_user_ready")
+            stage.localizedCaseInsensitiveContains(
+                "success"
+            ) ||
+            stage.localizedCaseInsensitiveContains(
+                "firebase_success"
+            ) ||
+            stage.localizedCaseInsensitiveContains(
+                "result_user_ready"
+            )
 
         let type: String = {
             if isError {
@@ -1205,26 +1377,48 @@ struct ControlCenterLogsView: View {
 
         let title: String = {
             if isError {
-                return tr("תקלה בכניסה עם Google", "Google sign-in issue")
+                return tr(
+                    "תקלה בכניסה עם Google",
+                    "Google sign-in issue"
+                )
             }
 
             if isSuccess {
-                return tr("כניסה עם Google הצליחה", "Google sign-in success")
+                return tr(
+                    "כניסה עם Google הצליחה",
+                    "Google sign-in success"
+                )
             }
 
             if isRealUserCancel {
-                return tr("כניסה עם Google בוטלה", "Google sign-in cancelled")
+                return tr(
+                    "כניסה עם Google בוטלה",
+                    "Google sign-in cancelled"
+                )
             }
 
-            return tr("אירוע כניסה עם Google", "Google sign-in event")
+            return tr(
+                "אירוע אבחון Google",
+                "Google diagnostic event"
+            )
         }()
 
         let fullMessage = [
-            stage.isEmpty ? nil : "stage=\(stage)",
-            errorClass.isEmpty ? nil : "errorClass=\(errorClass)",
-            rawErrorMessage.isEmpty ? nil : "errorMessage=\(rawErrorMessage)",
-            apiStatusCode == nil ? nil : "apiStatusCode=\(apiStatusCode!)",
-            message.isEmpty ? nil : message
+            stage.isEmpty
+                ? nil
+                : "stage=\(stage)",
+            errorClass.isEmpty
+                ? nil
+                : "errorClass=\(errorClass)",
+            rawErrorMessage.isEmpty
+                ? nil
+                : "errorMessage=\(rawErrorMessage)",
+            apiStatusCode == nil
+                ? nil
+                : "apiStatusCode=\(apiStatusCode!)",
+            message.isEmpty
+                ? nil
+                : message
         ]
         .compactMap { $0 }
         .joined(separator: "\n")
@@ -1245,20 +1439,32 @@ struct ControlCenterLogsView: View {
             id: "google_\(doc.documentID)",
             type: type,
             title: title,
-            message: fullMessage.isEmpty
-                ? tr("אירוע אבחון של התחברות Google", "Google authentication diagnostic event")
+            message:
+                fullMessage.isEmpty
+                ? tr(
+                    "אירוע אבחון Google",
+                    "Google authentication diagnostic event"
+                )
                 : fullMessage,
             area: "google_auth",
             severity: severity,
-            userRole: doc.get("userRole") as? String ?? "unknown",
-            appVersion: doc.get("versionName") as? String ??
+            userRole:
+                doc.get("userRole") as? String ??
+                "unknown",
+            appVersion:
+                doc.get("versionName") as? String ??
                 doc.get("appVersion") as? String ??
                 "",
-            deviceModel: doc.get("deviceModel") as? String ??
+            deviceModel:
+                doc.get("deviceModel") as? String ??
                 doc.get("device") as? String ??
                 "",
-            language: doc.get("language") as? String ?? "",
-            createdAt: doc.get("createdAt") as? Timestamp
+            language:
+                doc.get("language") as? String ??
+                "",
+            attemptId: attemptId,
+            createdAt:
+                doc.get("createdAt") as? Timestamp
         )
     }
 
@@ -1907,6 +2113,12 @@ struct ControlCenterLogsView: View {
                                 "אזור: \(log.area)",
                                 "Area: \(log.area)"
                             ),
+                        log.attemptId.isEmpty
+                            ? nil
+                            : tr(
+                                "ניסיון: \(String(log.attemptId.suffix(8)))",
+                                "Attempt: \(String(log.attemptId.suffix(8)))"
+                            ),
                         log.userRole.isEmpty
                             ? nil
                             : tr(
@@ -2019,9 +2231,13 @@ private struct AdminDiagnosticsLoadingView: View {
             .accessibilityHidden(true)
 
             Text(title)
-                .font(.system(size: 14, weight: .black))
+                .kmiFont(
+                    size: 14,
+                    weight: .black
+                )
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.80)
         }
         .onAppear {
             guard !isAnimating else {
@@ -2064,19 +2280,26 @@ private struct AdminSummaryCard: View {
     var body: some View {
         SurfaceLikeCard(
             cornerRadius: 18,
-            background: AdminDiagnosticsTheme.cardStrong,
+            background:
+                AdminDiagnosticsTheme.cardStrong,
             border: color.opacity(0.55),
             shadowRadius: 2
         ) {
             VStack(spacing: 2) {
                 Text(value)
-                    .font(.system(size: 20, weight: .black))
+                    .kmiFont(
+                        size: 20,
+                        weight: .black
+                    )
                     .foregroundStyle(color)
                     .lineLimit(1)
                     .minimumScaleFactor(0.80)
 
                 Text(title)
-                    .font(.system(size: 10.5, weight: .bold))
+                    .kmiFont(
+                        size: 10.5,
+                        weight: .bold
+                    )
                     .foregroundStyle(
                         AdminDiagnosticsTheme.primaryText
                     )
@@ -2103,8 +2326,14 @@ private struct AdminInsightsCard: View {
 
     private var insights: [String] {
         [
-            tr("נמצאו \(loginCount) אירועי כניסה בטווח שנבחר.", "\(loginCount) login events found."),
-            tr("נמצאו \(errorCount) שגיאות או כשלונות.", "\(errorCount) errors or failures found."),
+            tr(
+                "נמצאו \(loginCount) כניסות אמיתיות בטווח שנבחר.",
+                "\(loginCount) completed logins found."
+            ),
+            tr(
+                "נמצאו \(errorCount) שגיאות או כשלונות.",
+                "\(errorCount) errors or failures found."
+            ),
             tr(
                 "נמצאו \(searchNoResultsCount) חיפושים ללא תוצאה.",
                 "\(searchNoResultsCount) searches had no results."
@@ -2126,23 +2355,39 @@ private struct AdminInsightsCard: View {
                 HStack(spacing: 8) {
                     if isEnglish {
                         Image(systemName: "chart.bar.xaxis")
-                            .font(.system(size: 18, weight: .black))
+                            .kmiFont(size: 18, weight: .black)
                             .foregroundStyle(Color(red: 0.490, green: 1.0, blue: 0.702))
 
-                        Text(tr("תובנות מהירות", "Quick insights"))
-                            .font(.system(size: 13, weight: .black))
-                            .foregroundStyle(.white)
+                        Text(
+                            tr(
+                                "תובנות מהירות",
+                                "Quick insights"
+                            )
+                        )
+                        .kmiFont(
+                            size: 13,
+                            weight: .black
+                        )
+                        .foregroundStyle(.white)
 
                         Spacer()
                     } else {
                         Spacer()
 
-                        Text(tr("תובנות מהירות", "Quick insights"))
-                            .font(.system(size: 13, weight: .black))
-                            .foregroundStyle(.white)
+                        Text(
+                            tr(
+                                "תובנות מהירות",
+                                "Quick insights"
+                            )
+                        )
+                        .kmiFont(
+                            size: 13,
+                            weight: .black
+                        )
+                        .foregroundStyle(.white)
 
                         Image(systemName: "chart.bar.xaxis")
-                            .font(.system(size: 18, weight: .black))
+                            .kmiFont(size: 18, weight: .black)
                             .foregroundStyle(Color(red: 0.490, green: 1.0, blue: 0.702))
                     }
                 }
@@ -2150,7 +2395,10 @@ private struct AdminInsightsCard: View {
                 VStack(alignment: isEnglish ? .leading : .trailing, spacing: 4) {
                     ForEach(insights, id: \.self) { insight in
                         Text("• \(insight)")
-                            .font(.system(size: 11.5, weight: .semibold))
+                            .kmiFont(
+                                size: 11.5,
+                                weight: .semibold
+                            )
                             .lineSpacing(2)
                             .foregroundStyle(.white.opacity(0.84))
                             .multilineTextAlignment(isEnglish ? .leading : .trailing)
@@ -2184,13 +2432,13 @@ private struct TopScreensCard: View {
             VStack(spacing: 10) {
                 HStack(spacing: 8) {
                     Image(systemName: "chart.bar.xaxis")
-                        .font(.system(size: 18, weight: .black))
+                        .kmiFont(size: 18, weight: .black)
                         .foregroundStyle(
                             Color(red: 0.008, green: 0.518, blue: 0.780)
                         )
 
                     Text(tr("10 המסכים הכי נצפים", "Top 10 screens"))
-                        .font(.system(size: 14, weight: .black))
+                        .kmiFont(size: 14, weight: .black)
                         .foregroundStyle(
                             AdminDiagnosticsTheme.primaryText
                         )
@@ -2202,7 +2450,7 @@ private struct TopScreensCard: View {
 
                     Button(action: onReset) {
                         Text(tr("איפוס", "Reset"))
-                            .font(.system(size: 10.5, weight: .black))
+                            .kmiFont(size: 10.5, weight: .black)
                             .foregroundStyle(
                                 Color(red: 0.604, green: 0.204, blue: 0.071)
                             )
@@ -2242,7 +2490,7 @@ private struct TopScreensCard: View {
                             "No screen view data yet."
                         )
                     )
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .kmiFont(size: 11.5, weight: .semibold)
                     .foregroundStyle(
                         AdminDiagnosticsTheme.secondaryText
                     )
@@ -2261,7 +2509,7 @@ private struct TopScreensCard: View {
                         ) { index, item in
                             HStack(spacing: 8) {
                                 Text("\(index + 1)")
-                                    .font(.system(size: 13, weight: .black))
+                                    .kmiFont(size: 13, weight: .black)
                                     .foregroundStyle(
                                         Color(
                                             red: 0.008,
@@ -2272,7 +2520,7 @@ private struct TopScreensCard: View {
                                     .frame(width: 26, alignment: .center)
 
                                 Text(item.screenName)
-                                    .font(.system(size: 12, weight: .bold))
+                                    .kmiFont(size: 12, weight: .bold)
                                     .foregroundStyle(
                                         AdminDiagnosticsTheme.primaryText
                                     )
@@ -2285,7 +2533,7 @@ private struct TopScreensCard: View {
                                     )
 
                                 Text("\(item.count)")
-                                    .font(.system(size: 13, weight: .black))
+                                    .kmiFont(size: 13, weight: .black)
                                     .foregroundStyle(
                                         Color(
                                             red: 0.086,
@@ -2364,7 +2612,7 @@ private struct FilterPill: View {
     var body: some View {
         Button(action: onTap) {
             Text(title)
-                .font(.system(size: 11, weight: .bold))
+                .kmiFont(size: 11, weight: .bold)
                 .foregroundStyle(
                     AdminDiagnosticsTheme.primaryText
                 )
@@ -2424,7 +2672,7 @@ private struct AdminLogGroupHeader: View {
             HStack(spacing: 10) {
                 Button(action: onClick) {
                     Text(expanded ? "⌃" : "⌄")
-                        .font(.system(size: 16, weight: .black))
+                        .kmiFont(size: 16, weight: .black)
                         .foregroundStyle(color)
                         .frame(width: 28, alignment: .center)
                 }
@@ -2436,7 +2684,7 @@ private struct AdminLogGroupHeader: View {
                         spacing: 2
                     ) {
                         Text(title)
-                            .font(.system(size: 14, weight: .black))
+                            .kmiFont(size: 14, weight: .black)
                             .foregroundStyle(
                                 AdminDiagnosticsTheme.primaryText
                             )
@@ -2453,7 +2701,7 @@ private struct AdminLogGroupHeader: View {
                                 ? "\(count) events"
                                 : "\(count) אירועים"
                         )
-                        .font(.system(size: 11, weight: .bold))
+                        .kmiFont(size: 11, weight: .bold)
                         .foregroundStyle(color)
                         .frame(
                             maxWidth: .infinity,
@@ -2465,7 +2713,7 @@ private struct AdminLogGroupHeader: View {
 
                 Button(action: onReset) {
                     Text(isEnglish ? "Reset" : "איפוס")
-                        .font(.system(size: 10.5, weight: .black))
+                        .kmiFont(size: 10.5, weight: .black)
                         .foregroundStyle(
                             Color(red: 0.604, green: 0.204, blue: 0.071)
                         )
@@ -2561,7 +2809,7 @@ private struct AdminLogCard: View {
                                 )
                                 : log.title
                         )
-                        .font(.system(size: 13, weight: .black))
+                        .kmiFont(size: 13, weight: .black)
                         .foregroundStyle(
                             AdminDiagnosticsTheme.primaryText
                         )
@@ -2575,7 +2823,7 @@ private struct AdminLogCard: View {
                                 isEnglish: isEnglish
                             )
                         )
-                        .font(.system(size: 10.5, weight: .semibold))
+                        .kmiFont(size: 10.5, weight: .semibold)
                         .foregroundStyle(
                             AdminDiagnosticsTheme.secondaryText
                         )
@@ -2585,14 +2833,32 @@ private struct AdminLogCard: View {
 
                 if !log.message.isEmpty {
                     Text(log.message)
-                        .font(.system(size: 11.5, weight: .medium))
+                        .kmiFont(
+                            size: 11.5,
+                            weight: .medium
+                        )
                         .lineSpacing(2)
                         .foregroundStyle(
                             AdminDiagnosticsTheme.bodyText
                         )
-                        .lineLimit(3)
-                        .multilineTextAlignment(isEnglish ? .leading : .trailing)
-                        .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
+                        .lineLimit(12)
+                        .truncationMode(.tail)
+                        .multilineTextAlignment(
+                            isEnglish
+                                ? .leading
+                                : .trailing
+                        )
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment:
+                                isEnglish
+                                ? .leading
+                                : .trailing
+                        )
+                        .environment(
+                            \.layoutDirection,
+                            .leftToRight
+                        )
                 }
 
                 Rectangle()
@@ -2600,7 +2866,7 @@ private struct AdminLogCard: View {
                     .frame(height: 1)
 
                 Text(metaText)
-                    .font(.system(size: 10.5, weight: .semibold))
+                    .kmiFont(size: 10.5, weight: .semibold)
                     .lineSpacing(2)
                     .foregroundStyle(
                         AdminDiagnosticsTheme.secondaryText
@@ -2618,36 +2884,52 @@ private struct AdminLogCard: View {
 
         parts.append(
             (isEnglish ? "Area: " : "אזור: ") +
-            (log.area.isEmpty ? "-" : log.area)
+            (
+                log.area.isEmpty
+                    ? "-"
+                    : log.area
+            )
         )
+
+        if !log.attemptId.isEmpty {
+            let shortAttemptId =
+                String(
+                    log.attemptId.suffix(8)
+                )
+
+            parts.append(
+                (
+                    isEnglish
+                        ? "Attempt: "
+                        : "ניסיון: "
+                ) +
+                shortAttemptId
+            )
+        }
 
         parts.append(
             (isEnglish ? "Role: " : "תפקיד: ") +
-            (log.userRole.isEmpty ? "-" : log.userRole)
+            (
+                log.userRole.isEmpty
+                    ? "-"
+                    : log.userRole
+            )
         )
 
         if !log.appVersion.isEmpty {
             parts.append(
-                (isEnglish ? "Version: " : "גרסה: ") +
+                (
+                    isEnglish
+                        ? "Version: "
+                        : "גרסה: "
+                ) +
                 log.appVersion
             )
         }
 
-        if !log.deviceModel.isEmpty {
-            parts.append(
-                (isEnglish ? "Device: " : "מכשיר: ") +
-                log.deviceModel
-            )
-        }
-
-        if !log.language.isEmpty {
-            parts.append(
-                (isEnglish ? "Language: " : "שפה: ") +
-                log.language
-            )
-        }
-
-        return parts.joined(separator: "  |  ")
+        return parts.joined(
+            separator: "  |  "
+        )
     }
 }
 
@@ -2665,17 +2947,25 @@ private struct AdminStateCard: View {
         ) {
             VStack(spacing: 8) {
                 Image(systemName: icon)
-                    .font(.system(size: 30, weight: .black))
+                    .kmiFont(size: 30, weight: .black)
                     .foregroundStyle(.white)
 
                 Text(title)
-                    .font(.system(size: 15, weight: .black))
+                    .kmiFont(
+                        size: 15,
+                        weight: .black
+                    )
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
                 Text(message)
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.72))
+                    .kmiFont(
+                        size: 11.5,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(
+                        .white.opacity(0.72)
+                    )
                     .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
@@ -2694,7 +2984,7 @@ private struct CircleIcon: View {
                 .fill(color.opacity(0.18))
 
             Image(systemName: systemName)
-                .font(.system(size: 17, weight: .black))
+                .kmiFont(size: 17, weight: .black)
                 .foregroundStyle(color)
         }
         .frame(width: 34, height: 34)

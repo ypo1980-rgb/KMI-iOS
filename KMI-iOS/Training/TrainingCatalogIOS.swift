@@ -943,6 +943,138 @@ enum TrainingCatalogIOS {
         return endDate
     }
 
+    struct TrainingSummaryContext: Equatable {
+        let branchName: String
+        let coachName: String
+        let groupKey: String
+    }
+
+    static func trainingSummaryContext(
+        dateIso: String,
+        preferredBranches: [String],
+        preferredGroups: [String]
+    ) -> TrainingSummaryContext? {
+        let cleanDateIso =
+            dateIso.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        guard !cleanDateIso.isEmpty else {
+            return nil
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+
+        guard let selectedDate =
+            formatter.date(from: cleanDateIso) else {
+            return nil
+        }
+
+        let calendar = Calendar(identifier: .gregorian)
+        let selectedWeekday =
+            calendar.component(
+                .weekday,
+                from: selectedDate
+            )
+
+        let cleanBranches =
+            preferredBranches
+                .map {
+                    $0.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                }
+                .filter { !$0.isEmpty }
+
+        let cleanGroups =
+            preferredGroups
+                .map {
+                    $0.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                }
+                .filter { !$0.isEmpty }
+
+        for preferredBranch in cleanBranches {
+            guard let catalogBranch =
+                branchFromCatalog(
+                    matching: preferredBranch
+                ) else {
+                continue
+            }
+
+            let weekdayMatches =
+                catalogBranch.trainingDays.filter {
+                    trainingDay in
+
+                    calendarWeekday(
+                        from: trainingDay.dayOfWeek
+                    ) == selectedWeekday
+                }
+
+            guard !weekdayMatches.isEmpty else {
+                continue
+            }
+
+            let matchedTrainingDay: TrainingDayRecord?
+
+            if cleanGroups.isEmpty {
+                matchedTrainingDay =
+                    weekdayMatches.first
+            } else {
+                matchedTrainingDay =
+                    weekdayMatches.first {
+                        trainingDay in
+
+                        cleanGroups.contains {
+                            preferredGroup in
+
+                            trainingDayMatchesGroup(
+                                trainingDay,
+                                selectedGroup:
+                                    preferredGroup
+                            )
+                        }
+                    }
+            }
+
+            guard let trainingDay =
+                matchedTrainingDay else {
+                continue
+            }
+
+            let branchName =
+                catalogBranch.nameHe
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+            let coachName =
+                trainingDay.coachNameHe
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+            let groupKey =
+                trainingDay.groupHe
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+            return TrainingSummaryContext(
+                branchName: branchName,
+                coachName: coachName,
+                groupKey: groupKey
+            )
+        }
+
+        return nil
+    }
+    
     static func trainingsFor(
         branch: String,
         group: String?

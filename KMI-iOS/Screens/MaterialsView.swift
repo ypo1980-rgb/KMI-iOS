@@ -3993,33 +3993,74 @@ private func materialsFormattedExplanation(
                 .environment(\.layoutDirection, .leftToRight)
 
                 ScrollView {
-                    Text(materialsFormattedExplanation(text))
-                        .kmiFont(size: 16.2, weight: .semibold)
-                        .foregroundStyle(
+                    Text(
+                        materialsFormattedExplanation(
+                            text
+                        )
+                    )
+                    .kmiFont(
+                        size: 16.2,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(
+                        colorScheme == .dark
+                            ? Color.white.opacity(0.90)
+                            : Color(
+                                red: 0.10,
+                                green: 0.12,
+                                blue: 0.17
+                            )
+                    )
+                    .lineSpacing(5)
+                    .multilineTextAlignment(
+                        isEnglish
+                            ? .leading
+                            : .trailing
+                    )
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment:
+                            isEnglish
+                            ? .leading
+                            : .trailing
+                    )
+                    /*
+                     * מקבע את משמעות leading/trailing הפיזית:
+                     * אנגלית משמאל ועברית מימין.
+                     * כיוון האותיות בעברית נשאר תקין.
+                     */
+                    .environment(
+                        \.layoutDirection,
+                        .leftToRight
+                    )
+                    .padding(16)
+                    .background(
+                        RoundedRectangle(
+                            cornerRadius: 24,
+                            style: .continuous
+                        )
+                        .fill(
                             colorScheme == .dark
-                                ? Color.white.opacity(0.90)
-                                : Color(red: 0.10, green: 0.12, blue: 0.17)
+                                ? Color(hex: 0xFF1E293B)
+                                : Color.white.opacity(0.97)
                         )
-                        .lineSpacing(5)
-                        .multilineTextAlignment(textAlignment)
-                        .frame(maxWidth: .infinity, alignment: frameAlignment)
-                        .padding(16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                .fill(
-                                    colorScheme == .dark
-                                        ? Color(hex: 0xFF1E293B)
-                                        : Color.white.opacity(0.97)
-                                )
+                    )
+                    .overlay(
+                        RoundedRectangle(
+                            cornerRadius: 24,
+                            style: .continuous
                         )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                .stroke(
-                                    accentColor.opacity(0.17),
-                                    lineWidth: 1
-                                )
+                        .stroke(
+                            accentColor.opacity(0.17),
+                            lineWidth: 1
                         )
-                        .shadow(color: Color.black.opacity(0.07), radius: 8, x: 0, y: 4)
+                    )
+                    .shadow(
+                        color: Color.black.opacity(0.07),
+                        radius: 8,
+                        x: 0,
+                        y: 4
+                    )
                 }
 
                 VStack(spacing: 10) {

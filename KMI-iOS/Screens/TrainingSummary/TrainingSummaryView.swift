@@ -16,38 +16,88 @@ struct TrainingSummaryView: View {
     @AppStorage("kmi_app_language")
     private var languageCode: String = "he"
 
-    private let summaryBgTop =
-        Color(red: 0.97, green: 0.98, blue: 1.00)
+    @Environment(\.colorScheme)
+    private var colorScheme
 
-    private let summaryBgMiddle =
-        Color(red: 0.72, green: 0.87, blue: 0.97)
+    private var summaryBgTop: Color {
+        colorScheme == .dark
+            ? Color(hex: 0xFF050913)
+            : Color(hex: 0xFFF8FBFF)
+    }
 
-    private let summaryBgBottom =
-        Color(red: 0.02, green: 0.17, blue: 0.29)
+    private var summaryBgMid1: Color {
+        colorScheme == .dark
+            ? Color(hex: 0xFF0A1728)
+            : Color(hex: 0xFFEAF4FF)
+    }
 
-    private let summaryCard =
-        Color(red: 0.92, green: 0.95, blue: 1.00)
+    private var summaryBgMid2: Color {
+        colorScheme == .dark
+            ? Color(hex: 0xFF0B2942)
+            : Color(hex: 0xFFB7DDF7)
+    }
 
-    private let summaryCardInner =
-        Color(red: 0.87, green: 0.92, blue: 1.00)
+    private var summaryBgAccent: Color {
+        colorScheme == .dark
+            ? Color(hex: 0xFF0B3B62)
+            : Color(hex: 0xFF1F78B4)
+    }
 
-    private let summaryBorder =
-        Color(red: 0.85, green: 0.89, blue: 0.96)
+    private var summaryBgBottom: Color {
+        colorScheme == .dark
+            ? Color(hex: 0xFF020B16)
+            : Color(hex: 0xFF062B4A)
+    }
 
-    private let summaryDivider =
-        Color(red: 0.78, green: 0.84, blue: 0.93)
+    private var summaryCard: Color {
+        colorScheme == .dark
+            ? Color(hex: 0xFF111D2E)
+            : Color(hex: 0xFFEAF2FF)
+    }
 
-    private let summaryTextDark =
-        Color(red: 0.12, green: 0.16, blue: 0.24)
+    private var summaryCardInner: Color {
+        colorScheme == .dark
+            ? Color(hex: 0xFF18283D)
+            : Color(hex: 0xFFDDEAFF)
+    }
 
-    private let summaryTextMuted =
-        Color(red: 0.37, green: 0.42, blue: 0.50)
+    private var summaryEditorBackground: Color {
+        colorScheme == .dark
+            ? Color(hex: 0xFF0F1B2B)
+            : Color(hex: 0xFFF7FAFF)
+    }
 
-    private let summaryPrimary =
-        Color(red: 0.05, green: 0.65, blue: 0.91)
+    private var summaryBorder: Color {
+        colorScheme == .dark
+            ? Color(hex: 0xFF35506D)
+            : Color(hex: 0xFFD8E3F5)
+    }
 
-    private let summaryPurple =
-        Color(red: 0.48, green: 0.34, blue: 0.82)
+    private var summaryDivider: Color {
+        colorScheme == .dark
+            ? Color(hex: 0xFF2C435D)
+            : Color(hex: 0xFFC7D7EE)
+    }
+
+    private var summaryTextDark: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.94)
+            : Color(hex: 0xFF1E2A3D)
+    }
+
+    private var summaryTextMuted: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.68)
+            : Color(hex: 0xFF5E6C80)
+    }
+
+    private var summaryPrimary: Color {
+        Color(hex: 0xFF0EA5E9)
+    }
+
+    private var summaryPurple: Color {
+        Color(hex: 0xFF7B57D1)
+    }
 
     private var isEnglish: Bool {
         let clean =
@@ -102,8 +152,9 @@ struct TrainingSummaryView: View {
             LinearGradient(
                 colors: [
                     summaryBgTop,
-                    summaryBgMiddle,
-                    Color(red: 0.12, green: 0.47, blue: 0.71),
+                    summaryBgMid1,
+                    summaryBgMid2,
+                    summaryBgAccent,
                     summaryBgBottom
                 ],
                 startPoint: .top,
@@ -112,9 +163,17 @@ struct TrainingSummaryView: View {
             .overlay {
                 LinearGradient(
                     colors: [
-                        Color.white.opacity(0.16),
+                        Color.white.opacity(
+                            colorScheme == .dark
+                                ? 0.06
+                                : 0.16
+                        ),
                         Color.clear,
-                        Color.white.opacity(0.08),
+                        Color.white.opacity(
+                            colorScheme == .dark
+                                ? 0.03
+                                : 0.08
+                        ),
                         Color.clear
                     ],
                     startPoint: .topLeading,
@@ -144,7 +203,7 @@ struct TrainingSummaryView: View {
                 VStack {
                     Spacer()
                     Text(toastMessage)
-                        .font(.subheadline.weight(.bold))
+                        .kmiFont(size: 14, weight: .bold)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                         .background(.ultraThinMaterial)
@@ -216,7 +275,47 @@ struct TrainingSummaryView: View {
     }
 
     private var selectedExercises: [SelectedExerciseUi] {
-        vm.state.selected.values.sorted { $0.name < $1.name }
+        vm.state.selected.values.sorted {
+            $0.name.localizedCaseInsensitiveCompare(
+                $1.name
+            ) == .orderedAscending
+        }
+    }
+
+    private var validDateIso: String? {
+        let cleanDate =
+            vm.state.dateIso
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        guard
+            !cleanDate.isEmpty,
+            cleanDate != "{date}",
+            cleanDate.lowercased() != "null"
+        else {
+            return nil
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale =
+            Locale(identifier: "en_US_POSIX")
+        formatter.calendar =
+            Calendar(identifier: .gregorian)
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+
+        guard
+            let date = formatter.date(
+                from: cleanDate
+            ),
+            formatter.string(from: date) ==
+                cleanDate
+        else {
+            return nil
+        }
+
+        return cleanDate
     }
 
     private var trainingInfoCard: some View {
@@ -235,16 +334,30 @@ struct TrainingSummaryView: View {
                             "Training details"
                         )
                     )
-                    .font(.headline.weight(.heavy))
+                    .kmiFont(size: 17, weight: .heavy)
                     .foregroundStyle(summaryTextDark)
 
                     Text(
-                        formattedDate(
-                            vm.state.dateIso
+                        validDateIso.map {
+                            formattedDate($0)
+                        } ??
+                        tr(
+                            "יש לבחור תאריך לסיכום האימון",
+                            "Choose a date for the training summary"
                         )
                     )
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(summaryTextMuted)
+                    .kmiFont(
+                        size: 12,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(
+                        summaryTextMuted
+                    )
+                    .multilineTextAlignment(
+                        isEnglish
+                            ? .leading
+                            : .trailing
+                    )
                 }
                 .frame(
                     maxWidth: .infinity,
@@ -293,12 +406,20 @@ struct TrainingSummaryView: View {
                     )
 
                     Text(
-                        tr(
+                        validDateIso == nil
+                        ? tr(
+                            "בחירת תאריך לסיכום האימון",
+                            "Choose training summary date"
+                        )
+                        : tr(
                             "שינוי תאריך האימון",
                             "Change training date"
                         )
                     )
-                    .font(.subheadline.weight(.heavy))
+                    .kmiFont(
+                        size: 15,
+                        weight: .heavy
+                    )
                 }
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
@@ -308,47 +429,91 @@ struct TrainingSummaryView: View {
             }
             .buttonStyle(.plain)
 
-            VStack(spacing: 7) {
-                summaryInfoRow(
-                    label: tr("סניף", "Branch"),
-                    value:
-                        vm.state.branchName.isEmpty
-                        ? tr(
-                            "לא נמצא סניף",
-                            "Branch not found"
-                        )
-                        : vm.state.branchName
-                )
-
-                summaryInfoRow(
-                    label: tr("מאמן", "Coach"),
-                    value:
-                        vm.state.coachName.isEmpty
-                        ? tr(
-                            "מאמן לא ידוע",
-                            "Unknown coach"
-                        )
-                        : vm.state.coachName
-                )
-
-                if !vm.state.groupKey.isEmpty {
-                    summaryInfoRow(
-                        label: tr(
-                            "קבוצה",
-                            "Group"
-                        ),
-                        value: vm.state.groupKey
+            if validDateIso == nil {
+                Text(
+                    tr(
+                        "בחר תאריך בלוח האימונים החודשי כדי להתחיל למלא את סיכום האימון.",
+                        "Choose a date in the monthly training calendar to start filling out the training summary."
                     )
-                }
-            }
-            .padding(10)
-            .background(summaryCardInner)
-            .clipShape(
-                RoundedRectangle(
-                    cornerRadius: 14,
-                    style: .continuous
                 )
-            )
+                .kmiFont(
+                    size: 14,
+                    weight: .heavy
+                )
+                .foregroundStyle(summaryTextDark)
+                .multilineTextAlignment(
+                    isEnglish
+                        ? .leading
+                        : .trailing
+                )
+                .frame(
+                    maxWidth: .infinity,
+                    alignment:
+                        isEnglish
+                        ? .leading
+                        : .trailing
+                )
+                .padding(12)
+                .background(summaryCardInner)
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 16,
+                        style: .continuous
+                    )
+                )
+            } else {
+                VStack(spacing: 7) {
+                    summaryInfoRow(
+                        label:
+                            tr(
+                                "סניף",
+                                "Branch"
+                            ),
+                        value:
+                            vm.state.branchName.isEmpty
+                            ? tr(
+                                "לא נמצא סניף",
+                                "Branch not found"
+                            )
+                            : vm.state.branchName
+                    )
+
+                    summaryInfoRow(
+                        label:
+                            tr(
+                                "מאמן",
+                                "Coach"
+                            ),
+                        value:
+                            vm.state.coachName.isEmpty
+                            ? tr(
+                                "מאמן לא ידוע",
+                                "Unknown coach"
+                            )
+                            : vm.state.coachName
+                    )
+
+                    if !vm.state.groupKey.isEmpty {
+                        summaryInfoRow(
+                            label:
+                                tr(
+                                    "קבוצה",
+                                    "Group"
+                                ),
+                            value:
+                                vm.state.groupKey
+                        )
+                    }
+                }
+                .padding(10)
+                .background(summaryCardInner)
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 14,
+                        style: .continuous
+                    )
+                )
+            }
         }
     }
 
@@ -358,13 +523,13 @@ struct TrainingSummaryView: View {
     ) -> some View {
         HStack(spacing: 8) {
             Text(value)
-                .font(.subheadline.weight(.semibold))
+                .kmiFont(size: 14, weight: .semibold)
                 .foregroundStyle(summaryTextDark)
 
             Spacer()
 
             Text(label)
-                .font(.caption.weight(.bold))
+                .kmiFont(size: 12, weight: .bold)
                 .foregroundStyle(summaryTextMuted)
         }
         .frame(maxWidth: .infinity)
@@ -379,11 +544,16 @@ struct TrainingSummaryView: View {
     private var addExercisesCard: some View {
         card {
             sectionHeader(
-                tr("הוספת תרגילים", "Add exercises"),
+                tr(
+                    "הוספת תרגילים",
+                    "Add exercises"
+                ),
                 subtitle: tr(
                     "בחר תרגילים שבוצעו באימון",
                     "Choose exercises performed in training"
-                )
+                ),
+                systemImage:
+                    "checklist.checked"
             )
 
             summarySectionDivider
@@ -399,7 +569,7 @@ struct TrainingSummaryView: View {
                     "\(vm.state.selected.count) exercises have already been added"
                 )
             )
-            .font(.subheadline.weight(.semibold))
+            .kmiFont(size: 14, weight: .semibold)
             .foregroundStyle(summaryTextMuted)
             .frame(
                 maxWidth: .infinity,
@@ -443,7 +613,9 @@ struct TrainingSummaryView: View {
                 subtitle: tr(
                     "ניהול, עריכה והוספת דגשים לכל תרגיל",
                     "Manage, edit and add notes to each exercise"
-                )
+                ),
+                systemImage:
+                    "figure.martial.arts"
             )
 
             summarySectionDivider
@@ -464,7 +636,7 @@ struct TrainingSummaryView: View {
                         )
                     )
                 }
-                .font(.caption.weight(.bold))
+                .kmiFont(size: 12, weight: .bold)
                 .foregroundStyle(summaryTextDark)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
@@ -492,31 +664,78 @@ struct TrainingSummaryView: View {
                 subtitle: tr(
                     "סיכום חופשי של האימון, תחושות, דגשים ומה לשפר",
                     "Free summary, feelings, highlights and improvements"
-                )
+                ),
+                systemImage:
+                    "note.text"
             )
 
             summarySectionDivider
 
-            TextEditor(
-                text: Binding(
-                    get: {
-                        vm.state.notes
-                    },
-                    set: {
-                        vm.setNotes($0)
-                    }
+            ZStack(
+                alignment:
+                    isEnglish
+                    ? .topLeading
+                    : .topTrailing
+            ) {
+                TextEditor(
+                    text: Binding(
+                        get: {
+                            vm.state.notes
+                        },
+                        set: {
+                            vm.setNotes($0)
+                        }
+                    )
                 )
-            )
-            .scrollContentBackground(.hidden)
-            .frame(minHeight: 160)
-            .padding(10)
-            .foregroundStyle(summaryTextDark)
+                .scrollContentBackground(.hidden)
+                .kmiFont(
+                    size: 16,
+                    weight: .regular
+                )
+                .foregroundStyle(summaryTextDark)
+                .multilineTextAlignment(
+                    isEnglish
+                        ? .leading
+                        : .trailing
+                )
+                .frame(minHeight: 160)
+                .padding(6)
+
+                if vm.state.notes
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                    .isEmpty {
+                    Text(
+                        vm.state.isCoach
+                        ? tr(
+                            "דגשים מקצועיים, ביצוע, מה לשפר…",
+                            "Professional notes, performance, what to improve…"
+                        )
+                        : tr(
+                            "איך היה האימון? מה הרגשת? מה לשפר…",
+                            "How was the training? What did you feel? What should be improved…"
+                        )
+                    )
+                    .kmiFont(
+                        size: 14,
+                        weight: .medium
+                    )
+                    .foregroundStyle(
+                        summaryTextMuted.opacity(0.82)
+                    )
+                    .multilineTextAlignment(
+                        isEnglish
+                            ? .leading
+                            : .trailing
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 15)
+                    .allowsHitTesting(false)
+                }
+            }
             .background(
-                Color(
-                    red: 0.97,
-                    green: 0.98,
-                    blue: 1.00
-                )
+                summaryEditorBackground
             )
             .overlay(
                 RoundedRectangle(
@@ -540,11 +759,16 @@ struct TrainingSummaryView: View {
     private var actionsCard: some View {
         card {
             sectionHeader(
-                tr("שמירה", "Save"),
+                tr(
+                    "שמירה",
+                    "Save"
+                ),
                 subtitle: tr(
                     "שמור את הסיכום והתרגילים שנוספו לאימון הזה",
                     "Save the summary and exercises added to this training"
-                )
+                ),
+                systemImage:
+                    "checkmark"
             )
 
             summarySectionDivider
@@ -571,7 +795,7 @@ struct TrainingSummaryView: View {
                             "Save training summary"
                         )
                     )
-                    .font(.headline.weight(.bold))
+                    .kmiFont(size: 17, weight: .bold)
                 }
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
@@ -605,7 +829,7 @@ struct TrainingSummaryView: View {
             spacing: 10
         ) {
             Text(item.name)
-                .font(.title3.weight(.heavy))
+                .kmiFont(size: 18, weight: .heavy)
                 .foregroundStyle(summaryTextDark)
                 .multilineTextAlignment(
                     isEnglish ? .leading : .trailing
@@ -621,7 +845,7 @@ struct TrainingSummaryView: View {
                 )
                 .isEmpty {
                 Text(item.topic)
-                    .font(.caption.weight(.semibold))
+                    .kmiFont(size: 11.5, weight: .semibold)
                     .foregroundStyle(summaryTextMuted)
                     .frame(
                         maxWidth: .infinity,
@@ -641,7 +865,7 @@ struct TrainingSummaryView: View {
                             ? "note.text.badge.minus"
                             : "note.text.badge.plus"
                     )
-                    .font(.system(size: 17, weight: .bold))
+                    .kmiFont(size: 17, weight: .bold)
                     .foregroundStyle(summaryTextDark)
                     .frame(width: 42, height: 42)
                     .background(
@@ -672,7 +896,7 @@ struct TrainingSummaryView: View {
                     )
                 } label: {
                     Image(systemName: "trash")
-                        .font(.system(size: 16, weight: .bold))
+                        .kmiFont(size: 16, weight: .bold)
                         .foregroundStyle(Color.red)
                         .frame(width: 42, height: 42)
                         .background(
@@ -713,7 +937,7 @@ struct TrainingSummaryView: View {
                     )
                     .isEmpty {
                 Text(item.highlight)
-                    .font(.subheadline)
+                    .kmiFont(size: 14, weight: .regular)
                     .foregroundStyle(summaryTextDark)
                     .multilineTextAlignment(
                         isEnglish
@@ -750,7 +974,7 @@ struct TrainingSummaryView: View {
                             "Exercise notes and highlights"
                         )
                     )
-                    .font(.caption.weight(.bold))
+                    .kmiFont(size: 12, weight: .bold)
                     .foregroundStyle(summaryTextMuted)
                     .frame(
                         maxWidth: .infinity,
@@ -775,11 +999,7 @@ struct TrainingSummaryView: View {
                     .padding(8)
                     .foregroundStyle(summaryTextDark)
                     .background(
-                        Color(
-                            red: 0.97,
-                            green: 0.98,
-                            blue: 1.00
-                        )
+                        summaryEditorBackground
                     )
                     .overlay {
                         RoundedRectangle(
@@ -872,41 +1092,156 @@ struct TrainingSummaryView: View {
 
     private func sectionHeader(
         _ title: String,
+        subtitle: String,
+        systemImage: String
+    ) -> some View {
+        HStack(
+            alignment: .center,
+            spacing: 10
+        ) {
+            if isEnglish {
+                headerTextBlock(
+                    title: title,
+                    subtitle: subtitle
+                )
+
+                sectionHeaderIcon(
+                    systemImage: systemImage
+                )
+            } else {
+                headerTextBlock(
+                    title: title,
+                    subtitle: subtitle
+                )
+
+                sectionHeaderIcon(
+                    systemImage: systemImage
+                )
+            }
+        }
+        .environment(
+            \.layoutDirection,
+            .leftToRight
+        )
+    }
+
+    private func headerTextBlock(
+        title: String,
         subtitle: String
     ) -> some View {
         VStack(
             alignment:
-                isEnglish ? .leading : .trailing,
-            spacing: 4
+                isEnglish
+                ? .leading
+                : .trailing,
+            spacing: 3
         ) {
             Text(title)
-                .font(.headline.weight(.heavy))
+                .kmiFont(
+                    size: 17,
+                    weight: .heavy
+                )
                 .foregroundStyle(summaryTextDark)
+                .multilineTextAlignment(
+                    isEnglish
+                        ? .leading
+                        : .trailing
+                )
                 .frame(
                     maxWidth: .infinity,
-                    alignment: screenAlignment
+                    alignment:
+                        isEnglish
+                        ? .leading
+                        : .trailing
                 )
 
             Text(subtitle)
-                .font(.footnote)
+                .kmiFont(
+                    size: 12,
+                    weight: .semibold
+                )
                 .foregroundStyle(summaryTextMuted)
+                .multilineTextAlignment(
+                    isEnglish
+                        ? .leading
+                        : .trailing
+                )
                 .frame(
                     maxWidth: .infinity,
-                    alignment: screenAlignment
+                    alignment:
+                        isEnglish
+                        ? .leading
+                        : .trailing
                 )
         }
     }
 
-    private func formattedDate(_ iso: String) -> String {
+    private func sectionHeaderIcon(
+        systemImage: String
+    ) -> some View {
+        ZStack {
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color(hex: 0xFF22D3EE),
+                            Color(hex: 0xFF0EA5E9),
+                            Color(hex: 0xFF1E3A8A)
+                        ],
+                        center: .topLeading,
+                        startRadius: 0,
+                        endRadius: 34
+                    )
+                )
+                .frame(
+                    width: 42,
+                    height: 42
+                )
+
+            Image(systemName: systemImage)
+                .kmiFont(
+                    size: 18,
+                    weight: .black
+                )
+                .foregroundStyle(.white)
+        }
+        .shadow(
+            color: summaryPrimary.opacity(0.20),
+            radius: 5,
+            x: 0,
+            y: 3
+        )
+        .accessibilityHidden(true)
+    }
+
+    private func formattedDate(
+        _ iso: String
+    ) -> String {
         let input = DateFormatter()
-        input.locale = Locale(identifier: "en_US_POSIX")
+        input.locale =
+            Locale(identifier: "en_US_POSIX")
+        input.calendar =
+            Calendar(identifier: .gregorian)
         input.dateFormat = "yyyy-MM-dd"
+        input.isLenient = false
+
+        guard let date = input.date(from: iso) else {
+            return iso
+        }
 
         let output = DateFormatter()
-        output.locale = Locale(identifier: "he_IL")
-        output.dateFormat = "EEEE, d MMM yyyy"
+        output.locale =
+            Locale(
+                identifier:
+                    isEnglish
+                    ? "en_US"
+                    : "he_IL"
+            )
+        output.calendar =
+            Calendar(identifier: .gregorian)
+        output.dateFormat =
+            "EEEE, d MMM yyyy"
 
-        guard let date = input.date(from: iso) else { return iso }
         return output.string(from: date)
     }
 

@@ -1,5 +1,6 @@
 import Foundation
 import FirebaseFirestore
+import CryptoKit
 
 protocol AttendanceRemoteMembersSource {
     func loadMembers(
@@ -7,6 +8,33 @@ protocol AttendanceRemoteMembersSource {
         branchName: String,
         groupKey: String
     ) async throws -> [AttendanceMember]
+}
+
+struct AttendanceMemberHistorySession {
+    let dateIso: String
+    let status: AttendanceStatus
+}
+
+struct AttendanceMemberHistorySnapshot {
+    let memberStartDateIso: String
+    let sessions: [AttendanceMemberHistorySession]
+}
+
+struct AttendanceAndroidSavedReport:
+    Identifiable,
+    Equatable {
+
+    let id: String
+    let branchName: String
+    let groupKey: String
+    let dateIso: String
+    let sessionId: Int64
+    let totalMembers: Int
+    let presentCount: Int
+    let excusedCount: Int
+    let absentCount: Int
+    let percentPresent: Int
+    let createdAtMillis: Int64
 }
 
 final class AttendanceRepository {
@@ -24,6 +52,468 @@ final class AttendanceRepository {
     ) {
         self.store = store
         self.remoteMembersSource = remoteMembersSource
+    }
+
+    /*
+     * קורא את היסטוריית הנוכחות מאותו מבנה Firestore
+     * המשמש את אפליקציית Android כמקור האמת.
+     */
+    func memberAttendanceHistoryFromFirestore(
+        branchName: String,
+        groupKey: String,
+        memberId: String,
+        requestedFromIso: String,
+        toIso: String
+    ) async throws -> AttendanceMemberHistorySnapshot {
+        let cleanBranch =
+            branchName.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let cleanGroup =
+            groupKey.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let cleanMemberId =
+            memberId.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        guard
+            !cleanBranch.isEmpty,
+            !cleanGroup.isEmpty,
+            !cleanMemberId.isEmpty,
+            requestedFromIso <= toIso
+        else {
+            return AttendanceMemberHistorySnapshot(
+                memberStartDateIso: requestedFromIso,
+                sessions: []
+            )
+        }
+
+        let groupId =
+            androidAttendanceGroupDocumentId(
+                branchName: cleanBranch,
+                groupKey: cleanGroup
+            )
+
+        let groupReference =
+            Firestore.firestore()
+                .collection("attendanceGroups")
+                .document(groupId)
+
+        let sessionDocuments =
+            try await groupReference
+                .collection("sessions")
+                .whereField(
+                    "date",
+                    isGreaterThanOrEqualTo:
+                        requestedFromIso
+                )
+                .whereField(
+                    "date",
+                    isLessThanOrEqualTo:
+                        toIso
+                )
+                .getDocuments()
+                .documents
+
+        var loadedSessions:
+            [AttendanceMemberHistorySession] = []
+
+        var earliestExplicitRecordDate: String?
+
+        for sessionDocument in sessionDocuments {
+            let data = sessionDocument.data()
+
+            let dateIso =
+                ((data["date"] as? String) ??
+                 sessionDocument.documentID)
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+            guard
+                !dateIso.isEmpty,
+                dateIso >= requestedFromIso,
+                dateIso <= toIso
+            else {
+                continue
+            }
+
+            let recordDocument =
+                try await sessionDocument.reference
+                    .collection("records")
+                    .document(cleanMemberId)
+                    .getDocument()
+
+            let status: AttendanceStatus
+
+            if recordDocument.exists,
+               let recordData = recordDocument.data() {
+                status =
+                    attendanceStatus(
+                        from:
+                            recordData["status"]
+                                as? String
+                    )
+
+                if earliestExplicitRecordDate == nil ||
+                    dateIso <
+                        earliestExplicitRecordDate! {
+                    earliestExplicitRecordDate =
+                        dateIso
+                }
+            } else {
+                /*
+                 * בהתאם לאנדרואיד:
+                 * אימון קיים ללא רשומה מפורשת
+                 * נחשב כהיעדרות.
+                 */
+                status = .absent
+            }
+
+            loadedSessions.append(
+                AttendanceMemberHistorySession(
+                    dateIso: dateIso,
+                    status: status
+                )
+            )
+        }
+
+        let memberDocument =
+            try await groupReference
+                .collection("members")
+                .document(cleanMemberId)
+                .getDocument()
+
+        let createdAtDateIso: String?
+
+        if let createdAtMillis =
+            memberDocument.data()?["createdAtMillis"]
+                as? Int64,
+           createdAtMillis > 0 {
+            createdAtDateIso =
+                Self.isoString(
+                    Date(
+                        timeIntervalSince1970:
+                            TimeInterval(
+                                createdAtMillis
+                            ) / 1_000
+                    )
+                )
+        } else if let createdAtNumber =
+                    memberDocument
+                        .data()?["createdAtMillis"]
+                        as? NSNumber,
+                  createdAtNumber.int64Value > 0 {
+            createdAtDateIso =
+                Self.isoString(
+                    Date(
+                        timeIntervalSince1970:
+                            TimeInterval(
+                                createdAtNumber
+                                    .int64Value
+                            ) / 1_000
+                    )
+                )
+        } else {
+            createdAtDateIso = nil
+        }
+
+        let detectedStartDate =
+            [
+                createdAtDateIso,
+                earliestExplicitRecordDate
+            ]
+            .compactMap { $0 }
+            .min() ?? requestedFromIso
+
+        let memberStartDateIso =
+            max(
+                requestedFromIso,
+                detectedStartDate
+            )
+
+        let sessions =
+            loadedSessions
+                .filter {
+                    $0.dateIso >= memberStartDateIso
+                }
+                .sorted {
+                    $0.dateIso > $1.dateIso
+                }
+
+        return AttendanceMemberHistorySnapshot(
+            memberStartDateIso:
+                memberStartDateIso,
+            sessions:
+                sessions
+        )
+    }
+
+    /*
+     * מחזיר את דו״חות הנוכחות האחרונים מאותו
+     * מבנה Firestore המשמש את Android.
+     */
+    func recentAttendanceReportsFromFirestore(
+        branchName: String,
+        groupKey: String,
+        limit: Int = 5
+    ) async throws -> [AttendanceAndroidSavedReport] {
+        let cleanBranch =
+            branchName.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let cleanGroup =
+            groupKey.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        guard
+            !cleanBranch.isEmpty,
+            !cleanGroup.isEmpty,
+            limit > 0
+        else {
+            return []
+        }
+
+        let groupId =
+            androidAttendanceGroupDocumentId(
+                branchName: cleanBranch,
+                groupKey: cleanGroup
+            )
+
+        let snapshot =
+            try await Firestore.firestore()
+                .collection("attendanceGroups")
+                .document(groupId)
+                .collection("reports")
+                .order(
+                    by: "createdAtMillis",
+                    descending: true
+                )
+                .limit(to: limit)
+                .getDocuments()
+
+        return snapshot.documents
+            .compactMap { document in
+                let data = document.data()
+
+                let dateIso =
+                    ((data["date"] as? String) ??
+                     (data["dateIso"] as? String) ??
+                     "")
+                        .trimmingCharacters(
+                            in:
+                                .whitespacesAndNewlines
+                        )
+
+                guard !dateIso.isEmpty else {
+                    return nil
+                }
+
+                let totalMembers =
+                    integerValue(
+                        data["totalMembers"]
+                    )
+
+                let presentCount =
+                    integerValue(
+                        data["presentCount"]
+                    )
+
+                let excusedCount =
+                    integerValue(
+                        data["excusedCount"]
+                    )
+
+                let absentCount =
+                    integerValue(
+                        data["absentCount"]
+                    )
+
+                let storedPercent =
+                    integerValue(
+                        data["percentPresent"]
+                    )
+
+                let calculatedPercent =
+                    totalMembers > 0
+                    ? Int(
+                        Double(presentCount) *
+                        100.0 /
+                        Double(totalMembers)
+                    )
+                    : 0
+
+                return AttendanceAndroidSavedReport(
+                    id: document.documentID,
+                    branchName:
+                        ((data["branch"] as? String) ??
+                         cleanBranch)
+                            .trimmingCharacters(
+                                in:
+                                    .whitespacesAndNewlines
+                            ),
+                    groupKey:
+                        ((data["groupKey"] as? String) ??
+                         cleanGroup)
+                            .trimmingCharacters(
+                                in:
+                                    .whitespacesAndNewlines
+                            ),
+                    dateIso:
+                        dateIso,
+                    sessionId:
+                        int64Value(
+                            data["sessionId"]
+                        ),
+                    totalMembers:
+                        totalMembers,
+                    presentCount:
+                        presentCount,
+                    excusedCount:
+                        excusedCount,
+                    absentCount:
+                        absentCount,
+                    percentPresent:
+                        min(
+                            100,
+                            max(
+                                0,
+                                storedPercent > 0
+                                ? storedPercent
+                                : calculatedPercent
+                            )
+                        ),
+                    createdAtMillis:
+                        int64Value(
+                            data["createdAtMillis"]
+                        )
+                )
+            }
+            .sorted { left, right in
+                if left.createdAtMillis ==
+                    right.createdAtMillis {
+                    return left.dateIso >
+                        right.dateIso
+                }
+
+                return left.createdAtMillis >
+                    right.createdAtMillis
+            }
+    }
+
+    private func integerValue(
+        _ rawValue: Any?
+    ) -> Int {
+        if let value = rawValue as? Int {
+            return value
+        }
+
+        if let value = rawValue as? Int64 {
+            return Int(value)
+        }
+
+        if let value = rawValue as? NSNumber {
+            return value.intValue
+        }
+
+        if let value = rawValue as? String {
+            return Int(value) ?? 0
+        }
+
+        return 0
+    }
+
+    private func int64Value(
+        _ rawValue: Any?
+    ) -> Int64 {
+        if let value = rawValue as? Int64 {
+            return value
+        }
+
+        if let value = rawValue as? Int {
+            return Int64(value)
+        }
+
+        if let value = rawValue as? NSNumber {
+            return value.int64Value
+        }
+
+        if let value = rawValue as? String {
+            return Int64(value) ?? 0
+        }
+
+        return 0
+    }
+
+    /*
+     * Android יוצר את מזהה הקבוצה משמונת הבתים
+     * הראשונים של SHA-256 ומאפס את סיבית הסימן.
+     */
+    private func androidAttendanceGroupDocumentId(
+        branchName: String,
+        groupKey: String
+    ) -> String {
+        let rawValue =
+            "\(branchName.trimmingCharacters(in: .whitespacesAndNewlines))|\(groupKey.trimmingCharacters(in: .whitespacesAndNewlines))"
+                .lowercased()
+
+        let digest =
+            SHA256.hash(
+                data: Data(rawValue.utf8)
+            )
+
+        var value: UInt64 = 0
+
+        for byte in digest.prefix(8) {
+            value =
+                (value << 8) |
+                UInt64(byte)
+        }
+
+        let positiveValue =
+            value &
+            UInt64(Int64.max)
+
+        return String(
+            positiveValue == 0
+                ? 1
+                : positiveValue
+        )
+    }
+
+    private func attendanceStatus(
+        from rawValue: String?
+    ) -> AttendanceStatus {
+        switch rawValue?
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .uppercased() {
+        case "PRESENT":
+            return .present
+
+        case "EXCUSED":
+            return .excused
+
+        case "ABSENT":
+            return .absent
+
+        case "UNKNOWN":
+            return .unknown
+
+        default:
+            /*
+             * זהה להתנהגות Android כאשר
+             * סטטוס אינו קיים או אינו תקין.
+             */
+            return .absent
+        }
     }
     
     func loadRealMembers(

@@ -338,13 +338,7 @@ struct HomeView: View {
     @State private var goCard: Bool = false
 
     @State private var selectedTraining: TrainingData? = nil
-    @State private var showNavigationSheet: Bool = false
 
-    /*
-     * שינויי אימונים שמגיעים בזמן אמת מ־Firestore.
-     *
-     * המפתח הוא occurrenceKey של האימון המקורי.
-     */
     @State private var activeTrainingOverrides:
         [String: TrainingOverride] = [:]
 
@@ -1636,7 +1630,6 @@ struct HomeView: View {
                                     activeOverride: trainingOverride,
                                     onNavigateTap: {
                                         selectedTraining = training
-                                        showNavigationSheet = true
                                     },
                                     onManageTap: {
                                         let request =
@@ -1897,12 +1890,16 @@ struct HomeView: View {
 
                                 let presentationContent = AnyView(
                                     navigationContent
-                                        .sheet(isPresented: $showNavigationSheet, onDismiss: {
-                                            selectedTraining = nil
-                                        }) {
-                                            if let training = selectedTraining {
-                                                NavigationSheet(training: training)
+                                        .sheet(
+                                            item: $selectedTraining,
+                                            onDismiss: {
+                                                selectedTraining = nil
                                             }
+                                        ) { training in
+                                            NavigationSheet(
+                                                training: training,
+                                                isEnglish: isEnglish
+                                            )
                                         }
                                         .sheet(
                                             item: $trainingManagementItem,
@@ -4450,13 +4447,35 @@ private struct HomeTrainingCardAndroidStyle: View {
     }
 
     private var trainingOverrideBanner: some View {
-        VStack(spacing: 3) {
+        let contentColor: Color =
+            isCancelledByCoach
+            ? (
+                colorScheme == .dark
+                ? Color(hex: 0xFFFCA5A5)
+                : Color(hex: 0xFFB91C1C)
+            )
+            : (
+                colorScheme == .dark
+                ? Color(hex: 0xFF93C5FD)
+                : Color(hex: 0xFF1D4ED8)
+            )
+
+        let backgroundColor: Color =
+            colorScheme == .dark
+            ? contentColor.opacity(0.14)
+            : (
+                isCancelledByCoach
+                ? Color(hex: 0xFFFEF2F2)
+                : Color(hex: 0xFFEFF6FF)
+            )
+
+        return VStack(spacing: 3) {
             Text(
                 isCancelledByCoach
                 ? (
                     isEnglish
-                    ? "Training cancelled"
-                    : "האימון בוטל"
+                    ? "Cancelled by coach"
+                    : "בוטל על ידי המאמן"
                 )
                 : (
                     isEnglish
@@ -4464,19 +4483,21 @@ private struct HomeTrainingCardAndroidStyle: View {
                     : "שעת האימון שונתה"
                 )
             )
-            .font(.system(size: 12, weight: .black))
+            .kmiFont(
+                size: 12,
+                weight: .black
+            )
 
             if !overrideMessage.isEmpty {
                 Text(overrideMessage)
-                    .font(.system(size: 10.5, weight: .semibold))
+                    .kmiFont(
+                        size: 10.5,
+                        weight: .semibold
+                    )
                     .multilineTextAlignment(.center)
             }
         }
-        .foregroundStyle(
-            isCancelledByCoach
-            ? Color(hex: 0xFFB91C1C)
-            : Color(hex: 0xFF1D4ED8)
-        )
+        .foregroundStyle(contentColor)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
@@ -4485,11 +4506,7 @@ private struct HomeTrainingCardAndroidStyle: View {
                 cornerRadius: 14,
                 style: .continuous
             )
-            .fill(
-                isCancelledByCoach
-                ? Color(hex: 0xFFFEF2F2)
-                : Color(hex: 0xFFEFF6FF)
-            )
+            .fill(backgroundColor)
         )
         .overlay(
             RoundedRectangle(
@@ -4497,9 +4514,7 @@ private struct HomeTrainingCardAndroidStyle: View {
                 style: .continuous
             )
             .stroke(
-                isCancelledByCoach
-                ? Color(hex: 0xFFEF4444).opacity(0.35)
-                : Color(hex: 0xFF3B82F6).opacity(0.35),
+                contentColor.opacity(0.30),
                 lineWidth: 1
             )
         )
@@ -4633,7 +4648,64 @@ private struct HomeTrainingCardAndroidStyle: View {
     ) -> some View {
         let state = liveTrainingState(at: now)
 
+        let originalStartDate = training.date
+
+        let effectiveStartDate =
+            activeOverride?.hasChangedTime == true
+            ? activeOverride?.effectiveStartDate
+                ?? originalStartDate
+            : originalStartDate
+
+        let secondsUntilStart =
+            effectiveStartDate.timeIntervalSince(now)
+
+        let countdownMinutes: Int? = {
+            guard
+                state == .scheduled,
+                secondsUntilStart > 0,
+                secondsUntilStart <= 30 * 60
+            else {
+                return nil
+            }
+
+            return min(
+                30,
+                max(
+                    1,
+                    Int(
+                        ceil(
+                            secondsUntilStart / 60
+                        )
+                    )
+                )
+            )
+        }()
+
         let title: String = {
+            if state == .ongoing {
+                return isEnglish
+                    ? "Training in progress"
+                    : "האימון מתקיים עכשיו"
+            }
+
+            if let countdownMinutes {
+                if isEnglish {
+                    return countdownMinutes == 1
+                        ? "Training starts in 1 minute"
+                        : "Training starts in \(countdownMinutes) minutes"
+                }
+
+                return countdownMinutes == 1
+                    ? "עוד דקה האימון מתחיל"
+                    : "עוד \(countdownMinutes) דקות האימון מתחיל"
+            }
+
+            if wasChangedByCoach {
+                return isEnglish
+                    ? "Training time changed"
+                    : "שעת האימון שונתה"
+            }
+
             switch state {
             case .scheduled:
                 return isEnglish
@@ -4660,20 +4732,32 @@ private struct HomeTrainingCardAndroidStyle: View {
         let contentColor: Color = {
             switch state {
             case .scheduled:
-                return Color(hex: 0xFF1D4ED8)
+                return colorScheme == .dark
+                    ? Color(hex: 0xFF93C5FD)
+                    : Color(hex: 0xFF1D4ED8)
 
             case .ongoing:
-                return Color(hex: 0xFF047857)
+                return colorScheme == .dark
+                    ? Color(hex: 0xFF6EE7B7)
+                    : Color(hex: 0xFF047857)
 
             case .completed:
-                return Color(hex: 0xFF475569)
+                return colorScheme == .dark
+                    ? Color(hex: 0xFFCBD5E1)
+                    : Color(hex: 0xFF475569)
 
             case .invalid:
-                return Color(hex: 0xFFB91C1C)
+                return colorScheme == .dark
+                    ? Color(hex: 0xFFFCA5A5)
+                    : Color(hex: 0xFFB91C1C)
             }
         }()
 
         let backgroundColor: Color = {
+            if colorScheme == .dark {
+                return contentColor.opacity(0.14)
+            }
+
             switch state {
             case .scheduled:
                 return Color(hex: 0xFFEFF6FF)
@@ -4689,6 +4773,26 @@ private struct HomeTrainingCardAndroidStyle: View {
             }
         }()
 
+        let pulseAlpha: Double = {
+            guard state == .ongoing else {
+                return 1
+            }
+
+            let cycle =
+                now
+                    .timeIntervalSinceReferenceDate
+                    .truncatingRemainder(
+                        dividingBy: 1.44
+                    ) / 1.44
+
+            let triangle =
+                cycle <= 0.5
+                ? cycle * 2
+                : (1 - cycle) * 2
+
+            return 1 - (triangle * 0.62)
+        }()
+
         return Text(title)
             .kmiFont(
                 size: 12,
@@ -4697,7 +4801,7 @@ private struct HomeTrainingCardAndroidStyle: View {
             .foregroundStyle(contentColor)
             .multilineTextAlignment(.center)
             .lineLimit(1)
-            .minimumScaleFactor(0.80)
+            .minimumScaleFactor(0.72)
             .padding(.horizontal, 14)
             .padding(.vertical, 5)
             .background(
@@ -4707,13 +4811,14 @@ private struct HomeTrainingCardAndroidStyle: View {
             .overlay(
                 Capsule()
                     .stroke(
-                        contentColor.opacity(0.18),
+                        contentColor.opacity(0.22),
                         lineWidth: 1
                     )
             )
+            .opacity(pulseAlpha)
             .padding(.top, 2)
     }
-
+    
     private var holidayCancellationBanner: some View {
         Text(
             isEnglish
@@ -4789,7 +4894,7 @@ private struct HomeTrainingCardAndroidStyle: View {
                         .frame(maxWidth: .infinity)
                 }
 
-                if isCancelledByCoach || wasChangedByCoach {
+                if isCancelledByCoach {
                     trainingOverrideBanner
                 } else if isCancelledByHoliday {
                     holidayCancellationBanner
@@ -4797,7 +4902,7 @@ private struct HomeTrainingCardAndroidStyle: View {
                     TimelineView(
                         .periodic(
                             from: .now,
-                            by: 30
+                            by: 1
                         )
                     ) { timeline in
                         liveTrainingStatusBanner(
@@ -4833,32 +4938,45 @@ private struct HomeTrainingCardAndroidStyle: View {
                 .frame(minHeight: 62)
                 .background(
                     RoundedRectangle(
-                        cornerRadius: 14,
+                        cornerRadius: 18,
                         style: .continuous
                     )
                     .fill(
-                        HomeVisualTheme.innerCardBackground(
-                            for: colorScheme
-                        )
+                        colorScheme == .dark
+                            ? Color(hex: 0xFF2B2930)
+                            : Color(hex: 0xFFE8E5E1)
                     )
                 )
                 .overlay(
                     RoundedRectangle(
-                        cornerRadius: 14,
+                        cornerRadius: 18,
                         style: .continuous
                     )
                     .stroke(
-                        HomeVisualTheme.innerCardBorder(
-                            for: colorScheme
-                        ),
-                        lineWidth: 1
+                        Color(hex: 0xFF1D4ED8)
+                            .opacity(
+                                colorScheme == .dark
+                                    ? 0.28
+                                    : 0.20
+                            ),
+                        lineWidth: 0.75
                     )
                 )
                 .shadow(
-                    color: Color.black.opacity(0.10),
-                    radius: 5,
+                    color: Color.black.opacity(
+                        colorScheme == .dark
+                            ? 0.16
+                            : 0.08
+                    ),
+                    radius: 2,
                     x: 0,
-                    y: 3
+                    y: 1
+                )
+                .contentShape(
+                    RoundedRectangle(
+                        cornerRadius: 18,
+                        style: .continuous
+                    )
                 )
             }
             .buttonStyle(.plain)
@@ -4976,13 +5094,31 @@ private struct HomeTrainingCardAndroidStyle: View {
     private var navigationIcon: some View {
         ZStack {
             Circle()
-                .fill(Color(hex: 0xFFE0F2FE))
-                .frame(width: 30, height: 30)
+                .fill(
+                    colorScheme == .dark
+                        ? Color(hex: 0xFF1E3A5F)
+                            .opacity(0.78)
+                        : Color(hex: 0xFFDCEBFA)
+                )
+                .frame(
+                    width: 32,
+                    height: 32
+                )
 
             Image(systemName: "location.fill")
-                .font(.system(size: 14, weight: .black))
-                .foregroundStyle(Color(hex: 0xFF2563EB))
+                .font(
+                    .system(
+                        size: 15,
+                        weight: .black
+                    )
+                )
+                .foregroundStyle(
+                    colorScheme == .dark
+                        ? Color(hex: 0xFF93C5FD)
+                        : Color(hex: 0xFF2563EB)
+                )
         }
+        .accessibilityHidden(true)
     }
 
     private var navigationTextBlock: some View {
@@ -5001,8 +5137,8 @@ private struct HomeTrainingCardAndroidStyle: View {
             )
             .foregroundStyle(
                 colorScheme == .dark
-                    ? Color.white
-                    : Color(hex: 0xFF0B1220)
+                    ? Color.white.opacity(0.94)
+                    : Color(hex: 0xFF111827)
             )
             .lineLimit(1)
             .frame(
@@ -5026,7 +5162,7 @@ private struct HomeTrainingCardAndroidStyle: View {
             )
             .foregroundStyle(
                 colorScheme == .dark
-                    ? Color.white.opacity(0.72)
+                    ? Color.white.opacity(0.70)
                     : Color(hex: 0xFF475569)
             )
             .lineLimit(2)

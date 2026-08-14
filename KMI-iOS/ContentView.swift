@@ -1139,9 +1139,55 @@ struct ContentView: View {
                                 .navigationBarBackButtonHidden(true)
                         }
 
+                    case .trainingSummary(
+                        let pickedDateIso
+                    ):
+                        KmiRootLayout(
+                            title: tr(
+                                "סיכום אימון",
+                                "Training Summary"
+                            ),
+                            nav: nav,
+                            selectedIcon: .home
+                        ) {
+                            TrainingSummaryView(
+                                ownerUid:
+                                    Auth.auth()
+                                        .currentUser?
+                                        .uid ?? "",
+                                isCoach:
+                                    isCoachUser,
+                                initialBelt:
+                                    auth.registeredBelt ??
+                                    .green,
+                                pickedDateIso:
+                                    pickedDateIso,
+                                initialBranchName:
+                                    auth.userBranch
+                                        .trimmingCharacters(
+                                            in:
+                                                .whitespacesAndNewlines
+                                        ),
+                                initialCoachName:
+                                    isCoachUser
+                                    ? auth.userFullName
+                                        .trimmingCharacters(
+                                            in:
+                                                .whitespacesAndNewlines
+                                        )
+                                    : ""
+                            )
+                            .navigationBarBackButtonHidden(
+                                true
+                            )
+                        }
+
                     case .coachTrainees:
                         KmiRootLayout(
-                            title: tr("רשימת המתאמנים", "Trainees list"),
+                            title: tr(
+                                "רשימת המתאמנים",
+                                "Trainees list"
+                            ),
                             nav: nav,
                             selectedIcon: .home
                         ) {

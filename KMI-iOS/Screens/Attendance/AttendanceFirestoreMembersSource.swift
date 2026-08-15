@@ -1,5 +1,6 @@
 import Foundation
 import FirebaseFirestore
+import CryptoKit
 
 final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
 
@@ -9,14 +10,155 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
         groupKey: String
     ) async throws -> [AttendanceMember] {
 
-        let branchClean = normalize(branchName)
-        let groupClean = normalize(groupKey)
+        /*
+         * לחישוב groupId חייבים להשתמש בערכים
+         * המקוריים בדיוק כפי ש־Android שומר אותם.
+         * אסור להחליף סוגי מקפים לפני החישוב.
+         */
+        let branchStorageValue =
+            branchName.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let groupStorageValue =
+            groupKey.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        /*
+         * הערכים המנורמלים משמשים רק לחיפוש
+         * הגיבוי באוסף users.
+         */
+        let branchClean =
+            normalize(branchStorageValue)
+
+        let groupClean =
+            normalize(groupStorageValue)
 
         let db = Firestore.firestore()
 
-        let snap = try await db.collection("users")
-            .whereField("role", isEqualTo: "trainee")
-            .getDocuments()
+        /*
+         * מקור האמת המשותף ל־Android ול־iOS.
+         *
+         * מזהה המסמך כאן הוא אותו memberId
+         * שמשמש במסמכי records של הנוכחות.
+         */
+        if !branchStorageValue.isEmpty,
+           !groupStorageValue.isEmpty {
+            let groupDocumentId =
+                androidAttendanceGroupDocumentId(
+                    branchName:
+                        branchStorageValue,
+                    groupKey:
+                        groupStorageValue
+                )
+
+            let groupMembersSnapshot =
+                try await db
+                    .collection(
+                        "attendanceGroups"
+                    )
+                    .document(
+                        groupDocumentId
+                    )
+                    .collection("members")
+                    .getDocuments()
+
+            let groupMembers =
+                groupMembersSnapshot.documents
+                    .compactMap {
+                        document
+                            -> AttendanceMember? in
+
+                        let data =
+                            document.data()
+
+                        let isActive =
+                            data["isActive"]
+                                as? Bool ?? true
+
+                        guard isActive else {
+                            return nil
+                        }
+
+                        let fullName =
+                            ((data["displayName"]
+                                as? String) ??
+                             (data["fullName"]
+                                as? String) ??
+                             (data["name"]
+                                as? String) ??
+                             "")
+                                .trimmingCharacters(
+                                    in:
+                                        .whitespacesAndNewlines
+                                )
+
+                        let phone =
+                            ((data["phone"]
+                                as? String) ??
+                             (data["phoneNumber"]
+                                as? String) ??
+                             "")
+                                .trimmingCharacters(
+                                    in:
+                                        .whitespacesAndNewlines
+                                )
+
+                        guard
+                            !fullName.isEmpty ||
+                            !phone.isEmpty
+                        else {
+                            return nil
+                        }
+
+                        let memberId =
+                            firestoreIdentifier(
+                                data["id"]
+                            ) ??
+                            document.documentID
+
+                        return AttendanceMember(
+                            id: memberId,
+                            fullName:
+                                fullName.isEmpty
+                                ? phone
+                                : fullName,
+                            phone: phone,
+                            notes:
+                                readNotes(
+                                    from: data
+                                )
+                        )
+                    }
+
+            /*
+             * אם קיימים חברים במבנה Android,
+             * לא מערבבים אותם עם משתמשים מהאוסף
+             * הישן כדי למנוע מזהים כפולים ושגויים.
+             */
+            if !groupMembers.isEmpty {
+                return groupMembers.sorted {
+                    $0.fullName
+                        .localizedCaseInsensitiveCompare(
+                            $1.fullName
+                        ) == .orderedAscending
+                }
+            }
+        }
+
+        /*
+         * גיבוי למידע ישן שטרם הועבר למבנה
+         * attendanceGroups.
+         */
+        let snap =
+            try await db
+                .collection("users")
+                .whereField(
+                    "role",
+                    isEqualTo: "trainee"
+                )
+                .getDocuments()
 
         let branchCandidates = branchAliases(branchClean)
         let groupCandidates = groupAliases(groupClean)
@@ -112,6 +254,71 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
         return uniqueMembers.values.sorted {
             $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending
         }
+    }
+
+    private func firestoreIdentifier(
+        _ rawValue: Any?
+    ) -> String? {
+        if let value = rawValue as? String {
+            let clean =
+                value.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+            return clean.isEmpty
+                ? nil
+                : clean
+        }
+
+        if let value = rawValue as? Int {
+            return String(value)
+        }
+
+        if let value = rawValue as? Int64 {
+            return String(value)
+        }
+
+        if let value = rawValue as? NSNumber {
+            return value.stringValue
+        }
+
+        return nil
+    }
+
+    /*
+     * העתק מדויק של stablePositiveLong
+     * המשמש את Android ליצירת groupId.
+     */
+    private func androidAttendanceGroupDocumentId(
+        branchName: String,
+        groupKey: String
+    ) -> String {
+        let rawValue =
+            "\(branchName.trimmingCharacters(in: .whitespacesAndNewlines))|\(groupKey.trimmingCharacters(in: .whitespacesAndNewlines))"
+                .lowercased()
+
+        let digest =
+            SHA256.hash(
+                data: Data(rawValue.utf8)
+            )
+
+        var value: UInt64 = 0
+
+        for byte in digest.prefix(8) {
+            value =
+                (value << 8) |
+                UInt64(byte)
+        }
+
+        let positiveValue =
+            value &
+            UInt64(Int64.max)
+
+        return String(
+            positiveValue == 0
+            ? 1
+            : positiveValue
+        )
     }
 
     private func readNotes(from data: [String: Any]) -> String {

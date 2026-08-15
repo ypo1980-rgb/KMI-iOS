@@ -62,6 +62,7 @@ final class AttendanceRepository {
         branchName: String,
         groupKey: String,
         memberId: String,
+        memberName: String = "",
         requestedFromIso: String,
         toIso: String
     ) async throws -> AttendanceMemberHistorySnapshot {
@@ -80,6 +81,11 @@ final class AttendanceRepository {
                 in: .whitespacesAndNewlines
             )
 
+        let cleanMemberName =
+            memberName.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
         guard
             !cleanBranch.isEmpty,
             !cleanGroup.isEmpty,
@@ -87,51 +93,239 @@ final class AttendanceRepository {
             requestedFromIso <= toIso
         else {
             return AttendanceMemberHistorySnapshot(
-                memberStartDateIso: requestedFromIso,
+                memberStartDateIso:
+                    requestedFromIso,
                 sessions: []
             )
         }
 
-        let groupId =
+        func comparableText(
+            _ value: String
+        ) -> String {
+            value
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .replacingOccurrences(
+                    of: "־",
+                    with: "-"
+                )
+                .replacingOccurrences(
+                    of: "–",
+                    with: "-"
+                )
+                .replacingOccurrences(
+                    of: "—",
+                    with: "-"
+                )
+                .replacingOccurrences(
+                    of: "\\s+",
+                    with: " ",
+                    options:
+                        .regularExpression
+                )
+                .lowercased()
+        }
+
+        func identifierString(
+            _ rawValue: Any?
+        ) -> String {
+            if let value = rawValue as? String {
+                return value.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+            }
+
+            if let value = rawValue as? Int {
+                return String(value)
+            }
+
+            if let value = rawValue as? Int64 {
+                return String(value)
+            }
+
+            if let value = rawValue as? NSNumber {
+                return value.stringValue
+            }
+
+            return ""
+        }
+
+        let db = Firestore.firestore()
+        let groupsCollection =
+            db.collection("attendanceGroups")
+
+        let calculatedGroupId =
             androidAttendanceGroupDocumentId(
                 branchName: cleanBranch,
                 groupKey: cleanGroup
             )
 
-        let groupReference =
-            Firestore.firestore()
-                .collection("attendanceGroups")
-                .document(groupId)
-
-        let sessionDocuments =
-            try await groupReference
-                .collection("sessions")
-                .whereField(
-                    "date",
-                    isGreaterThanOrEqualTo:
-                        requestedFromIso
-                )
-                .whereField(
-                    "date",
-                    isLessThanOrEqualTo:
-                        toIso
-                )
+        /*
+         * לא מסתמכים רק על hash.
+         * מאתרים גם לפי branch ו־groupKey
+         * השמורים במסמך הקבוצה.
+         */
+        let groupDocuments =
+            try await groupsCollection
                 .getDocuments()
                 .documents
+
+        let wantedBranch =
+            comparableText(cleanBranch)
+
+        let wantedGroup =
+            comparableText(cleanGroup)
+
+        let matchingGroupDocument =
+            groupDocuments.first {
+                document in
+
+                let data = document.data()
+
+                let storedBranch =
+                    comparableText(
+                        (data["branch"]
+                            as? String) ?? ""
+                    )
+
+                let storedGroup =
+                    comparableText(
+                        (data["groupKey"]
+                            as? String) ??
+                        (data["group"]
+                            as? String) ?? ""
+                    )
+
+                return
+                    storedBranch == wantedBranch &&
+                    storedGroup == wantedGroup
+            }
+
+        let groupReference =
+            matchingGroupDocument?.reference ??
+            groupsCollection.document(
+                calculatedGroupId
+            )
+
+        /*
+         * מאתרים את memberId האמיתי בקבוצה:
+         * קודם לפי מזהה, ולאחר מכן לפי שם.
+         */
+        let memberDocuments =
+            try await groupReference
+                .collection("members")
+                .getDocuments()
+                .documents
+
+        let wantedMemberName =
+            comparableText(cleanMemberName)
+
+        let resolvedMemberDocument =
+            memberDocuments.first {
+                document in
+
+                let storedId =
+                    identifierString(
+                        document.data()["id"]
+                    )
+
+                return
+                    document.documentID ==
+                        cleanMemberId ||
+                    storedId ==
+                        cleanMemberId
+            } ??
+            memberDocuments.first {
+                document in
+
+                guard
+                    !wantedMemberName.isEmpty
+                else {
+                    return false
+                }
+
+                let data =
+                    document.data()
+
+                let storedName =
+                    comparableText(
+                        (data["displayName"]
+                            as? String) ??
+                        (data["fullName"]
+                            as? String) ??
+                        (data["name"]
+                            as? String) ?? ""
+                    )
+
+                return
+                    storedName ==
+                        wantedMemberName
+            }
+
+        let resolvedMemberId =
+            resolvedMemberDocument.map {
+                identifierString(
+                    $0.data()["id"]
+                )
+                .isEmpty
+                ? $0.documentID
+                : identifierString(
+                    $0.data()["id"]
+                )
+            } ?? cleanMemberId
+
+        /*
+         * קוראים את כל מסמכי האימון ומסננים
+         * מקומית. כך נתמכים גם מסמכים ישנים
+         * שבהם date קיים רק כמזהה המסמך.
+         */
+        let allSessionDocuments =
+            try await groupReference
+                .collection("sessions")
+                .getDocuments()
+                .documents
+
+        let sessionDocuments =
+            allSessionDocuments.filter {
+                document in
+
+                let data =
+                    document.data()
+
+                let dateIso =
+                    ((data["date"]
+                        as? String) ??
+                     document.documentID)
+                        .trimmingCharacters(
+                            in:
+                                .whitespacesAndNewlines
+                        )
+
+                return
+                    dateIso >= requestedFromIso &&
+                    dateIso <= toIso
+            }
 
         var loadedSessions:
             [AttendanceMemberHistorySession] = []
 
-        var earliestExplicitRecordDate: String?
+        var earliestExplicitRecordDate:
+            String?
 
-        for sessionDocument in sessionDocuments {
-            let data = sessionDocument.data()
+        for sessionDocument in
+            sessionDocuments {
+
+            let sessionData =
+                sessionDocument.data()
 
             let dateIso =
-                ((data["date"] as? String) ??
+                ((sessionData["date"]
+                    as? String) ??
                  sessionDocument.documentID)
                     .trimmingCharacters(
-                        in: .whitespacesAndNewlines
+                        in:
+                            .whitespacesAndNewlines
                     )
 
             guard
@@ -142,35 +336,59 @@ final class AttendanceRepository {
                 continue
             }
 
-            let recordDocument =
-                try await sessionDocument.reference
+            /*
+             * קוראים את כל הרשומות כדי לתמוך
+             * גם במסמך שמזהה המסמך שלו שונה,
+             * אך השדה memberId נכון.
+             */
+            let recordDocuments =
+                try await sessionDocument
+                    .reference
                     .collection("records")
-                    .document(cleanMemberId)
-                    .getDocument()
+                    .getDocuments()
+                    .documents
+
+            let matchingRecord =
+                recordDocuments.first {
+                    document in
+
+                    if document.documentID ==
+                        resolvedMemberId {
+                        return true
+                    }
+
+                    let storedMemberId =
+                        identifierString(
+                            document
+                                .data()["memberId"]
+                        )
+
+                    return
+                        storedMemberId ==
+                            resolvedMemberId ||
+                        storedMemberId ==
+                            cleanMemberId
+                }
 
             let status: AttendanceStatus
 
-            if recordDocument.exists,
-               let recordData = recordDocument.data() {
+            if let matchingRecord {
                 status =
                     attendanceStatus(
                         from:
-                            recordData["status"]
+                            matchingRecord
+                                .data()["status"]
                                 as? String
                     )
 
-                if earliestExplicitRecordDate == nil ||
+                if earliestExplicitRecordDate ==
+                    nil ||
                     dateIso <
                         earliestExplicitRecordDate! {
                     earliestExplicitRecordDate =
                         dateIso
                 }
             } else {
-                /*
-                 * בהתאם לאנדרואיד:
-                 * אימון קיים ללא רשומה מפורשת
-                 * נחשב כהיעדרות.
-                 */
                 status = .absent
             }
 
@@ -182,39 +400,23 @@ final class AttendanceRepository {
             )
         }
 
-        let memberDocument =
-            try await groupReference
-                .collection("members")
-                .document(cleanMemberId)
-                .getDocument()
+        let memberData =
+            resolvedMemberDocument?.data()
+
+        let createdAtMillis =
+            int64Value(
+                memberData?["createdAtMillis"]
+            )
 
         let createdAtDateIso: String?
 
-        if let createdAtMillis =
-            memberDocument.data()?["createdAtMillis"]
-                as? Int64,
-           createdAtMillis > 0 {
+        if createdAtMillis > 0 {
             createdAtDateIso =
                 Self.isoString(
                     Date(
                         timeIntervalSince1970:
                             TimeInterval(
                                 createdAtMillis
-                            ) / 1_000
-                    )
-                )
-        } else if let createdAtNumber =
-                    memberDocument
-                        .data()?["createdAtMillis"]
-                        as? NSNumber,
-                  createdAtNumber.int64Value > 0 {
-            createdAtDateIso =
-                Self.isoString(
-                    Date(
-                        timeIntervalSince1970:
-                            TimeInterval(
-                                createdAtNumber
-                                    .int64Value
                             ) / 1_000
                     )
                 )
@@ -239,13 +441,15 @@ final class AttendanceRepository {
         let sessions =
             loadedSessions
                 .filter {
-                    $0.dateIso >= memberStartDateIso
+                    $0.dateIso >=
+                        memberStartDateIso
                 }
                 .sorted {
-                    $0.dateIso > $1.dateIso
+                    $0.dateIso >
+                        $1.dateIso
                 }
 
-        return AttendanceMemberHistorySnapshot(
+            return AttendanceMemberHistorySnapshot(
             memberStartDateIso:
                 memberStartDateIso,
             sessions:

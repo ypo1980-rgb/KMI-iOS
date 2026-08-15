@@ -147,8 +147,6 @@ struct AttendanceStatsView: View {
                             monthlyAttendanceChartCard
                         }
 
-                        streakCard
-                        bestDaysCard
                         lastSessionsCard
                     }
                     .padding(.horizontal, 16)
@@ -787,158 +785,6 @@ struct AttendanceStatsView: View {
                 .stroke(Color.white.opacity(0.18), lineWidth: 1)
         )
     }
-
-    private var streakCard: some View {
-        let progress = max(0.0, min(1.0, Double(stats.streakDays) / 10.0))
-
-        return VStack(alignment: screenHorizontalAlignment, spacing: 12) {
-            HStack {
-                if isEnglish {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(tr("רצף נוכחות", "Attendance Streak"))
-                            .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
-
-                        Text(isEnglish ? "\(stats.streakDays) sessions in a row 👏" : "\(stats.streakDays) אימונים ברצף 👏")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(red: 0.29, green: 0.33, blue: 0.39))
-                    }
-
-                    Spacer()
-
-                    Image(systemName: "clock.fill")
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.39, green: 0.40, blue: 0.95))
-                        .frame(width: 38, height: 38)
-                        .background(Color.white.opacity(0.10))
-                        .clipShape(Circle())
-                } else {
-                    Image(systemName: "clock.fill")
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.39, green: 0.40, blue: 0.95))
-                        .frame(width: 38, height: 38)
-                        .background(Color.white.opacity(0.10))
-                        .clipShape(Circle())
-
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text(tr("רצף נוכחות", "Attendance Streak"))
-                            .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
-
-                        Text(isEnglish ? "\(stats.streakDays) sessions in a row 👏" : "\(stats.streakDays) אימונים ברצף 👏")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(red: 0.29, green: 0.33, blue: 0.39))
-                    }
-                }
-            }
-
-            ProgressView(value: progress, total: 1)
-                .progressViewStyle(.linear)
-                .tint(Color(red: 0.39, green: 0.40, blue: 0.95))
-                .background(Color(red: 0.90, green: 0.91, blue: 0.93))
-                .clipShape(Capsule())
-
-            Text(tr("יעד חודשי: 10 אימונים", "Monthly goal: 10 sessions"))
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(Color(red: 0.39, green: 0.40, blue: 0.95))
-                .frame(maxWidth: .infinity, alignment: screenAlignment)
-                .multilineTextAlignment(screenTextAlignment)
-        }
-        .padding(18)
-        .background(Color.white.opacity(0.96))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.white.opacity(0.18), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-    }
-    
-    private var bestDaysCard: some View {
-        VStack(alignment: screenHorizontalAlignment, spacing: 12) {
-            HStack {
-                if isEnglish {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(tr("ימים חזקים", "Strong Days"))
-                            .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
-
-                        Text(bestDaysSubtitle)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(red: 0.29, green: 0.33, blue: 0.39))
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.82)
-                    }
-
-                    Spacer()
-
-                    Image(systemName: "list.star")
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.06, green: 0.65, blue: 0.91))
-                        .frame(width: 38, height: 38)
-                        .background(Color.white.opacity(0.10))
-                        .clipShape(Circle())
-                } else {
-                    Image(systemName: "list.star")
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.06, green: 0.65, blue: 0.91))
-                        .frame(width: 38, height: 38)
-                        .background(Color.white.opacity(0.10))
-                        .clipShape(Circle())
-
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text(tr("ימים חזקים", "Strong Days"))
-                            .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(Color(red: 0.07, green: 0.10, blue: 0.16))
-
-                        Text(bestDaysSubtitle)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(red: 0.29, green: 0.33, blue: 0.39))
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.82)
-                    }
-                }
-            }
-
-            if stats.bestDays.isEmpty {
-                emptyStateCard(
-                    icon: "calendar.badge.exclamationmark",
-                    title: tr("אין נתונים", "No data"),
-                    subtitle: tr("לאחר שמירת מספר דו״חות נוכחות, יוצגו כאן הימים החזקים.", "After saving several attendance reports, strong days will appear here.")
-                )
-            } else {
-                HStack(spacing: 8) {
-                    ForEach(stats.bestDays.prefix(6), id: \.self) { day in
-                        Text(localizedDayName(day))
-                            .font(.system(size: 14, weight: .black))
-                            .foregroundStyle(Color(red: 0.31, green: 0.27, blue: 0.90))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(Color(red: 0.31, green: 0.27, blue: 0.90).opacity(0.14))
-                            .clipShape(RoundedRectangle(cornerRadius: 999, style: .continuous))
-                    }
-                }
-            }
-        }
-        .padding(18)
-        .background(Color.white.opacity(0.96))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.white.opacity(0.18), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-    }
-
-    private var bestDaysSubtitle: String {
-        if isEnglish {
-            return "The days \(memberName.isEmpty ? "the trainee" : memberName) attends most"
-        }
-
-        return "הימים שבהם \(memberName.isEmpty ? "המתאמן" : memberName) מגיע הכי הרבה"
-    }
     
     private var lastSessionsCard: some View {
         VStack(alignment: screenHorizontalAlignment, spacing: 12) {
@@ -1319,20 +1165,6 @@ struct AttendanceStatsView: View {
                             blue: 0.29,
                             alpha: 1
                         ),
-                    spacingAfter: 8
-                )
-
-                drawText(
-                    tr(
-                        "רצף נוכחי: \(stats.streakDays) אימונים",
-                        "Current streak: \(stats.streakDays) sessions"
-                    ),
-                    font:
-                        .systemFont(
-                            ofSize: 15,
-                            weight: .semibold
-                        ),
-                    color: .darkGray,
                     spacingAfter: 22
                 )
 
@@ -1522,15 +1354,17 @@ struct AttendanceStatsView: View {
             do {
                 let history =
                     try await repository
-                        .memberAttendanceHistoryFromFirestore(
-                            branchName:
-                                cleanBranch,
-                            groupKey:
-                                cleanGroup,
-                            memberId:
-                                cleanMemberId,
-                            requestedFromIso:
-                                requestedFromIso,
+                    .memberAttendanceHistoryFromFirestore(
+                        branchName:
+                            cleanBranch,
+                        groupKey:
+                            cleanGroup,
+                        memberId:
+                            cleanMemberId,
+                        memberName:
+                            memberName,
+                        requestedFromIso:
+                            requestedFromIso,
                             toIso:
                                 toIso
                         )
@@ -1949,14 +1783,14 @@ struct AttendanceStatsView: View {
 
     private func oneYearBackIso() -> String {
         let today = Date()
-        let yearBack = Calendar.current.date(byAdding: .year, value: -1, to: today) ?? today
-        return isoString(yearBack)
-    }
+        let yearBack =
+            Calendar.current.date(
+                byAdding: .year,
+                value: -1,
+                to: today
+            ) ?? today
 
-    private func tomorrowIso() -> String {
-        let today = Date()
-        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: today) ?? today
-        return isoString(tomorrow)
+        return isoString(yearBack)
     }
 
     private func isoString(_ date: Date) -> String {
@@ -2245,30 +2079,9 @@ struct AttendanceStatsView: View {
             .replacingOccurrences(of: "סה״כ", with: "Total")
     }
 
-    private func localizedDayName(_ day: String) -> String {
-        guard isEnglish else { return day }
-
-        switch day.trimmingCharacters(in: .whitespacesAndNewlines) {
-        case "ראשון", "יום ראשון":
-            return "Sun"
-        case "שני", "יום שני":
-            return "Mon"
-        case "שלישי", "יום שלישי":
-            return "Tue"
-        case "רביעי", "יום רביעי":
-            return "Wed"
-        case "חמישי", "יום חמישי":
-            return "Thu"
-        case "שישי", "יום שישי":
-            return "Fri"
-        case "שבת", "יום שבת":
-            return "Sat"
-        default:
-            return day
-        }
-    }
-
-    private func sessionTint(for line: String) -> Color {
+    private func sessionTint(
+        for line: String
+    ) -> Color {
         let lower = line.lowercased()
 
         if line.contains("מוצדק") || lower.contains("excused") {

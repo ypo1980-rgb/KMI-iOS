@@ -18,6 +18,9 @@ struct CoachBroadcastView: View {
     @State private var branch: String = ""
     @State private var message: String = ""
 
+    @State private var showRegionPicker: Bool = false
+    @State private var showBranchPicker: Bool = false
+
     @State private var recipients: [CoachBroadcastRecipient] = []
     @State private var isLoadingRecipients = false
     @State private var isSending = false
@@ -25,7 +28,11 @@ struct CoachBroadcastView: View {
     @State private var alertText: String?
     @State private var showAlert = false
 
-    @State private var sendScope: String = "group"
+    @State private var sendScope: String = "groups"
+
+    @State private var availableBranchGroups: [String] = []
+    @State private var availableBranchGroupCounts: [String: Int] = [:]
+    @State private var selectedTargetGroups: Set<String> = []
 
     @AppStorage("kmi_app_language") private var kmiAppLanguage: String = ""
     @AppStorage("app_language") private var appLanguage: String = ""
@@ -277,26 +284,244 @@ struct CoachBroadcastView: View {
     }
 
     private var branchesByRegion: [String: [String]] {
-        let region = auth.userRegion.trimmingCharacters(in: .whitespacesAndNewlines)
-        let branch = auth.userBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let defaults = UserDefaults.standard
 
-        if !region.isEmpty, !branch.isEmpty {
-            return [region: [branch]]
+        func clean(_ value: String) -> String {
+            value
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .replacingOccurrences(
+                    of: "־",
+                    with: "-"
+                )
+                .replacingOccurrences(
+                    of: "–",
+                    with: "-"
+                )
+                .replacingOccurrences(
+                    of: "—",
+                    with: "-"
+                )
+                .replacingOccurrences(
+                    of: "\\s+",
+                    with: " ",
+                    options: .regularExpression
+                )
         }
 
-        if !region.isEmpty {
-            return [region: []]
+        func splitValues(_ rawValue: String) -> [String] {
+            rawValue
+                .replacingOccurrences(of: "[", with: "")
+                .replacingOccurrences(of: "]", with: "")
+                .replacingOccurrences(of: "{", with: "")
+                .replacingOccurrences(of: "}", with: "")
+                .replacingOccurrences(of: "\"", with: "")
+                .replacingOccurrences(of: " • ", with: ",")
+                .replacingOccurrences(of: "|", with: ",")
+                .replacingOccurrences(of: "\n", with: ",")
+                .split(whereSeparator: { character in
+                    character == "," ||
+                    character == ";" ||
+                    character == "；"
+                })
+                .map {
+                    clean(String($0))
+                }
+                .filter { !$0.isEmpty }
         }
 
-        return [:]
+        func storedValues(
+            for keys: [String]
+        ) -> [String] {
+            var result: [String] = []
+
+            for key in keys {
+                if let array = defaults.array(
+                    forKey: key
+                ) {
+                    result += array
+                        .map {
+                            clean("\($0)")
+                        }
+                        .filter { !$0.isEmpty }
+                }
+
+                if let rawValue = defaults.string(
+                    forKey: key
+                ) {
+                    if let data = rawValue.data(
+                        using: .utf8
+                    ),
+                       let jsonArray =
+                        try? JSONSerialization.jsonObject(
+                            with: data
+                        ) as? [String] {
+                        result += jsonArray
+                            .map(clean)
+                            .filter { !$0.isEmpty }
+                    } else {
+                        result += splitValues(
+                            rawValue
+                        )
+                    }
+                }
+            }
+
+            return result
+        }
+
+        func uniqueValues(
+            _ values: [String]
+        ) -> [String] {
+            var seen = Set<String>()
+            var result: [String] = []
+
+            for value in values {
+                let cleaned = clean(value)
+
+                guard !cleaned.isEmpty else {
+                    continue
+                }
+
+                let comparisonKey =
+                    cleaned.lowercased()
+
+                guard !seen.contains(
+                    comparisonKey
+                ) else {
+                    continue
+                }
+
+                seen.insert(comparisonKey)
+                result.append(cleaned)
+            }
+
+            return result
+        }
+
+        let regions = uniqueValues(
+            [
+                auth.userRegion,
+                defaults.string(
+                    forKey: "kmi.user.region"
+                ) ?? "",
+                defaults.string(
+                    forKey: "region"
+                ) ?? "",
+                defaults.string(
+                    forKey: "active_region"
+                ) ?? "",
+                defaults.string(
+                    forKey: "activeRegion"
+                ) ?? "",
+                defaults.string(
+                    forKey: "userRegion"
+                ) ?? ""
+            ]
+        )
+
+        let authBranches =
+            splitValues(auth.userBranch)
+
+        let storedBranches =
+            storedValues(
+                for: [
+                    "branches",
+                    "branches_json",
+                    "selected_branches",
+                    "branchesCsv",
+                    "active_branch",
+                    "activeBranch",
+                    "branch",
+                    "kmi.user.branch",
+                    "branch2",
+                    "branch3",
+                    "coach_branch",
+                    "selected_branch",
+                    "current_branch"
+                ]
+            )
+
+        let allBranches =
+            uniqueValues(
+                authBranches +
+                storedBranches
+            )
+
+        guard let primaryRegion =
+            regions.first else {
+            return [:]
+        }
+
+        var result: [String: [String]] = [
+            primaryRegion: allBranches
+        ]
+
+        /*
+         * אם נשמרה מפת אזורים וסניפים כ־JSON,
+         * ממזגים גם אותה בלי לאבד את הסניפים
+         * שכבר נמצאו בפרופיל המשתמש.
+         */
+        let mappingKeys = [
+            "branchesByRegion",
+            "branches_by_region",
+            "regions_branches_json"
+        ]
+
+        for key in mappingKeys {
+            guard
+                let rawValue = defaults.string(
+                    forKey: key
+                ),
+                let data = rawValue.data(
+                    using: .utf8
+                ),
+                let mapping =
+                    try? JSONSerialization.jsonObject(
+                        with: data
+                    ) as? [String: [String]]
+            else {
+                continue
+            }
+
+            for (storedRegion, branches) in mapping {
+                let cleanRegion =
+                    clean(storedRegion)
+
+                guard !cleanRegion.isEmpty else {
+                    continue
+                }
+
+                result[cleanRegion] =
+                    uniqueValues(
+                        (result[cleanRegion] ?? []) +
+                        branches
+                    )
+            }
+        }
+
+        return result
     }
 
     private var regionOptions: [String] {
-        Array(branchesByRegion.keys).sorted()
+        Array(branchesByRegion.keys)
+            .sorted {
+                $0.localizedCaseInsensitiveCompare(
+                    $1
+                ) == .orderedAscending
+            }
     }
 
     private var branchOptions: [String] {
-        branchesByRegion[region] ?? []
+        let exactBranches =
+            branchesByRegion[region] ?? []
+
+        return exactBranches.sorted {
+            $0.localizedCaseInsensitiveCompare(
+                $1
+            ) == .orderedAscending
+        }
     }
 
     private var selectedRecipients: [CoachBroadcastRecipient] {
@@ -341,8 +566,23 @@ struct CoachBroadcastView: View {
         return candidates.first ?? ""
     }
 
-    private var effectiveGroupKey: String {
-        sendScope == "branch" ? "" : coachGroupKey
+    private var effectiveGroupKeys: [String] {
+        if sendScope == "branch" {
+            return []
+        }
+
+        return selectedTargetGroups
+            .map {
+                $0.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+            }
+            .filter { !$0.isEmpty }
+            .sorted()
+    }
+
+    private var selectedGroupsSummary: String {
+        effectiveGroupKeys.joined(separator: ", ")
     }
 
     private var sendButtonText: String {
@@ -435,11 +675,37 @@ struct CoachBroadcastView: View {
         .onChange(of: region) { _, _ in
             branch = ""
             recipients = []
+            availableBranchGroups = []
+            availableBranchGroupCounts = [:]
+            selectedTargetGroups = []
         }
         .onChange(of: branch) { _, _ in
+            recipients = []
+            availableBranchGroups = []
+            availableBranchGroupCounts = [:]
+            selectedTargetGroups = []
+
+            if !coachGroupKey.isEmpty {
+                selectedTargetGroups.insert(coachGroupKey)
+            }
+
             loadRecipients()
         }
-        .onChange(of: sendScope) { _, _ in
+        .onChange(of: sendScope) { _, newScope in
+            if newScope == "branch" {
+                selectedTargetGroups = []
+            } else if selectedTargetGroups.isEmpty,
+                      !coachGroupKey.isEmpty {
+                selectedTargetGroups.insert(coachGroupKey)
+            }
+
+            loadRecipients()
+        }
+        .onChange(of: selectedTargetGroups) { _, _ in
+            guard sendScope != "branch" else {
+                return
+            }
+
             loadRecipients()
         }
         .alert(tr("הודעה", "Message"), isPresented: $showAlert) {
@@ -486,15 +752,15 @@ struct CoachBroadcastView: View {
 
     private var audienceCard: some View {
         Group {
-            if !coachGroupKey.isEmpty {
+            if !branch.isEmpty {
                 VStack(
                     alignment: isEnglish ? .leading : .trailing,
-                    spacing: 10
+                    spacing: 12
                 ) {
                     Text(
                         tr(
-                            "בחירת קהל יעד",
-                            "Target audience"
+                            "בחירת קבוצות לשליחה",
+                            "Select groups to include"
                         )
                     )
                     .kmiFont(size: 15, weight: .heavy)
@@ -507,51 +773,151 @@ struct CoachBroadcastView: View {
                         screenTextAlignment
                     )
 
-                    HStack(spacing: 10) {
-                        audienceButton(
-                            title: tr(
-                                "הקבוצה שלי",
-                                "My group"
-                            ),
-                            subtitle: tr(
-                                "רק המתאמנים של הקבוצה",
-                                "Only this group's trainees"
-                            ),
-                            isSelected:
-                                sendScope == "group"
-                        ) {
-                            sendScope = "group"
-                        }
+                    audienceButton(
+                        title: tr(
+                            "כל הסניף",
+                            "Entire branch"
+                        ),
+                        subtitle: tr(
+                            "\(recipients.count) מתאמנים פעילים",
+                            "\(recipients.count) active trainees"
+                        ),
+                        isSelected:
+                            sendScope == "branch"
+                    ) {
+                        sendScope = "branch"
+                    }
 
-                        audienceButton(
-                            title: tr(
-                                "כל הסניף",
-                                "Entire branch"
-                            ),
-                            subtitle: tr(
-                                "כולל כל הקבוצות בסניף",
-                                "Includes all groups in branch"
-                            ),
-                            isSelected:
-                                sendScope == "branch"
-                        ) {
-                            sendScope = "branch"
+                    if availableBranchGroups.isEmpty {
+                        if isLoadingRecipients {
+                            HStack(spacing: 10) {
+                                ProgressView()
+
+                                Text(
+                                    tr(
+                                        "טוען את קבוצות הסניף...",
+                                        "Loading branch groups..."
+                                    )
+                                )
+                                .kmiFont(
+                                    size: 13,
+                                    weight: .semibold
+                                )
+                                .foregroundStyle(
+                                    secondaryTextColor
+                                )
+                            }
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: screenFrameAlignment
+                            )
+                        }
+                    } else {
+                        Button {
+                            sendScope = "groups"
+
+                            if selectedTargetGroups
+                                .isSuperset(
+                                    of: availableBranchGroups
+                                ) {
+                                selectedTargetGroups = []
+                            } else {
+                                selectedTargetGroups =
+                                    Set(availableBranchGroups)
+                            }
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(
+                                    systemName:
+                                        selectedTargetGroups
+                                            .isSuperset(
+                                                of:
+                                                    availableBranchGroups
+                                            )
+                                        ? "checkmark.square.fill"
+                                        : "square"
+                                )
+                                .font(
+                                    .system(
+                                        size: 20,
+                                        weight: .bold
+                                    )
+                                )
+                                .foregroundStyle(accentColor)
+
+                                Text(
+                                    tr(
+                                        "בחירת כל הקבוצות",
+                                        "Select all groups"
+                                    )
+                                )
+                                .kmiFont(
+                                    size: 14,
+                                    weight: .heavy
+                                )
+                                .foregroundStyle(
+                                    primaryTextColor
+                                )
+
+                                Spacer()
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 11)
+                            .background(elevatedColor)
+                            .clipShape(
+                                RoundedRectangle(
+                                    cornerRadius: 14,
+                                    style: .continuous
+                                )
+                            )
+                            .overlay(
+                                RoundedRectangle(
+                                    cornerRadius: 14,
+                                    style: .continuous
+                                )
+                                .stroke(
+                                    borderColor,
+                                    lineWidth: 1
+                                )
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        VStack(spacing: 8) {
+                            ForEach(
+                                availableBranchGroups,
+                                id: \.self
+                            ) { groupName in
+                                groupSelectionRow(
+                                    groupName
+                                )
+                            }
                         }
                     }
 
                     Text(
-                        sendScope == "group"
-                            ? tr(
-                                "ההודעה תישלח רק למתאמני הקבוצה: \(coachGroupKey)",
-                                "The message will be sent only to trainees in: \(coachGroupKey)"
-                            )
-                            : tr(
-                                "ההודעה תישלח לכל המתאמנים הפעילים בכל הקבוצות של הסניף שנבחר.",
-                                "The message will be sent to all active trainees in all groups of the selected branch."
-                            )
+                        sendScope == "branch"
+                        ? tr(
+                            "ההודעה תישלח לכל המתאמנים הפעילים בסניף שנבחר.",
+                            "The message will be sent to all active trainees in the selected branch."
+                        )
+                        : effectiveGroupKeys.isEmpty
+                        ? tr(
+                            "סמן לפחות קבוצה אחת כדי להציג מתאמנים ולשלוח הודעה.",
+                            "Select at least one group to show trainees and send a message."
+                        )
+                        : tr(
+                            "ההודעה תישלח רק לקבוצות: \(selectedGroupsSummary)",
+                            "The message will be sent only to: \(selectedGroupsSummary)"
+                        )
                     )
                     .kmiFont(size: 12, weight: .semibold)
-                    .foregroundStyle(secondaryTextColor)
+                    .foregroundStyle(
+                        sendScope != "branch" &&
+                        effectiveGroupKeys.isEmpty
+                        ? Color.orange
+                        : secondaryTextColor
+                    )
                     .frame(
                         maxWidth: .infinity,
                         alignment: screenFrameAlignment
@@ -581,6 +947,107 @@ struct CoachBroadcastView: View {
                 )
             }
         }
+    }
+
+    private func groupSelectionRow(
+        _ groupName: String
+    ) -> some View {
+        let isSelected =
+            sendScope != "branch" &&
+            selectedTargetGroups.contains(groupName)
+
+        return Button {
+            sendScope = "groups"
+
+            if isSelected {
+                selectedTargetGroups.remove(groupName)
+            } else {
+                selectedTargetGroups.insert(groupName)
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Image(
+                    systemName:
+                        isSelected
+                        ? "checkmark.square.fill"
+                        : "square"
+                )
+                .font(
+                    .system(
+                        size: 21,
+                        weight: .bold
+                    )
+                )
+                .foregroundStyle(
+                    isSelected
+                    ? accentColor
+                    : secondaryTextColor
+                )
+
+                VStack(
+                    alignment:
+                        isEnglish
+                        ? .leading
+                        : .trailing,
+                    spacing: 3
+                ) {
+                    Text(groupName)
+                        .kmiFont(
+                            size: 15,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(primaryTextColor)
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: screenFrameAlignment
+                        )
+
+                    Text(
+                        tr(
+                            "\(availableBranchGroupCounts[groupName] ?? 0) מתאמנים",
+                            "\(availableBranchGroupCounts[groupName] ?? 0) trainees"
+                        )
+                    )
+                    .kmiFont(
+                        size: 12,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(secondaryTextColor)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: screenFrameAlignment
+                    )
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 11)
+            .background(
+                isSelected
+                ? accentColor.opacity(
+                    isDarkMode ? 0.18 : 0.10
+                )
+                : elevatedColor
+            )
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: 14,
+                    style: .continuous
+                )
+            )
+            .overlay(
+                RoundedRectangle(
+                    cornerRadius: 14,
+                    style: .continuous
+                )
+                .stroke(
+                    isSelected
+                    ? accentBorderColor
+                    : borderColor,
+                    lineWidth: 1
+                )
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private func audienceButton(
@@ -651,40 +1118,90 @@ struct CoachBroadcastView: View {
     }
 
     private var regionPickerCard: some View {
-        Menu {
-            ForEach(regionOptions, id: \.self) { item in
-                Button(item) {
-                    region = item
-                }
-            }
+        Button {
+            showRegionPicker = true
         } label: {
             pickerCard(
-                title: tr("אזור", "Region"),
-                value: region.isEmpty ? tr("בחר אזור", "Choose region") : region
+                title: tr(
+                    "אזור",
+                    "Region"
+                ),
+                value:
+                    region.isEmpty
+                    ? tr(
+                        "בחר אזור",
+                        "Choose region"
+                    )
+                    : region
             )
         }
         .buttonStyle(.plain)
+        .popover(
+            isPresented:
+                $showRegionPicker,
+            arrowEdge: .top
+        ) {
+            pickerPopover(
+                title: tr(
+                    "בחירת אזור",
+                    "Choose region"
+                ),
+                options: regionOptions,
+                selectedValue: region
+            ) { selectedRegion in
+                region = selectedRegion
+                showRegionPicker = false
+            }
+            .presentationCompactAdaptation(
+                .popover
+            )
+        }
     }
 
     private var branchPickerCard: some View {
-        Menu {
-            ForEach(branchOptions, id: \.self) { item in
-                Button(item) {
-                    branch = item
-                }
-            }
+        Button {
+            showBranchPicker = true
         } label: {
             pickerCard(
-                title: tr("סניף", "Branch"),
-                value: branch.isEmpty ? tr("בחר סניף", "Choose branch") : branch
+                title: tr(
+                    "סניף",
+                    "Branch"
+                ),
+                value:
+                    branch.isEmpty
+                    ? tr(
+                        "בחר סניף",
+                        "Choose branch"
+                    )
+                    : branch
             )
         }
         .buttonStyle(.plain)
+        .popover(
+            isPresented:
+                $showBranchPicker,
+            arrowEdge: .top
+        ) {
+            pickerPopover(
+                title: tr(
+                    "בחירת סניף",
+                    "Choose branch"
+                ),
+                options: branchOptions,
+                selectedValue: branch
+            ) { selectedBranch in
+                branch = selectedBranch
+                showBranchPicker = false
+            }
+            .presentationCompactAdaptation(
+                .popover
+            )
+        }
     }
 
     private var messageCard: some View {
         VStack(
-            alignment: isEnglish ? .leading : .trailing,
+            alignment: .leading,
             spacing: 8
         ) {
             Text(
@@ -693,21 +1210,19 @@ struct CoachBroadcastView: View {
                     "Message text"
                 )
             )
-            .kmiFont(size: 14, weight: .bold)
+            .kmiFont(
+                size: 14,
+                weight: .bold
+            )
             .foregroundStyle(primaryTextColor)
             .frame(
                 maxWidth: .infinity,
-                alignment: screenFrameAlignment
+                alignment: .leading
             )
-            .multilineTextAlignment(
-                screenTextAlignment
-            )
+            .multilineTextAlignment(.leading)
 
             ZStack(
-                alignment:
-                    isEnglish
-                    ? .topLeading
-                    : .topTrailing
+                alignment: .topLeading
             ) {
                 if message.isEmpty {
                     Text(
@@ -720,26 +1235,45 @@ struct CoachBroadcastView: View {
                         size: 15,
                         weight: .medium
                     )
-                    .foregroundStyle(secondaryTextColor)
+                    .foregroundStyle(
+                        secondaryTextColor
+                    )
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .leading
+                    )
+                    .multilineTextAlignment(.leading)
                     .padding(.horizontal, 13)
                     .padding(.vertical, 16)
                     .allowsHitTesting(false)
                 }
 
-                TextEditor(text: $message)
-                    .kmiFont(
-                        size: 15,
-                        weight: .medium
-                    )
-                    .foregroundStyle(primaryTextColor)
-                    .frame(minHeight: 112)
-                    .scrollContentBackground(.hidden)
-                    .padding(8)
-                    .background(Color.clear)
-                    .multilineTextAlignment(
-                        screenTextAlignment
-                    )
+                TextEditor(
+                    text: $message
+                )
+                .kmiFont(
+                    size: 15,
+                    weight: .medium
+                )
+                .foregroundStyle(
+                    primaryTextColor
+                )
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: 112,
+                    alignment: .topLeading
+                )
+                .scrollContentBackground(
+                    .hidden
+                )
+                .padding(8)
+                .background(Color.clear)
+                .multilineTextAlignment(.leading)
             }
+            .frame(
+                maxWidth: .infinity,
+                alignment: .leading
+            )
             .background(fieldColor)
             .overlay(
                 RoundedRectangle(
@@ -758,6 +1292,14 @@ struct CoachBroadcastView: View {
                 )
             )
         }
+        .frame(
+            maxWidth: .infinity,
+            alignment: .leading
+        )
+        .environment(
+            \.layoutDirection,
+            screenLayoutDirection
+        )
     }
 
     private var recipientsCard: some View {
@@ -898,19 +1440,38 @@ struct CoachBroadcastView: View {
     }
 
     private var recipientsTitleText: String {
-        if effectiveGroupKey.isEmpty {
-            return tr("נמענים בסניף: \(recipients.count)", "Recipients in branch: \(recipients.count)")
+        if sendScope == "branch" {
+            return tr(
+                "נמענים בסניף: \(recipients.count)",
+                "Recipients in branch: \(recipients.count)"
+            )
         }
 
-        return tr("נמענים בקבוצה: \(recipients.count)", "Recipients in group: \(recipients.count)")
+        return tr(
+            "נמענים בקבוצות שנבחרו: \(recipients.count)",
+            "Recipients in selected groups: \(recipients.count)"
+        )
     }
 
     private var emptyRecipientsText: String {
-        if effectiveGroupKey.isEmpty {
-            return tr("לא נמצאו מתאמנים פעילים לסניף שנבחר.", "No active trainees were found for the selected branch.")
+        if sendScope == "branch" {
+            return tr(
+                "לא נמצאו מתאמנים פעילים בסניף שנבחר.",
+                "No active trainees were found in the selected branch."
+            )
         }
 
-        return tr("לא נמצאו מתאמנים פעילים לסניף ולקבוצה שנבחרו.", "No active trainees were found for the selected branch and group.")
+        if effectiveGroupKeys.isEmpty {
+            return tr(
+                "לא נבחרו קבוצות לשליחה.",
+                "No groups were selected for sending."
+            )
+        }
+
+        return tr(
+            "לא נמצאו מתאמנים פעילים בקבוצות שנבחרו.",
+            "No active trainees were found in the selected groups."
+        )
     }
 
     private var selectAllButton: some View {
@@ -1141,14 +1702,14 @@ struct CoachBroadcastView: View {
             spacing: 5
         ) {
             Text(
-                effectiveGroupKey.isEmpty
+                sendScope == "branch"
                     ? tr(
                         "מתאמנים בסניף: \(recipients.count)",
                         "Trainees in branch: \(recipients.count)"
                     )
                     : tr(
-                        "מתאמנים בקבוצה \(effectiveGroupKey): \(recipients.count)",
-                        "Trainees in \(effectiveGroupKey): \(recipients.count)"
+                        "מתאמנים בקבוצות שנבחרו: \(recipients.count)",
+                        "Trainees in selected groups: \(recipients.count)"
                     )
             )
             .kmiFont(size: 15, weight: .bold)
@@ -1281,6 +1842,159 @@ struct CoachBroadcastView: View {
         .opacity(isDisabled ? 0.45 : 1)
     }
 
+    private func pickerPopover(
+        title: String,
+        options: [String],
+        selectedValue: String,
+        onSelect: @escaping (String) -> Void
+    ) -> some View {
+        VStack(spacing: 0) {
+            Text(title)
+                .kmiFont(
+                    size: 16,
+                    weight: .heavy
+                )
+                .foregroundStyle(primaryTextColor)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment:
+                        isEnglish
+                        ? .leading
+                        : .trailing
+                )
+                .multilineTextAlignment(
+                    isEnglish
+                    ? .leading
+                    : .trailing
+                )
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+
+            Divider()
+                .overlay(borderColor)
+
+            ScrollView {
+                LazyVStack(spacing: 6) {
+                    ForEach(
+                        options,
+                        id: \.self
+                    ) { item in
+                        let isSelected =
+                            item == selectedValue
+
+                        Button {
+                            onSelect(item)
+                        } label: {
+                            HStack(spacing: 10) {
+                                if !isEnglish {
+                                    selectionIndicator(
+                                        isSelected:
+                                            isSelected
+                                    )
+                                }
+
+                                Text(item)
+                                    .kmiFont(
+                                        size: 15,
+                                        weight:
+                                            isSelected
+                                            ? .heavy
+                                            : .semibold
+                                    )
+                                    .foregroundStyle(
+                                        isSelected
+                                        ? accentColor
+                                        : primaryTextColor
+                                    )
+                                    .frame(
+                                        maxWidth: .infinity,
+                                        alignment:
+                                            isEnglish
+                                            ? .leading
+                                            : .trailing
+                                    )
+                                    .multilineTextAlignment(
+                                        isEnglish
+                                        ? .leading
+                                        : .trailing
+                                    )
+                                    .fixedSize(
+                                        horizontal: false,
+                                        vertical: true
+                                    )
+
+                                if isEnglish {
+                                    selectionIndicator(
+                                        isSelected:
+                                            isSelected
+                                    )
+                                }
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 11)
+                            .background(
+                                isSelected
+                                ? accentColor.opacity(
+                                    isDarkMode
+                                    ? 0.18
+                                    : 0.10
+                                )
+                                : Color.clear
+                            )
+                            .clipShape(
+                                RoundedRectangle(
+                                    cornerRadius: 12,
+                                    style: .continuous
+                                )
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(8)
+            }
+        }
+        .frame(
+            width: 300,
+            height:
+                min(
+                    CGFloat(
+                        options.count * 54 + 58
+                    ),
+                    370
+                )
+        )
+        .background(panelColor)
+        .environment(
+            \.layoutDirection,
+            .leftToRight
+        )
+    }
+
+    @ViewBuilder
+    private func selectionIndicator(
+        isSelected: Bool
+    ) -> some View {
+        Image(
+            systemName:
+                isSelected
+                ? "checkmark.circle.fill"
+                : "circle"
+        )
+        .font(
+            .system(
+                size: 18,
+                weight: .bold
+            )
+        )
+        .foregroundStyle(
+            isSelected
+            ? accentColor
+            : secondaryTextColor.opacity(0.55)
+        )
+        .frame(width: 24)
+    }
+    
     private func pickerCard(
         title: String,
         value: String
@@ -1294,26 +2008,30 @@ struct CoachBroadcastView: View {
                     textAlignment: .leading
                 )
 
-                Image(systemName: "chevron.down")
-                    .font(
-                        .system(
-                            size: 13,
-                            weight: .bold
-                        )
+                Image(
+                    systemName: "chevron.down"
+                )
+                .font(
+                    .system(
+                        size: 13,
+                        weight: .bold
                     )
-                    .foregroundStyle(accentColor)
-                    .frame(width: 24)
+                )
+                .foregroundStyle(accentColor)
+                .frame(width: 24)
 
             } else {
-                Image(systemName: "chevron.down")
-                    .font(
-                        .system(
-                            size: 13,
-                            weight: .bold
-                        )
+                Image(
+                    systemName: "chevron.down"
+                )
+                .font(
+                    .system(
+                        size: 13,
+                        weight: .bold
                     )
-                    .foregroundStyle(accentColor)
-                    .frame(width: 24)
+                )
+                .foregroundStyle(accentColor)
+                .frame(width: 24)
 
                 pickerTexts(
                     title: title,
@@ -1323,6 +2041,10 @@ struct CoachBroadcastView: View {
                 )
             }
         }
+        /*
+         * LTR מכוון כאן רק את המיקום הפיזי:
+         * חץ משמאל וטקסט מימין בעברית.
+         */
         .environment(
             \.layoutDirection,
             .leftToRight
@@ -1395,11 +2117,29 @@ struct CoachBroadcastView: View {
 
     private func preloadDefaults() {
         if region.isEmpty {
-            region = auth.userRegion.trimmingCharacters(in: .whitespacesAndNewlines)
+            region = auth.userRegion.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
         }
 
         if branch.isEmpty {
-            branch = auth.userBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+            let savedBranch =
+                auth.userBranch
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+            if branchOptions.contains(savedBranch) {
+                branch = savedBranch
+            } else {
+                branch =
+                    branchOptions.first ?? ""
+            }
+        }
+
+        if selectedTargetGroups.isEmpty,
+           !coachGroupKey.isEmpty {
+            selectedTargetGroups.insert(coachGroupKey)
         }
 
         if !branch.isEmpty {
@@ -1485,55 +2225,100 @@ struct CoachBroadcastView: View {
                 .filter { !$0.isEmpty }
         }
 
-        func groupAliases(_ value: String) -> Set<String> {
+        func groupAliases(
+            _ value: String
+        ) -> Set<String> {
             let clean = norm(value)
+
+            guard !clean.isEmpty else {
+                return []
+            }
+
             var aliases = Set<String>()
 
-            if !clean.isEmpty {
-                aliases.insert(clean)
-            }
+            aliases.insert(clean)
 
             for token in splitTokens(clean) {
                 aliases.insert(token)
             }
 
-            if clean.contains("נוער") && clean.contains("בוגרים") {
-                aliases.insert("נוער")
-                aliases.insert("בוגרים")
-                aliases.insert("נוער ובוגרים")
-                aliases.insert("נוער + בוגרים")
-            }
-
-            if clean.localizedCaseInsensitiveContains("children") ||
-                clean.localizedCaseInsensitiveContains("kids") {
+            switch clean.lowercased() {
+            case "children", "kids":
                 aliases.insert("ילדים")
-            }
 
-            if clean.localizedCaseInsensitiveContains("youth") {
+            case "youth":
                 aliases.insert("נוער")
-            }
 
-            if clean.localizedCaseInsensitiveContains("adult") ||
-                clean.localizedCaseInsensitiveContains("adults") {
+            case "adult", "adults":
                 aliases.insert("בוגרים")
+
+            default:
+                break
             }
 
-            return Set(aliases.map { norm($0) }.filter { !$0.isEmpty })
+            /*
+             * "נוער + בוגרים" נשארת קבוצה עצמאית.
+             * אין לפרק אותה ל"נוער" ול"בוגרים".
+             */
+            return Set(
+                aliases
+                    .map { norm($0) }
+                    .filter { !$0.isEmpty }
+            )
         }
 
-        func stringValue(_ data: [String: Any], _ key: String) -> String {
-            (data[key] as? String) ?? ""
+        func stringValue(
+            _ data: [String: Any],
+            _ key: String
+        ) -> String {
+            if let value = data[key] as? String {
+                return value
+            }
+
+            if let value = data[key] as? NSNumber {
+                return value.stringValue
+            }
+
+            return ""
         }
 
-        func stringArrayValue(_ data: [String: Any], _ key: String) -> [String] {
-            (data[key] as? [String]) ?? []
+        func stringArrayValue(
+            _ data: [String: Any],
+            _ key: String
+        ) -> [String] {
+            if let values = data[key] as? [String] {
+                return values
+            }
+
+            if let values = data[key] as? [Any] {
+                return values.compactMap {
+                    if let value = $0 as? String {
+                        return value
+                    }
+
+                    if let value = $0 as? NSNumber {
+                        return value.stringValue
+                    }
+
+                    return nil
+                }
+            }
+
+            return []
         }
 
-        func groupValues(from data: [String: Any]) -> Set<String> {
+        func groupValues(
+            from data: [String: Any]
+        ) -> Set<String> {
             var values = Set<String>()
 
-            for value in stringArrayValue(data, "groups") {
-                values.formUnion(groupAliases(value))
+            for value in stringArrayValue(
+                data,
+                "groups"
+            ) {
+                values.formUnion(
+                    groupAliases(value)
+                )
             }
 
             let keys = [
@@ -1546,25 +2331,209 @@ struct CoachBroadcastView: View {
                 "groupName",
                 "groupsCsv",
                 "groupCsv",
-                "age_group"
+                "age_group",
+                "ageGroup",
+                "coach_groupKey",
+                "selected_groupKey",
+                "current_groupKey"
             ]
 
             for key in keys {
-                let rawValue = stringValue(data, key)
-                let tokens = splitTokens(rawValue)
+                let rawValue = stringValue(
+                    data,
+                    key
+                )
 
-                if tokens.isEmpty, !norm(rawValue).isEmpty {
-                    values.formUnion(groupAliases(rawValue))
+                let tokens = splitTokens(
+                    rawValue
+                )
+
+                if tokens.isEmpty {
+                    let clean = norm(rawValue)
+
+                    if !clean.isEmpty {
+                        values.formUnion(
+                            groupAliases(clean)
+                        )
+                    }
                 } else {
                     for token in tokens {
-                        values.formUnion(groupAliases(token))
+                        values.formUnion(
+                            groupAliases(token)
+                        )
                     }
                 }
             }
 
-            return Set(values.map { norm($0) }.filter { !$0.isEmpty })
+            return Set(
+                values
+                    .map { norm($0) }
+                    .filter { !$0.isEmpty }
+            )
         }
 
+        func groupDisplayValues(
+            from data: [String: Any]
+        ) -> Set<String> {
+            var values = Set<String>()
+
+            for value in stringArrayValue(
+                data,
+                "groups"
+            ) {
+                let clean = norm(value)
+
+                if !clean.isEmpty {
+                    values.insert(clean)
+                }
+            }
+
+            let keys = [
+                "primaryGroup",
+                "activeGroup",
+                "active_group",
+                "groupKey",
+                "group_key",
+                "group",
+                "groupName",
+                "groupsCsv",
+                "groupCsv",
+                "age_group",
+                "ageGroup",
+                "coach_groupKey",
+                "selected_groupKey",
+                "current_groupKey"
+            ]
+
+            for key in keys {
+                let rawValue = stringValue(
+                    data,
+                    key
+                )
+
+                let tokens = splitTokens(
+                    rawValue
+                )
+
+                if tokens.isEmpty {
+                    let clean = norm(rawValue)
+
+                    if !clean.isEmpty {
+                        values.insert(clean)
+                    }
+                } else {
+                    for token in tokens {
+                        let clean = norm(token)
+
+                        if !clean.isEmpty {
+                            values.insert(clean)
+                        }
+                    }
+                }
+            }
+
+            return values
+        }
+
+        func regionValues(
+            from data: [String: Any]
+        ) -> Set<String> {
+            var values = Set<String>()
+
+            for value in stringArrayValue(
+                data,
+                "regions"
+            ) {
+                let clean = norm(value)
+
+                if !clean.isEmpty {
+                    values.insert(clean)
+                }
+            }
+
+            let keys = [
+                "region",
+                "activeRegion",
+                "active_region",
+                "userRegion",
+                "selected_region",
+                "current_region"
+            ]
+
+            for key in keys {
+                let rawValue = stringValue(
+                    data,
+                    key
+                )
+
+                let tokens = splitTokens(
+                    rawValue
+                )
+
+                if tokens.isEmpty {
+                    let clean = norm(rawValue)
+
+                    if !clean.isEmpty {
+                        values.insert(clean)
+                    }
+                } else {
+                    values.formUnion(tokens)
+                }
+            }
+
+            return values
+        }
+
+        func branchValues(
+            from data: [String: Any]
+        ) -> Set<String> {
+            var values = Set<String>()
+
+            for value in stringArrayValue(
+                data,
+                "branches"
+            ) {
+                let clean = norm(value)
+
+                if !clean.isEmpty {
+                    values.insert(clean)
+                }
+            }
+
+            let keys = [
+                "branch",
+                "activeBranch",
+                "active_branch",
+                "branchesCsv",
+                "coach_branch",
+                "selected_branch",
+                "current_branch"
+            ]
+
+            for key in keys {
+                let rawValue = stringValue(
+                    data,
+                    key
+                )
+
+                let tokens = splitTokens(
+                    rawValue
+                )
+
+                if tokens.isEmpty {
+                    let clean = norm(rawValue)
+
+                    if !clean.isEmpty {
+                        values.insert(clean)
+                    }
+                } else {
+                    values.formUnion(tokens)
+                }
+            }
+
+            return values
+        }
+        
         func hasSoftMatch(
             storedValues: Set<String>,
             candidates: Set<String>
@@ -1590,27 +2559,101 @@ struct CoachBroadcastView: View {
             return false
         }
 
+        func hasExactMatch(
+            storedValues: Set<String>,
+            candidates: Set<String>
+        ) -> Bool {
+            guard
+                !storedValues.isEmpty,
+                !candidates.isEmpty
+            else {
+                return false
+            }
+
+            let normalizedStoredValues =
+                Set(
+                    storedValues
+                        .map {
+                            norm($0).lowercased()
+                        }
+                        .filter { !$0.isEmpty }
+                )
+
+            let normalizedCandidates =
+                Set(
+                    candidates
+                        .map {
+                            norm($0).lowercased()
+                        }
+                        .filter { !$0.isEmpty }
+                )
+
+            return !normalizedStoredValues
+                .isDisjoint(
+                    with: normalizedCandidates
+                )
+        }
+
+        func recipientIdentityKey(
+            uid: String,
+            phone: String,
+            email: String
+        ) -> String {
+            let phoneKey = normalizedPhone(phone)
+
+            if !phoneKey.isEmpty {
+                return "phone:\(phoneKey)"
+            }
+
+            let emailKey = email
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
+
+            if !emailKey.isEmpty {
+                return "email:\(emailKey)"
+            }
+
+            let uidKey = uid.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+            if !uidKey.isEmpty {
+                return "uid:\(uidKey)"
+            }
+
+            return ""
+        }
+
         let regionNorm = norm(region)
         let branchPrimary = primaryBranch(norm(branch))
-        let groupCandidates = groupAliases(effectiveGroupKey)
+
+        let groupCandidates = Set(
+            effectiveGroupKeys.flatMap {
+                Array(groupAliases($0))
+            }
+        )
 
         guard !regionNorm.isEmpty, !branchPrimary.isEmpty else {
             recipients = []
             return
         }
 
-        var previousSelectionByPhone: [String: Bool] = [:]
+        var previousSelectionByIdentity: [String: Bool] = [:]
 
         for recipient in recipients {
-            let phoneKey = normalizedPhone(
-                recipient.phone
+            let identityKey = recipientIdentityKey(
+                uid: recipient.uid,
+                phone: recipient.phone,
+                email: recipient.email
             )
 
-            guard !phoneKey.isEmpty else {
+            guard !identityKey.isEmpty else {
                 continue
             }
 
-            previousSelectionByPhone[phoneKey] =
+            previousSelectionByIdentity[identityKey] =
                 recipient.selected
         }
 
@@ -1628,8 +2671,6 @@ struct CoachBroadcastView: View {
 
         let query = Firestore.firestore()
             .collection("users")
-            .whereField("region", isEqualTo: regionNorm)
-            .whereField("role", isEqualTo: "trainee")
 
         query.getDocuments { snapshot, error in
             isLoadingRecipients = false
@@ -1658,8 +2699,11 @@ struct CoachBroadcastView: View {
                 return
             }
 
-            var uniqueByPhone:
+            var uniqueRecipients:
                 [String: CoachBroadcastRecipient] = [:]
+
+            var discoveredGroupMembers:
+                [String: Set<String>] = [:]
 
             for doc in docs {
                 let data = doc.data()
@@ -1667,28 +2711,117 @@ struct CoachBroadcastView: View {
                 let isActive = data["isActive"] as? Bool ?? true
                 guard isActive else { continue }
 
-                let branches = stringArrayValue(data, "branches").map { norm($0) }
-                let branchSingle = norm(stringValue(data, "branch"))
-                let activeBranch = norm(stringValue(data, "activeBranch"))
-                let activeBranchSnake = norm(stringValue(data, "active_branch"))
-                let branchesCsvRaw = stringValue(data, "branchesCsv")
-                let branchesCsvItems = splitTokens(branchesCsvRaw)
+                let role = norm(
+                    stringValue(data, "role")
+                )
+                .lowercased()
+
+                let isTrainee =
+                    role.isEmpty ||
+                    role == "trainee" ||
+                    role.contains("trainee") ||
+                    role.contains("student") ||
+                    role.contains("מתאמן") ||
+                    role.contains("חניך")
+
+                guard isTrainee else { continue }
+
+                let storedRegions =
+                    regionValues(from: data)
+
+                let regionMatches =
+                    storedRegions.isEmpty ||
+                    hasSoftMatch(
+                        storedValues:
+                            storedRegions,
+                        candidates:
+                            Set([regionNorm])
+                    )
+
+                guard regionMatches else { continue }
+
+                let storedBranches =
+                    branchValues(from: data)
 
                 let branchMatches =
-                    branches.contains { branchCandidates.contains($0) } ||
-                    branchCandidates.contains(branchSingle) ||
-                    branchCandidates.contains(activeBranch) ||
-                    branchCandidates.contains(activeBranchSnake) ||
-                    branchesCsvItems.contains { branchCandidates.contains($0) } ||
-                    branchCandidates.contains(norm(branchesCsvRaw))
+                    hasExactMatch(
+                        storedValues:
+                            storedBranches,
+                        candidates:
+                            branchCandidates
+                    )
 
                 guard branchMatches else { continue }
 
-                let storedGroupValues = groupValues(from: data)
-                let groupMatches = hasSoftMatch(
-                    storedValues: storedGroupValues,
-                    candidates: groupCandidates
+                let storedGroupValues =
+                    groupValues(from: data)
+
+                let displayGroupValues =
+                    groupDisplayValues(from: data)
+
+                let countingPhone = (
+                    stringValue(data, "phone").isEmpty
+                    ? (
+                        stringValue(data, "phoneNumber").isEmpty
+                        ? stringValue(data, "phone_number")
+                        : stringValue(data, "phoneNumber")
+                    )
+                    : stringValue(data, "phone")
                 )
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+                let countingEmail =
+                    stringValue(data, "email")
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                        .lowercased()
+
+                let countingUidValue =
+                    stringValue(data, "uid")
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+
+                let countingUid =
+                    countingUidValue.isEmpty
+                    ? doc.documentID
+                    : countingUidValue
+
+                let countingIdentityKey =
+                    recipientIdentityKey(
+                        uid: countingUid,
+                        phone: countingPhone,
+                        email: countingEmail
+                    )
+
+                if !countingIdentityKey.isEmpty {
+                    for groupName in displayGroupValues
+                        where !groupName.isEmpty {
+                        discoveredGroupMembers[
+                            groupName,
+                            default: []
+                        ]
+                        .insert(countingIdentityKey)
+                    }
+                }
+
+                let groupMatches: Bool
+
+                if sendScope == "branch" {
+                    groupMatches = true
+                } else {
+                    groupMatches =
+                        !groupCandidates.isEmpty &&
+                        hasExactMatch(
+                            storedValues:
+                                storedGroupValues,
+                            candidates:
+                                groupCandidates
+                        )
+                }
 
                 guard groupMatches else { continue }
 
@@ -1705,9 +2838,14 @@ struct CoachBroadcastView: View {
 
                 let phoneKey = normalizedPhone(phone)
 
-                guard !phoneKey.isEmpty else {
-                    continue
-                }
+                let email = stringValue(
+                    data,
+                    "email"
+                )
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
 
                 let fullName = stringValue(
                     data,
@@ -1716,31 +2854,68 @@ struct CoachBroadcastView: View {
                 .trimmingCharacters(
                     in: .whitespacesAndNewlines
                 )
-                let nameValue = stringValue(data, "name").trimmingCharacters(in: .whitespacesAndNewlines)
-                let displayName = stringValue(data, "displayName").trimmingCharacters(in: .whitespacesAndNewlines)
+
+                let nameValue = stringValue(
+                    data,
+                    "name"
+                )
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+                let displayName = stringValue(
+                    data,
+                    "displayName"
+                )
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+                let uidValue = stringValue(
+                    data,
+                    "uid"
+                )
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+                let uid = uidValue.isEmpty
+                    ? doc.documentID
+                    : uidValue
+
+                let identityKey = recipientIdentityKey(
+                    uid: uid,
+                    phone: phone,
+                    email: email
+                )
+
+                guard !identityKey.isEmpty else {
+                    continue
+                }
 
                 let name =
                     !fullName.isEmpty ? fullName :
                     !nameValue.isEmpty ? nameValue :
                     !displayName.isEmpty ? displayName :
+                    !email.isEmpty ? email :
                     phone
-
-                let uidValue = stringValue(data, "uid").trimmingCharacters(in: .whitespacesAndNewlines)
-                let uid = uidValue.isEmpty ? doc.documentID : uidValue
 
                 let incomingRecipient =
                     CoachBroadcastRecipient(
-                        id: uid,
+                        id: uid.isEmpty
+                            ? (!phoneKey.isEmpty ? phoneKey : email)
+                            : uid,
                         uid: uid,
                         name: name,
                         phone: phone,
+                        email: email,
                         selected:
-                            previousSelectionByPhone[phoneKey]
+                            previousSelectionByIdentity[identityKey]
                             ?? true
-                    )
+                        )
 
-                if let existing =
-                    uniqueByPhone[phoneKey] {
+                        if let existing =
+                            uniqueRecipients[identityKey] {
 
                     let preferredName =
                         existing.name.count >= name.count
@@ -1752,8 +2927,8 @@ struct CoachBroadcastView: View {
                         ? existing.phone
                         : phone
 
-                    uniqueByPhone[phoneKey] =
-                        CoachBroadcastRecipient(
+                            uniqueRecipients[identityKey] =
+                                CoachBroadcastRecipient(
                             id: existing.id,
                             uid:
                                 existing.uid.isEmpty
@@ -1761,20 +2936,100 @@ struct CoachBroadcastView: View {
                                 : existing.uid,
                             name: preferredName,
                             phone: preferredPhone,
+                            email:
+                                existing.email.isEmpty
+                                ? email
+                                : existing.email,
                             selected:
                                 existing.selected ||
                                 incomingRecipient.selected
                         )
 
-                } else {
-                    uniqueByPhone[phoneKey] =
-                        incomingRecipient
+                        } else {
+                            uniqueRecipients[identityKey] =
+                                incomingRecipient
+                        }
+            }
+
+            availableBranchGroupCounts =
+                discoveredGroupMembers.mapValues {
+                    $0.count
+                }
+
+            availableBranchGroups =
+                discoveredGroupMembers.keys
+                    .sorted {
+                        $0.localizedCaseInsensitiveCompare(
+                            $1
+                        ) == .orderedAscending
+                    }
+
+            var resolvedSelectedGroups =
+                Set<String>()
+
+            for selectedGroup in selectedTargetGroups {
+                let selectedAliases =
+                    groupAliases(selectedGroup)
+
+                if let exactGroup =
+                    availableBranchGroups.first(
+                        where: {
+                            norm($0) == norm(selectedGroup)
+                        }
+                    ) {
+                    resolvedSelectedGroups.insert(
+                        exactGroup
+                    )
+                    continue
+                }
+
+                if let matchingGroup =
+                    availableBranchGroups.first(
+                        where: { availableGroup in
+                            hasExactMatch(
+                                storedValues:
+                                    groupAliases(availableGroup),
+                                candidates:
+                                    selectedAliases
+                            )
+                        }
+                    ) {
+                    resolvedSelectedGroups.insert(
+                        matchingGroup
+                    )
                 }
             }
 
-            recipients = uniqueByPhone
+            if resolvedSelectedGroups.isEmpty,
+               sendScope != "branch",
+               let coachGroup =
+                   availableBranchGroups.first(
+                    where: { availableGroup in
+                        hasExactMatch(
+                            storedValues:
+                                groupAliases(availableGroup),
+                            candidates:
+                                groupAliases(coachGroupKey)
+                        )
+                    }
+                   ) {
+                resolvedSelectedGroups.insert(
+                    coachGroup
+                )
+            }
+
+            if resolvedSelectedGroups != selectedTargetGroups {
+                selectedTargetGroups =
+                    resolvedSelectedGroups
+            }
+
+            recipients = uniqueRecipients
                 .map(\.value)
-                .sorted { $0.name < $1.name }
+                .sorted {
+                    $0.name.localizedCaseInsensitiveCompare(
+                        $1.name
+                    ) == .orderedAscending
+                }
         }
     }
 
@@ -1815,8 +3070,12 @@ struct CoachBroadcastView: View {
             branch: branch,
             message: cleanMessage,
             targetUids: selectedUids,
-            targetRecipients: selectedRecipients
-        ) { succeeded in
+            targetRecipients: selectedRecipients,
+            targetGroups:
+                sendScope == "branch"
+                ? []
+                : effectiveGroupKeys
+            ) { succeeded in
             guard succeeded else {
                 return
             }
@@ -1911,6 +3170,7 @@ struct CoachBroadcastView: View {
         message: String,
         targetUids: [String],
         targetRecipients: [CoachBroadcastRecipient],
+        targetGroups: [String],
         completion: @escaping (Bool) -> Void
     ) {
         guard let currentUser =
@@ -1934,27 +3194,82 @@ struct CoachBroadcastView: View {
         let cleanBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let cleanTargetUids = targetUids
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        let cleanTargetUids = Array(
+            Set(
+                targetUids
+                    .map {
+                        $0.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                    }
+                    .filter { !$0.isEmpty }
+            )
+        )
+        .sorted()
 
-        let recipientSnapshots: [[String: String]] = targetRecipients.map {
-            [
-                "uid": $0.uid,
-                "name": $0.name,
-                "phone": $0.phone
-            ]
-        }
+        let cleanTargetGroups = Array(
+            Set(
+                targetGroups
+                    .map {
+                        $0.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                    }
+                    .filter { !$0.isEmpty }
+            )
+        )
+        .sorted()
 
-        let targetPhones = targetRecipients
-            .map(\.phone)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        let recipientSnapshots: [[String: String]] =
+            targetRecipients
+                .map {
+                    [
+                        "uid": $0.uid.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ),
+                        "name": $0.name.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ),
+                        "phone": $0.phone.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ),
+                        "email": $0.email.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                    ]
+                }
+                .filter {
+                    !($0["uid"] ?? "").isEmpty ||
+                    !($0["phone"] ?? "").isEmpty ||
+                    !($0["email"] ?? "").isEmpty
+                }
 
-        let targetNames = targetRecipients
-            .map(\.name)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        let targetPhones = Array(
+            Set(
+                recipientSnapshots
+                    .compactMap { $0["phone"] }
+                    .filter { !$0.isEmpty }
+            )
+        )
+        .sorted()
+
+        let targetNames = Array(
+            Set(
+                recipientSnapshots
+                    .compactMap { $0["name"] }
+                    .filter { !$0.isEmpty }
+            )
+        )
+        .sorted()
+
+        let targetEmails = Array(
+            Set(
+                recipientSnapshots
+                    .compactMap { $0["email"] }
+                    .filter { !$0.isEmpty }
+            )
+        )
+        .sorted()
 
         let coachName = [
             currentUser.displayName,
@@ -1990,6 +3305,13 @@ struct CoachBroadcastView: View {
             "region": cleanRegion,
             "branch": cleanBranch,
 
+            "group": cleanTargetGroups.joined(separator: ", "),
+            "groupKey": cleanTargetGroups.joined(separator: ", "),
+            "groups": cleanTargetGroups,
+            "targetGroup": cleanTargetGroups.joined(separator: ", "),
+            "targetGroups": cleanTargetGroups,
+            "selectedGroups": cleanTargetGroups,
+
             "text": cleanMessage,
             "message": cleanMessage,
             "body": cleanMessage,
@@ -2001,6 +3323,7 @@ struct CoachBroadcastView: View {
             "targetRecipients": recipientSnapshots,
             "targetPhones": targetPhones,
             "targetNames": targetNames,
+            "targetEmails": targetEmails,
             "targetRecipientSnapshotCount": recipientSnapshots.count,
 
             "pushEnabled": true,
@@ -2053,5 +3376,6 @@ private struct CoachBroadcastRecipient: Identifiable {
     let uid: String
     let name: String
     let phone: String
+    let email: String
     var selected: Bool
 }

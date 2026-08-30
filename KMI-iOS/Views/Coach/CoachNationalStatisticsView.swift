@@ -486,7 +486,10 @@ struct CoachNationalStatisticsView: View {
         let total =
             max(
                 rows.reduce(0) {
-                    $0 + $1.1
+                    partialResult,
+                    row in
+
+                    partialResult + row.1
                 },
                 1
             )
@@ -527,86 +530,12 @@ struct CoachNationalStatisticsView: View {
             ForEach(
                 Array(rows.enumerated()),
                 id: \.offset
-            ) { _, row in
-                let percentage =
-                    Int(
-                        (
-                            Double(row.1) /
-                            Double(total) *
-                            100
-                        )
-                        .rounded()
-                    )
-
-                VStack(spacing: 6) {
-                    HStack(spacing: 8) {
-                        Text(row.0)
-                            .font(
-                                .subheadline.weight(
-                                    .bold
-                                )
-                            )
-                            .foregroundStyle(primary)
-                            .frame(
-                                maxWidth: .infinity,
-                                alignment: align
-                            )
-
-                        Text(
-                            "\(row.1) • \(percentage)%"
-                        )
-                        .font(
-                            .subheadline.weight(
-                                .black
-                            )
-                        )
-                        .foregroundStyle(.cyan)
-                        .fixedSize()
-                    }
-
-                    GeometryReader { proxy in
-                        ZStack(
-                            alignment:
-                                rtl
-                                ? .trailing
-                                : .leading
-                        ) {
-                            Capsule()
-                                .fill(
-                                    Color.secondary
-                                        .opacity(0.14)
-                                )
-
-                            Capsule()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            Color(
-                                                red: 0.31,
-                                                green: 0.27,
-                                                blue: 0.90
-                                            ),
-                                            Color(
-                                                red: 0.02,
-                                                green: 0.65,
-                                                blue: 0.91
-                                            )
-                                        ],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .frame(
-                                    width:
-                                        proxy.size.width *
-                                        CGFloat(row.1) /
-                                        CGFloat(total)
-                                )
-                        }
-                    }
-                    .frame(height: 8)
-                }
-                .padding(.vertical, 2)
+            ) { item in
+                distributionRow(
+                    title: item.element.0,
+                    count: item.element.1,
+                    total: total
+                )
             }
         }
         .padding(16)
@@ -629,6 +558,102 @@ struct CoachNationalStatisticsView: View {
                 lineWidth: 1
             )
         )
+    }
+
+    private func distributionRow(
+        title: String,
+        count: Int,
+        total: Int
+    ) -> some View {
+        let safeTotal = max(total, 1)
+
+        let percentage =
+            Int(
+                (
+                    Double(count) /
+                    Double(safeTotal) *
+                    100
+                )
+                .rounded()
+            )
+
+        let progress =
+            min(
+                max(
+                    CGFloat(count) /
+                    CGFloat(safeTotal),
+                    0
+                ),
+                1
+            )
+
+        return VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(
+                        .subheadline.weight(.bold)
+                    )
+                    .foregroundStyle(primary)
+                    .multilineTextAlignment(
+                        textAlign
+                    )
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: align
+                    )
+
+                Text(
+                    "\(count) • \(percentage)%"
+                )
+                .font(
+                    .subheadline.weight(.black)
+                )
+                .foregroundStyle(.cyan)
+                .fixedSize()
+            }
+
+            GeometryReader { proxy in
+                ZStack(
+                    alignment:
+                        rtl
+                        ? .trailing
+                        : .leading
+                ) {
+                    Capsule()
+                        .fill(
+                            Color.secondary
+                                .opacity(0.14)
+                        )
+
+                    Capsule()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(
+                                        red: 0.31,
+                                        green: 0.27,
+                                        blue: 0.90
+                                    ),
+                                    Color(
+                                        red: 0.02,
+                                        green: 0.65,
+                                        blue: 0.91
+                                    )
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(
+                            width:
+                                proxy.size.width *
+                                progress
+                        )
+                }
+            }
+            .frame(height: 8)
+        }
+        .padding(.vertical, 2)
     }
 
     private var branchesCard: some View {

@@ -48,205 +48,425 @@ extension SettingsView {
         .labelsHidden()
     }
 
-    func requestNotificationPermissionIfNeeded(onGranted: @escaping () -> Void) {
-        UNUserNotificationCenter.current().getNotificationSettings { settings in
+    func requestNotificationPermissionIfNeeded(
+        onDenied: (() -> Void)? = nil,
+        onGranted: @escaping () -> Void
+    ) {
+        Task { @MainActor in
+            let center = UNUserNotificationCenter.current()
+            let settings = await center.notificationSettings()
+
+            let granted: Bool
+
             switch settings.authorizationStatus {
             case .authorized, .provisional, .ephemeral:
-                DispatchQueue.main.async { onGranted() }
+                granted = true
 
             case .notDetermined:
-                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { ok, _ in
-                    DispatchQueue.main.async {
-                        if ok {
-                            onGranted()
-                        } else {
-                            trainingRemindersEnabled = false
-                            toast(tr(
-                                "אין הרשאה להתראות – לא הופעלו תזכורות",
-                                "Notification permission was not granted - reminders were not enabled"
-                            ))
-                            hapticError()
-                        }
-                    }
+                do {
+                    granted = try await center.requestAuthorization(
+                        options: [.alert, .sound, .badge]
+                    )
+                } catch {
+                    onDenied?()
+                    toast(
+                        tr(
+                            "לא ניתן היה לבדוק את הרשאת ההתראות. נסה שוב.",
+                            "Could not check notification access. Try again."
+                        )
+                    )
+                    hapticError()
+                    return
                 }
 
             case .denied:
-                DispatchQueue.main.async {
-                    toast(tr(
-                        "התראות חסומות בהגדרות המכשיר",
-                        "Notifications are blocked in device settings"
-                    ))
-                    hapticError()
-                }
+                granted = false
 
             @unknown default:
-                DispatchQueue.main.async { onGranted() }
+                granted = false
             }
+
+            guard granted else {
+                onDenied?()
+                toast(
+                    tr(
+                        "אין הרשאה להתראות. ניתן לאפשר אותן בהגדרות המכשיר.",
+                        "Notifications are not allowed. You can enable them in device settings."
+                    )
+                )
+                hapticError()
+                return
+            }
+
+            onGranted()
         }
+    }
+
+    @MainActor
+    private func removeLegacyTrainingReminders() async {
+        let center = UNUserNotificationCenter.current()
+        let requests = await center.pendingNotificationRequests()
+
+        let identifiers = requests
+            .map(\.identifier)
+            .filter {
+                $0 == "training_reminder" ||
+                $0.hasPrefix("training_reminder_")
+            }
+
+        guard !identifiers.isEmpty else {
+            return
+        }
+
+        center.removePendingNotificationRequests(
+            withIdentifiers: identifiers
+        )
     }
 
     func scheduleTrainingReminders(minutes: Int) {
-        UNUserNotificationCenter.current().removePendingNotificationRequests(
-            withIdentifiers: ["training_reminder"]
-        )
+        Task { @MainActor in
+            await removeLegacyTrainingReminders()
 
-        let branch = resolvedCalendarBranch()
-        let group = resolvedCalendarGroup()
-        let trainings = TrainingCatalogIOS.trainingsFor(branch: branch, group: group)
-
-        let upcomingTrainings = trainings
-            .filter { $0.date > Date() }
-            .sorted { $0.date < $1.date }
-            .prefix(12)
-
-        var scheduledCount = 0
-
-        for (index, training) in upcomingTrainings.enumerated() {
-            guard let triggerDate = Calendar.current.date(
-                byAdding: .minute,
-                value: -minutes,
-                to: training.date
-            ), triggerDate > Date() else {
-                continue
+            guard trainingRemindersEnabled else {
+                TrainingReminderScheduler.shared.cancelAll()
+                return
             }
 
-            let content = UNMutableNotificationContent()
-            content.title = tr("תזכורת לאימון ק.מ.י", "K.M.I training reminder")
-            content.body = tr(
-                "האימון מתחיל בעוד \(minutes) דקות",
-                "Training starts in \(minutes) minutes"
-            )
-            content.sound = .default
+            TrainingReminderScheduler.shared.updateLeadTime(
+                minutes: minutes > 0 ? minutes : 60
+            ) { outcome in
+                guard trainingRemindersEnabled else {
+                    return
+                }
 
-            let comps = Calendar.current.dateComponents(
-                [.year, .month, .day, .hour, .minute],
-                from: triggerDate
-            )
+                switch outcome {
+                case let .scheduled(count, failed):
+                    if failed > 0 {
+                        toast(
+                            tr(
+                                "נקבעו \(count) תזכורות; \(failed) לא נשמרו. נסה שוב.",
+                                "\(count) reminders were scheduled; \(failed) could not be saved. Try again."
+                            )
+                        )
+                        hapticError()
+                    } else if count == 0 {
+                        toast(
+                            tr(
+                                "אין כרגע אימונים עם מועד תזכורת עתידי.",
+                                "No trainings currently have a future reminder time."
+                            )
+                        )
+                    } else {
+                        toast(
+                            tr(
+                                "נקבעו \(count) תזכורות אימון.",
+                                "\(count) training reminders were scheduled."
+                            )
+                        )
+                        hapticSuccess()
+                    }
 
-            let trigger = UNCalendarNotificationTrigger(
-                dateMatching: comps,
-                repeats: false
-            )
+                case .permissionDenied:
+                    trainingRemindersEnabled = false
 
-            let request = UNNotificationRequest(
-                identifier: "training_reminder_\(index)",
-                content: content,
-                trigger: trigger
-            )
+                    toast(
+                        tr(
+                            "אין הרשאה להתראות. ניתן לאפשר אותן בהגדרות המכשיר.",
+                            "Notifications are not allowed. You can enable them in device settings."
+                        )
+                    )
+                    hapticError()
 
-            UNUserNotificationCenter.current().add(request)
-            scheduledCount += 1
+                case .permissionCheckFailed:
+                    toast(
+                        tr(
+                            "לא ניתן היה לבדוק את הרשאת ההתראות. נסה שוב.",
+                            "Could not check notification access. Try again."
+                        )
+                    )
+                    hapticError()
+
+                case .waitingForTrainings:
+                    toast(
+                        tr(
+                            "זמן התזכורת נשמר. התזמון יתבצע לאחר טעינת האימונים.",
+                            "Reminder time was saved. Scheduling will run after trainings load."
+                        )
+                    )
+
+                case .disabled:
+                    break
+                }
+            }
         }
-
-        toast(tr(
-            "נקבעו \(scheduledCount) תזכורות \(minutes) דקות לפני אימון",
-            "\(scheduledCount) reminders set \(minutes) minutes before training"
-        ))
-        hapticSuccess()
     }
 
     func cancelTrainingReminders() {
-        UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
-            let ids = requests
-                .map(\.identifier)
-                .filter { $0 == "training_reminder" || $0.hasPrefix("training_reminder_") }
+        Task { @MainActor in
+            await removeLegacyTrainingReminders()
 
-            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ids)
+            guard !trainingRemindersEnabled else {
+                return
+            }
+
+            TrainingReminderScheduler.shared.cancelAll {
+                guard !trainingRemindersEnabled else {
+                    return
+                }
+
+                toast(
+                    tr(
+                        "תזכורות האימון כובו ונשלחה בקשה להסרת התזכורות הממתינות.",
+                        "Training reminders were turned off and pending reminders were requested for removal."
+                    )
+                )
+                hapticSuccess()
+            }
+        }
+    }
+
+    private var calendarOwnedEventIDsKey: String {
+        "kmi_calendar_owned_event_ids_v1"
+    }
+
+    private var calendarOwnershipMarkerKey: String {
+        "kmi_calendar_ownership_marker_v1"
+    }
+
+    private func requestSettingsCalendarFullAccess(
+        using store: EKEventStore,
+        completion: @escaping (Bool) -> Void
+    ) {
+        if #available(iOS 17.0, *) {
+            store.requestFullAccessToEvents { granted, _ in
+                DispatchQueue.main.async {
+                    completion(granted)
+                }
+            }
+        } else {
+            store.requestAccess(to: .event) { granted, _ in
+                DispatchQueue.main.async {
+                    completion(granted)
+                }
+            }
+        }
+    }
+
+    private func settingsCalendarOwnershipMarker() -> String {
+        let defaults = UserDefaults.standard
+
+        if let existing = defaults.string(
+            forKey: calendarOwnershipMarkerKey
+        ), !existing.isEmpty {
+            return existing
         }
 
-        toast(tr("התזכורות בוטלו", "Reminders were cancelled"))
-        hapticSuccess()
+        let marker = "[KMI-SYNC:\(UUID().uuidString)]"
+
+        defaults.set(
+            marker,
+            forKey: calendarOwnershipMarkerKey
+        )
+
+        return marker
+    }
+
+    private func stageOwnedCalendarEventRemoval(
+        using store: EKEventStore
+    ) throws -> [String] {
+        let defaults = UserDefaults.standard
+
+        let savedIDs = defaults.stringArray(
+            forKey: calendarOwnedEventIDsKey
+        ) ?? []
+
+        guard let marker = defaults.string(
+            forKey: calendarOwnershipMarkerKey
+        ), !marker.isEmpty else {
+            return savedIDs
+        }
+
+        var retainedIDs: [String] = []
+
+        for identifier in Set(savedIDs) {
+            guard let event = store.event(
+                withIdentifier: identifier
+            ) else {
+                retainedIDs.append(identifier)
+                continue
+            }
+
+            let hasOwnershipMarker =
+                event.notes?
+                    .components(separatedBy: .newlines)
+                    .contains(marker) == true
+
+            guard hasOwnershipMarker else {
+                retainedIDs.append(identifier)
+                continue
+            }
+
+            try store.remove(
+                event,
+                span: .thisEvent,
+                commit: false
+            )
+        }
+
+        return retainedIDs
     }
 
     func ensureCalendarPermissionsAndSync() {
         let store = EKEventStore()
+
         isBusy = true
 
-        store.requestFullAccessToEvents { granted, _ in
-            DispatchQueue.main.async {
+        requestSettingsCalendarFullAccess(using: store) { granted in
+            defer {
                 self.isBusy = false
+            }
 
-                guard granted else {
-                    self.calendarSyncEnabled = false
-                    self.toast(self.tr("אין הרשאה ליומן", "Calendar permission was not granted"))
-                    self.hapticError()
-                    return
-                }
+            guard granted else {
+                self.calendarSyncEnabled = false
+                self.selectedCalendarSyncEnabled = false
+                self.toast(
+                    self.tr(
+                        "אין הרשאה מלאה ליומן",
+                        "Full calendar access was not granted"
+                    )
+                )
+                self.hapticError()
+                return
+            }
 
-                let branch = self.resolvedCalendarBranch()
-                let group = self.resolvedCalendarGroup()
+            let branch = self.resolvedCalendarBranch()
+            let group = self.resolvedCalendarGroup()
 
-                guard !branch.isEmpty else {
-                    self.calendarSyncEnabled = false
-                    self.toast(self.tr("לא נבחר סניף", "No branch selected"))
-                    self.hapticError()
-                    return
-                }
+            guard !branch.isEmpty else {
+                self.calendarSyncEnabled = false
+                self.selectedCalendarSyncEnabled = false
+                self.toast(
+                    self.tr(
+                        "לא נבחר סניף",
+                        "No branch selected"
+                    )
+                )
+                self.hapticError()
+                return
+            }
 
-                let trainings = TrainingCatalogIOS.trainingsFor(branch: branch, group: group)
+            guard !self.selectedCalendarIdentifier.isEmpty,
+                  let targetCalendar = store.calendar(
+                    withIdentifier: self.selectedCalendarIdentifier
+                  ),
+                  targetCalendar.allowsContentModifications else {
+                self.calendarSyncEnabled = false
+                self.selectedCalendarSyncEnabled = false
+                self.toast(
+                    self.tr(
+                        "יש לבחור יומן זמין שניתן לכתוב אליו",
+                        "Choose an available writable calendar"
+                    )
+                )
+                self.hapticError()
+                return
+            }
 
-                guard !trainings.isEmpty else {
-                    self.calendarSyncEnabled = false
-                    self.toast(self.tr(
-                        "לא נמצאו אימונים לסניף ולקבוצה שלך",
-                        "No trainings were found for your branch and group"
-                    ))
-                    self.hapticError()
-                    return
-                }
+            let trainings = TrainingCatalogIOS.trainingsFor(
+                branch: branch,
+                group: group
+            )
 
-                self.removeCalendarEvents(using: store)
+            guard !trainings.isEmpty else {
+                self.calendarSyncEnabled = false
+                self.selectedCalendarSyncEnabled = false
+                self.toast(
+                    self.tr(
+                        "לא נמצאו אימונים לסניף ולקבוצה שלך. אירועים קיימים לא נמחקו.",
+                        "No trainings were found for your branch and group. Existing events were not removed."
+                    )
+                )
+                self.hapticError()
+                return
+            }
 
-                let targetCalendar: EKCalendar?
+            let marker = self.settingsCalendarOwnershipMarker()
 
-                if !self.selectedCalendarIdentifier.isEmpty {
-                    targetCalendar = store.calendar(withIdentifier: self.selectedCalendarIdentifier)
-                } else {
-                    targetCalendar = store.defaultCalendarForNewEvents
-                }
+            do {
+                let retainedIDs =
+                    try self.stageOwnedCalendarEventRemoval(
+                        using: store
+                    )
 
-                guard let targetCalendar else {
-                    self.calendarSyncEnabled = false
-                    self.selectedCalendarSyncEnabled = false
-                    self.toast(self.tr("לא נמצא יומן יעד", "Target calendar was not found"))
-                    self.hapticError()
-                    return
-                }
-
-                var addedCount = 0
+                var newEvents: [EKEvent] = []
 
                 for training in trainings {
                     let event = EKEvent(eventStore: store)
+
                     event.calendar = targetCalendar
-                    event.title = self.calendarEventTitle(for: training, group: group)
+                    event.title = self.calendarEventTitle(
+                        for: training,
+                        group: group
+                    )
                     event.startDate = training.date
                     event.endDate = self.endDate(for: training)
-                    event.notes = self.calendarNotes(for: training, branch: branch, group: group)
+                    event.notes = [
+                        self.calendarNotes(
+                            for: training,
+                            branch: branch,
+                            group: group
+                        ),
+                        marker
+                    ]
+                    .joined(separator: "\n")
                     event.location = training.address
-                    event.timeZone = TimeZone(identifier: "Asia/Jerusalem")
+                    event.timeZone = TimeZone(
+                        identifier: "Asia/Jerusalem"
+                    )
 
-                    do {
-                        try store.save(event, span: .thisEvent)
-                        addedCount += 1
-                    } catch {
-                        print("KMI calendar save error:", error.localizedDescription)
-                    }
+                    try store.save(
+                        event,
+                        span: .thisEvent,
+                        commit: false
+                    )
+
+                    newEvents.append(event)
                 }
 
-                if addedCount > 0 {
-                    self.toast(self.tr(
-                        "סונכרנו \(addedCount) אימונים ליומן",
-                        "\(addedCount) trainings were synced to the calendar"
-                    ))
-                    self.hapticSuccess()
-                } else {
-                    self.calendarSyncEnabled = false
-                    self.toast(self.tr(
-                        "לא ניתן היה להוסיף אימונים ליומן",
-                        "Could not add trainings to the calendar"
-                    ))
-                    self.hapticError()
+                try store.commit()
+
+                let newIDs = newEvents.compactMap {
+                    $0.eventIdentifier
                 }
+
+                UserDefaults.standard.set(
+                    Array(Set(retainedIDs + newIDs)),
+                    forKey: self.calendarOwnedEventIDsKey
+                )
+
+                self.calendarSyncEnabled = true
+                self.selectedCalendarSyncEnabled = true
+
+                self.toast(
+                    self.tr(
+                        "סונכרנו \(newEvents.count) אימונים ליומן",
+                        "\(newEvents.count) trainings were synced to the calendar"
+                    )
+                )
+                self.hapticSuccess()
+            } catch {
+                store.reset()
+
+                self.calendarSyncEnabled = false
+                self.selectedCalendarSyncEnabled = false
+
+                self.toast(
+                    self.tr(
+                        "הסנכרון לא הושלם. בדוק את הרשאת היומן ונסה שוב.",
+                        "Sync did not complete. Check calendar access and try again."
+                    )
+                )
+                self.hapticError()
             }
         }
     }
@@ -254,53 +474,64 @@ extension SettingsView {
     func removeCalendarEvents() {
         let store = EKEventStore()
 
-        store.requestFullAccessToEvents { granted, _ in
-            DispatchQueue.main.async {
-                guard granted else {
-                    self.toast(self.tr("אין הרשאה ליומן", "Calendar permission was not granted"))
-                    self.hapticError()
-                    return
-                }
+        isBusy = true
 
-                self.removeCalendarEvents(using: store)
-                self.toast(self.tr("אירועי האימונים הוסרו מהיומן", "Training events were removed from the calendar"))
-                self.hapticSuccess()
+        requestSettingsCalendarFullAccess(using: store) { granted in
+            defer {
+                self.isBusy = false
             }
-        }
-    }
 
-    private func removeCalendarEvents(using store: EKEventStore) {
-        let start = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
-        let end = Calendar.current.date(byAdding: .day, value: 365, to: Date()) ?? Date()
+            guard granted else {
+                self.toast(
+                    self.tr(
+                        "אין הרשאה מלאה ליומן — אירועים לא הוסרו",
+                        "Full calendar access was not granted — events were not removed"
+                    )
+                )
+                self.hapticError()
+                return
+            }
 
-        let calendars: [EKCalendar]?
+            let previousIDs = UserDefaults.standard.stringArray(
+                forKey: self.calendarOwnedEventIDsKey
+            ) ?? []
 
-        if !selectedCalendarIdentifier.isEmpty,
-           let selected = store.calendar(withIdentifier: selectedCalendarIdentifier) {
-            calendars = [selected]
-        } else {
-            calendars = nil
-        }
+            do {
+                let retainedIDs =
+                    try self.stageOwnedCalendarEventRemoval(
+                        using: store
+                    )
 
-        let predicate = store.predicateForEvents(
-            withStart: start,
-            end: end,
-            calendars: calendars
-        )
+                try store.commit()
 
-        let events = store.events(matching: predicate)
+                UserDefaults.standard.set(
+                    retainedIDs,
+                    forKey: self.calendarOwnedEventIDsKey
+                )
 
-        for event in events {
-            let title = event.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                let removedCount =
+                    Set(previousIDs).count - Set(retainedIDs).count
 
-            let isKmiTrainingEvent =
-                title.contains("אימון ק.מ.י") ||
-                title.contains("KMI") ||
-                title.contains("K.M.I") ||
-                title.localizedCaseInsensitiveContains("K.M.I Training")
+                self.calendarSyncEnabled = false
+                self.selectedCalendarSyncEnabled = false
 
-            if isKmiTrainingEvent {
-                try? store.remove(event, span: .thisEvent)
+                self.toast(
+                    self.tr(
+                        "הוסרו \(removedCount) אירועים שסומנו כשייכים לאפליקציה. אירועים אחרים לא שונו.",
+                        "\(removedCount) app-owned events were removed. Other events were not changed."
+                    )
+                )
+                self.hapticSuccess()
+            } catch {
+                store.reset()
+
+                self.toast(
+                    self.tr(
+                        "הסרת האירועים לא הושלמה. נסה שוב.",
+                        "Event removal did not complete. Try again."
+                    )
+                )
+                self.hapticError()
             }
         }
     }
@@ -355,21 +586,49 @@ extension SettingsView {
     }
 
     private func endDate(for training: TrainingData) -> Date {
-        let raw = training.endText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = training.date.addingTimeInterval(90 * 60)
+
+        let raw = training.endText.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
         let pieces = raw.split(separator: ":")
 
         guard pieces.count == 2,
               let hour = Int(pieces[0]),
-              let minute = Int(pieces[1]) else {
-            return training.date.addingTimeInterval(90 * 60)
+              let minute = Int(pieces[1]),
+              (0...23).contains(hour),
+              (0...59).contains(minute),
+              let timeZone = TimeZone(
+                identifier: "Asia/Jerusalem"
+              ) else {
+            return fallback
         }
 
-        var comps = Calendar.current.dateComponents([.year, .month, .day], from: training.date)
-        comps.hour = hour
-        comps.minute = minute
-        comps.second = 0
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
 
-        return Calendar.current.date(from: comps) ?? training.date.addingTimeInterval(90 * 60)
+        guard let sameDayEnd = calendar.date(
+            bySettingHour: hour,
+            minute: minute,
+            second: 0,
+            of: training.date
+        ) else {
+            return fallback
+        }
+
+        if sameDayEnd > training.date {
+            return sameDayEnd
+        }
+
+        guard sameDayEnd < training.date else {
+            return fallback
+        }
+
+        return calendar.date(
+            byAdding: .day,
+            value: 1,
+            to: sameDayEnd
+        ) ?? fallback
     }
 
     func biometricAvailable() -> Bool {
@@ -505,8 +764,18 @@ extension SettingsView {
     func clearAppCacheIOS() -> Bool {
         do {
             let fm = FileManager.default
-            let cacheURL = fm.urls(for: .cachesDirectory, in: .userDomainMask).first!
-            let files = try fm.contentsOfDirectory(at: cacheURL, includingPropertiesForKeys: nil)
+
+            guard let cacheURL = fm.urls(
+                for: .cachesDirectory,
+                in: .userDomainMask
+            ).first else {
+                return false
+            }
+
+            let files = try fm.contentsOfDirectory(
+                at: cacheURL,
+                includingPropertiesForKeys: nil
+            )
             for f in files {
                 try fm.removeItem(at: f)
             }

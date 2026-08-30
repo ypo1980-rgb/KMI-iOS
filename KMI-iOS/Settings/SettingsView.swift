@@ -27,15 +27,11 @@ struct SettingsView: View {
     }
 
     private var settingsPrimaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.94)
-            : Color.black.opacity(0.84)
+        KmiAppTheme.onSurface(for: colorScheme)
     }
 
     private var settingsSecondaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.64)
-            : Color.black.opacity(0.56)
+        KmiAppTheme.onSurfaceVariant(for: colorScheme)
     }
 
     // MARK: Language
@@ -179,7 +175,7 @@ struct SettingsView: View {
 
     @State var mailData: MailData? = nil
     @State var showRegistrationEdit: Bool = false
-
+    @State private var registrationSaveError: String?
     @State private var goLegal: Bool = false
     @State private var legalInitialTab: Int = 0
 
@@ -224,7 +220,7 @@ struct SettingsView: View {
     }
 
     private var sectionIconTint: Color {
-        isCoach ? Color(hex: 0xFF6A1B9A) : Color(hex: 0xFF1565C0)
+        KmiAppTheme.primary(for: colorScheme)
     }
 
     private var dailyReminderEnabledBinding: Binding<Bool> {
@@ -258,18 +254,28 @@ struct SettingsView: View {
         )
     }
 
+    private var dailyReminderCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone =
+            TimeZone(identifier: "Asia/Jerusalem") ?? .current
+        return calendar
+    }
+
     private var dailyReminderTimeBinding: Binding<Date> {
         Binding(
             get: {
-                var cal = Calendar.current
-                cal.timeZone = TimeZone(identifier: "Asia/Jerusalem")!
-                return cal.date(from: DateComponents(
-                    hour: dailyReminderHour,
-                    minute: dailyReminderMinute
-                )) ?? Date()
+                dailyReminderCalendar.date(
+                    bySettingHour: dailyReminderHour,
+                    minute: dailyReminderMinute,
+                    second: 0,
+                    of: Date()
+                ) ?? Date()
             },
             set: { newValue in
-                let comps = Calendar.current.dateComponents([.hour, .minute], from: newValue)
+                let comps = dailyReminderCalendar.dateComponents(
+                    [.hour, .minute],
+                    from: newValue
+                )
 
                 dailyReminderHour = comps.hour ?? 20
                 dailyReminderMinute = comps.minute ?? 0
@@ -295,18 +301,7 @@ struct SettingsView: View {
     // MARK: Body (CONTENT ONLY)
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    Color(hex: 0xFFF8FBFF),
-                    Color(hex: 0xFFEAF4FF),
-                    Color(hex: 0xFFB7DDF7),
-                    Color(hex: 0xFF1F78B4),
-                    Color(hex: 0xFF062B4A)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            BeltTopicsGradientBackground()
 
             ScrollView {
                 VStack(spacing: 12) {
@@ -316,15 +311,17 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 10)
-                .padding(.bottom, 190)
+                .padding(.bottom, 16)
             }
         }
-        .overlay(alignment: .bottom) {
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             actionButtons
-                .ignoresSafeArea(edges: .bottom)
         }
+        .disabled(isBusy)
         .overlay {
-            if isBusy { LoadingOverlay() }
+            if isBusy {
+                KmiLoadingOverlay()
+            }
         }
         .environment(\.layoutDirection, settingsLayoutDirection)
         .preferredColorScheme(colorSchemeFromThemeMode(themeMode))
@@ -337,7 +334,7 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showTrainingLeadPicker) {
             trainingLeadPickerSheet
-                .presentationDetents([.medium])
+                .presentationDetents([.medium, .large])
         }
         
         .navigationDestination(isPresented: $goLegal) {
@@ -404,37 +401,80 @@ struct SettingsView: View {
                 prefillEmail: email,
                 initialRole: userRole == "coach" ? .coach : .trainee,
                 onBack: {
+                    guard !isBusy else { return }
+
+                    registrationSaveError = nil
                     showRegistrationEdit = false
                 },
                 onSubmit: { form in
-                    saveRegistrationSnapshot(
-                        fullName: "\(form.fullName)",
-                        phone: "\(form.phone)",
-                        email: "\(form.email)",
-                        region: "\(form.region)",
-                        belt: "\(form.belt)",
-                        isCoach: form.role == .coach,
-                        branches: Array(form.branches),
-                        groups: Array(form.groups),
-                        username: "\(form.username)",
-                        birthDay: "\(form.birthDay)",
-                        birthMonth: "\(form.birthMonth)",
-                        birthYear: "\(form.birthYear)",
-                        gender: "\(form.gender)",
-                        password: "\(form.password)",
-                        wantsSms: form.wantsSms,
-                        acceptsTerms: form.acceptsTerms,
-                        coachCode: "\(form.coachCode)"
-                    )
+                    guard !isBusy else { return }
 
-                    DispatchQueue.main.async {
-                        loadBranchAndGroupFromDefaults()
-                        showRegistrationEdit = false
-                        toast(tr("הפרטים עודכנו בהצלחה", "Details updated successfully"))
-                        hapticSuccess()
+                    isBusy = true
+                    registrationSaveError = nil
+
+                    Task { @MainActor in
+                        defer {
+                            isBusy = false
+                        }
+
+                        do {
+                            try await saveEditedRegistration(form)
+
+                            loadBranchAndGroupFromDefaults()
+                            showRegistrationEdit = false
+
+                            toast(
+                                tr(
+                                    "הפרטים עודכנו בהצלחה",
+                                    "Details updated successfully"
+                                )
+                            )
+
+                            hapticSuccess()
+                        } catch is CancellationError {
+                            // הפעולה בוטלה או שהמשתמש המחובר השתנה.
+                            // אין להציג הודעת הצלחה.
+                        } catch {
+                            registrationSaveError = tr(
+                                "לא ניתן היה להשלים את השמירה. הפרטים שהזנת נשארו בטופס. בדוק את החיבור ונסה שוב.",
+                                "Could not complete the save. Your entries remain in the form. Check your connection and try again."
+                            )
+                        }
                     }
                 }
             )
+            .disabled(isBusy)
+            .overlay {
+                if isBusy {
+                    KmiLoadingOverlay()
+                }
+            }
+            .interactiveDismissDisabled(isBusy)
+            .alert(
+                tr(
+                    "השמירה לא הושלמה",
+                    "Save unsuccessful"
+                ),
+                isPresented: Binding(
+                    get: {
+                        registrationSaveError != nil
+                    },
+                    set: { isPresented in
+                        if !isPresented {
+                            registrationSaveError = nil
+                        }
+                    }
+                )
+            ) {
+                Button(
+                    tr("אישור", "OK"),
+                    role: .cancel
+                ) {
+                    registrationSaveError = nil
+                }
+            } message: {
+                Text(registrationSaveError ?? "")
+            }
         }
         .onAppear {
             normalizeSettingsLanguageDefaults()
@@ -444,15 +484,20 @@ struct SettingsView: View {
                 calendarSyncEnabled = true
             }
 
-            if !selectedCalendarIdentifier.isEmpty && selectedCalendarDisplay.isEmpty {
+            if !selectedCalendarIdentifier.isEmpty
+                && selectedCalendarDisplay.isEmpty {
                 let store = EKEventStore()
-                if let calendar = store.calendar(withIdentifier: selectedCalendarIdentifier) {
-                    selectedCalendarDisplay = "\(calendar.title) (\(calendar.source.title))"
+
+                if let calendar = store.calendar(
+                    withIdentifier: selectedCalendarIdentifier
+                ) {
+                    selectedCalendarDisplay =
+                        "\(calendar.title) (\(calendar.source.title))"
                 }
             }
         }
     }
-      
+
     private func normalizeSettingsLanguageDefaults() {
         let primary = kmiAppLanguageCode
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -605,41 +650,21 @@ struct SettingsView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 13)
         .background(
-            isDarkMode
-                ? Color(
-                    red: 0.07,
-                    green: 0.09,
-                    blue: 0.14
-                )
-                .opacity(0.96)
-                : Color.white.opacity(0.94)
+            RoundedRectangle(
+                cornerRadius: 18,
+                style: .continuous
+            )
+            .fill(KmiAppTheme.surface(for: colorScheme))
         )
         .overlay(
             RoundedRectangle(
                 cornerRadius: 18,
                 style: .continuous
             )
-            .stroke(
-                isDarkMode
-                    ? Color.white.opacity(0.14)
-                    : Color.white.opacity(0.36),
+            .strokeBorder(
+                KmiAppTheme.outlineVariant(for: colorScheme),
                 lineWidth: 1
             )
-        )
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: 18,
-                style: .continuous
-            )
-        )
-        .shadow(
-            color:
-                Color.black.opacity(
-                    isDarkMode ? 0.28 : 0.08
-                ),
-            radius: 10,
-            x: 0,
-            y: 5
         )
     }
 
@@ -773,11 +798,7 @@ struct SettingsView: View {
                     size: 13,
                     weight: .bold
                 )
-                .foregroundStyle(
-                    isDarkMode
-                        ? Color.white.opacity(0.68)
-                        : Color(hex: 0xFF64748B)
-                )
+                .foregroundStyle(settingsSecondaryTextColor)
                 .lineLimit(2)
                 .minimumScaleFactor(0.66)
                 .frame(
@@ -909,11 +930,7 @@ struct SettingsView: View {
                             size: 11,
                             weight: .semibold
                         )
-                        .foregroundStyle(
-                            isDarkMode
-                                ? Color.white.opacity(0.64)
-                                : Color(hex: 0xFF64748B)
-                        )
+                        .foregroundStyle(settingsSecondaryTextColor)
                         .frame(
                             maxWidth: .infinity,
                             alignment: horizontalTextAlignment
@@ -967,11 +984,7 @@ struct SettingsView: View {
                             size: 11,
                             weight: .semibold
                         )
-                        .foregroundStyle(
-                            isDarkMode
-                                ? Color.white.opacity(0.64)
-                                : Color(hex: 0xFF64748B)
-                        )
+                        .foregroundStyle(settingsSecondaryTextColor)
                         .frame(
                             maxWidth: .infinity,
                             alignment: horizontalTextAlignment
@@ -1023,14 +1036,11 @@ struct SettingsView: View {
 
                         HStack(spacing: 8) {
                             Image(systemName: "textformat")
-                                .font(
-                                    .system(
-                                        size: 14 *
-                                            displaySettings
-                                                .scaleFactor,
-                                        weight: .bold
-                                    )
+                                .kmiFont(
+                                    size: KmiIconSize.tiny,
+                                    weight: .bold
                                 )
+                                .accessibilityHidden(true)
 
                             Text(
                                 tr(
@@ -1119,11 +1129,7 @@ struct SettingsView: View {
                                 size: 11,
                                 weight: .semibold
                             )
-                            .foregroundStyle(
-                                isDarkMode
-                                    ? Color.white.opacity(0.64)
-                                    : Color(hex: 0xFF64748B)
-                            )
+                            .foregroundStyle(settingsSecondaryTextColor)
                             .frame(
                                 maxWidth: .infinity,
                                 alignment: horizontalTextAlignment
@@ -1138,13 +1144,22 @@ struct SettingsView: View {
                                     trainingRemindersEnabled = newValue
 
                                     if newValue {
-                                        requestNotificationPermissionIfNeeded {
-                                            scheduleTrainingReminders(minutes: trainingReminderMinutes)
-                                        }
-                                        toast(tr("תזכורות אימון הופעלו", "Training reminders enabled"))
+                                        requestNotificationPermissionIfNeeded(
+                                            onDenied: {
+                                                trainingRemindersEnabled = false
+                                            },
+                                            onGranted: {
+                                                guard trainingRemindersEnabled else {
+                                                    return
+                                                }
+
+                                                scheduleTrainingReminders(
+                                                    minutes: trainingReminderMinutes
+                                                )
+                                            }
+                                        )
                                     } else {
                                         cancelTrainingReminders()
-                                        toast(tr("תזכורות אימון בוטלו", "Training reminders disabled"))
                                     }
 
                                     feedbackTap()
@@ -1191,11 +1206,7 @@ struct SettingsView: View {
                                     size: 10.5,
                                     weight: .semibold
                                 )
-                                .foregroundStyle(
-                                    isDarkMode
-                                        ? Color.white.opacity(0.60)
-                                        : Color(hex: 0xFF64748B)
-                                )
+                                .foregroundStyle(settingsSecondaryTextColor)
                                 .frame(
                                     maxWidth: .infinity,
                                     alignment: horizontalTextAlignment
@@ -1257,11 +1268,7 @@ struct SettingsView: View {
                                 size: 11,
                                 weight: .semibold
                             )
-                            .foregroundStyle(
-                                isDarkMode
-                                    ? Color.white.opacity(0.64)
-                                    : Color(hex: 0xFF64748B)
-                            )
+                            .foregroundStyle(settingsSecondaryTextColor)
                             .frame(
                                 maxWidth: .infinity,
                                 alignment: horizontalTextAlignment
@@ -1270,19 +1277,49 @@ struct SettingsView: View {
                                 primaryTextAlignment
                             )
 
-                            Toggle("", isOn: Binding(
-                                get: { dailyReminderEnabledBinding.wrappedValue },
-                                set: { newValue in
-                                    dailyReminderEnabledBinding.wrappedValue = newValue
-                                    toast(
-                                        newValue
-                                        ? tr("התרגיל היומי הופעל", "Daily exercise enabled")
-                                        : tr("התרגיל היומי בוטל", "Daily exercise disabled")
-                                    )
-                                    feedbackTap()
-                                }
-                            ))
+                            Toggle(
+                                tr(
+                                    "תזכורות אימונים חופשיים",
+                                    "Free training reminders"
+                                ),
+                                isOn: Binding(
+                                    get: { freeSessionsRemindersEnabled },
+                                    set: { newValue in
+                                        freeSessionsRemindersEnabled = newValue
+
+                                        if newValue {
+                                            requestNotificationPermissionIfNeeded(
+                                                onDenied: {
+                                                    freeSessionsRemindersEnabled = false
+                                                },
+                                                onGranted: {
+                                                    guard freeSessionsRemindersEnabled else {
+                                                        return
+                                                    }
+
+                                                    toast(
+                                                        tr(
+                                                            "העדפת תזכורות האימון החופשי נשמרה.",
+                                                            "Free training reminder preference was saved."
+                                                        )
+                                                    )
+                                                }
+                                            )
+                                        } else {
+                                            toast(
+                                                tr(
+                                                    "העדפת תזכורות האימון החופשי כובתה.",
+                                                    "Free training reminder preference was turned off."
+                                                )
+                                            )
+                                        }
+
+                                        feedbackTap()
+                                    }
+                                )
+                            )
                             .labelsHidden()
+                            .tint(KmiAppTheme.primary(for: colorScheme))
                         }
 
                         if dailyReminderEnabledBinding.wrappedValue {
@@ -1292,8 +1329,24 @@ struct SettingsView: View {
                                 selection: dailyReminderTimeBinding,
                                 displayedComponents: .hourAndMinute
                             )
-                            .environment(\.locale, Locale(identifier: isEnglish ? "en_US" : "he_IL"))
-                            .environment(\.layoutDirection, settingsLayoutDirection)
+                            .environment(
+                                \.calendar,
+                                dailyReminderCalendar
+                            )
+                            .environment(
+                                \.timeZone,
+                                dailyReminderCalendar.timeZone
+                            )
+                            .environment(
+                                \.locale,
+                                Locale(
+                                    identifier: isEnglish ? "en_US" : "he_IL"
+                                )
+                            )
+                            .environment(
+                                \.layoutDirection,
+                                settingsLayoutDirection
+                            )
                             .datePickerStyle(.compact)
 
                             Text(
@@ -1306,11 +1359,7 @@ struct SettingsView: View {
                                 size: 10.5,
                                 weight: .semibold
                             )
-                            .foregroundStyle(
-                                isDarkMode
-                                    ? Color.white.opacity(0.60)
-                                    : Color(hex: 0xFF64748B)
-                            )
+                            .foregroundStyle(settingsSecondaryTextColor)
                             .frame(
                                 maxWidth: .infinity,
                                 alignment: horizontalTextAlignment
@@ -1333,25 +1382,16 @@ struct SettingsView: View {
                 ) {
                     HStack(spacing: 12) {
                         Text(
-                            isCoach
-                            ? tr(
-                                "המאמן יכול לכבות או להפעיל תרגיל יומי לעצמו",
-                                "The coach can enable or disable a daily exercise for themselves"
-                            )
-                            : tr(
-                                "שלח לי בכל יום תרגיל מהחגורה הבאה",
-                                "Send me a daily exercise from the next belt"
+                            tr(
+                                "הפעל או כבה תזכורות לאימונים חופשיים.",
+                                "Enable or disable free training reminders."
                             )
                         )
                         .kmiFont(
                             size: 11,
                             weight: .semibold
                         )
-                        .foregroundStyle(
-                            isDarkMode
-                                ? Color.white.opacity(0.64)
-                                : Color(hex: 0xFF64748B)
-                        )
+                        .foregroundStyle(settingsSecondaryTextColor)
                         .frame(
                             maxWidth: .infinity,
                             alignment: horizontalTextAlignment
@@ -1421,46 +1461,45 @@ struct SettingsView: View {
                                 primaryTextAlignment
                             )
 
-                            Toggle("", isOn: Binding(
-                                get: { selectedCalendarSyncEnabled },
-                                set: { newValue in
-                                    if newValue {
-                                        enableSelectedCalendarSync()
-                                    } else {
-                                        isBusy = true
+                            Toggle(
+                                tr(
+                                    "סנכרון ליומן במכשיר",
+                                    "Device calendar sync"
+                                ),
+                                isOn: Binding(
+                                    get: { selectedCalendarSyncEnabled },
+                                    set: { newValue in
+                                        guard !isBusy else {
+                                            return
+                                        }
 
-                                        selectedCalendarSyncEnabled = false
-                                        calendarSyncEnabled = false
-
-                                        UserDefaults.standard.set(false, forKey: "calendar_sync_selected_enabled")
-                                        UserDefaults.standard.set(false, forKey: "calendar_sync_enabled")
-
-                                        removeCalendarEvents()
-
-                                        isBusy = false
-                                        feedbackTap()
-                                        toast(tr("הסנכרון ליומן שבחרת בוטל", "Selected calendar sync was disabled"))
+                                        if newValue {
+                                            enableSelectedCalendarSync()
+                                        } else {
+                                            feedbackTap()
+                                            removeCalendarEvents()
+                                        }
                                     }
-                                }
-                            ))
+                                )
+                            )
                             .labelsHidden()
+                            .tint(
+                                KmiAppTheme.primary(for: colorScheme)
+                            )
+                            .disabled(isBusy)
                         }
 
                         Text(
                             tr(
-                                "תקבל התראה יומית עם אפשרות לפתוח כרטיס תרגיל, לשמור למועדפים ולקבל תרגיל נוסף.",
-                                "You will receive a daily reminder with options to open the exercise card, save it to favorites, and get another exercise."
+                                "בחר יומן יעד לסנכרון האימונים במכשיר.",
+                                "Choose a target calendar for syncing training sessions on this device."
                             )
                         )
                         .kmiFont(
                             size: 10.5,
                             weight: .semibold
                         )
-                        .foregroundStyle(
-                            isDarkMode
-                                ? Color.white.opacity(0.60)
-                                : Color(hex: 0xFF64748B)
-                        )
+                        .foregroundStyle(settingsSecondaryTextColor)
                         .frame(
                             maxWidth: .infinity,
                             alignment: horizontalTextAlignment
@@ -1896,15 +1935,11 @@ struct SettingsView: View {
         }
 
         private var primaryTextColor: Color {
-            isDarkMode
-                ? Color.white.opacity(0.94)
-                : Color(hex: 0xFF111827)
+            KmiAppTheme.onSurface(for: colorScheme)
         }
 
         private var secondaryTextColor: Color {
-            isDarkMode
-                ? Color.white.opacity(0.64)
-                : Color(hex: 0xFF64748B)
+            KmiAppTheme.onSurfaceVariant(for: colorScheme)
         }
 
         private var textAlignment: TextAlignment {
@@ -1936,69 +1971,52 @@ struct SettingsView: View {
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: isDarkMode
-                                ? [
-                                    Color(hex: 0xFF172033).opacity(0.98),
-                                    Color(hex: 0xFF111827).opacity(0.98),
-                                    Color(hex: 0xFF1E293B).opacity(0.96)
-                                ]
-                                : [
-                                    Color(hex: 0xFFF6F1FA).opacity(0.98),
-                                    Color(hex: 0xFFEAF5FB).opacity(0.96),
-                                    Color(hex: 0xFFF8F4EC).opacity(0.94)
-                                ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    .fill(KmiAppTheme.surface(for: colorScheme))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(
-                        isDarkMode
-                            ? Color.white.opacity(0.10)
-                            : Color.white.opacity(0.22),
+                    .strokeBorder(
+                        KmiAppTheme.outlineVariant(for: colorScheme),
                         lineWidth: 1
                     )
-            )
-            .shadow(
-                color: Color.black.opacity(isDarkMode ? 0.28 : 0.08),
-                radius: 8,
-                x: 0,
-                y: 4
             )
         }
 
         private var iconBubble: some View {
-            ZStack {
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(tint.opacity(0.12))
-                    .frame(width: 34, height: 34)
-
-                Image(systemName: systemImage)
-                    .font(.system(size: 17, weight: .black))
-                    .foregroundStyle(tint)
-            }
+            Image(systemName: systemImage)
+                .kmiFont(size: KmiIconSize.small, weight: .black)
+                .foregroundStyle(tint)
+                .frame(minWidth: 34, minHeight: 34)
+                .background(
+                    RoundedRectangle(
+                        cornerRadius: 13,
+                        style: .continuous
+                    )
+                    .fill(
+                        KmiAppTheme.primary(for: colorScheme)
+                            .opacity(0.12)
+                    )
+                )
+                .accessibilityHidden(true)
         }
 
         private var titleBlock: some View {
-            VStack(alignment: isEnglish ? .leading : .trailing, spacing: 3) {
+            VStack(
+                alignment: isEnglish ? .leading : .trailing,
+                spacing: 3
+            ) {
                 Text(title)
-                    .kmiFont(size: 13.2, weight: .black)
+                    .kmiTypography(.cardTitle)
                     .foregroundStyle(primaryTextColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.74)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
                     .multilineTextAlignment(textAlignment)
 
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
-                        .kmiFont(size: 10.6, weight: .semibold)
+                        .kmiTypography(.secondary)
                         .foregroundStyle(secondaryTextColor)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.70)
+                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: frameAlignment)
                         .multilineTextAlignment(textAlignment)
                 }
@@ -2012,9 +2030,7 @@ struct SettingsView: View {
         var body: some View {
             Rectangle()
                 .fill(
-                    colorScheme == .dark
-                        ? Color.white.opacity(0.10)
-                        : Color.black.opacity(0.08)
+                    KmiAppTheme.outlineVariant(for: colorScheme)
                 )
                 .frame(height: 0.7)
                 .padding(.horizontal, 12)
@@ -2039,15 +2055,11 @@ struct SettingsView: View {
         }
 
         private var primaryTextColor: Color {
-            isDarkMode
-                ? Color.white.opacity(0.94)
-                : Color(hex: 0xFF111827)
+            KmiAppTheme.onSurface(for: colorScheme)
         }
 
         private var secondaryTextColor: Color {
-            isDarkMode
-                ? Color.white.opacity(0.62)
-                : Color(hex: 0xFF64748B)
+            KmiAppTheme.onSurfaceVariant(for: colorScheme)
         }
 
         private var rowShape: RoundedRectangle {
@@ -2097,15 +2109,39 @@ struct SettingsView: View {
                             iconBubble
                             textBlock
 
-                            Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 12, weight: .black))
-                                .foregroundStyle(tint)
-                                .frame(width: 20)
+                            Image(
+                                systemName: expanded
+                                    ? "chevron.up"
+                                    : "chevron.down"
+                            )
+                            .kmiFont(
+                                size: KmiIconSize.tiny,
+                                weight: .black
+                            )
+                            .foregroundStyle(
+                                KmiAppTheme.onSurfaceVariant(
+                                    for: colorScheme
+                                )
+                            )
+                            .frame(minWidth: 20)
+                            .accessibilityHidden(true)
                         } else {
-                            Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 12, weight: .black))
-                                .foregroundStyle(tint)
-                                .frame(width: 20)
+                            Image(
+                                systemName: expanded
+                                    ? "chevron.up"
+                                    : "chevron.down"
+                            )
+                            .kmiFont(
+                                size: KmiIconSize.tiny,
+                                weight: .black
+                            )
+                            .foregroundStyle(
+                                KmiAppTheme.onSurfaceVariant(
+                                    for: colorScheme
+                                )
+                            )
+                            .frame(minWidth: 20)
+                            .accessibilityHidden(true)
 
                             textBlock
                             iconBubble
@@ -2114,21 +2150,7 @@ struct SettingsView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                     .background(
-                        LinearGradient(
-                            colors: isDarkMode
-                                ? [
-                                    tint.opacity(0.16),
-                                    Color.white.opacity(0.035),
-                                    tint.opacity(0.08)
-                                ]
-                                : [
-                                    tint.opacity(0.08),
-                                    Color.white.opacity(0.10),
-                                    tint.opacity(0.04)
-                                ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
+                        KmiAppTheme.surfaceVariant(for: colorScheme)
                     )
                     .clipShape(effectiveRowShape)
                 }
@@ -2137,7 +2159,9 @@ struct SettingsView: View {
 
                 if expanded {
                     Rectangle()
-                        .fill(tint.opacity(0.14))
+                        .fill(
+                            KmiAppTheme.outlineVariant(for: colorScheme)
+                        )
                         .frame(height: 0.7)
                         .padding(.horizontal, 18)
 
@@ -2148,19 +2172,7 @@ struct SettingsView: View {
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)
                     .background(
-                        LinearGradient(
-                            colors: isDarkMode
-                                ? [
-                                    Color.white.opacity(0.045),
-                                    tint.opacity(0.09)
-                                ]
-                                : [
-                                    Color.white.opacity(0.22),
-                                    tint.opacity(0.045)
-                                ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
+                        KmiAppTheme.surface(for: colorScheme)
                     )
                     .clipShape(expandedShape)
                 }
@@ -2168,37 +2180,44 @@ struct SettingsView: View {
         }
 
         private var iconBubble: some View {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(tint.opacity(0.12))
-                    .frame(width: isEnglish ? 34 : 29, height: isEnglish ? 34 : 29)
-
-                Image(systemName: systemImage)
-                    .font(.system(size: isEnglish ? 18 : 14, weight: .black))
-                    .foregroundStyle(tint)
-            }
+            Image(systemName: systemImage)
+                .kmiFont(size: KmiIconSize.small, weight: .black)
+                .foregroundStyle(tint)
+                .frame(minWidth: 34, minHeight: 34)
+                .background(
+                    RoundedRectangle(
+                        cornerRadius: 12,
+                        style: .continuous
+                    )
+                    .fill(
+                        KmiAppTheme.primary(for: colorScheme)
+                            .opacity(0.12)
+                    )
+                )
+                .accessibilityHidden(true)
         }
 
         private var textBlock: some View {
-            VStack(alignment: isEnglish ? .leading : .trailing, spacing: 2) {
+            VStack(
+                alignment: isEnglish ? .leading : .trailing,
+                spacing: 3
+            ) {
                 Text(title)
-                    .kmiFont(
-                        size: isEnglish ? 12.0 : 12.4,
-                        weight: .black
-                    )
+                    .kmiTypography(.body)
+                    .fontWeight(.bold)
                     .foregroundStyle(primaryTextColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.70)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
                     .multilineTextAlignment(textAlignment)
 
-                Text(value)
-                    .kmiFont(size: 9.8, weight: .semibold)
-                    .foregroundStyle(secondaryTextColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.68)
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .multilineTextAlignment(textAlignment)
+                if !value.isEmpty {
+                    Text(value)
+                        .kmiTypography(.caption)
+                        .foregroundStyle(secondaryTextColor)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: frameAlignment)
+                        .multilineTextAlignment(textAlignment)
+                }
             }
         }
     }
@@ -2213,7 +2232,7 @@ struct SettingsView: View {
             HStack(spacing: 5) {
                 if isEnglish {
                     Image(systemName: systemImage)
-                        .font(.system(size: 10.5, weight: .black))
+                        .kmiFont(size: KmiIconSize.tiny, weight: .black)
 
                     Text(title)
                         .kmiFont(size: 11.5, weight: .black)
@@ -2226,7 +2245,7 @@ struct SettingsView: View {
                         .minimumScaleFactor(0.72)
 
                     Image(systemName: systemImage)
-                        .font(.system(size: 10.5, weight: .black))
+                        .kmiFont(size: KmiIconSize.tiny, weight: .black)
                 }
             }
             .foregroundStyle(tint)
@@ -2253,8 +2272,19 @@ struct SettingsView: View {
 
         @State private var pressed: Bool = false
 
+        @Environment(\.colorScheme)
+        private var colorScheme
+
         private var effectiveTint: Color {
-            isDestructive ? Color(red: 0.70, green: 0.15, blue: 0.12) : tint
+            isDestructive
+                ? KmiAppTheme.error(for: colorScheme)
+                : tint
+        }
+
+        private var contentColor: Color {
+            isDestructive
+                ? KmiAppTheme.onError(for: colorScheme)
+                : .white
         }
 
         private var textAlignment: TextAlignment {
@@ -2277,40 +2307,52 @@ struct SettingsView: View {
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: systemImage)
-                        .font(.system(size: 17, weight: .black))
-                        .frame(width: 24)
+                        .kmiFont(
+                            size: KmiIconSize.small,
+                            weight: .black
+                        )
+                        .frame(minWidth: 24)
+                        .accessibilityHidden(true)
 
-                    VStack(spacing: 2) {
+                    VStack(spacing: 3) {
                         Text(title)
-                            .kmiFont(size: 15.5, weight: .black)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.78)
+                            .kmiTypography(.action)
+                            .fixedSize(horizontal: false, vertical: true)
                             .multilineTextAlignment(textAlignment)
 
                         if let subtitle, !subtitle.isEmpty {
                             Text(subtitle)
-                                .kmiFont(size: 11.5, weight: .semibold)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.74)
+                                .kmiTypography(.caption)
+                                .fixedSize(horizontal: false, vertical: true)
                                 .multilineTextAlignment(textAlignment)
-                                .opacity(0.88)
                         }
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .foregroundStyle(Color.white)
+                .foregroundStyle(contentColor)
                 .padding(.horizontal, 14)
-                .frame(maxWidth: .infinity)
-                .frame(height: subtitle == nil ? 48 : 58)
+                .padding(.vertical, 10)
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: subtitle == nil ? 48 : 58
+                )
                 .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(effectiveTint)
+                    RoundedRectangle(
+                        cornerRadius: 18,
+                        style: .continuous
+                    )
+                    .fill(effectiveTint)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                    RoundedRectangle(
+                        cornerRadius: 18,
+                        style: .continuous
+                    )
+                    .strokeBorder(
+                        contentColor.opacity(0.22),
+                        lineWidth: 1
+                    )
                 )
-                .shadow(color: effectiveTint.opacity(0.18), radius: 8, x: 0, y: 4)
                 .scaleEffect(pressed ? 0.96 : 1.0)
             }
             .buttonStyle(.plain)
@@ -2368,23 +2410,17 @@ struct SettingsView: View {
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(
-                        isDarkMode
-                            ? Color(hex: 0xFF1E293B).opacity(0.94)
-                            : Color.white.opacity(0.94)
-                    )
+                    .fill(KmiAppTheme.surface(for: colorScheme))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(tint.opacity(isOn ? 0.26 : 0.14), lineWidth: 1)
-            )
-            .shadow(
-                color: isDarkMode
-                    ? Color.black.opacity(0.22)
-                    : tint.opacity(isOn ? 0.10 : 0.05),
-                radius: 8,
-                x: 0,
-                y: 4
+                    .strokeBorder(
+                        isOn
+                            ? KmiAppTheme.primary(for: colorScheme)
+                                .opacity(0.45)
+                            : KmiAppTheme.outlineVariant(for: colorScheme),
+                        lineWidth: 1
+                    )
             )
             .environment(\.layoutDirection, .leftToRight)
         }
@@ -2396,8 +2432,9 @@ struct SettingsView: View {
                     .frame(width: 40, height: 40)
 
                 Image(systemName: systemImage)
-                    .font(.system(size: 16, weight: .black))
-                    .foregroundStyle(tint.opacity(isOn ? 1.0 : 0.62))
+                    .kmiFont(size: KmiIconSize.small, weight: .black)
+                    .foregroundStyle(tint)
+                    .accessibilityHidden(true)
             }
         }
 
@@ -2412,10 +2449,9 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
 
                 Text(subtitle)
-                    .kmiFont(size: 12, weight: .semibold)
+                    .kmiTypography(.secondary)
                     .foregroundStyle(secondaryTextColor)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.76)
+                    .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(textAlignment)
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
             }
@@ -2423,7 +2459,7 @@ struct SettingsView: View {
 
         private var toggleView: some View {
             Toggle(
-                "",
+                title,
                 isOn: Binding(
                     get: { isOn },
                     set: { newValue in
@@ -2433,6 +2469,7 @@ struct SettingsView: View {
                 )
             )
             .labelsHidden()
+            .tint(KmiAppTheme.primary(for: colorScheme))
         }
     }
     
@@ -2446,7 +2483,7 @@ struct SettingsView: View {
             HStack(spacing: 6) {
                 if isEnglish {
                     Image(systemName: systemImage)
-                        .font(.system(size: 11, weight: .black))
+                        .kmiFont(size: KmiIconSize.tiny, weight: .black)
 
                     Text(title)
                         .kmiFont(size: 12, weight: .heavy)
@@ -2459,7 +2496,7 @@ struct SettingsView: View {
                         .minimumScaleFactor(0.78)
 
                     Image(systemName: systemImage)
-                        .font(.system(size: 11, weight: .black))
+                        .kmiFont(size: KmiIconSize.tiny, weight: .black)
                 }
             }
             .foregroundStyle(tint)
@@ -2533,12 +2570,18 @@ struct SettingsView: View {
                         textBlock
 
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .black))
-                            .foregroundStyle(tint.opacity(0.82))
+                            .kmiFont(size: KmiIconSize.tiny, weight: .black)
+                            .foregroundStyle(
+                                KmiAppTheme.onSurfaceVariant(for: colorScheme)
+                            )
+                            .accessibilityHidden(true)
                     } else {
                         Image(systemName: "chevron.left")
-                            .font(.system(size: 13, weight: .black))
-                            .foregroundStyle(tint.opacity(0.82))
+                            .kmiFont(size: KmiIconSize.tiny, weight: .black)
+                            .foregroundStyle(
+                                KmiAppTheme.onSurfaceVariant(for: colorScheme)
+                            )
+                            .accessibilityHidden(true)
 
                         textBlock
 
@@ -2581,27 +2624,26 @@ struct SettingsView: View {
                     .frame(width: 38, height: 38)
 
                 Image(systemName: systemImage)
-                    .font(.system(size: 16, weight: .black))
+                    .kmiFont(size: KmiIconSize.small, weight: .black)
                     .foregroundStyle(tint)
+                    .accessibilityHidden(true)
             }
         }
 
         private var textBlock: some View {
             VStack(alignment: isEnglish ? .leading : .trailing, spacing: 3) {
                 Text(title)
-                    .kmiFont(size: 15.5, weight: .black)
+                    .kmiTypography(.cardTitle)
                     .foregroundStyle(primaryTextColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
+                    .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(textAlignment)
                     .frame(maxWidth: .infinity, alignment: frameAlignment)
 
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
-                        .kmiFont(size: 12, weight: .semibold)
+                        .kmiTypography(.secondary)
                         .foregroundStyle(secondaryTextColor)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.76)
+                        .fixedSize(horizontal: false, vertical: true)
                         .multilineTextAlignment(textAlignment)
                         .frame(maxWidth: .infinity, alignment: frameAlignment)
                 }
@@ -2620,17 +2662,15 @@ struct SettingsView: View {
         @State private var pressed: Bool = false
 
         private var fillColor: Color {
-            if isPrimary {
-                return tint
-            }
-
-            return colorScheme == .dark
-                ? Color(hex: 0xFF1E293B).opacity(0.96)
-                : Color.white.opacity(0.96)
+            isPrimary
+                ? KmiAppTheme.primary(for: colorScheme)
+                : KmiAppTheme.surfaceVariant(for: colorScheme)
         }
 
         private var textColor: Color {
-            isPrimary ? Color.white : tint
+            isPrimary
+                ? KmiAppTheme.onPrimary(for: colorScheme)
+                : KmiAppTheme.primary(for: colorScheme)
         }
 
         var body: some View {
@@ -2649,25 +2689,38 @@ struct SettingsView: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: systemImage)
-                        .font(.system(size: 14, weight: .black))
+                        .kmiFont(
+                            size: KmiIconSize.tiny,
+                            weight: .black
+                        )
+                        .accessibilityHidden(true)
 
                     Text(title)
-                        .kmiFont(size: 16, weight: .black)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.78)
+                        .kmiTypography(.action)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .foregroundStyle(textColor)
-                .frame(maxWidth: .infinity)
-                .frame(height: 52)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, minHeight: 44)
                 .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(fillColor)
+                    RoundedRectangle(
+                        cornerRadius: 18,
+                        style: .continuous
+                    )
+                    .fill(fillColor)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(isPrimary ? Color.white.opacity(0.22) : tint.opacity(0.20), lineWidth: 1)
+                    RoundedRectangle(
+                        cornerRadius: 18,
+                        style: .continuous
+                    )
+                    .strokeBorder(
+                        KmiAppTheme.outlineVariant(for: colorScheme),
+                        lineWidth: 1
+                    )
                 )
-                .shadow(color: tint.opacity(isPrimary ? 0.18 : 0.08), radius: 8, x: 0, y: 4)
                 .scaleEffect(pressed ? 0.96 : 1.0)
             }
             .buttonStyle(.plain)
@@ -2748,8 +2801,8 @@ struct SettingsView: View {
         showTrainingLeadPicker = false
         toast(
             tr(
-                "התזכורת עודכנה ל-\(formatTrainingLeadTime(lead))",
-                "Reminder updated to \(formatTrainingLeadTime(lead))"
+                "זמן התזכורת נשמר: \(formatTrainingLeadTime(lead))",
+                "Reminder time saved: \(formatTrainingLeadTime(lead))"
             )
         )
         feedbackTap()
@@ -2757,68 +2810,92 @@ struct SettingsView: View {
 
     private var trainingLeadPickerSheet: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                VStack(spacing: 6) {
-                    Text(tr("בחירת זמן לפני האימון", "Choose reminder time before training"))
-                        .kmiFont(size: 22, weight: .black)
-                        .foregroundStyle(Color.white)
-                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                        .multilineTextAlignment(primaryTextAlignment)
+            ScrollView {
+                VStack(spacing: 16) {
+                    VStack(spacing: 8) {
+                        Text(
+                            tr(
+                                "בחירת זמן לפני האימון",
+                                "Choose reminder time before training"
+                            )
+                        )
+                        .kmiTypography(.sectionTitle)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                    Text(tr("בחר שעות ודקות. לדוגמה: שעה ו־18 דקות.", "Choose hours and minutes. For example: 1 hour and 18 minutes."))
-                        .kmiFont(size: 14, weight: .semibold)
-                        .foregroundStyle(Color.white.opacity(0.92))
-                        .frame(maxWidth: .infinity, alignment: horizontalTextAlignment)
-                        .multilineTextAlignment(primaryTextAlignment)
+                        Text(
+                            tr(
+                                "בחר שעות ודקות. לדוגמה: שעה ו־18 דקות.",
+                                "Choose hours and minutes. For example: 1 hour and 18 minutes."
+                            )
+                        )
+                        .kmiTypography(.body)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                    Text(formatTrainingLeadTime((tempTrainingLeadHours * 60) + tempTrainingLeadMinutes))
-                        .kmiFont(size: 16, weight: .black)
-                        .foregroundStyle(Color.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(Color.white.opacity(0.14))
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .padding(.top, 8)
-                }
-                .padding(18)
-                .background(
-                    LinearGradient(
-                        colors: [
-                            Color(hex: 0xFF062B4A),
-                            Color(hex: 0xFF0F5E9C),
-                            Color(hex: 0xFF5B35D5)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
+                        Text(
+                            formatTrainingLeadTime(
+                                (tempTrainingLeadHours * 60)
+                                    + tempTrainingLeadMinutes
+                            )
+                        )
+                        .kmiTypography(.cardTitle)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .foregroundStyle(
+                        KmiAppTheme.sectionHeaderContentColor
                     )
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(18)
+                    .background(KmiAppTheme.sectionHeaderBrush)
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius: 20,
+                            style: .continuous
+                        )
+                    )
 
-                HStack(spacing: 12) {
-                    if isEnglish {
-                        trainingLeadWheel(title: tr("שעות", "Hours"), range: 0...6, selection: $tempTrainingLeadHours)
-                        trainingLeadWheel(title: tr("דקות", "Minutes"), range: 0...59, selection: $tempTrainingLeadMinutes)
-                    } else {
-                        trainingLeadWheel(title: tr("דקות", "Minutes"), range: 0...59, selection: $tempTrainingLeadMinutes)
-                        trainingLeadWheel(title: tr("שעות", "Hours"), range: 0...6, selection: $tempTrainingLeadHours)
+                    HStack(spacing: 12) {
+                        trainingLeadWheel(
+                            title: tr("שעות", "Hours"),
+                            range: 0...6,
+                            selection: $tempTrainingLeadHours
+                        )
+
+                        trainingLeadWheel(
+                            title: tr("דקות", "Minutes"),
+                            range: 0...59,
+                            selection: $tempTrainingLeadMinutes
+                        )
                     }
                 }
-
-                HStack(spacing: 10) {
+                .padding(16)
+            }
+            .background(BeltTopicsGradientBackground())
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                HStack(spacing: 12) {
                     Button {
                         showTrainingLeadPicker = false
                     } label: {
                         Text(tr("ביטול", "Cancel"))
-                            .kmiFont(size: 16, weight: .bold)
-                            .foregroundStyle(settingsPrimaryTextColor)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(
-                                isDarkMode
-                                    ? Color(hex: 0xFF1E293B)
-                                    : Color.white
+                            .kmiTypography(.action)
+                            .foregroundStyle(
+                                KmiAppTheme.primary(for: colorScheme)
                             )
-                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(
+                                RoundedRectangle(
+                                    cornerRadius: 16,
+                                    style: .continuous
+                                )
+                                .fill(
+                                    KmiAppTheme.surfaceVariant(
+                                        for: colorScheme
+                                    )
+                                )
+                            )
                     }
                     .buttonStyle(.plain)
 
@@ -2826,23 +2903,34 @@ struct SettingsView: View {
                         saveTrainingLeadFromPicker()
                     } label: {
                         Text(tr("שמירה", "Save"))
-                            .kmiFont(size: 16, weight: .black)
-                            .foregroundStyle(Color.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(Color(hex: 0xFF5B35D5))
-                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .kmiTypography(.action)
+                            .foregroundStyle(.white)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(
+                                RoundedRectangle(
+                                    cornerRadius: 16,
+                                    style: .continuous
+                                )
+                                .fill(KmiAppTheme.graniteActionBrush)
+                            )
                     }
                     .buttonStyle(.plain)
                 }
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    KmiAppTheme.surface(for: colorScheme)
+                        .ignoresSafeArea(edges: .bottom)
+                )
             }
-            .padding(18)
-            .background(
-                isDarkMode
-                    ? Color(hex: 0xFF111827)
-                    : Color(hex: 0xFFF6F1FB)
+            .environment(
+                \.layoutDirection,
+                settingsLayoutDirection
             )
-            .environment(\.layoutDirection, settingsLayoutDirection)
         }
     }
 
@@ -2871,16 +2959,21 @@ struct SettingsView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .background(
-            isDarkMode
-                ? Color(hex: 0xFF1E293B)
-                : Color.white
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .fill(KmiAppTheme.surface(for: colorScheme))
         )
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .shadow(
-            color: Color.black.opacity(isDarkMode ? 0.24 : 0.08),
-            radius: 4,
-            x: 0,
-            y: 3
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .strokeBorder(
+                KmiAppTheme.outlineVariant(for: colorScheme),
+                lineWidth: 1
+            )
         )
     }
     
@@ -2897,8 +2990,12 @@ struct SettingsView: View {
                                 .frame(width: 82, height: 82)
 
                             Image(systemName: "calendar.badge.exclamationmark")
-                                .font(.system(size: 34, weight: .bold))
+                                .kmiFont(
+                                    size: KmiIconSize.extraLarge,
+                                    weight: .bold
+                                )
                                 .foregroundStyle(sectionIconTint)
+                                .accessibilityHidden(true)
                         }
 
                         Text(tr("לא נמצאו יומנים זמינים", "No calendars found"))
@@ -2924,20 +3021,29 @@ struct SettingsView: View {
                     }
                 }
             }
-            .navigationTitle(tr("בחר יומן לסנכרון", "Choose calendar for sync"))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(BeltTopicsGradientBackground())
+            .navigationTitle(
+                tr("בחר יומן לסנכרון", "Choose calendar for sync")
+            )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: isEnglish ? .topBarLeading : .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button(tr("ביטול", "Cancel")) {
                         showCalendarPicker = false
                     }
                 }
 
-                ToolbarItem(placement: isEnglish ? .topBarTrailing : .topBarLeading) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button(tr("שמור", "Save")) {
                         saveSelectedCalendarFromPicker()
                     }
-                    .disabled(tempSelectedCalendarIdentifier.isEmpty)
+                    .disabled(
+                        !availableWritableCalendars.contains {
+                            $0.calendarIdentifier
+                                == tempSelectedCalendarIdentifier
+                        }
+                    )
                 }
             }
             .environment(\.layoutDirection, settingsLayoutDirection)
@@ -2952,61 +3058,67 @@ struct SettingsView: View {
             feedbackTap()
         } label: {
             HStack(spacing: 12) {
-                if isEnglish {
-                    calendarPickerCheckmark(calendar)
+                calendarPickerCheckmark(calendar)
+                    .accessibilityHidden(true)
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(calendar.title.isEmpty ? tr("יומן ללא שם", "Unnamed calendar") : calendar.title)
-                            .kmiFont(size: 16, weight: .heavy)
-                            .foregroundStyle(settingsPrimaryTextColor)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.78)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(
+                        calendar.title.isEmpty
+                            ? tr("יומן ללא שם", "Unnamed calendar")
+                            : calendar.title
+                    )
+                    .kmiFont(size: 16, weight: .heavy)
+                    .foregroundStyle(settingsPrimaryTextColor)
 
-                        Text(calendar.source.title)
-                            .kmiFont(size: 12.5, weight: .semibold)
-                            .foregroundStyle(settingsSecondaryTextColor)
-                            .lineLimit(1)
-                    }
-
-                    Spacer()
-                } else {
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text(calendar.title.isEmpty ? tr("יומן ללא שם", "Unnamed calendar") : calendar.title)
-                            .kmiFont(size: 16, weight: .heavy)
-                            .foregroundStyle(settingsPrimaryTextColor)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.78)
-
-                        Text(calendar.source.title)
-                            .kmiFont(size: 12.5, weight: .semibold)
-                            .foregroundStyle(settingsSecondaryTextColor)
-                            .lineLimit(1)
-                    }
-
-                    calendarPickerCheckmark(calendar)
+                    Text(calendar.source.title)
+                        .kmiFont(size: 12.5, weight: .semibold)
+                        .foregroundStyle(settingsSecondaryTextColor)
                 }
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 13)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(selected ? sectionIconTint.opacity(0.10) : Color(.secondarySystemBackground))
+                    .fill(
+                        selected
+                            ? KmiAppTheme.surfaceVariant(for: colorScheme)
+                            : KmiAppTheme.surface(for: colorScheme)
+                    )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(selected ? sectionIconTint.opacity(0.30) : Color.clear, lineWidth: 1)
+                    .strokeBorder(
+                        selected
+                            ? KmiAppTheme.primary(for: colorScheme)
+                            : KmiAppTheme.outlineVariant(for: colorScheme),
+                        lineWidth: 1
+                    )
             )
-            .shadow(color: selected ? sectionIconTint.opacity(0.10) : Color.black.opacity(0.03), radius: 6, x: 0, y: 3)
         }
         .buttonStyle(.plain)
     }
 
     private func calendarPickerCheckmark(_ calendar: EKCalendar) -> some View {
-        Image(systemName: tempSelectedCalendarIdentifier == calendar.calendarIdentifier ? "largecircle.fill.circle" : "circle")
-            .font(.system(size: 22, weight: .semibold))
-            .foregroundStyle(tempSelectedCalendarIdentifier == calendar.calendarIdentifier ? Color.accentColor : Color.secondary)
+        let isSelected =
+            tempSelectedCalendarIdentifier == calendar.calendarIdentifier
+
+        return Image(
+            systemName: isSelected
+                ? "largecircle.fill.circle"
+                : "circle"
+        )
+        .kmiFont(
+            size: KmiIconSize.medium,
+            weight: .semibold
+        )
+        .foregroundStyle(
+            isSelected
+                ? KmiAppTheme.primary(for: colorScheme)
+                : KmiAppTheme.onSurfaceVariant(for: colorScheme)
+        )
     }
     
     private func openCalendarPicker() {
@@ -3024,10 +3136,15 @@ struct SettingsView: View {
                     .calendars(for: .event)
                     .filter { $0.allowsContentModifications }
 
+                let savedCalendarIsAvailable =
+                    availableWritableCalendars.contains {
+                        $0.calendarIdentifier == selectedCalendarIdentifier
+                    }
+
                 tempSelectedCalendarIdentifier =
-                    selectedCalendarIdentifier.isEmpty
-                    ? (availableWritableCalendars.first?.calendarIdentifier ?? "")
-                    : selectedCalendarIdentifier
+                    savedCalendarIsAvailable
+                    ? selectedCalendarIdentifier
+                    : (availableWritableCalendars.first?.calendarIdentifier ?? "")
 
                 showCalendarPicker = true
             }
@@ -3086,53 +3203,55 @@ struct SettingsView: View {
                 // כדי שפונקציות הסנכרון הקיימות יוכלו לקרוא אותו אם הן כבר תומכות בזה.
                 UserDefaults.standard.set(selectedCalendarIdentifier, forKey: "calendar_sync_selected_calendar_id")
                 UserDefaults.standard.set(selectedCalendarDisplay, forKey: "calendar_sync_selected_calendar_display")
-                UserDefaults.standard.set(true, forKey: "calendar_sync_selected_enabled")
-
-                selectedCalendarSyncEnabled = true
-                calendarSyncEnabled = true
+                feedbackTap()
 
                 ensureCalendarPermissionsAndSync()
-
-                isBusy = false
-                feedbackTap()
-                toast(tr("האימונים סונכרנו ליומן שבחרת", "Trainings were synced to the selected calendar"))
             }
         }
     }
 
-    private func requestCalendarAccessIfNeeded(_ completion: @escaping (Bool) -> Void) {
+    private func requestCalendarAccessIfNeeded(
+        _ completion: @escaping (Bool) -> Void
+    ) {
         let store = EKEventStore()
+        let status = EKEventStore.authorizationStatus(for: .event)
 
-        switch EKEventStore.authorizationStatus(for: .event) {
-        case .authorized:
-            completion(true)
+        if #available(iOS 17.0, *) {
+            switch status {
+            case .fullAccess:
+                completion(true)
 
-        case .notDetermined:
-            if #available(iOS 17.0, *) {
+            case .notDetermined, .writeOnly:
                 store.requestFullAccessToEvents { granted, _ in
-                    completion(granted)
+                    DispatchQueue.main.async {
+                        completion(granted)
+                    }
                 }
-            } else {
-                store.requestAccess(to: .event) { granted, _ in
-                    completion(granted)
-                }
+
+            default:
+                completion(false)
             }
+        } else {
+            switch status {
+            case .authorized:
+                completion(true)
 
-        case .denied, .restricted:
-            completion(false)
+            case .notDetermined:
+                store.requestAccess(to: .event) { granted, _ in
+                    DispatchQueue.main.async {
+                        completion(granted)
+                    }
+                }
 
-        case .fullAccess:
-            completion(true)
-
-        case .writeOnly:
-            completion(true)
-
-        @unknown default:
-            completion(false)
+            default:
+                completion(false)
+            }
         }
     }
     
     private func saveAllSettingsAndExit() {
+        guard !isBusy else { return }
+
         UserDefaults.standard.set(kmiAppLanguageCode, forKey: "kmi_app_language")
         UserDefaults.standard.set(selectedLanguageCode, forKey: "selected_language_code")
         UserDefaults.standard.set(appLanguageRaw, forKey: "app_language")
@@ -3186,25 +3305,43 @@ struct SettingsView: View {
     private var actionButtons: some View {
         HStack(spacing: 12) {
             Button {
+                guard !isBusy else { return }
+
                 feedbackTap()
                 nav.pop()
             } label: {
-                Text(tr("ביטול", "Cancel"))
-                    .kmiFont(size: 17, weight: .black)
-                    .foregroundStyle(sectionIconTint)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
+                Text(tr("סגירה", "Close"))
+                    .kmiTypography(.action)
+                    .foregroundStyle(
+                        KmiAppTheme.primary(for: colorScheme)
+                    )
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, minHeight: 44)
                     .background(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .fill(
-                                isDarkMode
-                                    ? Color(hex: 0xFF1E293B).opacity(0.96)
-                                    : Color.white.opacity(0.82)
+                        RoundedRectangle(
+                            cornerRadius: 16,
+                            style: .continuous
+                        )
+                        .fill(
+                            KmiAppTheme.surfaceVariant(
+                                for: colorScheme
                             )
+                        )
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .stroke(sectionIconTint.opacity(0.28), lineWidth: 1)
+                        RoundedRectangle(
+                            cornerRadius: 16,
+                            style: .continuous
+                        )
+                        .strokeBorder(
+                            KmiAppTheme.outlineVariant(
+                                for: colorScheme
+                            ),
+                            lineWidth: 1
+                        )
                     )
             }
             .buttonStyle(.plain)
@@ -3213,51 +3350,40 @@ struct SettingsView: View {
                 saveAllSettingsAndExit()
             } label: {
                 Text(tr("אישור", "Confirm"))
-                    .kmiFont(size: 17, weight: .black)
-                    .foregroundStyle(Color.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
+                    .kmiTypography(.action)
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, minHeight: 44)
                     .background(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .fill(Color(hex: 0xFF7B61D9))
+                        RoundedRectangle(
+                            cornerRadius: 16,
+                            style: .continuous
+                        )
+                        .fill(KmiAppTheme.graniteActionBrush)
                     )
             }
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
-        .padding(.top, 14)
-        .padding(.bottom, 14)
+        .padding(.vertical, 10)
         .background(
-            ZStack {
-                (
-                    isDarkMode
-                        ? Color(hex: 0xFF111827)
-                        : Color(hex: 0xFFF4EFFB)
-                )
+            KmiAppTheme.surface(for: colorScheme)
                 .ignoresSafeArea(edges: .bottom)
-
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 28,
-                    bottomLeadingRadius: 0,
-                    bottomTrailingRadius: 0,
-                    topTrailingRadius: 28,
-                    style: .continuous
-                )
-                .fill(
-                    isDarkMode
-                        ? Color(hex: 0xFF111827)
-                        : Color(hex: 0xFFF4EFFB)
-                )
-                .shadow(
-                    color: Color.black.opacity(isDarkMode ? 0.34 : 0.16),
-                    radius: 18,
-                    x: 0,
-                    y: -6
-                )
-            }
         )
-
-        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(
+                    KmiAppTheme.outlineVariant(for: colorScheme)
+                )
+                .frame(height: 1)
+        }
+        .environment(
+            \.layoutDirection,
+            isEnglish ? .leftToRight : .rightToLeft
+        )
     }
 
 

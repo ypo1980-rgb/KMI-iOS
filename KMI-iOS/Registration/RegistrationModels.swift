@@ -28,7 +28,10 @@ struct RegistrationFormState: Equatable {
 
     var region: String = ""
     var branches: Set<String> = []
+
     var groups: Set<String> = []
+
+    var branchAssignments: [BranchAssignment] = []
 
     var branchType: String = "israel" // israel / abroad
 
@@ -48,6 +51,150 @@ private extension String {
 }
 
 extension RegistrationFormState {
+
+    struct BranchAssignment: Equatable {
+        var branch: String = ""
+        var groups: [String] = []
+
+        func sanitized() -> BranchAssignment {
+            var seen = Set<String>()
+
+            let cleanGroups = groups
+                .map {
+                    $0.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                }
+                .filter { !$0.isEmpty }
+                .filter { seen.insert($0).inserted }
+
+            return BranchAssignment(
+                branch: branch.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ),
+                groups: cleanGroups
+            )
+        }
+
+        func toFirestoreMap() -> [String: Any] {
+            let clean = sanitized()
+
+            return [
+                "branch": clean.branch,
+                "groups": clean.groups
+            ]
+        }
+    }
+
+    enum BranchAssignmentsCodec {
+        static let firestoreKey = "coachBranchAssignments"
+        static let preferenceKey = "coach_branch_assignments_json"
+
+        static func sanitized(
+            _ assignments: [BranchAssignment]
+        ) -> [BranchAssignment] {
+            var seenBranches = Set<String>()
+
+            return assignments
+                .map { $0.sanitized() }
+                .filter { !$0.branch.isEmpty }
+                .filter {
+                    seenBranches.insert($0.branch).inserted
+                }
+        }
+
+        static func encode(
+            _ assignments: [BranchAssignment]
+        ) -> String {
+            let objects = toFirestoreList(assignments)
+
+            guard let data = try? JSONSerialization.data(
+                withJSONObject: objects
+            ),
+            let result = String(
+                data: data,
+                encoding: .utf8
+            ) else {
+                return "[]"
+            }
+
+            return result
+        }
+
+        static func decode(
+            _ raw: String?
+        ) -> [BranchAssignment] {
+            guard let raw,
+                  let data = raw
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .data(using: .utf8),
+                  let objects = try? JSONSerialization.jsonObject(
+                    with: data
+                  ) as? [Any] else {
+                return []
+            }
+
+            return fromFirestoreList(objects)
+        }
+
+        static func fromFirestoreList(
+            _ objects: [Any]
+        ) -> [BranchAssignment] {
+            let assignments = objects.compactMap {
+                object -> BranchAssignment? in
+
+                guard let dictionary = object as? [String: Any],
+                      let branch = dictionary["branch"] as? String else {
+                    return nil
+                }
+
+                let groups = (dictionary["groups"] as? [Any] ?? [])
+                    .compactMap { $0 as? String }
+
+                return BranchAssignment(
+                    branch: branch,
+                    groups: groups
+                )
+            }
+
+            return sanitized(assignments)
+        }
+
+        static func flattenBranches(
+            _ assignments: [BranchAssignment]
+        ) -> [String] {
+            uniqueValues(assignments.map(\.branch))
+        }
+
+        static func flattenGroups(
+            _ assignments: [BranchAssignment]
+        ) -> [String] {
+            uniqueValues(assignments.flatMap(\.groups))
+        }
+
+        static func toFirestoreList(
+            _ assignments: [BranchAssignment]
+        ) -> [[String: Any]] {
+            sanitized(assignments).map {
+                $0.toFirestoreMap()
+            }
+        }
+
+        private static func uniqueValues(
+            _ values: [String]
+        ) -> [String] {
+            var seen = Set<String>()
+
+            return values
+                .map {
+                    $0.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                }
+                .filter { !$0.isEmpty }
+                .filter { seen.insert($0).inserted }
+        }
+    }
 
     var roleKey: String {
         switch role {
@@ -82,27 +229,90 @@ extension RegistrationFormState {
     }
 
     var branchesArray: [String] {
-        branches.map { $0.trimmed }.filter { !$0.isEmpty }.sorted()
+        Array(
+            Set(
+                branches
+                    .map { $0.trimmed }
+                    .filter { !$0.isEmpty }
+            )
+        )
+        .sorted()
     }
 
     var groupsArray: [String] {
-        groups.map { $0.trimmed }.filter { !$0.isEmpty }.sorted()
+        if !branchAssignments.isEmpty {
+            return BranchAssignmentsCodec.flattenGroups(
+                normalizedBranchAssignments
+            )
+        }
+
+        return Array(
+            Set(
+                groups
+                    .map { $0.trimmed }
+                    .filter { !$0.isEmpty }
+            )
+        )
+        .sorted()
+    }
+
+    var normalizedBranchAssignments: [BranchAssignment] {
+        let selectedBranches = Set(branchesArray)
+
+        return BranchAssignmentsCodec
+            .sanitized(branchAssignments)
+            .filter {
+                selectedBranches.contains($0.branch)
+            }
+    }
+
+    var hasCompleteBranchAssignments: Bool {
+        let selectedBranches = Set(branchesArray)
+
+        guard !selectedBranches.isEmpty else {
+            return false
+        }
+
+        let assignedBranches = Set(
+            normalizedBranchAssignments.map(\.branch)
+        )
+
+        return assignedBranches == selectedBranches
     }
 
     var primaryGroup: String {
-        groupsArray.first ?? ""
+        activeGroupFinal
     }
 
     var activeBranchFinal: String {
+        let availableBranches = branchesArray
         let manual = activeBranch.trimmed
-        if !manual.isEmpty { return manual }
-        return branchesArray.first ?? ""
+
+        if availableBranches.contains(manual) {
+            return manual
+        }
+
+        return availableBranches.first ?? ""
     }
 
     var activeGroupFinal: String {
+        let availableGroups: [String]
+
+        if !branchAssignments.isEmpty {
+            availableGroups = normalizedBranchAssignments
+                .first { $0.branch == activeBranchFinal }?
+                .groups ?? []
+        } else {
+            availableGroups = groupsArray
+        }
+
         let manual = activeGroup.trimmed
-        if !manual.isEmpty { return manual }
-        return groupsArray.first ?? ""
+
+        if availableGroups.contains(manual) {
+            return manual
+        }
+
+        return availableGroups.first ?? ""
     }
 
     var currentBeltId: String {
@@ -202,6 +412,13 @@ extension RegistrationFormState {
             "updatedAt": Date().timeIntervalSince1970
         ]
 
+        if hasCompleteBranchAssignments {
+            dict[BranchAssignmentsCodec.firestoreKey] =
+                BranchAssignmentsCodec.toFirestoreList(
+                    normalizedBranchAssignments
+                )
+        }
+
         if role == .coach {
             dict["coachCode"] = coachCode.trimmed
         }
@@ -217,6 +434,19 @@ extension RegistrationFormState {
         let primaryGroup = primaryGroup
         let activeBranchFinal = activeBranchFinal
         let activeGroupFinal = activeGroupFinal
+
+        if hasCompleteBranchAssignments {
+            ud.set(
+                BranchAssignmentsCodec.encode(
+                    normalizedBranchAssignments
+                ),
+                forKey: BranchAssignmentsCodec.preferenceKey
+            )
+        } else {
+            ud.removeObject(
+                forKey: BranchAssignmentsCodec.preferenceKey
+            )
+        }
 
         ud.set(fullNameTrimmed, forKey: "fullName")
         ud.set(fullNameTrimmed, forKey: "full_name")

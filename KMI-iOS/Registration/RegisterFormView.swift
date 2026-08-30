@@ -73,31 +73,33 @@ struct RegisterFormView: View {
      * משום שהמשתמש עלול לבחור קבוצה שאינה שייכת
      * לסניפים שבחר לאחר מכן.
      */
-    private var groupsOptions: [String] {
-        if isAbroadSelection ||
-            isCurrentRegionAbroad ||
-            s.branches.isEmpty {
+    private func availableGroups(for branch: String) -> [String] {
+        let cleanBranch = branch.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        guard !cleanBranch.isEmpty else {
             return []
         }
 
-        let selectedBranches =
-            Array(s.branches)
+        return Array(
+            Set(
+                TrainingCatalogIOS.groupsFor(
+                    branches: [cleanBranch]
+                )
                 .map {
                     $0.trimmingCharacters(
                         in: .whitespacesAndNewlines
                     )
                 }
-                .filter {
-                    !$0.isEmpty
-                }
-
-        guard !selectedBranches.isEmpty else {
-            return []
-        }
-
-        return TrainingCatalogIOS.groupsFor(
-            branches: selectedBranches
+                .filter { !$0.isEmpty }
+            )
         )
+        .sorted()
+    }
+
+    private var groupsOptions: [String] {
+        availableGroups(for: s.activeBranch)
     }
 
     /*
@@ -106,10 +108,9 @@ struct RegisterFormView: View {
      * עבור אחד הסניפים שנבחרו.
      */
     private var shouldShowGroupsPicker: Bool {
-        !isAbroadSelection &&
-        !isCurrentRegionAbroad &&
-        !s.branches.isEmpty &&
-        !groupsOptions.isEmpty
+        s.branchesArray.contains { branch in
+            !availableGroups(for: branch).isEmpty
+        }
     }
 
     private let belts = [
@@ -758,9 +759,6 @@ struct RegisterFormView: View {
             .onChange(of: s.branches) { _, newBranches in
                 handleBranchesChange(newBranches)
             }
-            .onChange(of: s.groups) { _, newGroups in
-                handleGroupsChange(newGroups)
-            }
             .onAppear {
                 handleInitialAppear()
             }
@@ -1087,12 +1085,71 @@ struct RegisterFormView: View {
     }
 
     private var groupsSheet: some View {
-        MultiSelectSheet(
-            title: tr("בחר קבוצות", "Choose groups"),
-            options: groupsOptions,
-            maxSelected: Int.max,
-            selected: $s.groups
-        )
+        VStack(spacing: 12) {
+            Text(
+                tr(
+                    "בחר סניף ואז את הקבוצות שלו",
+                    "Choose a branch, then its groups"
+                )
+            )
+            .kmiTypography(.cardTitle)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(s.branchesArray, id: \.self) { branch in
+                        Button {
+                            s.activeBranch = branch
+                            synchronizeBranchAssignments()
+                        } label: {
+                            Text(branch)
+                                .kmiTypography(.action)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .background(
+                                    Capsule()
+                                        .fill(
+                                            Color.accentColor.opacity(
+                                                s.activeBranch == branch
+                                                    ? 0.20
+                                                    : 0.08
+                                            )
+                                        )
+                                )
+                                .overlay(
+                                    Capsule()
+                                        .strokeBorder(
+                                            s.activeBranch == branch
+                                                ? Color.accentColor
+                                                : Color.clear,
+                                            lineWidth: 1
+                                        )
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityValue(
+                            s.activeBranch == branch
+                                ? tr("נבחר", "Selected")
+                                : ""
+                        )
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+
+            MultiSelectSheet(
+                title: tr(
+                    "קבוצות — \(s.activeBranch)",
+                    "Groups — \(s.activeBranch)"
+                ),
+                options: groupsOptions,
+                maxSelected: Int.max,
+                selected: groupsBinding(for: s.activeBranch)
+            )
+            .id(s.activeBranch)
+        }
         .presentationDetents([.medium, .large])
     }
     
@@ -1128,66 +1185,150 @@ struct RegisterFormView: View {
         storedActiveGroup = ""
     }
 
-    private func handleBranchesChange(_ newBranches: Set<String>) {
-        if newBranches.isEmpty {
-            s.activeBranch = ""
-            displayedBranchValue = ""
-            storedActiveBranch = ""
-            s.groups.removeAll()
-            s.activeGroup = ""
-            displayedGroupValue = ""
-            storedActiveGroup = ""
+    private func groupsBinding(
+        for branch: String
+    ) -> Binding<Set<String>> {
+        Binding(
+            get: {
+                Set(
+                    s.branchAssignments
+                        .first { $0.branch == branch }?
+                        .groups ?? []
+                )
+            },
+            set: { selectedGroups in
+                guard s.branchesArray.contains(branch) else {
+                    return
+                }
+
+                let allowedGroups = Set(
+                    availableGroups(for: branch)
+                )
+
+                let cleanGroups = selectedGroups
+                    .map {
+                        $0.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                    }
+                    .filter { allowedGroups.contains($0) }
+                    .sorted()
+
+                let assignment =
+                    RegistrationFormState.BranchAssignment(
+                        branch: branch,
+                        groups: cleanGroups
+                    )
+
+                if let index = s.branchAssignments.firstIndex(
+                    where: { $0.branch == branch }
+                ) {
+                    s.branchAssignments[index] = assignment
+                } else {
+                    s.branchAssignments.append(assignment)
+                }
+
+                synchronizeBranchAssignments()
+            }
+        )
+    }
+
+    private func synchronizeBranchAssignments() {
+        let branches = s.branchesArray
+        let selectedBranches = Set(branches)
+
+        var assignments =
+            RegistrationFormState.BranchAssignmentsCodec
+                .sanitized(s.branchAssignments)
+                .filter {
+                    selectedBranches.contains($0.branch)
+                }
+
+        for branch in branches {
+            if !assignments.contains(
+                where: { $0.branch == branch }
+            ) {
+                assignments.append(
+                    RegistrationFormState.BranchAssignment(
+                        branch: branch,
+                        groups: []
+                    )
+                )
+            }
+        }
+
+        s.branchAssignments = assignments
+
+        s.groups = Set(
+            RegistrationFormState.BranchAssignmentsCodec
+                .flattenGroups(assignments)
+        )
+
+        if !selectedBranches.contains(s.activeBranch) {
+            s.activeBranch = branches.first ?? ""
+        }
+
+        let activeGroups = assignments
+            .first { $0.branch == s.activeBranch }?
+            .groups ?? []
+
+        if !activeGroups.contains(s.activeGroup) {
+            s.activeGroup = activeGroups.first ?? ""
+        }
+
+        displayedBranchValue = s.activeBranch
+        displayedGroupValue = s.activeGroup
+
+        storedActiveBranch = s.activeBranch
+        storedActiveGroup = s.activeGroup
+    }
+
+    private func initializeBranchAssignments() {
+        let codec = RegistrationFormState.BranchAssignmentsCodec.self
+
+        if s.branchAssignments.isEmpty {
+            let savedAssignments = codec.decode(
+                UserDefaults.standard.string(
+                    forKey: codec.preferenceKey
+                )
+            )
+
+            s.branchAssignments = savedAssignments.filter {
+                s.branchesArray.contains($0.branch)
+            }
+        }
+
+        if s.branchAssignments.isEmpty,
+           s.branchesArray.count == 1,
+           let branch = s.branchesArray.first {
+            s.branchAssignments = [
+                RegistrationFormState.BranchAssignment(
+                    branch: branch,
+                    groups: s.groupsArray
+                )
+            ]
+        }
+
+        synchronizeBranchAssignments()
+    }
+
+    private func handleBranchesChange(
+        _ newBranches: Set<String>
+    ) {
+        guard didFinishInitialLoad else {
             return
         }
 
-        let sortedBranches = Array(newBranches)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .sorted()
-
-        if sortedBranches.contains(where: { TrainingCatalogIOS.isAbroadBranch($0) }) {
+        if newBranches.contains(
+            where: { TrainingCatalogIOS.isAbroadBranch($0) }
+        ) {
             isAbroadSelection = true
             s.branchType = "abroad"
         } else if !isAbroadSelection {
             s.branchType = "israel"
         }
 
-        if s.activeBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-            !sortedBranches.contains(s.activeBranch) {
-            s.activeBranch = sortedBranches.first ?? ""
-        }
-
-        displayedBranchValue = s.activeBranch
-        storedActiveBranch = s.activeBranch
-
-        if isAbroadSelection || isCurrentRegionAbroad {
-            s.groups = ["בוגרים"]
-            s.activeGroup = "בוגרים"
-            displayedGroupValue = "בוגרים"
-            storedActiveGroup = "בוגרים"
-            return
-        }
-
-        let validGroups = Set(
-            TrainingCatalogIOS.groupsFor(
-                branches: Array(newBranches)
-            )
-        )
-
-        s.groups = s.groups.filter { validGroups.contains($0) }
-
-        let sortedGroups = Array(s.groups)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .sorted()
-
-        if s.activeGroup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-            !sortedGroups.contains(s.activeGroup) {
-            s.activeGroup = sortedGroups.first ?? ""
-        }
-
-        displayedGroupValue = s.activeGroup
-        storedActiveGroup = s.activeGroup
+        synchronizeBranchAssignments()
     }
 
     private func handleGroupsChange(_ newGroups: Set<String>) {
@@ -1348,7 +1489,10 @@ struct RegisterFormView: View {
         }
 
         s.role = initialRole
+
         applyRoleGate()
+
+        initializeBranchAssignments()
 
         DispatchQueue.main.async {
             didFinishInitialLoad = true
@@ -2852,8 +2996,32 @@ struct RegisterFormView: View {
                 : tr("חובה לבחור לפחות סניף אחד בארץ", "Please choose at least one branch in Israel")
         }
 
-        if shouldShowGroupsPicker && s.groups.isEmpty {
-            return tr("חובה לבחור לפחות קבוצה אחת", "Please choose at least one group")
+        for branch in s.branchesArray {
+            let available = Set(
+                availableGroups(for: branch)
+            )
+
+            guard !available.isEmpty else {
+                continue
+            }
+
+            let selected = s.branchAssignments
+                .first { $0.branch == branch }?
+                .groups ?? []
+
+            if selected.isEmpty {
+                return tr(
+                    "יש לבחור לפחות קבוצה אחת לסניף \(branch)",
+                    "Choose at least one group for branch \(branch)"
+                )
+            }
+
+            if selected.contains(where: { !available.contains($0) }) {
+                return tr(
+                    "יש לעדכן את בחירת הקבוצות בסניף \(branch)",
+                    "Update the selected groups for branch \(branch)"
+                )
+            }
         }
 
         if !isEditingProfile,
@@ -2872,6 +3040,7 @@ struct RegisterFormView: View {
         s.region = ""
         s.branches.removeAll()
         s.groups.removeAll()
+        s.branchAssignments.removeAll()
         s.activeBranch = ""
         s.activeGroup = ""
         s.branchType = isAbroadSelection ? "abroad" : "israel"

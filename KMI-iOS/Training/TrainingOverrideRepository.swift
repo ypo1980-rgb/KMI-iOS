@@ -331,6 +331,8 @@ enum TrainingOverrideRepository {
             @escaping (
                 [String: TrainingOverride]
             ) -> Void,
+        onInitialLoadFinished:
+            @escaping () -> Void = {},
         onError:
             @escaping (Error) -> Void = { _ in }
     ) -> TrainingOverrideListenerHandle {
@@ -352,6 +354,7 @@ enum TrainingOverrideRepository {
         guard !cleanOccurrenceKeys.isEmpty else {
             DispatchQueue.main.async {
                 onChanged([:])
+                onInitialLoadFinished()
             }
 
             return TrainingOverrideListenerHandle(
@@ -367,6 +370,8 @@ enum TrainingOverrideRepository {
 
         var overridesByOccurrenceKey:
             [String: TrainingOverride] = [:]
+
+        var pendingOccurrenceKeys = Set(cleanOccurrenceKeys)
 
         let registrations =
             cleanOccurrenceKeys.map {
@@ -385,8 +390,18 @@ enum TrainingOverrideRepository {
                         error in
 
                         if let error {
-                            DispatchQueue.main.async {
-                                onError(error)
+                            stateQueue.async {
+                                let didFinishInitialLoad =
+                                    pendingOccurrenceKeys.remove(occurrenceKey) != nil
+                                    && pendingOccurrenceKeys.isEmpty
+
+                                DispatchQueue.main.async {
+                                    onError(error)
+
+                                    if didFinishInitialLoad {
+                                        onInitialLoadFinished()
+                                    }
+                                }
                             }
                             return
                         }
@@ -412,10 +427,18 @@ enum TrainingOverrideRepository {
                             let currentOverrides =
                                 overridesByOccurrenceKey
 
+                            let didFinishInitialLoad =
+                                pendingOccurrenceKeys.remove(occurrenceKey) != nil
+                                && pendingOccurrenceKeys.isEmpty
+
                             DispatchQueue.main.async {
                                 onChanged(
                                     currentOverrides
                                 )
+
+                                if didFinishInitialLoad {
+                                    onInitialLoadFinished()
+                                }
                             }
                         }
                     }

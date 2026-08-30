@@ -1,7 +1,91 @@
 import SwiftUI
 import Foundation
+import FirebaseAuth
+import FirebaseFirestore
 
 extension SettingsView {
+
+    @MainActor
+    func saveEditedRegistration(
+        _ form: RegistrationFormState
+    ) async throws {
+        guard let uid = Auth.auth().currentUser?.uid else {
+            throw NSError(
+                domain: "KMI.ProfileSave",
+                code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "No signed-in user"
+                ]
+            )
+        }
+
+        guard form.hasCompleteBranchAssignments,
+              !form.currentBeltId.isEmpty else {
+            throw NSError(
+                domain: "KMI.ProfileSave",
+                code: 2,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Incomplete registration assignments"
+                ]
+            )
+        }
+
+        var payload = form.toFirestoreDictionary(uid: uid)
+
+        payload.removeValue(forKey: "createdAt")
+        payload.removeValue(forKey: "uid")
+
+        payload["branch"] = form.activeBranchFinal
+        payload["active_branch"] = form.activeBranchFinal
+
+        payload["group"] = form.activeGroupFinal
+        payload["groupKey"] = form.activeGroupFinal
+        payload["group_key"] = form.activeGroupFinal
+        payload["active_group"] = form.activeGroupFinal
+        payload["age_group"] = form.activeGroupFinal
+        payload["ageGroup"] = form.activeGroupFinal
+
+        payload["updatedAt"] = FieldValue.serverTimestamp()
+
+        guard !Task.isCancelled,
+              Auth.auth().currentUser?.uid == uid else {
+            throw CancellationError()
+        }
+
+        try await Firestore.firestore()
+            .collection("users")
+            .document(uid)
+            .updateData(payload)
+
+        guard !Task.isCancelled,
+              Auth.auth().currentUser?.uid == uid else {
+            throw CancellationError()
+        }
+
+        saveRegistrationSnapshot(
+            fullName: form.fullName,
+            phone: form.phoneNormalized,
+            email: form.emailTrimmed,
+            region: form.region,
+            belt: form.currentBeltId,
+            isCoach: form.role == .coach,
+            branches: form.branchesArray,
+            groups: form.groupsArray,
+            username: form.username,
+            birthDay: form.birthDay,
+            birthMonth: form.birthMonth,
+            birthYear: form.birthYear,
+            gender: form.gender,
+            password: form.password,
+            wantsSms: form.wantsSms,
+            acceptsTerms: form.acceptsTerms,
+            coachCode: form.coachCode,
+            branchAssignments: form.normalizedBranchAssignments,
+            activeBranch: form.activeBranchFinal,
+            activeGroup: form.activeGroupFinal
+        )
+    }
 
     // MARK: - Registration Save Helpers
     func saveRegistrationSnapshot(
@@ -21,7 +105,11 @@ extension SettingsView {
         password: String,
         wantsSms: Bool,
         acceptsTerms: Bool,
-        coachCode: String
+        coachCode: String,
+        branchAssignments:
+            [RegistrationFormState.BranchAssignment]? = nil,
+        activeBranch: String? = nil,
+        activeGroup: String? = nil
     ) {
         let defaults = UserDefaults.standard
 
@@ -33,28 +121,73 @@ extension SettingsView {
         let cleanedGender = gender.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanedCoachCode = coachCode.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let existingRole = (
-            defaults.string(forKey: "user_role")
-            ?? self.userRole
-        )
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        .lowercased()
+        let resolvedRole = isCoach ? "coach" : "trainee"
 
-        let submittedRole = isCoach ? "coach" : "trainee"
-        let resolvedRole = submittedRole
+        let codec = RegistrationFormState.BranchAssignmentsCodec.self
 
-        let cleanedBranches = branches
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .removingDuplicatesKeepingOrder()
+        let cleanedAssignments = branchAssignments.map {
+            codec.sanitized($0)
+        }
 
-        let cleanedGroups = groups
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .removingDuplicatesKeepingOrder()
+        let cleanedBranches: [String]
+        let cleanedGroups: [String]
 
-        let firstBranch = cleanedBranches.first ?? ""
-        let firstGroup = cleanedGroups.first ?? ""
+        if let cleanedAssignments {
+            cleanedBranches = codec.flattenBranches(
+                cleanedAssignments
+            )
+            cleanedGroups = codec.flattenGroups(
+                cleanedAssignments
+            )
+        } else {
+            cleanedBranches = branches
+                .map {
+                    $0.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                }
+                .filter { !$0.isEmpty }
+                .removingDuplicatesKeepingOrder()
+
+            cleanedGroups = groups
+                .map {
+                    $0.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                }
+                .filter { !$0.isEmpty }
+                .removingDuplicatesKeepingOrder()
+        }
+
+        let requestedBranch = activeBranch?
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ) ?? ""
+
+        let firstBranch =
+            cleanedBranches.contains(requestedBranch)
+                ? requestedBranch
+                : cleanedBranches.first ?? ""
+
+        let availableActiveGroups: [String]
+
+        if let cleanedAssignments {
+            availableActiveGroups = cleanedAssignments
+                .first { $0.branch == firstBranch }?
+                .groups ?? []
+        } else {
+            availableActiveGroups = cleanedGroups
+        }
+
+        let requestedGroup = activeGroup?
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ) ?? ""
+
+        let firstGroup =
+            availableActiveGroups.contains(requestedGroup)
+                ? requestedGroup
+                : availableActiveGroups.first ?? ""
 
         defaults.set(cleanedFullName, forKey: "fullName")
         defaults.set(cleanedFullName, forKey: "full_name")
@@ -87,6 +220,13 @@ extension SettingsView {
 
         defaults.set(cleanedBranches, forKey: "branches")
         defaults.set(cleanedGroups, forKey: "groups")
+
+        if let cleanedAssignments {
+            defaults.set(
+                codec.encode(cleanedAssignments),
+                forKey: codec.preferenceKey
+            )
+        }
 
         defaults.set(wantsSms, forKey: "wantsSms")
         defaults.set(wantsSms, forKey: "wants_sms")
@@ -131,6 +271,7 @@ extension SettingsView {
         let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
 
         defaults.set(clean, forKey: "branch")
+        defaults.set(clean, forKey: "activeBranch")
         defaults.set(clean, forKey: "active_branch")
         defaults.set(clean, forKey: "selected_branch")
         defaults.set(clean, forKey: "current_branch")
@@ -141,6 +282,7 @@ extension SettingsView {
         let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
 
         defaults.set(clean, forKey: "group")
+        defaults.set(clean, forKey: "activeGroup")
         defaults.set(clean, forKey: "active_group")
         defaults.set(clean, forKey: "groupKey")
         defaults.set(clean, forKey: "group_key")
@@ -158,25 +300,23 @@ extension SettingsView {
             .replacingOccurrences(of: "belt", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let beltId: String
+        let legacyAliases = [
+            "לבן": "white",
+            "צהוב": "yellow",
+            "כתום": "orange",
+            "ירוק": "green",
+            "כחול": "blue",
+            "חום": "brown",
+            "שחור": "black"
+        ]
 
-        switch clean {
-        case "white", "לבנה", "לבן":
-            beltId = "white"
-        case "yellow", "צהובה", "צהוב":
-            beltId = "yellow"
-        case "orange", "כתומה", "כתום":
-            beltId = "orange"
-        case "green", "ירוקה", "ירוק":
-            beltId = "green"
-        case "blue", "כחולה", "כחול":
-            beltId = "blue"
-        case "brown", "חומה", "חום":
-            beltId = "brown"
-        case "black", "שחורה", "שחור":
-            beltId = "black"
-        default:
-            beltId = currentBeltId.isEmpty ? "white" : currentBeltId
+        var form = RegistrationFormState()
+        form.belt = legacyAliases[clean] ?? clean
+
+        let beltId = form.currentBeltId
+
+        guard !beltId.isEmpty else {
+            return
         }
 
         defaults.set(beltId, forKey: "current_belt")

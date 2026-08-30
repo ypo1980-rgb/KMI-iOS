@@ -10,6 +10,15 @@ final class HomeTrainingsViewModel: ObservableObject {
     func loadForCurrentUser(auth: AuthViewModel? = nil) {
         let defaults = UserDefaults.standard
 
+        let languageCode = (
+            defaults.string(forKey: "kmi_app_language") ?? "he"
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+
+        let isEnglish =
+            languageCode == "en" || languageCode == "english"
+
         func clean(_ value: String?) -> String {
             value?
                 .trimmingCharacters(
@@ -171,22 +180,25 @@ final class HomeTrainingsViewModel: ObservableObject {
         groups = uniqueValues(groups)
 
         guard !region.isEmpty else {
-            statusMessage =
-                "לא הוגדר אזור למשתמש"
+            statusMessage = isEnglish
+                ? "No region is configured for this user."
+                : "לא הוגדר אזור למשתמש"
             upcomingTrainings = []
             return
         }
 
         guard !branches.isEmpty else {
-            statusMessage =
-                "לא הוגדר סניף למשתמש"
+            statusMessage = isEnglish
+                ? "No branch is configured for this user."
+                : "לא הוגדר סניף למשתמש"
             upcomingTrainings = []
             return
         }
 
         guard !groups.isEmpty else {
-            statusMessage =
-                "לא הוגדרה קבוצה למשתמש"
+            statusMessage = isEnglish
+                ? "No group is configured for this user."
+                : "לא הוגדרה קבוצה למשתמש"
             upcomingTrainings = []
             return
         }
@@ -266,9 +278,12 @@ final class HomeTrainingsViewModel: ObservableObject {
                     return true
                 }
 
-        statusMessage =
-            uniqueTrainings.isEmpty
-            ? "לא נמצאו אימונים קרובים"
+        statusMessage = uniqueTrainings.isEmpty
+            ? (
+                isEnglish
+                    ? "No upcoming trainings were found."
+                    : "לא נמצאו אימונים קרובים"
+            )
             : nil
 
         upcomingTrainings = uniqueTrainings

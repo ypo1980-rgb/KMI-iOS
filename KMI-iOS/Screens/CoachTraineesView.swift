@@ -1,43 +1,28 @@
 import SwiftUI
 import UIKit
 import FirebaseFirestore
-import FirebaseAuth
 
 private struct CoachPDFShareItem: Identifiable {
     let id = UUID()
     let url: URL
 }
 
-private struct CoachActivityShareView:
-    UIViewControllerRepresentable {
-
-    let activityItems: [Any]
-
-    func makeUIViewController(
-        context: Context
-    ) -> UIActivityViewController {
-        UIActivityViewController(
-            activityItems: activityItems,
-            applicationActivities: nil
-        )
-    }
-
-    func updateUIViewController(
-        _ uiViewController: UIActivityViewController,
-        context: Context
-    ) {
-    }
-}
-
 struct CoachTraineesView: View {
-
     @EnvironmentObject private var auth: AuthViewModel
+
     @Environment(\.colorScheme) private var colorScheme
 
+    @ObservedObject
+    private var demoPrivacy = DemoPrivacy.shared
+
     @State private var trainees: [CoachTraineeProfile] = []
+
+    @State private var selectedBranch: String = ""
+
+    @State private var selectedGroup: String = ""
+
     @State private var selectedId: String? = nil
-    @State private var searchText: String = ""
-    @State private var selectedBeltFilter: String = ""
+
     @State private var coachNotes: [String: String] = [:]
 
     /*
@@ -61,7 +46,7 @@ struct CoachTraineesView: View {
     @State private var showAlert = false
     @State private var showGroupStatsSheet = false
     @State private var pdfShareItem: CoachPDFShareItem?
-    @State private var isTopStatsExpanded: Bool = false
+
     @State private var isTraineePickerExpanded: Bool = true
 
     /*
@@ -74,7 +59,16 @@ struct CoachTraineesView: View {
     private let seminarsSectionKey = "seminars"
     private let campsSectionKey = "camps"
     private let certificationsSectionKey = "certifications"
+
     private let notesSectionKey = "coach_notes"
+
+    private var isBusy: Bool {
+        isLoading ||
+        isLoadingAttendance ||
+        isSavingNotes ||
+        isSavingBeltDates ||
+        savingCoachDateSectionKey != nil
+    }
 
     @AppStorage("kmi_app_language") private var kmiAppLanguage: String = ""
     @AppStorage("app_language") private var appLanguage: String = ""
@@ -110,54 +104,61 @@ struct CoachTraineesView: View {
         isEnglish ? .leading : .trailing
     }
 
-    private var isDarkMode: Bool {
-        colorScheme == .dark
-    }
-
     private var cardSurfaceColor: Color {
-        isDarkMode
-        ? Color(red: 0.09, green: 0.13, blue: 0.21)
-        : Color(red: 0.985, green: 0.99, blue: 1.0)
-    }
-
-    private var elevatedCardColor: Color {
-        isDarkMode
-        ? Color(red: 0.12, green: 0.17, blue: 0.27)
-        : Color.white
+        KmiAppTheme.surface(
+            for: colorScheme
+        )
+        .opacity(0.96)
     }
 
     private var fieldSurfaceColor: Color {
-        isDarkMode
-        ? Color.white.opacity(0.075)
-        : Color.black.opacity(0.035)
+        KmiAppTheme.surfaceVariant(
+            for: colorScheme
+        )
+        .opacity(0.72)
     }
 
     private var primaryCardTextColor: Color {
-        isDarkMode
-        ? Color.white.opacity(0.94)
-        : Color.black.opacity(0.86)
+        KmiAppTheme.onSurface(
+            for: colorScheme
+        )
     }
 
     private var secondaryCardTextColor: Color {
-        isDarkMode
-        ? Color.white.opacity(0.62)
-        : Color.black.opacity(0.52)
+        KmiAppTheme.onSurfaceVariant(
+            for: colorScheme
+        )
     }
 
     private var subtleCardBorderColor: Color {
-        isDarkMode
-        ? Color.white.opacity(0.12)
-        : Color.black.opacity(0.07)
-    }
-
-    private var selectedTraineeRowColor: Color {
-        isDarkMode
-        ? Color.blue.opacity(0.20)
-        : Color(red: 0.88, green: 0.97, blue: 1.0)
+        KmiAppTheme.outlineVariant(
+            for: colorScheme
+        )
     }
 
     private func tr(_ he: String, _ en: String) -> String {
         isEnglish ? en : he
+    }
+
+    private func displayName(
+        for trainee: CoachTraineeProfile
+    ) -> String {
+        _ = demoPrivacy.isEnabled
+
+        let demoIndex =
+            trainees.firstIndex {
+                $0.id == trainee.id
+            }
+
+        return TraineeDisplayNameMapper.displayName(
+            realName: trainee.fullName,
+            stableKey:
+                trainee.userDocId.isEmpty
+                    ? trainee.id
+                    : trainee.userDocId,
+            demoIndex: demoIndex,
+            isEnglish: isEnglish
+        )
     }
 
     /*
@@ -227,50 +228,23 @@ struct CoachTraineesView: View {
         return candidates.contains { isCoachRole($0) }
     }
 
-    private var visibleTrainees: [CoachTraineeProfile] {
-        let query = normalizeKey(searchText)
-        let beltFilter = normalizeKey(selectedBeltFilter)
-
-        return trainees.filter { trainee in
-            let matchesQuery = query.isEmpty || trainee.matchesSearch(query)
-            let matchesBelt = beltFilter.isEmpty || normalizeKey(beltNameForUi(trainee.belt)) == beltFilter
-
-            return matchesQuery && matchesBelt
-        }
-    }
-
-    private var availableBeltFilters: [String] {
-        let beltOrderForUi = isEnglish
-            ? ["White", "Yellow", "Orange", "Green", "Blue", "Brown", "Black"]
-            : ["לבנה", "צהובה", "כתומה", "ירוקה", "כחולה", "חומה", "שחורה"]
-
-        let belts = Set(
-            trainees
-                .map { beltNameForUi($0.belt) }
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty && $0 != "—" }
-        )
-
-        return Array(belts).sorted { lhs, rhs in
-            let lhsIndex = beltOrderForUi.firstIndex(of: lhs) ?? Int.max
-            let rhsIndex = beltOrderForUi.firstIndex(of: rhs) ?? Int.max
-
-            if lhsIndex == rhsIndex {
-                return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
-            }
-
-            return lhsIndex < rhsIndex
-        }
-    }
-
     private var selectedTrainee: CoachTraineeProfile? {
-        visibleTrainees.first(where: { $0.id == selectedId }) ??
-        visibleTrainees.first ??
-        trainees.first(where: { $0.id == selectedId }) ??
-        trainees.first
+        guard let selectedId else {
+            return nil
+        }
+
+        return trainees.first {
+            $0.id == selectedId
+        }
     }
 
     private var effectiveBranch: String {
+        let cleanSelection = normalize(selectedBranch)
+
+        if !cleanSelection.isEmpty {
+            return cleanSelection
+        }
+
         let defaults = UserDefaults.standard
 
         let candidates = [
@@ -283,14 +257,22 @@ struct CoachTraineesView: View {
             defaults.string(forKey: "selected_branch"),
             defaults.string(forKey: "current_branch")
         ]
-            .compactMap { $0 }
-            .map { normalize($0) }
-            .filter { !$0.isEmpty }
+        .compactMap { $0 }
+        .map { normalize($0) }
+        .filter { !$0.isEmpty }
 
         return candidates.first ?? ""
     }
 
     private var effectiveGroupKey: String {
+        /*
+         * לאחר שנבחר סניף, גם ערך ריק של הקבוצה
+         * הוא בחירה מכוונת ואין לחזור לקבוצה ישנה.
+         */
+        if !selectedBranch.isEmpty {
+            return normalize(selectedGroup)
+        }
+
         let defaults = UserDefaults.standard
 
         let candidates = [
@@ -306,9 +288,9 @@ struct CoachTraineesView: View {
             defaults.string(forKey: "selected_groupKey"),
             defaults.string(forKey: "current_groupKey")
         ]
-            .compactMap { $0 }
-            .map { normalize($0) }
-            .filter { !$0.isEmpty }
+        .compactMap { $0 }
+        .map { normalize($0) }
+        .filter { !$0.isEmpty }
 
         return candidates.first ?? ""
     }
@@ -327,11 +309,131 @@ struct CoachTraineesView: View {
     }
 
     private var groupLabel: String {
-        effectiveGroupKey.isEmpty ? tr("לא ידוע", "Unknown") : effectiveGroupKey
+        effectiveGroupKey.isEmpty
+            ? tr("לא ידוע", "Unknown")
+            : effectiveGroupKey
+    }
+
+    private var availableBranches: [String] {
+        let assignedBranches =
+            auth.userBranchAssignments
+                .map { normalize($0.branch) }
+                .filter { !$0.isEmpty }
+
+        let fallbackBranch = normalize(effectiveBranch)
+
+        return uniqueValues(
+            assignedBranches +
+            (fallbackBranch.isEmpty ? [] : [fallbackBranch])
+        )
+    }
+
+    private var availableGroups: [String] {
+        let branch = normalize(effectiveBranch)
+
+        guard !branch.isEmpty else {
+            return []
+        }
+
+        let assignedGroups =
+            auth.userBranchAssignments
+                .first { assignment in
+                    normalizeKey(assignment.branch) ==
+                    normalizeKey(branch)
+                }?
+                .groups
+                .map { normalize($0) }
+                .filter { !$0.isEmpty }
+            ?? []
+
+        if !assignedGroups.isEmpty {
+            return uniqueValues(assignedGroups)
+        }
+
+        let fallbackGroups =
+            effectiveGroupKey
+                .split { character in
+                    character == "," ||
+                    character == ";" ||
+                    character == "|" ||
+                    character == "\n"
+                }
+                .map { normalize(String($0)) }
+                .filter { !$0.isEmpty }
+
+        return uniqueValues(fallbackGroups)
+    }
+
+    private var traineeDropdownOptions: [String] {
+        trainees.enumerated().map { index, trainee in
+            TraineeDisplayNameMapper.displayName(
+                realName: trainee.fullName,
+                stableKey:
+                    trainee.userDocId.isEmpty
+                    ? trainee.id
+                    : trainee.userDocId,
+                demoIndex: index,
+                isEnglish: isEnglish
+            )
+        }
+    }
+
+    private var selectedTraineeDisplayName: String {
+        guard let selectedTrainee else {
+            return ""
+        }
+
+        return displayName(
+            for: selectedTrainee
+        )
+    }
+
+    private var traineeDropdownSelection: Binding<String> {
+        Binding(
+            get: {
+                selectedTraineeDisplayName
+            },
+            set: { selectedName in
+                selectedId =
+                    trainees.enumerated()
+                        .first { index, trainee in
+                            TraineeDisplayNameMapper.displayName(
+                                realName: trainee.fullName,
+                                stableKey:
+                                    trainee.userDocId.isEmpty
+                                    ? trainee.id
+                                    : trainee.userDocId,
+                                demoIndex: index,
+                                isEnglish: isEnglish
+                            ) == selectedName
+                        }?
+                        .element
+                        .id
+            }
+        )
+    }
+
+    private func uniqueValues(
+        _ values: [String]
+    ) -> [String] {
+        var seen = Set<String>()
+
+        return values.filter { value in
+            let key = normalizeKey(value)
+
+            guard !key.isEmpty,
+                  !seen.contains(key) else {
+                return false
+            }
+
+            seen.insert(key)
+            return true
+        }
     }
 
     private var groupStats: CoachGroupStats {
-        let statsSource = visibleTrainees
+        let statsSource = trainees
+
         let totalCount = trainees.count
         let filteredCount = statsSource.count
 
@@ -419,11 +521,10 @@ struct CoachTraineesView: View {
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    Color(red: 0.08, green: 0.12, blue: 0.19),
-                    Color(red: 0.12, green: 0.23, blue: 0.33),
-                    Color(red: 0.05, green: 0.47, blue: 0.73)
-                ],
+                colors:
+                    KmiAppTheme.screenBackgroundColors(
+                        for: colorScheme
+                    ),
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -431,37 +532,55 @@ struct CoachTraineesView: View {
 
             if !isCoach {
                 coachOnlyView
-
-            } else if isLoading {
-                loadingView
-
             } else {
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 10) {
-                        contextCard
+                VStack(spacing: 0) {
+                    coachTraineesTopTabs
 
-                        if isTopStatsExpanded {
-                            statsCard
-                                .transition(
-                                    .opacity.combined(
-                                        with: .move(edge: .top)
+                    ScrollView(
+                        .vertical,
+                        showsIndicators: false
+                    ) {
+                        VStack(spacing: 10) {
+                            if !isTraineePickerExpanded {
+                                statsCard
+
+                                ForEach(trainees) { trainee in
+                                    traineeListSummaryCard(
+                                        for: trainee
                                     )
-                                )
+                                }
+                            }
+
+                            if isTraineePickerExpanded {
+                                traineePickerCard
+
+                                if selectedTrainee != nil {
+                                    traineeDetailsCard
+                                }
+                            }
                         }
-
-                        traineePickerCard
-
-                        traineeDetailsCard
-
-                        groupStatisticsButton
+                        .padding(.horizontal, 12)
+                        .padding(.top, 10)
+                        .padding(.bottom, 12)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 10)
-                    .padding(.bottom, 24)
+
+                    groupStatisticsButton
+                        .padding(.horizontal, 14)
+                        .padding(.top, 8)
+                        .padding(.bottom, 8)
                 }
             }
+
+            if isCoach && isBusy {
+                KmiLoadingOverlay()
+                    .transition(.opacity)
+                    .zIndex(100)
+            }
         }
-        .environment(\.layoutDirection, screenLayoutDirection)
+        .environment(
+            \.layoutDirection,
+            screenLayoutDirection
+        )
         .sheet(isPresented: $showGroupStatsSheet) {
             CoachGroupStatsSheet(
                 isEnglish: isEnglish,
@@ -472,10 +591,16 @@ struct CoachTraineesView: View {
             .environment(\.layoutDirection, screenLayoutDirection)
         }
         .sheet(item: $pdfShareItem) { item in
-            CoachActivityShareView(
-                activityItems: [item.url]
+            KmiShareSheet(
+                items: [item.url]
             )
+            .presentationDetents([
+                .medium,
+                .large
+            ])
+            .presentationDragIndicator(.visible)
         }
+
         .onReceive(
             NotificationCenter.default.publisher(
                 for: Notification.Name(
@@ -512,6 +637,66 @@ struct CoachTraineesView: View {
             )
         }
         .onAppear {
+            let initialBranch = effectiveBranch
+            let initialGroup = effectiveGroupKey
+
+            if selectedBranch.isEmpty {
+                selectedBranch = initialBranch
+            }
+
+            if selectedGroup.isEmpty {
+                selectedGroup = initialGroup
+            }
+
+            loadTrainees()
+        }
+        .onChange(
+            of: selectedBranch
+        ) { oldValue, newValue in
+            guard normalizeKey(oldValue) !=
+                    normalizeKey(newValue) else {
+                return
+            }
+
+            /*
+             * שינוי הסניף מאפס רק State
+             * שתלוי בסניף שנבחר.
+             */
+            if !oldValue.isEmpty {
+                let groupsForSelectedBranch =
+                    auth.userBranchAssignments
+                        .first { assignment in
+                            normalizeKey(assignment.branch) ==
+                            normalizeKey(newValue)
+                        }?
+                        .groups
+                        .map { normalize($0) }
+                        .filter { !$0.isEmpty }
+                    ?? []
+
+                selectedGroup =
+                    groupsForSelectedBranch.count == 1
+                    ? groupsForSelectedBranch[0]
+                    : ""
+
+                selectedId = nil
+                trainees = []
+                expandedCoachSection = nil
+                }
+
+                loadTrainees()
+        }
+        .onChange(
+            of: selectedGroup
+        ) { oldValue, newValue in
+            guard normalizeKey(oldValue) !=
+                    normalizeKey(newValue) else {
+                return
+            }
+
+            selectedId = nil
+            trainees = []
+            expandedCoachSection = nil
             loadTrainees()
         }
         .onChange(of: auth.userBranch) { _, _ in
@@ -521,12 +706,6 @@ struct CoachTraineesView: View {
             loadTrainees()
         }
         .onChange(of: trainees.map(\.id)) { _, _ in
-            syncSelectedTrainee()
-        }
-        .onChange(of: searchText) { _, _ in
-            syncSelectedTrainee()
-        }
-        .onChange(of: selectedBeltFilter) { _, _ in
             syncSelectedTrainee()
         }
         .onChange(of: selectedId) { _, _ in
@@ -547,115 +726,178 @@ struct CoachTraineesView: View {
         VStack(spacing: 12) {
             Spacer()
 
-            Text(tr("המסך זמין למאמנים בלבד", "This screen is available for coaches only"))
-                .font(.system(size: 24, weight: .heavy))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
+            Text(
+                tr(
+                    "המסך זמין למאמנים בלבד",
+                    "This screen is available for coaches only"
+                )
+            )
+            .kmiFont(
+                size: 24,
+                weight: .heavy
+            )
+            .foregroundStyle(primaryCardTextColor)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
 
             Spacer()
         }
         .padding(24)
+        .accessibilityElement(
+            children: .combine
+        )
     }
 
-    private var loadingView: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-                .tint(.white)
+    private var coachTraineesTopTabs: some View {
+        ZStack {
+            KmiAppTheme.sectionHeaderBrush
 
-            Text(tr("טוען מתאמנים מהשרת...", "Loading trainees from the server..."))
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-        }
-        .padding(24)
-    }
-
-    private var contextCard: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.22)) {
-                isTopStatsExpanded.toggle()
-            }
-        } label: {
-            VStack(alignment: isEnglish ? .leading : .trailing, spacing: 9) {
-                HStack(spacing: 10) {
-                    if isEnglish {
-                        Image(systemName: "person.3.fill")
-                            .font(.system(size: 20, weight: .black))
-                            .foregroundStyle(.white)
-
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(tr("רשימת המתאמנים", "Trainees list"))
-                                .font(.system(size: 22, weight: .black))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.76)
-
-                            Text(tr("ניהול מתאמנים, חגורות, נוכחות והערות מאמן", "Manage trainees, belts, attendance and coach notes"))
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.72))
-                                .lineLimit(2)
-                        }
-
-                        Spacer(minLength: 0)
-
-                        Image(systemName: isTopStatsExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 15, weight: .black))
-                            .foregroundStyle(.white.opacity(0.82))
-                    } else {
-                        Image(systemName: isTopStatsExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 15, weight: .black))
-                            .foregroundStyle(.white.opacity(0.82))
-
-                        Spacer(minLength: 0)
-
-                        VStack(alignment: .trailing, spacing: 3) {
-                            Text(tr("רשימת המתאמנים", "Trainees list"))
-                                .font(.system(size: 22, weight: .black))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.76)
-
-                            Text(tr("ניהול מתאמנים, חגורות, נוכחות והערות מאמן", "Manage trainees, belts, attendance and coach notes"))
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.72))
-                                .lineLimit(2)
-                                .multilineTextAlignment(.trailing)
-                        }
-
-                        Image(systemName: "person.3.fill")
-                            .font(.system(size: 20, weight: .black))
-                            .foregroundStyle(.white)
+            HStack(spacing: 0) {
+                Button {
+                    withAnimation(
+                        .easeInOut(duration: 0.22)
+                    ) {
+                        isTraineePickerExpanded = false
                     }
-                }
-                .environment(\.layoutDirection, .leftToRight)
+                } label: {
+                    ZStack(alignment: .bottom) {
+                        Text(
+                            tr(
+                                "רשימת\nמתאמנים",
+                                "Trainees\nlist"
+                            )
+                        )
+                        .kmiFont(
+                            size: 13,
+                            weight:
+                                !isTraineePickerExpanded
+                                ? .heavy
+                                : .bold
+                        )
+                        .foregroundStyle(
+                            Color.white.opacity(
+                                !isTraineePickerExpanded
+                                ? 1
+                                : 0.90
+                            )
+                        )
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .frame(
+                            maxWidth: .infinity,
+                            maxHeight: .infinity
+                        )
 
-                VStack(alignment: isEnglish ? .leading : .trailing, spacing: 4) {
-                    Text(tr("סניף: \(branchLabel)", "Branch: \(branchLabel)"))
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.82))
-                        .multilineTextAlignment(screenTextAlignment)
-                        .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-
-                    Text(tr("קבוצה: \(groupLabel)", "Group: \(groupLabel)"))
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.82))
-                        .multilineTextAlignment(screenTextAlignment)
-                        .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                        if !isTraineePickerExpanded {
+                            Rectangle()
+                                .fill(Color.white)
+                                .frame(
+                                    width: 88,
+                                    height: 3
+                                )
+                        }
+                    }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    tr(
+                        "רשימת מתאמנים",
+                        "Trainees list"
+                    )
+                )
+                .accessibilityAddTraits(
+                    !isTraineePickerExpanded
+                        ? .isSelected
+                        : []
+                )
+
+                Button {
+                    withAnimation(
+                        .easeInOut(duration: 0.22)
+                    ) {
+                        isTraineePickerExpanded = true
+                    }
+                } label: {
+                    ZStack(alignment: .bottom) {
+                        Text(
+                            tr(
+                                "בחירת\nמתאמן",
+                                "Select\ntrainee"
+                            )
+                        )
+                        .kmiFont(
+                            size: 13,
+                            weight:
+                                isTraineePickerExpanded
+                                ? .heavy
+                                : .bold
+                        )
+                        .foregroundStyle(
+                            Color.white.opacity(
+                                isTraineePickerExpanded
+                                ? 1
+                                : 0.90
+                            )
+                        )
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .frame(
+                            maxWidth: .infinity,
+                            maxHeight: .infinity
+                        )
+
+                        if isTraineePickerExpanded {
+                            Rectangle()
+                                .fill(Color.white)
+                                .frame(
+                                    width: 88,
+                                    height: 3
+                                )
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    tr(
+                        "בחירת מתאמן",
+                        "Select trainee"
+                    )
+                )
+                .accessibilityAddTraits(
+                    isTraineePickerExpanded
+                        ? .isSelected
+                        : []
+                )
             }
-            .padding(.horizontal, 15)
-            .padding(.vertical, 14)
-            .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color.black.opacity(0.20))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.16), radius: 10, x: 0, y: 6)
+
+            Rectangle()
+                .fill(
+                    Color.white.opacity(0.65)
+                )
+                .frame(
+                    width: 1,
+                    height: 28
+                )
+                .allowsHitTesting(false)
         }
-        .buttonStyle(.plain)
+        /*
+         * המיקום הפיזי נשמר גם בעברית:
+         * שמאל = רשימה, ימין = בחירה.
+         */
+        .environment(
+            \.layoutDirection,
+            .leftToRight
+        )
+        .frame(
+            maxWidth: .infinity
+        )
+        .frame(height: 54)
+        .accessibilityElement(
+            children: .contain
+        )
     }
 
     private var statsCard: some View {
@@ -702,137 +944,92 @@ struct CoachTraineesView: View {
         }
         .padding(11)
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.black.opacity(0.16))
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .fill(
+                KmiAppTheme.sectionHeaderBrush
+            )
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .stroke(
+                KmiAppTheme
+                    .sectionHeaderContentColor
+                    .opacity(0.18),
+                lineWidth: 1
+            )
         )
     }
 
-    private var groupStatisticsButton: some View {
+        private var groupStatisticsButton: some View {
         Button {
             showGroupStatsSheet = true
         } label: {
-            HStack(spacing: 10) {
-                if isEnglish {
-                    Image(systemName: "chart.bar.xaxis")
-                        .font(
-                            .system(
-                                size: 17,
-                                weight: .black
-                            )
-                        )
+            HStack(spacing: 6) {
+                Image(systemName: "chart.bar.xaxis")
+                    .kmiFont(
+                        size: 17,
+                        weight: .bold
+                    )
+                    .accessibilityHidden(true)
 
-                    Text("Group statistics")
-                        .font(
-                            .system(
-                                size: 16,
-                                weight: .heavy
-                            )
-                        )
-
-                    Spacer(minLength: 8)
-
-                    Image(systemName: "chevron.right")
-                        .font(
-                            .system(
-                                size: 14,
-                                weight: .black
-                            )
-                        )
-
-                } else {
-                    Image(systemName: "chevron.left")
-                        .font(
-                            .system(
-                                size: 14,
-                                weight: .black
-                            )
-                        )
-
-                    Spacer(minLength: 8)
-
-                    Text("סטטיסטיקה לקבוצה")
-                        .font(
-                            .system(
-                                size: 16,
-                                weight: .heavy
-                            )
-                        )
-                        .multilineTextAlignment(.trailing)
-
-                    Image(systemName: "chart.bar.xaxis")
-                        .font(
-                            .system(
-                                size: 17,
-                                weight: .black
-                            )
-                        )
-                }
+                Text(
+                    tr(
+                        "סטטיסטיקה",
+                        "Statistics"
+                    )
+                )
+                .kmiFont(
+                    size: 16,
+                    weight: .heavy
+                )
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             }
-            /*
-             * הסדר בתוך השורה נבנה ידנית לכל שפה,
-             * ולכן אין לאפשר ל־RTL להפוך אותו שוב.
-             */
-            .environment(
-                \.layoutDirection,
-                .leftToRight
+            .foregroundStyle(
+                Color(
+                    red: 216.0 / 255.0,
+                    green: 229.0 / 255.0,
+                    blue: 240.0 / 255.0
+                )
             )
-            .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .frame(height: 66)
             .background(
                 RoundedRectangle(
-                    cornerRadius: 18,
+                    cornerRadius: 22,
                     style: .continuous
                 )
                 .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(
-                                red: 0.17,
-                                green: 0.36,
-                                blue: 0.92
-                            ),
-                            Color(
-                                red: 0.05,
-                                green: 0.70,
-                                blue: 0.88
-                            )
-                        ],
-                        startPoint:
-                            isEnglish
-                            ? .leading
-                            : .trailing,
-                        endPoint:
-                            isEnglish
-                            ? .trailing
-                            : .leading
+                    Color(
+                        red: 27.0 / 255.0,
+                        green: 42.0 / 255.0,
+                        blue: 58.0 / 255.0
                     )
                 )
             )
             .overlay(
                 RoundedRectangle(
-                    cornerRadius: 18,
+                    cornerRadius: 22,
                     style: .continuous
                 )
                 .stroke(
-                    Color.white.opacity(0.22),
+                    Color(
+                        red: 67.0 / 255.0,
+                        green: 217.0 / 255.0,
+                        blue: 245.0 / 255.0
+                    ),
                     lineWidth: 1
                 )
             )
-            .shadow(
-                color: Color.black.opacity(0.16),
-                radius: 9,
-                x: 0,
-                y: 5
-            )
             .contentShape(
                 RoundedRectangle(
-                    cornerRadius: 18,
+                    cornerRadius: 22,
                     style: .continuous
                 )
             )
@@ -840,8 +1037,8 @@ struct CoachTraineesView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(
             tr(
-                "פתיחת סטטיסטיקה לקבוצה",
-                "Open group statistics"
+                "פתיחת סטטיסטיקה",
+                "Open statistics"
             )
         )
     }
@@ -853,18 +1050,31 @@ struct CoachTraineesView: View {
     ) -> some View {
         VStack(spacing: 5) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .black))
-                .foregroundStyle(.white.opacity(0.86))
+                .kmiFont(
+                    size: 13,
+                    weight: .black
+                )
+                .foregroundStyle(
+                    Color.white.opacity(0.86)
+                )
 
             Text(value)
-                .font(.system(size: 19, weight: .black))
+                .kmiFont(
+                    size: 19,
+                    weight: .black
+                )
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
 
             Text(title)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.white.opacity(0.72))
+                .kmiFont(
+                    size: 10,
+                    weight: .bold
+                )
+                .foregroundStyle(
+                    Color.white.opacity(0.72)
+                )
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .minimumScaleFactor(0.72)
@@ -872,485 +1082,52 @@ struct CoachTraineesView: View {
         .frame(maxWidth: .infinity)
         .frame(height: 82)
         .background(
-            RoundedRectangle(cornerRadius: 17, style: .continuous)
-                .fill(Color.white.opacity(0.10))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 17, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
-        )
-    }
-
-    /*
-     * כרטיס בחירת המתאמן תואם למבנה Android:
-     * במצב סגור מוצג המתאמן הנבחר בלבד.
-     * פתיחת הכרטיס חושפת את החיפוש ואת הרשימה.
-     */
-    private var traineePickerCard: some View {
-        VStack(spacing: 0) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.22)) {
-                    isTraineePickerExpanded.toggle()
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    if isEnglish {
-                        Image(systemName: "person.crop.circle.fill")
-                            .font(.system(size: 25, weight: .bold))
-                            .foregroundStyle(Color.blue.opacity(0.90))
-
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(
-                                selectedTrainee?.fullName ??
-                                tr("בחר מתאמן", "Select trainee")
-                            )
-                            .font(.system(size: 17, weight: .heavy))
-                            .foregroundStyle(primaryCardTextColor)
-                            .multilineTextAlignment(.leading)
-                            .frame(
-                                maxWidth: .infinity,
-                                alignment: .leading
-                            )
-
-                            Text(
-                                tr(
-                                    "\(visibleTrainees.count) מתאמנים ברשימה",
-                                    "\(visibleTrainees.count) trainees in list"
-                                )
-                            )
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color.black.opacity(0.50))
-                            .multilineTextAlignment(.leading)
-                        }
-
-                        if isLoadingAttendance {
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(.blue)
-                        }
-
-                        Image(
-                            systemName:
-                                isTraineePickerExpanded
-                                ? "chevron.up"
-                                : "chevron.down"
-                        )
-                        .font(.system(size: 14, weight: .black))
-                        .foregroundStyle(Color.black.opacity(0.48))
-
-                    } else {
-                        Image(
-                            systemName:
-                                isTraineePickerExpanded
-                                ? "chevron.up"
-                                : "chevron.down"
-                        )
-                        .font(.system(size: 14, weight: .black))
-                        .foregroundStyle(Color.black.opacity(0.48))
-
-                        if isLoadingAttendance {
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(.blue)
-                        }
-
-                        VStack(alignment: .trailing, spacing: 3) {
-                            Text(
-                                selectedTrainee?.fullName ??
-                                tr("בחר מתאמן", "Select trainee")
-                            )
-                            .font(.system(size: 17, weight: .heavy))
-                            .foregroundStyle(primaryCardTextColor)
-                            .multilineTextAlignment(.trailing)
-                            .frame(
-                                maxWidth: .infinity,
-                                alignment: .trailing
-                            )
-
-                            Text(
-                                tr(
-                                    "\(visibleTrainees.count) מתאמנים ברשימה",
-                                    "\(visibleTrainees.count) trainees in list"
-                                )
-                            )
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(secondaryCardTextColor)
-                            .multilineTextAlignment(.trailing)
-                        }
-
-                        Image(systemName: "person.crop.circle.fill")
-                            .font(.system(size: 25, weight: .bold))
-                            .foregroundStyle(Color.blue.opacity(0.90))
-                    }
-                }
-                .environment(\.layoutDirection, .leftToRight)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if isTraineePickerExpanded {
-                Divider()
-                    .padding(.horizontal, 12)
-
-                VStack(spacing: 10) {
-                    searchCard
-
-                    traineeListCard
-                }
-                .padding(10)
-                .transition(
-                    .opacity.combined(
-                        with: .move(edge: .top)
-                    )
-                )
-            }
-        }
-        .background(
             RoundedRectangle(
-                cornerRadius: 20,
+                cornerRadius: 17,
                 style: .continuous
             )
-            .fill(cardSurfaceColor)
-        )
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: 20,
-                style: .continuous
+            .fill(
+                Color.white.opacity(0.10)
             )
         )
         .overlay(
             RoundedRectangle(
-                cornerRadius: 20,
+                cornerRadius: 17,
                 style: .continuous
             )
             .stroke(
-                subtleCardBorderColor,
+                Color.white.opacity(0.12),
                 lineWidth: 1
             )
         )
-        .shadow(
-            color:
-                Color.black.opacity(
-                    isDarkMode ? 0.20 : 0.08
-                ),
-            radius: 8,
-            x: 0,
-            y: 4
-        )
     }
-    
-    private var searchCard: some View {
-        HStack(spacing: 10) {
-            if !searchText
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-                .isEmpty {
 
-                Button {
-                    searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(
-                            .system(
-                                size: 18,
-                                weight: .bold
-                            )
-                        )
-                        .foregroundStyle(
-                            secondaryCardTextColor
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(
-                    tr("נקה חיפוש", "Clear search")
-                )
+    private func traineeListSummaryCard(
+        for trainee: CoachTraineeProfile
+    ) -> some View {
+        Button {
+            selectedId = trainee.id
+            expandedCoachSection = nil
+
+            withAnimation(
+                .easeInOut(duration: 0.22)
+            ) {
+                isTraineePickerExpanded = true
             }
-
-            TextField(
-                tr("חיפוש מתאמן", "Search trainee"),
-                text: $searchText
-            )
-            .font(
-                .system(
-                    size: 16,
-                    weight: .semibold
-                )
-            )
-            .foregroundStyle(primaryCardTextColor)
-            .tint(.blue)
-            .textInputAutocapitalization(.never)
-            .disableAutocorrection(true)
-            .multilineTextAlignment(screenTextAlignment)
-            .frame(
-                maxWidth: .infinity,
-                alignment: screenFrameAlignment
-            )
-
-            Image(systemName: "magnifyingglass")
-                .font(
-                    .system(
-                        size: 16,
-                        weight: .bold
+        } label: {
+            VStack(spacing: 10) {
+                Text(
+                    displayName(
+                        for: trainee
                     )
+                )
+                .kmiFont(
+                    size: 17,
+                    weight: .heavy
                 )
                 .foregroundStyle(
-                    secondaryCardTextColor
+                    primaryCardTextColor
                 )
-        }
-        .environment(
-            \.layoutDirection,
-            isEnglish
-            ? .leftToRight
-            : .rightToLeft
-        )
-        .padding(.horizontal, 14)
-        .padding(.vertical, 13)
-        .background(
-            RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
-            )
-            .fill(fieldSurfaceColor)
-        )
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
-            )
-            .stroke(
-                subtleCardBorderColor,
-                lineWidth: 1
-            )
-        )
-    }
-
-    private var beltFilterCard: some View {
-        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 10) {
-            Text(tr("סינון לפי חגורה", "Filter by belt"))
-                .font(.system(size: 13, weight: .heavy))
-                .foregroundStyle(.white.opacity(0.82))
-                .multilineTextAlignment(screenTextAlignment)
-                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    beltFilterChip(
-                        title: tr("הכל", "All"),
-                        value: ""
-                    )
-
-                    ForEach(availableBeltFilters, id: \.self) { belt in
-                        beltFilterChip(
-                            title: belt,
-                            value: belt
-                        )
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
-                .padding(.horizontal, 2)
-            }
-            .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
-        }
-        .padding(12)
-        .background(Color.black.opacity(0.16))
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
-        )
-    }
-
-    private func beltFilterChip(title: String, value: String) -> some View {
-        let isSelected = normalizeKey(selectedBeltFilter) == normalizeKey(value)
-
-        return Button {
-            selectedBeltFilter = value
-        } label: {
-            Text(title)
-                .font(.system(size: 13, weight: .heavy))
-                .foregroundStyle(isSelected ? Color.black.opacity(0.86) : Color.white.opacity(0.86))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-                .background(
-                    Capsule()
-                        .fill(isSelected ? Color.white.opacity(0.92) : Color.white.opacity(0.14))
-                )
-                .overlay(
-                    Capsule()
-                        .stroke(isSelected ? Color.white.opacity(0.95) : Color.white.opacity(0.18), lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var traineeListCard: some View {
-        VStack(spacing: 0) {
-            Divider()
-
-            if trainees.isEmpty {
-                VStack(spacing: 8) {
-                    if effectiveBranch.isEmpty || effectiveGroupKey.isEmpty {
-                        Text(tr("לא אותרו סניף או קבוצה עבור המאמן.", "No branch or group was found for this coach."))
-                        Text(tr("מוצגת רשימת כל המתאמנים.", "Showing all trainees."))
-                    } else {
-                        Text(tr("לא נמצאו מתאמנים פעילים לסניף ולקבוצה שנבחרו.", "No active trainees were found for the selected branch and group."))
-                    }
-                }
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(Color.black.opacity(0.62))
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-                .padding(20)
-
-            } else if visibleTrainees.isEmpty {
-                VStack(spacing: 8) {
-                    Text(tr("לא נמצאו מתאמנים שתואמים לסינון", "No trainees match this filter"))
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(Color.black.opacity(0.68))
-
-                    Text(tr("נסה לשנות חיפוש, חגורה, שם, טלפון, מייל, סניף או קבוצה", "Try changing the search, belt, name, phone, email, branch, or group"))
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color.black.opacity(0.50))
-
-                    Button {
-                        searchText = ""
-                        selectedBeltFilter = ""
-                    } label: {
-                        Text(tr("נקה סינון", "Clear filters"))
-                            .font(.system(size: 14, weight: .heavy))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 10)
-                            .background(
-                                Capsule()
-                                    .fill(Color.blue.opacity(0.88))
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 4)
-                }
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-                .padding(20)
-
-            } else {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(visibleTrainees) { trainee in
-                            traineeRow(trainee)
-                            Divider()
-                        }
-                    }
-                }
-                .frame(maxHeight: 230)
-            }
-        }
-        .background(Color.clear)
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
-            )
-        )
-    }
-
-    private func traineeRow(
-        _ trainee: CoachTraineeProfile
-    ) -> some View {
-        let isSelected = selectedId == trainee.id
-
-        return Button {
-            selectedId = trainee.id
-            searchText = ""
-
-            withAnimation(.easeInOut(duration: 0.22)) {
-                isTraineePickerExpanded = false
-            }
-        } label: {
-            HStack {
-                if isEnglish {
-                    VStack(alignment: .leading, spacing: 4) {
-                        traineeRowTexts(trainee)
-                    }
-
-                    Spacer()
-
-                    if isSelected {
-                        Text(tr("נבחר", "Selected"))
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.blue)
-                    }
-                } else {
-                    if isSelected {
-                        Text(tr("נבחר", "Selected"))
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.blue)
-                    }
-
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 4) {
-                        traineeRowTexts(trainee)
-                    }
-                }
-            }
-            .environment(
-                \.layoutDirection,
-                .leftToRight
-            )
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
-            .background(
-                RoundedRectangle(
-                    cornerRadius: 14,
-                    style: .continuous
-                )
-                .fill(
-                    isSelected
-                    ? selectedTraineeRowColor
-                    : Color.clear
-                )
-            )
-            .overlay(
-                RoundedRectangle(
-                    cornerRadius: 14,
-                    style: .continuous
-                )
-                .stroke(
-                    isSelected
-                    ? Color.blue.opacity(0.26)
-                    : Color.clear,
-                    lineWidth: 1
-                )
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 4)
-        .padding(.vertical, 2)
-    }
-
-    private func traineeRowTexts(
-        _ trainee: CoachTraineeProfile
-    ) -> some View {
-        VStack(
-            alignment:
-                isEnglish
-                ? .leading
-                : .trailing,
-            spacing: 7
-        ) {
-            Text(trainee.fullName)
-                .font(
-                    .system(
-                        size: 17,
-                        weight: .heavy
-                    )
-                )
-                .foregroundStyle(primaryCardTextColor)
                 .multilineTextAlignment(
                     screenTextAlignment
                 )
@@ -1358,158 +1135,264 @@ struct CoachTraineesView: View {
                     maxWidth: .infinity,
                     alignment: screenFrameAlignment
                 )
-                .lineLimit(2)
-                .minimumScaleFactor(0.82)
-                .fixedSize(
-                    horizontal: false,
-                    vertical: true
-                )
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
 
-            let meta =
-                trainee.metaLine(
-                    isEnglish: isEnglish
-                )
+                Divider()
+                    .overlay(
+                        subtleCardBorderColor
+                            .opacity(0.72)
+                    )
 
-            if !meta.isEmpty {
-                Text(meta)
-                    .font(
-                        .system(
-                            size: 12,
-                            weight: .semibold
+                HStack(
+                    alignment: .top,
+                    spacing: 8
+                ) {
+                    traineeListMetric(
+                        icon: "🥋",
+                        value:
+                            beltNameForUi(
+                                trainee.belt
+                            ),
+                        title: tr(
+                            "חגורה",
+                            "Belt"
                         )
                     )
-                    .foregroundStyle(
-                        secondaryCardTextColor
+
+                    traineeListMetric(
+                        icon: "🎂",
+                        value:
+                            trainee.age > 0
+                            ? "\(trainee.age)"
+                            : "—",
+                        title: tr(
+                            "גיל",
+                            "Age"
+                        )
                     )
-                    .multilineTextAlignment(
-                        screenTextAlignment
+
+                    traineeListMetric(
+                        icon: "🕒",
+                        value:
+                            trainee.seniority
+                                .trimmingCharacters(
+                                    in: .whitespacesAndNewlines
+                                )
+                                .isEmpty
+                            ? "—"
+                            : trainee.seniority,
+                        title: tr(
+                            "ותק",
+                            "Seniority"
+                        )
                     )
-                    .frame(
-                        maxWidth: .infinity,
-                        alignment: screenFrameAlignment
+
+                    traineeListMetric(
+                        icon: "📊",
+                        value:
+                            trainee.attendancePct > 0
+                            ? "\(trainee.attendancePct)%"
+                            : "—",
+                        title: tr(
+                            "נוכחות",
+                            "Attendance"
+                        )
                     )
-                    .lineLimit(3)
-                    .minimumScaleFactor(0.82)
-                    .fixedSize(
-                        horizontal: false,
-                        vertical: true
-                    )
-            }
-
-            traineeMiniStatsRow(trainee)
-        }
-    }
-
-    private func traineeMiniStatsRow(
-        _ trainee: CoachTraineeProfile
-    ) -> some View {
-        let ageText =
-            trainee.age > 0
-            ? "\(trainee.age)"
-            : "—"
-
-        let beltText =
-            beltNameForUi(trainee.belt)
-
-        let attendanceText =
-            "\(trainee.attendancePct)%"
-
-        return HStack(spacing: 6) {
-            if isEnglish {
-                miniStatChip(
-                    title: tr("גיל", "Age"),
-                    value: ageText,
-                    systemImage: "calendar"
-                )
-
-                miniStatChip(
-                    title: tr("חגורה", "Belt"),
-                    value: beltText,
-                    systemImage: "seal.fill"
-                )
-
-                miniStatChip(
-                    title: tr(
-                        "נוכחות",
-                        "Attendance"
-                    ),
-                    value: attendanceText,
-                    systemImage:
-                        "checkmark.circle.fill"
-                )
-
-                Spacer(minLength: 0)
-
-            } else {
-                Spacer(minLength: 0)
-
-                miniStatChip(
-                    title: tr(
-                        "נוכחות",
-                        "Attendance"
-                    ),
-                    value: attendanceText,
-                    systemImage:
-                        "checkmark.circle.fill"
-                )
-
-                miniStatChip(
-                    title: tr("חגורה", "Belt"),
-                    value: beltText,
-                    systemImage: "seal.fill"
-                )
-
-                miniStatChip(
-                    title: tr("גיל", "Age"),
-                    value: ageText,
-                    systemImage: "calendar"
+                }
+                /*
+                 * סדר ארבעת המדדים פיזי וקבוע,
+                 * בהתאם לכרטיס Android.
+                 */
+                .environment(
+                    \.layoutDirection,
+                    .leftToRight
                 )
             }
-        }
-        /*
-         * סדר הפריטים כבר נבנה ידנית בהתאם לשפה.
-         * לכן מונעים היפוך RTL נוסף של ה־HStack.
-         */
-        .environment(
-            \.layoutDirection,
-            .leftToRight
-        )
-        .frame(
-            maxWidth: .infinity,
-            alignment: screenFrameAlignment
-        )
-        .fixedSize(
-            horizontal: false,
-            vertical: true
-        )
-    }
-
-    private func miniStatChip(
-        title: String,
-        value: String,
-        systemImage: String
-    ) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: systemImage)
-                .font(.system(size: 10, weight: .heavy))
-
-            Text("\(title): \(value)")
-                .font(.system(size: 10, weight: .heavy))
-                .lineLimit(1)
-        }
-        .foregroundStyle(primaryCardTextColor.opacity(0.78))
-        .padding(.horizontal, 7)
-        .padding(.vertical, 5)
-        .background(
-            Capsule()
-                .fill(fieldSurfaceColor)
-        )
-        .overlay(
-            Capsule()
+            .padding(
+                .horizontal,
+                14
+            )
+            .padding(
+                .vertical,
+                12
+            )
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(
+                    cornerRadius: 18,
+                    style: .continuous
+                )
+                .fill(cardSurfaceColor)
+            )
+            .overlay(
+                RoundedRectangle(
+                    cornerRadius: 18,
+                    style: .continuous
+                )
                 .stroke(
                     subtleCardBorderColor,
                     lineWidth: 1
                 )
+            )
+            .contentShape(
+                RoundedRectangle(
+                    cornerRadius: 18,
+                    style: .continuous
+                )
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+            tr(
+                "פתיחת פרטי \(displayName(for: trainee))",
+                "Open \(displayName(for: trainee)) details"
+            )
+        )
+    }
+
+    private func traineeListMetric(
+        icon: String,
+        value: String,
+        title: String
+    ) -> some View {
+        VStack(spacing: 3) {
+            /*
+             * Emoji חייב להשתמש בפונט המערכת;
+             * פונט KMI אינו כולל את הגליפים האלה.
+             */
+            Text(icon)
+                .font(
+                    .system(size: 16)
+                )
+                .accessibilityHidden(true)
+
+            Text(
+                value.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ).isEmpty
+                    ? "—"
+                    : value
+            )
+            .kmiFont(
+                size: 12,
+                weight: .bold
+            )
+            .foregroundStyle(
+                primaryCardTextColor
+            )
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .minimumScaleFactor(0.72)
+
+            Text(title)
+                .kmiFont(
+                    size: 11,
+                    weight: .medium
+                )
+                .foregroundStyle(
+                    secondaryCardTextColor
+                )
+                .multilineTextAlignment(.center)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /*
+     * בחירה מדורגת בהתאם למבנה Android:
+     * סניף, קבוצה ולאחר מכן מתאמן.
+     */
+    private var traineePickerCard: some View {
+        VStack(spacing: 12) {
+            KmiPremiumDropdown(
+                title: tr(
+                    "סניף",
+                    "Branch"
+                ),
+                options: availableBranches,
+                selectedValue: $selectedBranch,
+                placeholder: tr(
+                    "בחר סניף",
+                    "Select branch"
+                ),
+                isEnglish: isEnglish,
+                isEnabled:
+                    availableBranches.count > 1
+            )
+
+            KmiPremiumDropdown(
+                title: tr(
+                    "קבוצה",
+                    "Group"
+                ),
+                options: availableGroups,
+                selectedValue: $selectedGroup,
+                placeholder: tr(
+                    "בחר קבוצה",
+                    "Select group"
+                ),
+                isEnglish: isEnglish,
+                isEnabled:
+                    !selectedBranch.isEmpty &&
+                    availableGroups.count > 1
+            )
+
+            KmiPremiumDropdown(
+                title: tr(
+                    "מתאמן",
+                    "Trainee"
+                ),
+                options: traineeDropdownOptions,
+                selectedValue:
+                    traineeDropdownSelection,
+                placeholder: {
+                    if selectedBranch.isEmpty ||
+                        selectedGroup.isEmpty {
+                        return tr(
+                            "בחר סניף וקבוצה",
+                            "Select branch and group"
+                        )
+                    }
+
+                    if isLoading {
+                        return tr(
+                            "טוען מתאמנים...",
+                            "Loading trainees..."
+                        )
+                    }
+
+                    return tr(
+                        "בחר מתאמן",
+                        "Select trainee"
+                    )
+                }(),
+                isEnglish: isEnglish,
+                isEnabled:
+                    !selectedBranch.isEmpty &&
+                    !selectedGroup.isEmpty &&
+                    !isLoading &&
+                    !traineeDropdownOptions.isEmpty
+            )
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .fill(cardSurfaceColor)
+        )
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: 22,
+                style: .continuous
+            )
+            .stroke(
+                subtleCardBorderColor,
+                lineWidth: 1
+            )
         )
     }
 
@@ -1635,12 +1518,25 @@ struct CoachTraineesView: View {
                 )
 
             } else {
-                Text(tr("בחר מתאמן מהרשימה למעלה", "Select a trainee from the list above"))
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.gray)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 12)
+                Text(
+                    tr(
+                        "בחר מתאמן מהרשימה למעלה",
+                        "Select a trainee from the list above"
+                    )
+                )
+                .kmiFont(
+                    size: 16,
+                    weight: .medium
+                )
+                .foregroundStyle(
+                    secondaryCardTextColor
+                )
+                .multilineTextAlignment(.center)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: .center
+                )
+                .padding(.vertical, 12)
             }
         }
         .padding(14)
@@ -1667,15 +1563,6 @@ struct CoachTraineesView: View {
                 lineWidth: 1
             )
         )
-        .shadow(
-            color:
-                Color.black.opacity(
-                    isDarkMode ? 0.18 : 0.07
-                ),
-            radius: 8,
-            x: 0,
-            y: 4
-        )
     }
 
     private func traineeProfileHeaderCard(
@@ -1685,13 +1572,28 @@ struct CoachTraineesView: View {
             HStack(spacing: 12) {
                 if isEnglish {
                     Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 40, weight: .bold))
-                        .foregroundStyle(Color.blue.opacity(0.88))
+                        .kmiFont(
+                            size: 40,
+                            weight: .bold
+                        )
+                        .foregroundStyle(
+                            KmiAppTheme.secondary(
+                                for: colorScheme
+                            )
+                        )
+                        .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(trainee.fullName)
-                            .font(.system(size: 25, weight: .black))
-                            .foregroundStyle(primaryCardTextColor)
+                        Text(
+                            displayName(
+                                for: trainee
+                            )
+                        )
+                        .kmiFont(
+                            size: 25,
+                            weight: .black
+                        )
+                        .foregroundStyle(primaryCardTextColor)
                             .multilineTextAlignment(.leading)
                             .lineLimit(2)
                             .minimumScaleFactor(0.78)
@@ -1699,9 +1601,17 @@ struct CoachTraineesView: View {
                                 horizontal: false,
                                 vertical: true
                             )
-                        Text(tr("כרטיס מתאמן", "Trainee profile"))
-                            .font(.system(size: 13, weight: .heavy))
-                            .foregroundStyle(Color.black.opacity(0.50))
+                        Text(
+                            tr(
+                                "כרטיס מתאמן",
+                                "Trainee profile"
+                            )
+                        )
+                        .kmiFont(
+                            size: 13,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(secondaryCardTextColor)
                     }
 
                     Spacer(minLength: 0)
@@ -1709,25 +1619,59 @@ struct CoachTraineesView: View {
                 } else {
                     Spacer(minLength: 0)
 
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text(trainee.fullName)
-                            .font(.system(size: 25, weight: .black))
-                            .foregroundStyle(primaryCardTextColor)
-                            .multilineTextAlignment(.trailing)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.78)
-                            .fixedSize(
-                                horizontal: false,
-                                vertical: true
+                    VStack(
+                        alignment: .trailing,
+                        spacing: 4
+                    ) {
+                        Text(
+                            displayName(
+                                for: trainee
                             )
-                        Text(tr("כרטיס מתאמן", "Trainee profile"))
-                            .font(.system(size: 13, weight: .heavy))
-                            .foregroundStyle(Color.black.opacity(0.50))
+                        )
+                        .kmiFont(
+                            size: 25,
+                            weight: .black
+                        )
+                        .foregroundStyle(
+                            primaryCardTextColor
+                        )
+                        .multilineTextAlignment(.trailing)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.78)
+                        .fixedSize(
+                            horizontal: false,
+                            vertical: true
+                        )
+
+                        Text(
+                            tr(
+                                "כרטיס מתאמן",
+                                "Trainee profile"
+                            )
+                        )
+                        .kmiFont(
+                            size: 13,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            secondaryCardTextColor
+                        )
                     }
 
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 40, weight: .bold))
-                        .foregroundStyle(Color.blue.opacity(0.88))
+                    Image(
+                        systemName:
+                            "person.crop.circle.fill"
+                    )
+                    .kmiFont(
+                        size: 40,
+                        weight: .bold
+                    )
+                    .foregroundStyle(
+                        KmiAppTheme.secondary(
+                            for: colorScheme
+                        )
+                    )
+                    .accessibilityHidden(true)
                 }
             }
             .environment(
@@ -1762,28 +1706,26 @@ struct CoachTraineesView: View {
         .padding(14)
         .background(
             RoundedRectangle(
-                cornerRadius: 20,
+                cornerRadius: 16,
                 style: .continuous
             )
             .fill(
-                isDarkMode
-                ? Color.blue.opacity(0.10)
-                : Color(
-                    red: 0.95,
-                    green: 0.98,
-                    blue: 1.0
+                KmiAppTheme.secondaryContainer(
+                    for: colorScheme
                 )
+                .opacity(0.64)
             )
         )
         .overlay(
             RoundedRectangle(
-                cornerRadius: 20,
+                cornerRadius: 16,
                 style: .continuous
             )
             .stroke(
-                Color.blue.opacity(
-                    isDarkMode ? 0.28 : 0.14
-                ),
+                KmiAppTheme.secondary(
+                    for: colorScheme
+                )
+                .opacity(0.28),
                 lineWidth: 1
             )
         )
@@ -3196,6 +3138,11 @@ struct CoachTraineesView: View {
     private func createTraineePDF(
         for trainee: CoachTraineeProfile
     ) throws -> URL {
+        let traineeDisplayName =
+            displayName(
+                for: trainee
+            )
+
         let pageWidth: CGFloat = 595
         let pageHeight: CGFloat = 842
         let horizontalPadding: CGFloat = 44
@@ -3208,8 +3155,8 @@ struct CoachTraineesView: View {
                 "K.M.I",
             "Title":
                 tr(
-                    "כרטיס מתאמן - \(trainee.fullName)",
-                    "Trainee profile - \(trainee.fullName)"
+                    "כרטיס מתאמן - \(traineeDisplayName)",
+                    "Trainee profile - \(traineeDisplayName)"
                 )
         ]
 
@@ -3248,28 +3195,15 @@ struct CoachTraineesView: View {
             trainee.coachNotes
 
         let data = renderer.pdfData { context in
-            let navy = UIColor(
-                red: 2 / 255,
-                green: 43 / 255,
-                blue: 74 / 255,
-                alpha: 1
-            )
+            MainActor.assumeIsolated {
+                let navy = UIColor(
+                    red: 2 / 255,
+                    green: 43 / 255,
+                    blue: 74 / 255,
+                    alpha: 1
+                )
 
-            let brandBlue = UIColor(
-                red: 36 / 255,
-                green: 103 / 255,
-                blue: 158 / 255,
-                alpha: 1
-            )
-
-            let lightBrandBlue = UIColor(
-                red: 128 / 255,
-                green: 183 / 255,
-                blue: 220 / 255,
-                alpha: 1
-            )
-
-            let sectionBackground = UIColor(
+                let sectionBackground = UIColor(
                 red: 234 / 255,
                 green: 246 / 255,
                 blue: 255 / 255,
@@ -3283,197 +3217,46 @@ struct CoachTraineesView: View {
                 alpha: 1
             )
 
-            var y: CGFloat = 145
+            var pageNumber = 0
 
-            func beginPage() {
-                context.beginPage()
+            var y: CGFloat =
+                KmiPdfHeader.CONTENT_TOP
 
-                let cg = context.cgContext
+            let contentBottom =
+                pageHeight -
+                KmiPdfFooter
+                    .CONTENT_BOTTOM_PADDING
 
-                cg.setFillColor(
-                    UIColor.white.cgColor
+            func drawFooter() {
+                KmiPdfFooter.draw(
+                    context: context.cgContext,
+                    pageWidth: pageWidth,
+                    pageHeight: pageHeight,
+                    pageNumber: pageNumber,
+                    isEnglish: isEnglish
                 )
-                cg.fill(
-                    CGRect(
-                        x: 0,
-                        y: 0,
-                        width: pageWidth,
-                        height: pageHeight
-                    )
-                )
-
-                /*
-                 * כותרת אלכסונית זהה לשפת העיצוב
-                 * של קובץ ה־PDF במסך הבית.
-                 */
-                let banner = UIBezierPath()
-
-                banner.move(
-                    to: CGPoint(
-                        x: pageWidth,
-                        y: 0
-                    )
-                )
-                banner.addLine(
-                    to: CGPoint(
-                        x: pageWidth,
-                        y: 122
-                    )
-                )
-                banner.addLine(
-                    to: CGPoint(
-                        x: 178,
-                        y: 122
-                    )
-                )
-                banner.addLine(
-                    to: CGPoint(
-                        x: 238,
-                        y: 0
-                    )
-                )
-                banner.close()
-
-                navy.setFill()
-                banner.fill()
-
-                let stripeOne = UIBezierPath()
-
-                stripeOne.move(
-                    to: CGPoint(x: 208, y: 122)
-                )
-                stripeOne.addLine(
-                    to: CGPoint(x: 224, y: 122)
-                )
-                stripeOne.addLine(
-                    to: CGPoint(x: 284, y: 0)
-                )
-                stripeOne.addLine(
-                    to: CGPoint(x: 268, y: 0)
-                )
-                stripeOne.close()
-
-                brandBlue.setFill()
-                stripeOne.fill()
-
-                let stripeTwo = UIBezierPath()
-
-                stripeTwo.move(
-                    to: CGPoint(x: 230, y: 122)
-                )
-                stripeTwo.addLine(
-                    to: CGPoint(x: 238, y: 122)
-                )
-                stripeTwo.addLine(
-                    to: CGPoint(x: 298, y: 0)
-                )
-                stripeTwo.addLine(
-                    to: CGPoint(x: 290, y: 0)
-                )
-                stripeTwo.close()
-
-                lightBrandBlue.setFill()
-                stripeTwo.fill()
-
-                cg.setStrokeColor(
-                    navy.cgColor
-                )
-                cg.setLineWidth(4)
-                cg.strokeEllipse(
-                    in: CGRect(
-                        x: 36,
-                        y: 18,
-                        width: 84,
-                        height: 84
-                    )
-                )
-
-                let logoParagraph =
-                    NSMutableParagraphStyle()
-                logoParagraph.alignment = .center
-
-                NSAttributedString(
-                    string: "KAMI",
-                    attributes: [
-                        .font:
-                            UIFont.boldSystemFont(
-                                ofSize: 23
-                            ),
-                        .foregroundColor: navy,
-                        .paragraphStyle: logoParagraph
-                    ]
-                )
-                .draw(
-                    in: CGRect(
-                        x: 42,
-                        y: 46,
-                        width: 72,
-                        height: 30
-                    )
-                )
-
-                let headerParagraph =
-                    NSMutableParagraphStyle()
-
-                headerParagraph.alignment =
-                    isEnglish ? .left : .right
-
-                headerParagraph.baseWritingDirection =
-                    isEnglish
-                    ? .leftToRight
-                    : .rightToLeft
-
-                NSAttributedString(
-                    string: tr(
-                        "כרטיס מתאמן",
-                        "Trainee Profile"
-                    ),
-                    attributes: [
-                        .font:
-                            UIFont.boldSystemFont(
-                                ofSize: 27
-                            ),
-                        .foregroundColor:
-                            UIColor.white,
-                        .paragraphStyle:
-                            headerParagraph
-                    ]
-                )
-                .draw(
-                    in: CGRect(
-                        x: 285,
-                        y: 28,
-                        width: 270,
-                        height: 38
-                    )
-                )
-
-                NSAttributedString(
-                    string: trainee.fullName,
-                    attributes: [
-                        .font:
-                            UIFont.systemFont(
-                                ofSize: 15,
-                                weight: .semibold
-                            ),
-                        .foregroundColor:
-                            UIColor.white
-                                .withAlphaComponent(0.88),
-                        .paragraphStyle:
-                            headerParagraph
-                    ]
-                )
-                .draw(
-                    in: CGRect(
-                        x: 285,
-                        y: 70,
-                        width: 270,
-                        height: 30
-                    )
-                )
-
-                y = 145
             }
+
+                func beginPage() {
+                    if pageNumber > 0 {
+                        drawFooter()
+                    }
+
+                    context.beginPage()
+                    pageNumber += 1
+
+                    KmiPdfHeader.draw(
+                        context: context.cgContext,
+                        pageWidth: pageWidth,
+                        isEnglish: isEnglish,
+                        titleHebrew: "כרטיס מתאמן",
+                        titleEnglish: "Trainee Profile",
+                        subtitleHebrew: traineeDisplayName,
+                        subtitleEnglish: traineeDisplayName
+                    )
+
+                    y = KmiPdfHeader.CONTENT_TOP
+                }
 
             func drawText(
                 _ text: String,
@@ -3517,7 +3300,7 @@ struct CoachTraineesView: View {
                     ceil(calculatedRect.height) + 4
 
                 if y + textHeight >
-                    pageHeight - 48 {
+                    contentBottom {
                     beginPage()
                 }
 
@@ -3542,7 +3325,7 @@ struct CoachTraineesView: View {
             }
 
             func drawDivider() {
-                if y + 18 > pageHeight - 48 {
+                if y + 18 > contentBottom {
                     beginPage()
                 }
 
@@ -3573,7 +3356,7 @@ struct CoachTraineesView: View {
             func drawSectionTitle(
                 _ title: String
             ) {
-                if y + 48 > pageHeight - 48 {
+                if y + 48 > contentBottom {
                     beginPage()
                 }
 
@@ -3860,23 +3643,12 @@ struct CoachTraineesView: View {
                 )
             }
 
-            drawDivider()
-
-            drawText(
-                tr(
-                    "הופק באמצעות אפליקציית ק.מ.י",
-                    "Generated by the K.M.I application"
-                ),
-                font: .systemFont(
-                    ofSize: 11,
-                    weight: .medium
-                ),
-                color: .secondaryLabel
-            )
+                drawFooter()
+            }
         }
 
         let cleanName =
-            trainee.fullName
+            traineeDisplayName
                 .trimmingCharacters(
                     in: .whitespacesAndNewlines
                 )
@@ -3889,10 +3661,19 @@ struct CoachTraineesView: View {
                 .filter { !$0.isEmpty }
                 .joined(separator: "_")
 
-        let fileName =
-            cleanName.isEmpty
-            ? "KMI_Trainee.pdf"
-            : "KMI_\(cleanName).pdf"
+        let fileName: String
+
+        if isEnglish {
+            fileName =
+                cleanName.isEmpty
+                ? "Trainee_Profile.pdf"
+                : "Trainee_Profile_\(cleanName).pdf"
+        } else {
+            fileName =
+                cleanName.isEmpty
+                ? "כרטיס_מתאמן.pdf"
+                : "כרטיס_מתאמן_\(cleanName).pdf"
+        }
 
         let fileURL =
             FileManager.default
@@ -3913,22 +3694,34 @@ struct CoachTraineesView: View {
             return
         }
 
-        isLoading = true
+        let branchPrimary =
+            normalize(effectiveBranchPrimary)
 
-        let branchPrimary = normalize(effectiveBranchPrimary)
-        let groupKey = normalize(effectiveGroupKey)
+        let groupKey =
+            normalize(effectiveGroupKey)
+
+        guard !branchPrimary.isEmpty,
+              !groupKey.isEmpty else {
+            trainees = []
+            selectedId = nil
+            isLoading = false
+            return
+        }
+
+        isLoading = true
 
         Firestore.firestore()
             .collection("users")
             .getDocuments { snapshot, error in
                 isLoading = false
 
-                if let error {
-                    trainees = []
-                    showMessage(tr(
-                        "טעינת המתאמנים נכשלה: \(error.localizedDescription)",
-                        "Loading trainees failed: \(error.localizedDescription)"
-                    ))
+                if error != nil {
+                    showMessage(
+                        tr(
+                            "לא ניתן היה לרענן את רשימת המתאמנים. הנתונים הקיימים נשארו מוצגים.",
+                            "The trainees list could not be refreshed. Existing data remains visible."
+                        )
+                    )
                     return
                 }
 
@@ -4636,11 +4429,11 @@ struct CoachTraineesView: View {
             .updateData(updates) { error in
                 isSavingBeltDates = false
 
-                if let error {
+                if error != nil {
                     showMessage(
                         tr(
-                            "שמירת נתוני החגורות נכשלה: \(error.localizedDescription)",
-                            "Saving belt data failed: \(error.localizedDescription)"
+                            "לא ניתן היה לשמור את נתוני החגורות. יש לבדוק את החיבור ולנסות שוב.",
+                            "The belt data could not be saved. Check the connection and try again."
                         )
                     )
                 } else {
@@ -4714,13 +4507,20 @@ struct CoachTraineesView: View {
             .updateData(updates) { error in
                 savingCoachDateSectionKey = nil
 
-                if let error {
-                    showMessage(tr(
-                        "השמירה נכשלה: \(error.localizedDescription)",
-                        "Saving failed: \(error.localizedDescription)"
-                    ))
+                if error != nil {
+                    showMessage(
+                        tr(
+                            "לא ניתן היה לשמור את הנתונים. יש לבדוק את החיבור ולנסות שוב.",
+                            "The data could not be saved. Check the connection and try again."
+                        )
+                    )
                 } else {
-                    showMessage(tr("הנתונים נשמרו", "Data saved"))
+                    showMessage(
+                        tr(
+                            "הנתונים נשמרו",
+                            "Data saved"
+                        )
+                    )
                 }
             }
     }
@@ -4748,24 +4548,34 @@ struct CoachTraineesView: View {
             ]) { error in
                 isSavingNotes = false
 
-                if let error {
-                    showMessage(tr(
-                        "שמירת ההערות נכשלה: \(error.localizedDescription)",
-                        "Saving notes failed: \(error.localizedDescription)"
-                    ))
+                if error != nil {
+                    showMessage(
+                        tr(
+                            "לא ניתן היה לשמור את הערות המאמן. יש לבדוק את החיבור ולנסות שוב.",
+                            "The coach notes could not be saved. Check the connection and try again."
+                        )
+                    )
                 } else {
-                    showMessage(tr("הערות המאמן נשמרו", "Coach notes saved"))
+                    showMessage(
+                        tr(
+                            "הערות המאמן נשמרו",
+                            "Coach notes saved"
+                        )
+                    )
                 }
             }
     }
 
     private func syncSelectedTrainee() {
-        let source = visibleTrainees.isEmpty ? trainees : visibleTrainees
+        guard let selectedId else {
+            return
+        }
 
-        if selectedId == nil && !source.isEmpty {
-            selectedId = source.first?.id
-        } else if let selectedId, !source.contains(where: { $0.id == selectedId }) {
-            self.selectedId = source.first?.id
+        guard trainees.contains(where: {
+            $0.id == selectedId
+        }) else {
+            self.selectedId = nil
+            return
         }
     }
 
@@ -6940,31 +6750,6 @@ private struct CoachTraineeProfile: Identifiable {
         }
 
         return parts.joined(separator: " • ")
-    }
-
-    func matchesSearch(_ normalizedQuery: String) -> Bool {
-        guard !normalizedQuery.isEmpty else {
-            return true
-        }
-
-        let searchableValues = [
-            fullName,
-            email,
-            phone,
-            belt,
-            seniority,
-            branch,
-            groupKey,
-            "\(age)",
-            "\(attendancePct)"
-        ]
-
-        return searchableValues.contains { value in
-            value
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-                .contains(normalizedQuery)
-        }
     }
 }
 

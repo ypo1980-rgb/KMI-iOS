@@ -136,15 +136,93 @@ enum KmiAppTheme {
         scheme == .dark ? rgb(0xD5F2FF) : .white
     }
 
+    static func success(for scheme: ColorScheme) -> Color {
+
+        scheme == .dark
+            ? rgb(0x6EE7B7)
+            : rgb(0x047857)
+    }
+
+    static func onSuccess(for scheme: ColorScheme) -> Color {
+
+        scheme == .dark
+            ? rgb(0x022C22)
+            : .white
+    }
+
+    static func successContainer(for scheme: ColorScheme) -> Color {
+
+        scheme == .dark
+            ? rgb(0x064E3B)
+            : rgb(0xECFDF5)
+    }
+
+    static func onSuccessContainer(for scheme: ColorScheme) -> Color {
+
+        scheme == .dark
+            ? rgb(0xA7F3D0)
+            : rgb(0x065F46)
+    }
+
+    static func warning(for scheme: ColorScheme) -> Color {
+
+        scheme == .dark
+            ? rgb(0xFCD34D)
+            : rgb(0xB45309)
+    }
+
+    static func onWarning(for scheme: ColorScheme) -> Color {
+
+        scheme == .dark
+            ? rgb(0x422006)
+            : .white
+    }
+
+    static func warningContainer(for scheme: ColorScheme) -> Color {
+
+        scheme == .dark
+            ? rgb(0x78350F)
+            : rgb(0xFFFBEB)
+    }
+
+    static func onWarningContainer(for scheme: ColorScheme) -> Color {
+
+        scheme == .dark
+            ? rgb(0xFDE68A)
+            : rgb(0x92400E)
+    }
+
     static func error(for scheme: ColorScheme) -> Color {
-        scheme == .dark ? rgb(0xFFB4AB) : rgb(0xBA1A1A)
+
+        scheme == .dark
+            ? rgb(0xFFB4AB)
+            : rgb(0xBA1A1A)
     }
 
     static func onError(for scheme: ColorScheme) -> Color {
-        scheme == .dark ? rgb(0x690005) : .white
+
+        scheme == .dark
+            ? rgb(0x690005)
+            : .white
     }
 
-    private static func rgb(_ value: UInt32) -> Color {
+    static func errorContainer(for scheme: ColorScheme) -> Color {
+
+        scheme == .dark
+            ? rgb(0x93000A)
+            : rgb(0xFFDAD6)
+    }
+
+    static func onErrorContainer(for scheme: ColorScheme) -> Color {
+
+        scheme == .dark
+            ? rgb(0xFFDAD6)
+            : rgb(0x410002)
+    }
+
+    private static func rgb(
+        _ value: UInt32
+    ) -> Color {
         Color(
             .sRGB,
             red: Double((value >> 16) & 0xFF) / 255.0,

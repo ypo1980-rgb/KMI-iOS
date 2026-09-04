@@ -93,9 +93,17 @@ struct ForumView: View {
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("selected_language_code") private var selectedLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
-    @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
+    @AppStorage("initial_language_code")
+    private var initialLanguageCode: String = "HEBREW"
 
-    @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("is_manager")
+    private var isManagerOverride: Bool = false
+
+    @Environment(\.colorScheme)
+    private var colorScheme
+
+    @ObservedObject
+    private var demoPrivacy = DemoPrivacy.shared
 
     @State private var errorText: String? = nil
 
@@ -108,6 +116,9 @@ struct ForumView: View {
     @State private var email: String = ""
 
     @State private var messages: [ForumUiMessage] = []
+
+    @State private var isMessagesLoading: Bool = false
+
     @State private var showParticipantsSheet: Bool = false
 
     // רשימת משתתפים אמיתיים לפי users בסניף — כמו באנדרואיד.
@@ -147,101 +158,110 @@ struct ForumView: View {
     #endif
 
     private var isDarkMode: Bool {
+
         colorScheme == .dark
-    }
 
-    private var isCoachProfile: Bool {
-        let defaults = UserDefaults.standard
-
-        let role = (
-            defaults.string(forKey: "user_role") ??
-            defaults.string(forKey: "role") ??
-            defaults.string(forKey: "userType") ??
-            ""
-        )
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        .lowercased()
-
-        return role.contains("coach") ||
-            role.contains("trainer") ||
-            role.contains("instructor") ||
-            role.contains("מאמן")
     }
 
     private var gradient: LinearGradient {
-        if isDarkMode {
-            return LinearGradient(
-                colors: [
-                    Color(red: 0.043, green: 0.078, blue: 0.102), // #0B141A
-                    Color(red: 0.059, green: 0.106, blue: 0.133), // #0F1B22
-                    Color(red: 0.067, green: 0.106, blue: 0.129)  // #111B21
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        }
 
-        if isCoachProfile {
-            return LinearGradient(
-                colors: [
-                    Color(red: 0.973, green: 0.961, blue: 1.000), // #F8F5FF
-                    Color(red: 0.941, green: 0.914, blue: 1.000), // #F0E9FF
-                    Color(red: 0.918, green: 0.965, blue: 1.000)  // #EAF6FF
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        }
+        LinearGradient(
 
-        return LinearGradient(
-            colors: [
-                Color(red: 0.965, green: 0.984, blue: 1.000), // #F6FBFF
-                Color(red: 0.918, green: 0.969, blue: 1.000), // #EAF7FF
-                Color(red: 0.918, green: 0.984, blue: 0.965)  // #EAFBF6
-            ],
+            colors:
+                KmiAppTheme.screenBackgroundColors(
+                    for: colorScheme
+                ),
+
             startPoint: .top,
+
             endPoint: .bottom
+
         )
+
     }
 
     private var forumCardColor: Color {
-        isDarkMode ? Color(red: 0.125, green: 0.173, blue: 0.200) : Color.white.opacity(0.92)
+
+        KmiAppTheme.surface(
+
+            for: colorScheme
+
+        )
+
     }
 
-    private var forumCardBorderColor: Color {
-        isDarkMode ? Color(red: 0.133, green: 0.188, blue: 0.227) : Color(red: 0.839, green: 0.894, blue: 0.957)
-    }
+private var forumCardBorderColor: Color {
 
-    private var forumPrimaryTextColor: Color {
-        isDarkMode ? Color(red: 0.914, green: 0.929, blue: 0.937) : Color(red: 0.122, green: 0.161, blue: 0.216)
-    }
+    KmiAppTheme.outlineVariant(
+        for: colorScheme
+    )
 
-    private var forumSecondaryTextColor: Color {
-        isDarkMode ? Color(red: 0.749, green: 0.784, blue: 0.804) : Color(red: 0.200, green: 0.255, blue: 0.333)
-    }
+}
 
-    private var forumPlaceholderTextColor: Color {
-        isDarkMode ? Color(red: 0.525, green: 0.588, blue: 0.627) : Color(red: 0.392, green: 0.455, blue: 0.545)
-    }
+private var forumPrimaryTextColor: Color {
 
-    private var forumComposerColor: Color {
-        isDarkMode ? Color(red: 0.125, green: 0.173, blue: 0.200) : Color.white
-    }
+    KmiAppTheme.onSurface(
+        for: colorScheme
+    )
+
+}
+
+private var forumSecondaryTextColor: Color {
+
+    KmiAppTheme.onSurfaceVariant(
+        for: colorScheme
+    )
+
+}
+
+private var forumPlaceholderTextColor: Color {
+
+    KmiAppTheme.onSurfaceVariant(
+        for: colorScheme
+    )
+    .opacity(0.78)
+
+}
+
+private var forumComposerColor: Color {
+
+    KmiAppTheme.surface(
+        for: colorScheme
+    )
+
+}
 
     private var forumMyBubbleColor: Color {
-        isDarkMode ? Color(red: 0.078, green: 0.302, blue: 0.216) : Color(red: 0.867, green: 0.984, blue: 0.918)
+
+        KmiAppTheme.primaryContainer(
+            for: colorScheme
+        )
+
     }
 
     private var forumOtherBubbleColor: Color {
-        isDarkMode ? Color(red: 0.125, green: 0.173, blue: 0.200) : Color.white.opacity(0.96)
+
+        KmiAppTheme.surface(
+            for: colorScheme
+        )
+        .opacity(0.96)
+
     }
 
     private var forumMyBubbleTextColor: Color {
-        isDarkMode ? Color.white : Color(red: 0.024, green: 0.306, blue: 0.231)
+
+        KmiAppTheme.onPrimaryContainer(
+            for: colorScheme
+        )
+
     }
 
     private var forumOtherBubbleTextColor: Color {
-        isDarkMode ? Color(red: 0.914, green: 0.929, blue: 0.937) : Color(red: 0.067, green: 0.094, blue: 0.153)
+
+        KmiAppTheme.onSurface(
+            for: colorScheme
+        )
+
     }
 
     private var forumSuccessGreen: Color {
@@ -249,64 +269,68 @@ struct ForumView: View {
     }
 
     private var forumMutedActionColor: Color {
-        isDarkMode
-        ? Color(red: 0.120, green: 0.240, blue: 0.200)
-        : Color(red: 0.850, green: 0.930, blue: 0.900)
+
+        KmiAppTheme.surfaceVariant(
+            for: colorScheme
+        )
+
     }
 
     private var forumDangerTextColor: Color {
-        isDarkMode
-        ? Color(red: 1.000, green: 0.450, blue: 0.450)
-        : Color(red: 0.740, green: 0.100, blue: 0.100)
+
+        KmiAppTheme.error(
+            for: colorScheme
+        )
+
     }
 
-    private var forumStatusIconBackground: Color {
-        isDarkMode ? Color.white.opacity(0.12) : Color.black.opacity(0.05)
-    }
+private var forumStatusIconBackground: Color {
 
-    private var forumStatusIconColor: Color {
-        isDarkMode ? Color.white.opacity(0.94) : Color(red: 0.122, green: 0.161, blue: 0.216)
-    }
+    KmiAppTheme.surfaceVariant(
+        for: colorScheme
+    )
 
-    private var forumStatusBackButtonColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.16)
-            : Color.black.opacity(0.06)
-    }
+}
+
+private var forumStatusIconColor: Color {
+
+    KmiAppTheme.onSurface(
+        for: colorScheme
+    )
+
+}
+
+private var forumStatusBackButtonColor: Color {
+
+    KmiAppTheme.surfaceVariant(
+        for: colorScheme
+    )
+
+}
 
     private var forumLockCardColor: Color {
-        isDarkMode
-            ? Color(
-                red: 2.0 / 255.0,
-                green: 6.0 / 255.0,
-                blue: 23.0 / 255.0
-            )
-            .opacity(0.92)
-            : Color(
-                red: 234.0 / 255.0,
-                green: 242.0 / 255.0,
-                blue: 255.0 / 255.0
-            )
+
+        KmiAppTheme.surface(
+            for: colorScheme
+        )
+        .opacity(0.96)
+
     }
 
     private var forumLockBorderColor: Color {
-        isDarkMode
-            ? Color.clear
-            : Color(
-                red: 212.0 / 255.0,
-                green: 225.0 / 255.0,
-                blue: 247.0 / 255.0
-            )
+
+        KmiAppTheme.outlineVariant(
+            for: colorScheme
+        )
+
     }
 
     private var forumLockIconBackground: Color {
-        isDarkMode
-            ? Color.white.opacity(0.08)
-            : Color(
-                red: 246.0 / 255.0,
-                green: 249.0 / 255.0,
-                blue: 255.0 / 255.0
-            )
+
+        KmiAppTheme.surfaceVariant(
+            for: colorScheme
+        )
+
     }
 
     private var forumLockAccentColor: Color {
@@ -549,17 +573,34 @@ struct ForumView: View {
     }
     
     var body: some View {
+
         ZStack {
+
             gradient.ignoresSafeArea()
 
             if !canUseExtras {
+
                 lockedView
+
             } else if branch.isEmpty || groupKey.isEmpty {
+
                 missingGroupView
+
             } else {
+
                 chatView
+
             }
+
+            if canUseExtras &&
+                (!branch.isEmpty && !groupKey.isEmpty) &&
+                (isMessagesLoading || isParticipantsLoading) {
+
+                KmiLoadingOverlay()
+            }
+
         }
+
         .onAppear { boot() }
         .onDisappear { stopListener() }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("KMI_GLOBAL_SEARCH_PICK"))) { output in
@@ -1719,6 +1760,94 @@ composer
         }
     }
     
+private func forumDisplayPersonName(
+    realName: String?,
+    stableKey: String?,
+    demoIndex: Int?
+) -> String {
+    TraineeDisplayNameMapper.displayName(
+        realName: realName ?? "",
+        stableKey: stableKey ?? "",
+        demoIndex: demoIndex,
+        isEnglish: isEnglish
+    )
+    .trimmingCharacters(in: .whitespacesAndNewlines)
+    .ifEmpty(tr("משתתף", "Participant"))
+}
+
+private func participantIndex(
+    for message: ForumUiMessage
+) -> Int? {
+    let cleanAuthorUid = message.authorUid?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+    let cleanAuthorEmail = message.authorEmail
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    let cleanAuthorName = message.authorName
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    let index = forumParticipants.firstIndex { participant in
+        let participantId = participant.id
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let participantName = participant.name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !cleanAuthorUid.isEmpty,
+           participantId == cleanAuthorUid {
+            return true
+        }
+
+        if !cleanAuthorEmail.isEmpty,
+           participantId.caseInsensitiveCompare(
+               cleanAuthorEmail
+           ) == .orderedSame {
+            return true
+        }
+
+        if !cleanAuthorName.isEmpty,
+           participantName.caseInsensitiveCompare(
+               cleanAuthorName
+           ) == .orderedSame {
+            return true
+        }
+
+        return false
+    }
+
+    return index
+}
+
+private func displayedAuthorName(
+    for message: ForumUiMessage
+) -> String {
+    let index = participantIndex(for: message)
+
+    let participantName = index.flatMap { participantIndex in
+        forumParticipants.indices.contains(participantIndex)
+            ? forumParticipants[participantIndex].name
+            : nil
+    } ?? ""
+
+    let realName = message.authorName
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .ifEmpty(participantName)
+        .ifEmpty(message.authorEmail)
+
+    let stableKey = message.authorUid?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .ifEmpty(message.authorEmail)
+        .ifEmpty(message.id)
+        ?? message.authorEmail.ifEmpty(message.id)
+
+    return forumDisplayPersonName(
+        realName: realName,
+        stableKey: stableKey,
+        demoIndex: index
+    )
+}
+
     private var forumParticipants: [ForumParticipantUi] {
         if !participantsByUsers.isEmpty {
             return participantsByUsers
@@ -1791,6 +1920,12 @@ composer
                             ),
                             id: \.element.id
                         ) { index, participant in
+                            let participantDisplayName =
+                                forumDisplayPersonName(
+                                    realName: participant.name,
+                                    stableKey: participant.id,
+                                    demoIndex: index
+                                )
                             HStack(spacing: 12) {
                                 if isEnglish {
                                     participantAvatar(
@@ -1803,7 +1938,7 @@ composer
                                     alignment: stackAlignment,
                                     spacing: 2
                                 ) {
-                                    Text(participant.name)
+                                    Text(participantDisplayName)
                                         .kmiFont(
                                             size: 15,
                                             weight:
@@ -1923,14 +2058,19 @@ composer
         ])
     }
 
-    private func participantAvatar(
-        _ participant: ForumParticipantUi,
-        index: Int
-    ) -> some View {
-        let cleanName =
-            participant.name.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
+private func participantAvatar(
+    _ participant: ForumParticipantUi,
+    index: Int
+) -> some View {
+    let cleanName =
+        forumDisplayPersonName(
+            realName: participant.name,
+            stableKey: participant.id,
+            demoIndex: index
+        )
+        .trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
 
         let initial =
             cleanName.first.map {
@@ -1981,6 +2121,26 @@ composer
             }
     }
 
+    private func canModifyMessage(
+        _ message: ForumUiMessage
+    ) -> Bool {
+        message.isMine || isManagerOverride
+    }
+
+    private func messageAuthorLabel(
+        _ message: ForumUiMessage,
+        authorName: String
+    ) -> String {
+        guard message.isMine else {
+            return authorName
+        }
+
+        return tr(
+            "\(authorName) • אני",
+            "\(authorName) • me"
+        )
+    }
+    
     private func messageBubble(_ msg: ForumUiMessage) -> some View {
         let bubbleColor = msg.isMine
             ? forumMyBubbleColor
@@ -1990,13 +2150,17 @@ composer
             ? forumMyBubbleTextColor
             : forumOtherBubbleTextColor
 
-        let metaTextColor = isDarkMode
-            ? Color.white.opacity(0.62)
-            : Color(red: 0.392, green: 0.455, blue: 0.545)
+        let metaTextColor =
+            KmiAppTheme.onSurfaceVariant(
+                for: colorScheme
+            )
+            .opacity(0.78)
 
-        let authorTextColor = isDarkMode
-            ? Color.white.opacity(0.78)
-            : Color(red: 0.200, green: 0.255, blue: 0.333)
+        let authorTextColor =
+            KmiAppTheme.onSurface(
+                for: colorScheme
+            )
+            .opacity(0.88)
 
         let bubbleShape = UnevenRoundedRectangle(
             topLeadingRadius: 18,
@@ -2012,19 +2176,17 @@ composer
         let innerAlignment: HorizontalAlignment = isEnglish ? .leading : .trailing
         let innerTextAlignment: TextAlignment = isEnglish ? .leading : .trailing
 
-        let participantNameByUid = msg.authorUid.flatMap { uid in
-            participantsByUsers.first(where: { $0.id == uid })?.name
-        } ?? ""
+        let messageAuthorName =
+            displayedAuthorName(for: msg)
 
-        let messageAuthorName = msg.authorName
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .ifEmpty(participantNameByUid)
-            .ifEmpty(msg.authorEmail)
-            .ifEmpty(tr("משתתף", "Participant"))
+        let displayedAuthorName =
+            messageAuthorLabel(
+                msg,
+                authorName: messageAuthorName
+            )
 
-        let displayedAuthorName = msg.isMine
-            ? tr("\(messageAuthorName) • אני", "\(messageAuthorName) • me")
-            : messageAuthorName
+        let canModify =
+            canModifyMessage(msg)
 
         return HStack(alignment: .bottom, spacing: 0) {
             if msg.isMine == isEnglish {
@@ -2034,9 +2196,12 @@ composer
             VStack(alignment: innerAlignment, spacing: 4) {
 
                 HStack(alignment: .top, spacing: 6) {
-                    if msg.isMine {
+                    if canModify {
+
                         Menu {
+
                             Button {
+
                                 editingMessageId = msg.id
                                 editText = msg.text
                                 input = ""
@@ -2876,10 +3041,17 @@ composer
     }
     
     private func stopListener() {
+
         listener?.remove()
+
         listener = nil
+
         participantsByUsers = []
+
+        isMessagesLoading = false
+
         isParticipantsLoading = false
+
     }
     
     private func loadForumParticipantsForBranch(_ branchValue: String) async {
@@ -3183,15 +3355,24 @@ composer
     }
     
     private func startListener() {
+
         stopListener()
 
         let cleanBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+
         let cleanGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !cleanBranch.isEmpty, !cleanGroup.isEmpty else {
+
             messages = []
+
+            isMessagesLoading = false
+
             return
+
         }
+
+        isMessagesLoading = true
 
         UserDefaults.standard.set(
             Date().timeIntervalSince1970 * 1000,
@@ -3207,12 +3388,21 @@ composer
             .limit(to: 200)
 
         listener = query.addSnapshotListener { snap, err in
-            if let err {
+
+            if err != nil {
+
+                isMessagesLoading = false
+
                 errorText = tr(
+
                     "לא הצלחנו לטעון את הודעות הפורום. נסו שוב מאוחר יותר.",
+
                     "We could not load the forum messages. Please try again later."
+
                 )
+
                 return
+
             }
 
             let currentUid = Auth.auth().currentUser?.uid
@@ -3281,7 +3471,11 @@ composer
             } ?? []
 
             messages = list.sorted { $0.createdAt < $1.createdAt }
+
+            isMessagesLoading = false
+
         }
+
     }
 
     // MARK: - Send / Update / Delete
@@ -3318,16 +3512,53 @@ composer
         }
 
         guard isCurrentUserForumParticipant else {
+
             await MainActor.run {
+
                 errorText = tr(
+
                     "אין הרשאה לשלוח הודעות בחדר הקבוצה הזה.",
+
                     "You do not have permission to send messages in this group room."
+
                 )
+
             }
+
             return
+
+        }
+
+        if let editId = editingMessageId {
+
+            guard
+                let messageBeingEdited =
+                    messages.first(
+                        where: { $0.id == editId }
+                    ),
+                canModifyMessage(messageBeingEdited)
+            else {
+
+                await MainActor.run {
+
+                    errorText = tr(
+
+                        "אין הרשאה לערוך הודעה זו.",
+
+                        "You do not have permission to edit this message."
+
+                    )
+
+                }
+
+                return
+
+            }
+
         }
 
         do {
+
             let safeAuthorName = fullName
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .ifEmpty(UserDefaults.standard.string(forKey: "displayName") ?? "")
@@ -3448,7 +3679,20 @@ composer
     }
 
     private func deleteMessage(_ msg: ForumUiMessage) async {
-        guard msg.isMine else { return }
+        guard canModifyMessage(msg) else {
+
+            await MainActor.run {
+
+                errorText = tr(
+                    "אין הרשאה למחוק הודעה זו.",
+                    "You do not have permission to delete this message."
+                )
+
+            }
+
+            return
+
+        }
 
         let messageBranch = msg.branch.trimmingCharacters(in: .whitespacesAndNewlines)
         let messageGroup = msg.groupKey.trimmingCharacters(in: .whitespacesAndNewlines)

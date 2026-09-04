@@ -1583,16 +1583,11 @@ struct HomeView: View {
                 VStack(spacing: 10) {
                     
                     WeekHeaderPill(
-                        title: isAbroadUser
-                        ? tr("מידע על הסניף המקומי", "Local Branch Information")
-                        : (
-                            isCoachUser
-                            ? tr("אימונים לשבוע הקרוב – מאמן", "Trainings for the upcoming week – Coach")
-                            : tr("אימונים לשבוע הקרוב", "Trainings for the upcoming week")
+                        title: tr(
+                            "אימונים לשבוע הקרוב",
+                            "Trainings for the upcoming week"
                         ),
-                        subtitle: isAbroadUser
-                        ? tr("זמני האימונים מתעדכנים מול המאמן המקומי", "Training times are managed by the local coach")
-                        : currentWeekSubtitle
+                        subtitle: currentWeekSubtitle
                     )
                     .padding(.top, -2)
                     
@@ -1616,6 +1611,7 @@ struct HomeView: View {
 
                                 HomeTrainingCardAndroidStyle(
                                     training: training,
+                                    group: resolvedGroup,
                                     isEnglish: isEnglish,
                                     isCoach: isCoachUser,
                                     activeOverride: trainingOverride,
@@ -1628,7 +1624,6 @@ struct HomeView: View {
                                                 for: training,
                                                 activeOverride: trainingOverride
                                             )
-
                                         trainingManagementItem =
                                             HomeTrainingManagementItem(
                                                 request: request
@@ -1652,15 +1647,10 @@ struct HomeView: View {
                     Spacer(minLength: 4)
 
                     CoachMessagesCard(
-                        title: isAbroadUser
-                            ? tr(
-                                "עדכונים מהסניף המקומי",
-                                "Local Branch Updates"
-                            )
-                            : tr(
-                                "הודעות מאמן",
-                                "Coach Messages"
-                            ),
+                        title: tr(
+                            "הודעות ואירועים",
+                            "Messages & Events"
+                        ),
                         coachName: resolvedCoachBroadcastName,
                         message: resolvedCoachBroadcastMessage,
                         branch: resolvedCoachBroadcastBranch,
@@ -2016,8 +2006,7 @@ struct HomeView: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 12)
-        .padding(.top, 6)
-        .padding(.bottom, 6)
+        .padding(.vertical, 1)
         .background(
             HomeVisualTheme.bottomSurface(
                 for: colorScheme
@@ -2027,29 +2016,61 @@ struct HomeView: View {
     }
 
     private var quickMenuOverlay: some View {
+
         GeometryReader { geo in
-            let menuAccent = KmiBeltPalette.color(for: resolvedBelt)
-            let fabWidth: CGFloat = 46
+
+            let menuAccent =
+                KmiBeltPalette.color(
+                    for: resolvedBelt
+                )
+
+            let fabWidth: CGFloat = 38
+            let fabHalfHeight: CGFloat = 36
+
             let edgeInset: CGFloat = 8
+
             let panelWidth = min(
-                CGFloat(248),
-                max(0, geo.size.width - fabWidth - edgeInset * 2)
+                CGFloat(230),
+                max(
+                    0,
+                    geo.size.width -
+                    fabWidth -
+                    edgeInset * 2
+                )
             )
+
             let panelHeight = min(
                 CGFloat(420),
-                max(0, geo.size.height - edgeInset * 2)
+                max(
+                    0,
+                    geo.size.height -
+                    edgeInset * 2
+                )
             )
 
             // הטאב נשאר בצד שמאל הפיזי בשתי השפות.
             let fabX = fabWidth / 2
-            let preferredY = geo.size.height / 2 + 88
+
+            let preferredY =
+                geo.size.height / 2 + 88
 
             let fabY = min(
-                max(42 + edgeInset, preferredY),
-                max(42, geo.size.height - 42 - edgeInset)
+                max(
+                    fabHalfHeight + edgeInset,
+                    preferredY
+                ),
+                max(
+                    fabHalfHeight,
+                    geo.size.height -
+                    fabHalfHeight -
+                    edgeInset
+                )
             )
 
-            let panelX = fabWidth + edgeInset + panelWidth / 2
+            let panelX =
+                fabWidth +
+                edgeInset +
+                panelWidth / 2
             let panelY = min(
                 max(edgeInset + panelHeight / 2, preferredY),
                 geo.size.height - edgeInset - panelHeight / 2
@@ -2105,18 +2126,26 @@ struct HomeView: View {
                 }
 
                 Button {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                    withAnimation(
+                        .spring(
+                            response: 0.28,
+                            dampingFraction: 0.86
+                        )
+                    ) {
                         showHomeQuickMenu.toggle()
                     }
                 } label: {
+
                     ModernHomeQuickFab(
                         isOpen: showHomeQuickMenu,
-                        isEnglish: isEnglish,
                         accentColor: menuAccent
                     )
                 }
                 .buttonStyle(.plain)
-                .position(x: fabX, y: fabY)
+                .position(
+                    x: fabX,
+                    y: fabY
+                )
                 .accessibilityLabel(
                     showHomeQuickMenu
                     ? tr("סגור תפריט מהיר", "Close quick menu")
@@ -2138,192 +2167,23 @@ struct HomeView: View {
             alignment: .topLeading
         )
     }
-    
-    // MARK: - User Header Card
-    private struct HomeUserCard: View {
-        let fullName: String
-        let role: String
-        let region: String
-        let branch: String
-        let group: String
-        let beltText: String
-        let isEnglish: Bool
-        
-        private var isCoach: Bool {
-            let clean = role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            return clean == "coach" || clean == "trainer" || clean == "מאמן"
-        }
-        
-        private var roleTitle: String {
-            if isEnglish {
-                return isCoach ? "Coach" : "Trainee"
-            } else {
-                return isCoach ? "מאמן" : "מתאמן"
-            }
-        }
-        
-        private var displayName: String {
-            let clean = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
-            return clean.isEmpty ? (isEnglish ? "User" : "משתמש") : clean
-        }
-        
-        private var branchLine: String {
-            [
-                TrainingCatalogIOS.displayRegion(region, isEnglish: isEnglish),
-                TrainingCatalogIOS.displayBranch(branch, isEnglish: isEnglish)
-            ]
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " · ")
-        }
-        
-        private var groupLine: String {
-            let cleanGroup = TrainingCatalogIOS
-                .displayGroup(group, isEnglish: isEnglish)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            
-            if cleanGroup.isEmpty {
-                return ""
-            }
-            
-            return isEnglish ? "Group: \(cleanGroup)" : "קבוצה: \(cleanGroup)"
-        }
-        
-        private var beltLine: String {
-            if isCoach {
-                return ""
-            }
-            
-            let cleanBelt = beltText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if cleanBelt.isEmpty {
-                return ""
-            }
-            
-            return isEnglish ? "Belt: \(cleanBelt)" : "חגורה: \(cleanBelt)"
-        }
-        
-        private var textAlignment: TextAlignment {
-            isEnglish ? .leading : .trailing
-        }
-        
-        private var frameAlignment: Alignment {
-            isEnglish ? .leading : .trailing
-        }
-        
-        private var stackAlignment: HorizontalAlignment {
-            isEnglish ? .leading : .trailing
-        }
-        
-        private var rowDirection: LayoutDirection {
-            isEnglish ? .leftToRight : .rightToLeft
-        }
-        
-        private var accentColor: Color {
-            isCoach
-            ? Color(red: 0.50, green: 0.11, blue: 0.64)
-            : Color(red: 0.02, green: 0.45, blue: 0.78)
-        }
-        
-        var body: some View {
-            HStack(spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    accentColor.opacity(0.22),
-                                    accentColor.opacity(0.08)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                    
-                    Circle()
-                        .stroke(accentColor.opacity(0.24), lineWidth: 1)
-                    
-                    Image(systemName: isCoach ? "checkmark.seal.fill" : "person.fill")
-                        .font(.system(size: 21, weight: .bold))
-                        .foregroundStyle(accentColor)
-                }
-                .frame(width: 44, height: 44)
-                
-                VStack(alignment: stackAlignment, spacing: 3) {
-                    HStack(spacing: 8) {
-                        Text(displayName)
-                            .font(.system(size: 18, weight: .heavy))
-                            .foregroundStyle(Color.black.opacity(0.86))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-                            .frame(maxWidth: .infinity, alignment: frameAlignment)
-                            .multilineTextAlignment(textAlignment)
-                        
-                        Text(roleTitle)
-                            .font(.system(size: 11, weight: .heavy))
-                            .foregroundStyle(accentColor)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(
-                                Capsule()
-                                    .fill(accentColor.opacity(0.12))
-                            )
-                    }
-                    .environment(\.layoutDirection, rowDirection)
-                    
-                    if !branchLine.isEmpty {
-                        Text(branchLine)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Color.black.opacity(0.58))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-                            .frame(maxWidth: .infinity, alignment: frameAlignment)
-                            .multilineTextAlignment(textAlignment)
-                    }
-                    
-                    if !groupLine.isEmpty {
-                        Text(groupLine)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Color.black.opacity(0.66))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-                            .frame(maxWidth: .infinity, alignment: frameAlignment)
-                            .multilineTextAlignment(textAlignment)
-                    }
-                    
-                    if !beltLine.isEmpty {
-                        Text(beltLine)
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(Color.black.opacity(0.70))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-                            .frame(maxWidth: .infinity, alignment: frameAlignment)
-                            .multilineTextAlignment(textAlignment)
-                    }
-                }
-            }
-            .environment(\.layoutDirection, rowDirection)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
-            .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(0.92))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.white.opacity(0.32), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.10), radius: 8, x: 0, y: 4)
-            .padding(.horizontal, 16)
-        }
-    }
-    
+
     // MARK: - Week Header
-    
+
     private var currentWeekSubtitle: String {
-        let start = calendar.startOfDay(for: Date())
-        let end = calendar.date(byAdding: .day, value: 6, to: start) ?? start
-        
+
+        let start =
+            calendar.startOfDay(
+                for: Date()
+            )
+
+        let end =
+            calendar.date(
+                byAdding: .day,
+                value: 6,
+                to: start
+            ) ?? start
+
         if isEnglish {
             return "Dates: \(englishWeekdayName(from: start)) \(shortDate(start))–\(englishWeekdayName(from: end)) \(shortDate(end))"
         } else {
@@ -2410,7 +2270,8 @@ struct HomeView: View {
         default: return belt.id
         }
     }
-    
+
+
     // MARK: - Helpers
 
     private func isTrainingCancelledByHoliday(
@@ -3972,14 +3833,22 @@ private struct HomeAbroadBranchNotice: View {
 }
 
 private struct HomeTrainingCardAndroidStyle: View {
+
     @Environment(\.colorScheme)
     private var colorScheme
 
     let training: TrainingData
+
+    let group: String
+
     let isEnglish: Bool
+
     let isCoach: Bool
+
     let activeOverride: TrainingOverride?
+
     let onNavigateTap: () -> Void
+
     let onManageTap: () -> Void
 
     private var rowDirection: LayoutDirection {
@@ -4164,7 +4033,19 @@ private struct HomeTrainingCardAndroidStyle: View {
             : "מרכז אימונים"
     }
 
+    private var groupTitle: String {
+        TrainingCatalogIOS
+            .displayGroup(
+                group,
+                isEnglish: isEnglish
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+    }
+
     private var addressText: String {
+
         let rawValue =
             reflectedString(
                 [
@@ -4315,27 +4196,24 @@ private struct HomeTrainingCardAndroidStyle: View {
     }
 
     private var trainingOverrideBanner: some View {
+
         let contentColor: Color =
             isCancelledByCoach
-            ? (
-                colorScheme == .dark
-                ? Color(hex: 0xFFFCA5A5)
-                : Color(hex: 0xFFB91C1C)
-            )
-            : (
-                colorScheme == .dark
-                ? Color(hex: 0xFF93C5FD)
-                : Color(hex: 0xFF1D4ED8)
-            )
+                ? KmiAppTheme.onErrorContainer(
+                    for: colorScheme
+                )
+                : KmiAppTheme.onPrimaryContainer(
+                    for: colorScheme
+                )
 
         let backgroundColor: Color =
-            colorScheme == .dark
-            ? contentColor.opacity(0.14)
-            : (
-                isCancelledByCoach
-                ? Color(hex: 0xFFFEF2F2)
-                : Color(hex: 0xFFEFF6FF)
-            )
+            isCancelledByCoach
+                ? KmiAppTheme.errorContainer(
+                    for: colorScheme
+                )
+                : KmiAppTheme.primaryContainer(
+                    for: colorScheme
+                )
 
         return VStack(spacing: 3) {
             Text(
@@ -4598,46 +4476,66 @@ private struct HomeTrainingCardAndroidStyle: View {
         }()
 
         let contentColor: Color = {
+
+            if countdownMinutes != nil {
+                return KmiAppTheme.onWarningContainer(
+                    for: colorScheme
+                )
+            }
+
             switch state {
+
             case .scheduled:
-                return colorScheme == .dark
-                    ? Color(hex: 0xFF93C5FD)
-                    : Color(hex: 0xFF1D4ED8)
+                return KmiAppTheme.onPrimaryContainer(
+                    for: colorScheme
+                )
 
             case .ongoing:
-                return colorScheme == .dark
-                    ? Color(hex: 0xFF6EE7B7)
-                    : Color(hex: 0xFF047857)
+                return KmiAppTheme.onSuccessContainer(
+                    for: colorScheme
+                )
 
             case .completed:
-                return colorScheme == .dark
-                    ? Color(hex: 0xFFCBD5E1)
-                    : Color(hex: 0xFF475569)
+                return KmiAppTheme.onSurfaceVariant(
+                    for: colorScheme
+                )
 
             case .invalid:
-                return colorScheme == .dark
-                    ? Color(hex: 0xFFFCA5A5)
-                    : Color(hex: 0xFFB91C1C)
+                return KmiAppTheme.onErrorContainer(
+                    for: colorScheme
+                )
             }
         }()
 
         let backgroundColor: Color = {
-            if colorScheme == .dark {
-                return contentColor.opacity(0.14)
+
+            if countdownMinutes != nil {
+                return KmiAppTheme.warningContainer(
+                    for: colorScheme
+                )
             }
 
             switch state {
+
             case .scheduled:
-                return Color(hex: 0xFFEFF6FF)
+                return KmiAppTheme.primaryContainer(
+                    for: colorScheme
+                )
 
             case .ongoing:
-                return Color(hex: 0xFFECFDF5)
+                return KmiAppTheme.successContainer(
+                    for: colorScheme
+                )
 
             case .completed:
-                return Color(hex: 0xFFF1F5F9)
+                return KmiAppTheme.surfaceVariant(
+                    for: colorScheme
+                )
 
             case .invalid:
-                return Color(hex: 0xFFFEF2F2)
+                return KmiAppTheme.errorContainer(
+                    for: colorScheme
+                )
             }
         }()
 
@@ -4679,15 +4577,20 @@ private struct HomeTrainingCardAndroidStyle: View {
             .overlay(
                 Capsule()
                     .stroke(
-                        contentColor.opacity(0.22),
+                        countdownMinutes != nil
+                            ? KmiAppTheme.warning(
+                                for: colorScheme
+                            )
+                            : contentColor.opacity(0.22),
                         lineWidth: 1
                     )
             )
             .opacity(pulseAlpha)
             .padding(.top, 2)
     }
-    
+
     private var holidayCancellationBanner: some View {
+
         Text(
             isEnglish
                 ? "Training cancelled due to holiday"
@@ -4698,7 +4601,9 @@ private struct HomeTrainingCardAndroidStyle: View {
             weight: .bold
         )
         .foregroundStyle(
-            Color(hex: 0xFF9A3412)
+            KmiAppTheme.onSecondaryContainer(
+                for: colorScheme
+            )
         )
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
@@ -4710,7 +4615,9 @@ private struct HomeTrainingCardAndroidStyle: View {
                 style: .continuous
             )
             .fill(
-                Color(hex: 0xFFFFF7ED)
+                KmiAppTheme.secondaryContainer(
+                    for: colorScheme
+                )
             )
         )
         .overlay(
@@ -4719,8 +4626,10 @@ private struct HomeTrainingCardAndroidStyle: View {
                 style: .continuous
             )
             .stroke(
-                Color(hex: 0xFFF97316)
-                    .opacity(0.35),
+                KmiAppTheme.onSecondaryContainer(
+                    for: colorScheme
+                )
+                .opacity(0.22),
                 lineWidth: 1
             )
         )
@@ -4744,6 +4653,23 @@ private struct HomeTrainingCardAndroidStyle: View {
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, isCoach ? 40 : 0)
+
+                if !groupTitle.isEmpty {
+                    Text(groupTitle)
+                        .kmiFont(
+                            size: 12,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(
+                            HomeVisualTheme.secondaryText(
+                                for: colorScheme
+                            )
+                        )
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.80)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                }
 
                 if !dateLine.isEmpty {
                     Text(dateLine)
@@ -4813,7 +4739,9 @@ private struct HomeTrainingCardAndroidStyle: View {
                         style: .continuous
                     )
                     .fill(
-                        KmiAppTheme.surfaceVariant(for: colorScheme)
+                        KmiAppTheme.surfaceVariant(
+                            for: colorScheme
+                        )
                     )
                 )
                 .overlay(
@@ -4822,7 +4750,14 @@ private struct HomeTrainingCardAndroidStyle: View {
                         style: .continuous
                     )
                     .stroke(
-                        KmiAppTheme.outlineVariant(for: colorScheme),
+                        KmiAppTheme.primary(
+                            for: colorScheme
+                        )
+                        .opacity(
+                            colorScheme == .dark
+                                ? 0.28
+                                : 0.20
+                        ),
                         lineWidth: 0.75
                     )
                 )
@@ -4890,38 +4825,49 @@ private struct HomeTrainingCardAndroidStyle: View {
             )
         )
         .overlay(
-            alignment: isEnglish
-            ? .topTrailing
-            : .topLeading
+            alignment:
+                isEnglish
+                    ? .topLeading
+                    : .topTrailing
         ) {
+
             if isCoach {
+
                 Button {
                     onManageTap()
                 } label: {
+
                     Image(
                         systemName: "calendar.badge.clock"
                     )
                     .kmiFont(
-                        size: 14,
+                        size: 23,
                         weight: .bold
                     )
                     .foregroundStyle(
-                        KmiAppTheme.onSecondaryContainer(for: colorScheme)
+                        KmiAppTheme.primary(
+                            for: colorScheme
+                        )
                     )
                     .frame(
-                        width: 32,
-                        height: 32
+                        width: 46,
+                        height: 46
                     )
                     .background(
                         Circle()
                             .fill(
-                                KmiAppTheme.secondaryContainer(for: colorScheme)
+                                KmiAppTheme.secondaryContainer(
+                                    for: colorScheme
+                                )
                             )
                     )
                     .overlay(
                         Circle()
                             .stroke(
-                                KmiAppTheme.outlineVariant(for: colorScheme),
+                                KmiAppTheme.primary(
+                                    for: colorScheme
+                                )
+                                .opacity(0.55),
                                 lineWidth: 1
                             )
                     )
@@ -4931,27 +4877,63 @@ private struct HomeTrainingCardAndroidStyle: View {
                 .accessibilityLabel(
                     Text(
                         isEnglish
-                        ? "Change or cancel training"
-                        : "שינוי או ביטול אימון"
+                            ? "Change or cancel training"
+                            : "שינוי או ביטול אימון"
                     )
                 )
-                .padding(9)
+                .offset(
+                    x: -10,
+                    y: -10
+                )
             }
         }
-        .environment(\.layoutDirection, rowDirection)
+        .environment(
+            \.layoutDirection,
+            rowDirection
+        )
     }
 
     private var navigationIcon: some View {
-        Image(systemName: "location.fill")
-            .kmiFont(size: 15, weight: .black)
-            .foregroundStyle(
-                KmiAppTheme.onSecondaryContainer(for: colorScheme)
+
+        Image(systemName: "location.north.fill")
+            .kmiFont(
+                size: 19,
+                weight: .black
             )
-            .padding(9)
+            .foregroundStyle(
+                KmiAppTheme.primary(
+                    for: colorScheme
+                )
+            )
+            .frame(
+                width: 34,
+                height: 34
+            )
             .background(
                 Circle()
                     .fill(
-                        KmiAppTheme.secondaryContainer(for: colorScheme)
+                        KmiAppTheme.primary(
+                            for: colorScheme
+                        )
+                        .opacity(
+                            colorScheme == .dark
+                                ? 0.18
+                                : 0.10
+                        )
+                    )
+            )
+            .overlay(
+                Circle()
+                    .stroke(
+                        KmiAppTheme.primary(
+                            for: colorScheme
+                        )
+                        .opacity(
+                            colorScheme == .dark
+                                ? 0.30
+                                : 0.20
+                        ),
+                        lineWidth: 0.75
                     )
             )
             .accessibilityHidden(true)
@@ -4972,9 +4954,12 @@ private struct HomeTrainingCardAndroidStyle: View {
                 weight: .black
             )
             .foregroundStyle(
-                KmiAppTheme.onSurfaceVariant(for: colorScheme)
+                KmiAppTheme.onSurface(
+                    for: colorScheme
+                )
             )
-            .fixedSize(horizontal: false, vertical: true)
+            .lineLimit(1)
+            .minimumScaleFactor(0.82)
             .frame(
                 maxWidth: .infinity,
                 alignment: frameAlignment
@@ -5016,17 +5001,23 @@ private struct HomePremiumExerciseButton: View {
     let isEnglish: Bool
 
     private var rowDirection: LayoutDirection {
+
         isEnglish ? .leftToRight : .rightToLeft
     }
 
     private var buttonHeight: CGFloat {
-        max(
-            56,
-            60 * displayScale
+
+        min(
+            58,
+            max(
+                46,
+                50 * displayScale
+            )
         )
     }
 
     var body: some View {
+
         TimelineView(.animation) { timeline in
             let seconds =
                 timeline.date.timeIntervalSinceReferenceDate
@@ -5084,38 +5075,40 @@ private struct HomePremiumExerciseButton: View {
                 )
 
                 HStack(
-                    spacing: 8 * displayScale
+                    spacing: 6 * displayScale
                 ) {
+
                     if isEnglish {
+
                         Image(systemName: "star.fill")
                             .kmiFont(
-                                size: 18,
+                                size: 16,
                                 weight: .black
                             )
                             .foregroundStyle(.white)
+                            .accessibilityHidden(true)
                     }
 
                     Text(title)
                         .kmiFont(
-                            size: 18,
+                            size: 16,
                             weight: .black
                         )
                         .foregroundStyle(.white)
-                        .lineLimit(2)
-                        .fixedSize(
-                            horizontal: false,
-                            vertical: true
-                        )
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
 
                     if !isEnglish {
+
                         Image(systemName: "star.fill")
                             .kmiFont(
-                                size: 18,
+                                size: 16,
                                 weight: .black
                             )
                             .foregroundStyle(.white)
+                            .accessibilityHidden(true)
                     }
                 }
                 .environment(
@@ -5144,6 +5137,10 @@ private struct HomePremiumExerciseButton: View {
 
 // MARK: - Week Header
 private struct WeekHeaderPill: View {
+
+    @Environment(\.colorScheme)
+    private var colorScheme
+
     @Environment(\.kmiFontScale)
     private var displayScale
 
@@ -5152,8 +5149,8 @@ private struct WeekHeaderPill: View {
 
     private var minimumHeaderHeight: CGFloat {
         max(
-            58,
-            60 * displayScale
+            52,
+            52 * displayScale
         )
     }
 
@@ -5196,8 +5193,12 @@ private struct WeekHeaderPill: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(
-                    .vertical,
-                    8 * displayScale
+                    .top,
+                    2 * displayScale
+                )
+                .padding(
+                    .bottom,
+                    5 * displayScale
                 )
             }
             .frame(maxWidth: .infinity)
@@ -5207,9 +5208,12 @@ private struct WeekHeaderPill: View {
 
             LinearGradient(
                 colors: [
-                    Color.white.opacity(0.80),
-                    Color.white.opacity(0.40),
-                    Color.white.opacity(0.00)
+                    KmiAppTheme.outlineVariant(for: colorScheme)
+                        .opacity(0.86),
+                    KmiAppTheme.outlineVariant(for: colorScheme)
+                        .opacity(0.38),
+                    KmiAppTheme.outlineVariant(for: colorScheme)
+                        .opacity(0.00)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -5291,7 +5295,9 @@ private struct CoachMessagesCard: View {
                     weight: .heavy
                 )
                 .foregroundStyle(
-                    .white.opacity(0.96)
+                    KmiAppTheme.onSurface(
+                        for: colorScheme
+                    )
                 )
                 .frame(
                     maxWidth: .infinity,
@@ -5300,13 +5306,13 @@ private struct CoachMessagesCard: View {
                 .multilineTextAlignment(
                     textAlignment
                 )
-            
+
             Button {
-                if hasMessages {
-                    onOpenRecent()
-                }
+                onOpenRecent()
             } label: {
+
                 HStack(spacing: 10) {
+
                     if isEnglish {
                         personBubble
                     }
@@ -5326,17 +5332,9 @@ private struct CoachMessagesCard: View {
                                     weight: .black
                                 )
                                 .foregroundStyle(
-                                    colorScheme == .dark
-                                        ? Color(
-                                            red: 0.49,
-                                            green: 0.83,
-                                            blue: 1.00
-                                        )
-                                        : Color(
-                                            red: 0.04,
-                                            green: 0.30,
-                                            blue: 0.44
-                                        )
+                                    KmiAppTheme.primary(
+                                        for: colorScheme
+                                    )
                                 )
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.74)
@@ -5408,10 +5406,8 @@ private struct CoachMessagesCard: View {
                                             weight: .bold
                                         )
                                         .foregroundStyle(
-                                            Color(
-                                                red: 0.39,
-                                                green: 0.45,
-                                                blue: 0.55
+                                            KmiAppTheme.onSurfaceVariant(
+                                                for: colorScheme
                                             )
                                         )
                                         .frame(
@@ -5431,10 +5427,8 @@ private struct CoachMessagesCard: View {
                                             weight: .black
                                         )
                                         .foregroundStyle(
-                                            Color(
-                                                red: 0.01,
-                                                green: 0.42,
-                                                blue: 0.68
+                                            KmiAppTheme.primary(
+                                                for: colorScheme
                                             )
                                         )
                                         .frame(
@@ -5480,17 +5474,26 @@ private struct CoachMessagesCard: View {
                     )
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(Color(red: 0.36, green: 0.78, blue: 0.98), lineWidth: 1.2)
+                    RoundedRectangle(
+                        cornerRadius: 24,
+                        style: .continuous
+                    )
+                    .stroke(
+                        KmiAppTheme.primary(
+                            for: colorScheme
+                        )
+                        .opacity(0.45),
+                        lineWidth: 1
+                    )
                 )
                 .shadow(
                     color:
                         HomeVisualTheme.shadow(
                             for: colorScheme
                         ),
-                    radius: 10,
+                    radius: 0,
                     x: 0,
-                    y: 6
+                    y: 0
                 )
             }
             .buttonStyle(.plain)
@@ -5498,33 +5501,41 @@ private struct CoachMessagesCard: View {
     }
     
     private var personBubble: some View {
+
         ZStack {
             Circle()
                 .fill(
-                    Color(
-                        red: 0.88,
-                        green: 0.97,
-                        blue: 1.00
+                    KmiAppTheme.primary(
+                        for: colorScheme
                     )
+                    .opacity(0.14)
                 )
-            
+
+            Circle()
+                .stroke(
+                    KmiAppTheme.primary(
+                        for: colorScheme
+                    )
+                    .opacity(0.35),
+                    lineWidth: 1
+                )
+
             Image(systemName: "person.fill")
                 .kmiFont(
                     size: 17,
                     weight: .bold
                 )
                 .foregroundStyle(
-                    Color(
-                        red: 0.01,
-                        green: 0.41,
-                        blue: 0.63
+                    KmiAppTheme.primary(
+                        for: colorScheme
                     )
                 )
         }
         .frame(width: 38, height: 38)
     }
-    
+
     private var messagesBadge: some View {
+
         HStack(spacing: 4) {
             Text(
                 isEnglish
@@ -5535,32 +5546,49 @@ private struct CoachMessagesCard: View {
                 size: 12,
                 weight: .black
             )
-            
+
             Image(systemName: "envelope.fill")
                 .kmiFont(
                     size: 10,
                     weight: .black
                 )
         }
-        .foregroundStyle(Color(red: 0.01, green: 0.42, blue: 0.68))
+        .foregroundStyle(
+            KmiAppTheme.primary(
+                for: colorScheme
+            )
+        )
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(
             Capsule()
-                .fill(Color(red: 0.88, green: 0.96, blue: 1.00))
+                .fill(
+                    KmiAppTheme.primary(
+                        for: colorScheme
+                    )
+                    .opacity(0.14)
+                )
         )
         .overlay(
             Capsule()
-                .stroke(Color(red: 0.49, green: 0.83, blue: 0.99), lineWidth: 1)
+                .stroke(
+                    KmiAppTheme.primary(
+                        for: colorScheme
+                    )
+                    .opacity(0.35),
+                    lineWidth: 1
+                )
         )
     }
-}
 
-private struct CoachMessagesHistorySheet: View {
-    @Environment(\.colorScheme)
-    private var colorScheme
+    }
 
-    let messages: [CoachHomeMessage]
+    private struct CoachMessagesHistorySheet: View {
+
+        @Environment(\.colorScheme)
+        private var colorScheme
+
+        let messages: [CoachHomeMessage]
     let isEnglish: Bool
     let formatTime: (Date?) -> String
     let onClose: () -> Void
@@ -5581,37 +5609,96 @@ private struct CoachMessagesHistorySheet: View {
         isEnglish ? .leftToRight : .rightToLeft
     }
     
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                BeltTopicsGradientBackground()
-                
-                ScrollView(showsIndicators: false) {
+        var body: some View {
+
+            NavigationStack {
+
+                ZStack {
+
+                    LinearGradient(
+                        colors:
+                            KmiAppTheme.screenBackgroundColors(
+                                for: colorScheme
+                            ),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .ignoresSafeArea()
+
+                    ScrollView(
+                        showsIndicators: false
+                    ) {
                     VStack(spacing: 12) {
+
                         if messages.isEmpty {
-                            Text(isEnglish ? "No messages right now." : "אין הודעות כרגע.")
-                                .kmiFont(size: 16, weight: .bold)
+
+                            VStack(spacing: 8) {
+
+                                Image(
+                                    systemName: "envelope.fill"
+                                )
+                                .kmiFont(
+                                    size: 22,
+                                    weight: .bold
+                                )
                                 .foregroundStyle(
-                                    KmiAppTheme.onSurface(for: colorScheme)
+                                    KmiAppTheme.primary(
+                                        for: colorScheme
+                                    )
+                                    .opacity(0.78)
+                                )
+                                .accessibilityHidden(true)
+
+                                Text(
+                                    isEnglish
+                                        ? "No messages right now."
+                                        : "אין הודעות כרגע."
+                                )
+                                .kmiFont(
+                                    size: 16,
+                                    weight: .bold
+                                )
+                                .foregroundStyle(
+                                    KmiAppTheme.onSurfaceVariant(
+                                        for: colorScheme
+                                    )
                                 )
                                 .multilineTextAlignment(.center)
-                                .fixedSize(horizontal: false, vertical: true)
+                                .fixedSize(
+                                    horizontal: false,
+                                    vertical: true
+                                )
                                 .frame(maxWidth: .infinity)
-                                .padding(16)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                        .fill(
-                                            KmiAppTheme.surface(for: colorScheme)
-                                        )
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 20)
+                            .background(
+                                RoundedRectangle(
+                                    cornerRadius: 20,
+                                    style: .continuous
                                 )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                        .stroke(
-                                            KmiAppTheme.outlineVariant(for: colorScheme),
-                                            lineWidth: 1
-                                        )
+                                .fill(
+                                    KmiAppTheme.surfaceVariant(
+                                        for: colorScheme
+                                    )
                                 )
+                            )
+                            .overlay(
+                                RoundedRectangle(
+                                    cornerRadius: 20,
+                                    style: .continuous
+                                )
+                                .stroke(
+                                    KmiAppTheme.outlineVariant(
+                                        for: colorScheme
+                                    ),
+                                    lineWidth: 1
+                                )
+                            )
+
                         } else {
+
                             ForEach(messages) { message in
                                 CoachMessageHistoryCard(
                                     message: message,
@@ -5626,10 +5713,21 @@ private struct CoachMessagesHistorySheet: View {
                     .padding(.bottom, 28)
                 }
             }
-            .navigationTitle(isEnglish ? "Recent coach messages" : "הודעות אחרונות מהמאמן")
+            .navigationTitle(
+                isEnglish
+                    ? "Recent Messages & Events"
+                    : "הודעות ואירועים אחרונים"
+            )
             .navigationBarTitleDisplayMode(.inline)
+
             .toolbar {
-                ToolbarItem(placement: isEnglish ? .topBarTrailing : .topBarLeading) {
+
+                ToolbarItem(
+                    placement:
+                        isEnglish
+                            ? .topBarTrailing
+                            : .topBarLeading
+                ) {
                     Button(action: onClose) {
                         Text(isEnglish ? "Close" : "סגור")
                             .kmiFont(size: 14, weight: .heavy)
@@ -5687,20 +5785,29 @@ private struct CoachMessageHistoryCard: View {
     
     var body: some View {
         HStack(spacing: 0) {
+
             Rectangle()
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color(red: 0.22, green: 0.74, blue: 0.97),
-                            Color(red: 0.49, green: 0.23, blue: 0.93)
+                            KmiAppTheme.primary(
+                                for: colorScheme
+                            ),
+                            KmiAppTheme.primary(
+                                for: colorScheme
+                            )
+                            .opacity(0.48)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 )
                 .frame(width: 5)
-            
-            VStack(alignment: stackAlignment, spacing: 8) {
+
+            VStack(
+                alignment: stackAlignment,
+                spacing: 8
+            ) {
                 HStack(alignment: .top, spacing: 8) {
                     coachIcon
 
@@ -5826,34 +5933,95 @@ private struct HomeQuickMenuItem: Identifiable {
 }
 
 private struct HomePremiumQuickMenuPanel: View {
+
     @Environment(\.colorScheme)
     private var colorScheme
 
     let title: String
+
     let isEnglish: Bool
+
     let accentColor: Color
+
     let items: [HomeQuickMenuItem]
+
     let onClose: () -> Void
-    
+
+    private var menuAccent: Color {
+
+        let uiColor = UIColor(accentColor)
+
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        guard uiColor.getRed(
+            &red,
+            green: &green,
+            blue: &blue,
+            alpha: &alpha
+        ) else {
+            return accentColor
+        }
+
+        let luminance =
+            0.2126 * red +
+            0.7152 * green +
+            0.0722 * blue
+
+        if colorScheme == .dark &&
+            luminance < 0.45 {
+            return .white
+        }
+
+        if colorScheme == .light &&
+            luminance > 0.78 {
+            return KmiAppTheme.onSurfaceVariant(
+                for: colorScheme
+            )
+        }
+
+        return accentColor
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+
+        VStack(
+            alignment: .leading,
+            spacing: 0
+        ) {
             HStack(spacing: 8) {
                 Text(title)
-                    .kmiFont(size: 16, weight: .heavy)
-                    .foregroundStyle(
-                        KmiAppTheme.onSurface(for: colorScheme)
+                    .kmiFont(
+                        size: 16,
+                        weight: .heavy
                     )
-                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(
+                        menuAccent
+                    )
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .leading
+                    )
                     .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 Button(action: onClose) {
+
                     Image(systemName: "xmark")
-                        .kmiFont(size: 15, weight: .heavy)
-                        .foregroundStyle(
-                            KmiAppTheme.onSurface(for: colorScheme)
+                        .kmiFont(
+                            size: 15,
+                            weight: .heavy
                         )
-                        .frame(minWidth: 44, minHeight: 44)
+                        .foregroundStyle(
+                            menuAccent
+                        )
+                        .frame(
+                            width: 40,
+                            height: 40
+                        )
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -5869,22 +6037,27 @@ private struct HomePremiumQuickMenuPanel: View {
             .padding(.top, 6)
             .padding(.bottom, 4)
             
-            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+            ForEach(
+                Array(items.enumerated()),
+                id: \.element.id
+            ) { index, item in
+
                 HomePremiumQuickMenuRow(
                     title: item.title,
                     systemImage: item.systemImage,
                     isEnglish: isEnglish,
-                    accentColor: accentColor,
+                    accentColor: menuAccent,
                     action: item.action
                 )
-                
+
                 if index != items.count - 1 {
+
                     Rectangle()
                         .fill(
-                            KmiAppTheme.outlineVariant(for: colorScheme)
+                            menuAccent.opacity(0.32)
                         )
-                        .frame(height: 0.8)
-                        .padding(.horizontal, 10)
+                        .frame(height: 1)
+                        .padding(.horizontal, 8)
                         .accessibilityHidden(true)
                 }
             }
@@ -5895,14 +6068,28 @@ private struct HomePremiumQuickMenuPanel: View {
 }
 
 private struct HomePremiumQuickMenuRow: View {
-    @Environment(\.colorScheme)
-    private var colorScheme
 
     let title: String
+
     let systemImage: String
+
     let isEnglish: Bool
+
     let accentColor: Color
+
     let action: () -> Void
+
+    @State private var isLockExpanded = false
+
+    private var isLocked: Bool {
+        title.hasSuffix(" 🔒")
+    }
+
+    private var cleanTitle: String {
+        isLocked
+            ? String(title.dropLast(2))
+            : title
+    }
 
     private var textAlignment: TextAlignment {
         .leading
@@ -5911,52 +6098,54 @@ private struct HomePremiumQuickMenuRow: View {
     private var frameAlignment: Alignment {
         .leading
     }
-    
+
     private var rowDirection: LayoutDirection {
         isEnglish ? .leftToRight : .rightToLeft
     }
-    
+
     var body: some View {
+
         Button(action: action) {
-            HStack(spacing: 10) {
+
+            HStack(spacing: 7) {
+
                 Image(systemName: systemImage)
                     .kmiFont(
-                        size: 16,
+                        size: 11,
                         weight: .bold
                     )
                     .foregroundStyle(
-                        KmiAppTheme.onSurface(for: colorScheme)
+                        accentColor
                     )
-                    .frame(minWidth: 26, minHeight: 26)
-                    .padding(4)
+                    .frame(
+                        width: 20,
+                        height: 20
+                    )
                     .background(
-                        RoundedRectangle(
-                            cornerRadius: 9,
-                            style: .continuous
-                        )
-                        .fill(accentColor.opacity(0.16))
+                        Circle()
+                            .fill(
+                                accentColor.opacity(0.12)
+                            )
                     )
                     .overlay(
-                        RoundedRectangle(
-                            cornerRadius: 9,
-                            style: .continuous
-                        )
-                        .stroke(
-                            accentColor.opacity(0.55),
-                            lineWidth: 1
-                        )
+                        Circle()
+                            .stroke(
+                                accentColor.opacity(0.30),
+                                lineWidth: 1
+                            )
                     )
                     .accessibilityHidden(true)
-                
-                Text(title)
+
+                Text(cleanTitle)
                     .kmiFont(
-                        size: 14,
-                        weight: .heavy
+                        size: 13,
+                        weight: .semibold
                     )
                     .foregroundStyle(
-                        KmiAppTheme.onSurface(for: colorScheme)
+                        accentColor
                     )
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.76)
                     .frame(
                         maxWidth: .infinity,
                         alignment: frameAlignment
@@ -5964,29 +6153,100 @@ private struct HomePremiumQuickMenuRow: View {
                     .multilineTextAlignment(
                         textAlignment
                     )
+
+                if isLocked {
+
+                    Image(systemName: "lock.fill")
+                        .kmiFont(
+                            size: 12,
+                            weight: .bold
+                        )
+                        .foregroundStyle(
+                            accentColor
+                        )
+                        .scaleEffect(
+                            isLockExpanded
+                                ? 1
+                                : 0.90
+                        )
+                        .accessibilityLabel(
+                            isEnglish
+                                ? "Premium feature"
+                                : "תכונת פרימיום"
+                        )
+                        .onAppear {
+                            withAnimation(
+                                .easeInOut(duration: 0.9)
+                                .repeatForever(
+                                    autoreverses: true
+                                )
+                            ) {
+                                isLockExpanded = true
+                            }
+                        }
+                }
             }
             .environment(
                 \.layoutDirection,
                 rowDirection
             )
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .contentShape(Rectangle())
+            .frame(
+                minHeight: 44
+            )
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .contentShape(
+                RoundedRectangle(
+                    cornerRadius: 12,
+                    style: .continuous
+                )
+            )
         }
         .buttonStyle(.plain)
     }
 }
 
 private struct ModernHomeQuickFab: View {
+
     @Environment(\.colorScheme)
     private var colorScheme
 
     let isOpen: Bool
-    let isEnglish: Bool
+
     let accentColor: Color
 
+    private var accentContentColor: Color {
+
+        let uiColor = UIColor(accentColor)
+
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        guard uiColor.getRed(
+            &red,
+            green: &green,
+            blue: &blue,
+            alpha: &alpha
+        ) else {
+            return .white
+        }
+
+        let luminance =
+            0.2126 * red +
+            0.7152 * green +
+            0.0722 * blue
+
+        return luminance < 0.55
+            ? .white
+            : .black
+    }
+
     var body: some View {
+
         ZStack {
+
             UnevenRoundedRectangle(
                 topLeadingRadius: 0,
                 bottomLeadingRadius: 0,
@@ -6003,40 +6263,67 @@ private struct ModernHomeQuickFab: View {
                 topTrailingRadius: 18,
                 style: .continuous
             )
-            .stroke(Color.white.opacity(0.72), lineWidth: 1)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        accentContentColor.opacity(0.22),
+                        Color.clear
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
 
-            Image(systemName: isOpen ? "xmark" : "line.3.horizontal")
-                .kmiFont(size: 23, weight: .heavy)
-                .foregroundStyle(
-                    KmiAppTheme.onSurface(for: colorScheme)
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 18,
+                topTrailingRadius: 18,
+                style: .continuous
+            )
+            .stroke(
+                KmiAppTheme.outlineVariant(
+                    for: colorScheme
                 )
-                .padding(5)
-                .background(
-                    RoundedRectangle(
-                        cornerRadius: 9,
-                        style: .continuous
-                    )
-                    .fill(
-                        KmiAppTheme.surface(for: colorScheme)
-                    )
-                )
-                .accessibilityHidden(true)
+                .opacity(0.55),
+                lineWidth: 0.75
+            )
+
+            Image(
+                systemName:
+                    isOpen
+                        ? "xmark"
+                        : "line.3.horizontal"
+            )
+            .kmiFont(
+                size: 20,
+                weight: .heavy
+            )
+            .foregroundStyle(
+                accentContentColor
+            )
+            .accessibilityHidden(true)
         }
-        .frame(width: 46, height: 84)
+        .frame(
+            width: 38,
+            height: 72
+        )
     }
 
     private var fabGradient: LinearGradient {
+
         LinearGradient(
             colors: [
-                accentColor.opacity(0.70),
-                accentColor
+                accentColor.opacity(0.84),
+                accentColor,
+                accentColor.opacity(0.88)
             ],
-            startPoint: .leading,
-            endPoint: .trailing
+            startPoint: .top,
+            endPoint: .bottom
         )
     }
 }
-    
+
 private struct ExerciseSelection: Identifiable, Hashable {
     let belt: Belt
     let topicTitle: String

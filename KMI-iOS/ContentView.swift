@@ -1196,16 +1196,33 @@ struct ContentView: View {
                         }
 
                     case .coachBroadcast:
+
                         KmiRootLayout(
+
                             title: tr(
-                                "שליחת הודעה לקבוצה",
-                                "Send Group Message"
+                                "שידור הודעה לקבוצה",
+                                "Broadcast Message"
                             ),
+
                             nav: nav,
-                            selectedIcon: .home
+
+                            selectedIcon: .home,
+
+                            onShare: {
+
+                                NotificationCenter.default.post(
+                                    name:
+                                        .coachBroadcastShareRequested,
+                                    object: nil
+                                )
+
+                            }
+
                         ) {
+
                             CoachBroadcastView()
                                 .navigationBarBackButtonHidden(true)
+
                         }
 
                     case .aboutMethod:

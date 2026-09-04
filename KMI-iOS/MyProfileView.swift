@@ -70,45 +70,52 @@ struct MyProfileView: View {
     @AppStorage("branch_address") private var branchAddressSnake: String = ""
     @AppStorage("address") private var address: String = ""
 
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
 
+    @ObservedObject
+    private var demoPrivacy = DemoPrivacy.shared
+
     @State private var firestoreInfo = MyProfileFirestoreInfo()
+
     @State private var isLoadingFirestoreProfile: Bool = false
+
     @State private var passwordVisible: Bool = false
 
-    private var isDarkMode: Bool {
-        colorScheme == .dark
-    }
+    @State private var showProfileShareSheet = false
+
+    @State private var profileShareItems: [Any] = []
+
+    @State private var profileShareErrorMessage: String?
 
     private var profilePrimaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.94)
-            : Color(hex: 0xFF111827)
+        KmiAppTheme.onSurface(
+            for: colorScheme
+        )
     }
 
     private var profileSecondaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.68)
-            : Color(hex: 0xFF52627A)
+        KmiAppTheme.onSurfaceVariant(
+            for: colorScheme
+        )
     }
 
     private var profileAccentTextColor: Color {
-        isDarkMode
-            ? Color(hex: 0xFF8AB4F8)
-            : Color(hex: 0xFF31528A)
+        KmiAppTheme.secondary(
+            for: colorScheme
+        )
     }
 
     private var profileCardColor: Color {
-        isDarkMode
-            ? Color(hex: 0xFF1E293B).opacity(0.96)
-            : Color(hex: 0xFFEAF2FF)
+        KmiAppTheme.surface(
+            for: colorScheme
+        )
+        .opacity(0.96)
     }
 
     private var profileCardBorderColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.16)
-            : Color(hex: 0xFFD8E3F5)
+        KmiAppTheme.outlineVariant(
+            for: colorScheme
+        )
     }
 
     private var effectiveLanguageCode: String {
@@ -145,15 +152,21 @@ struct MyProfileView: View {
     }
 
     private var profileTextAlignment: TextAlignment {
-        .leading
+        isEnglish
+            ? .leading
+            : .trailing
     }
 
     private var profileFrameAlignment: Alignment {
-        .leading
+        isEnglish
+            ? .leading
+            : .trailing
     }
 
     private var profileStackAlignment: HorizontalAlignment {
-        .leading
+        isEnglish
+            ? .leading
+            : .trailing
     }
 
     private func tr(_ he: String, _ en: String) -> String {
@@ -252,8 +265,24 @@ struct MyProfileView: View {
     }
 
     private var displayedUserName: String {
-        let value = resolvedFullName
-        return value.isEmpty ? tr("שם המשתמש", "User name") : value
+        _ = demoPrivacy.isEnabled
+
+        let mappedName =
+            TraineeDisplayNameMapper.displayName(
+                realName: resolvedFullName,
+                stableKey:
+                    Auth.auth().currentUser?.uid
+                    ?? resolvedUsername,
+                demoIndex: 0,
+                isEnglish: isEnglish
+            )
+
+        return mappedName.isEmpty
+            ? tr(
+                "משתמש ללא שם",
+                "Unnamed user"
+            )
+            : mappedName
     }
 
     private var displayedBranch: String {
@@ -264,13 +293,6 @@ struct MyProfileView: View {
         }
 
         return branches.joined(separator: "\n")
-    }
-
-    private var displayedBranchAddress: String {
-        branchAddressEntries
-            .map { $0.address }
-            .joined(separator: "\n")
-            .ifBlankDash()
     }
 
     private var branchAddressEntries: [MyProfileBranchEntry] {
@@ -335,10 +357,6 @@ struct MyProfileView: View {
         nextBeltDisplayNameForUi(resolvedBeltId)
     }
 
-    private var displayedNextBeltId: String {
-        nextBeltIdForUi(resolvedBeltId)
-    }
-    
     private var displayedCoach: String {
         firstNonEmpty(
             firestoreInfo.coach,
@@ -368,10 +386,6 @@ struct MyProfileView: View {
                     showsIndicators: false
                 ) {
                     VStack(spacing: 14) {
-                        if isLoadingFirestoreProfile {
-                            syncingBadge
-                        }
-
                         profileGlassCard
                     }
                     .padding(.horizontal, 20)
@@ -383,6 +397,12 @@ struct MyProfileView: View {
                             geo.safeAreaInsets.bottom + 24
                         )
                     )
+                }
+
+                if isLoadingFirestoreProfile {
+                    KmiLoadingOverlay()
+                        .transition(.opacity)
+                        .zIndex(100)
                 }
             }
             .ignoresSafeArea(edges: .bottom)
@@ -398,49 +418,82 @@ struct MyProfileView: View {
         .onAppear {
             loadFirestoreProfileIfNeeded()
         }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name(
+                    "KMI_GLOBAL_SHARE_REQUEST"
+                )
+            )
+        ) { notification in
+            guard
+                let request =
+                    notification.object
+                    as? NSMutableDictionary
+            else {
+                return
+            }
+
+            request["handled"] = true
+            shareProfilePDF()
+        }
+        .sheet(
+            isPresented: $showProfileShareSheet,
+            onDismiss: {
+                profileShareItems.removeAll()
+            }
+        ) {
+            KmiShareSheet(
+                items: profileShareItems
+            )
+            .presentationDetents([
+                .medium,
+                .large
+            ])
+            .presentationDragIndicator(.visible)
+        }
+        .alert(
+            tr(
+                "לא ניתן לשתף",
+                "Unable to Share"
+            ),
+            isPresented: Binding(
+                get: {
+                    profileShareErrorMessage != nil
+                },
+                set: { isPresented in
+                    if !isPresented {
+                        profileShareErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button(
+                tr("אישור", "OK"),
+                role: .cancel
+            ) {
+                profileShareErrorMessage = nil
+            }
+        } message: {
+            Text(
+                profileShareErrorMessage ?? ""
+            )
+        }
     }
 
     // MARK: - Background
 
     private var profileBackground: some View {
         LinearGradient(
-            colors: isDarkMode
-                ? [
-                    Color(hex: 0xFF0F172A),
-                    Color(hex: 0xFF111827),
-                    Color(hex: 0xFF10243A),
-                    Color(hex: 0xFF0A3657),
-                    Color(hex: 0xFF041E33)
-                ]
-                : [
-                    Color(hex: 0xFFF8FBFF),
-                    Color(hex: 0xFFEAF4FF),
-                    Color(hex: 0xFFB7DDF7),
-                    Color(hex: 0xFF1F78B4),
-                    Color(hex: 0xFF062B4A)
-                ],
+            colors:
+                KmiAppTheme.screenBackgroundColors(
+                    for: colorScheme
+                ),
             startPoint: .top,
             endPoint: .bottom
         )
         .ignoresSafeArea()
     }
-
-    private var syncingBadge: some View {
-        Text(tr("מסנכרן פרופיל...", "Syncing profile..."))
-            .kmiFont(size: 13, weight: .bold)
-            .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(
-                Capsule()
-                    .fill(Color.white.opacity(0.14))
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.white.opacity(0.24), lineWidth: 1)
-                    )
-            )
-    }
-
+    
     // MARK: - Main card
 
     private var profileGlassCard: some View {
@@ -468,13 +521,10 @@ struct MyProfileView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(profileCardBorderColor, lineWidth: 1)
-        )
-        .shadow(
-            color: Color.black.opacity(isDarkMode ? 0.28 : 0.14),
-            radius: isDarkMode ? 10 : 8,
-            x: 0,
-            y: 4
+                .stroke(
+                    profileCardBorderColor,
+                    lineWidth: 1
+                )
         )
     }
 
@@ -531,88 +581,54 @@ struct MyProfileView: View {
     }
 
     private var profileBeltImage: some View {
-        Image(profileBeltImageName(for: resolvedBeltId))
-            .resizable()
-            .scaledToFit()
-            .rotationEffect(.degrees(-24))
-            .shadow(color: Color.black.opacity(0.17), radius: 7, x: 0, y: 4)
-            .accessibilityHidden(true)
-    }
-
-    private var beltSubtitleSection: some View {
-        Text(displayedBelt)
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(Color(red: 0.16, green: 0.24, blue: 0.58))
-            .lineLimit(1)
-            .minimumScaleFactor(0.76)
-            .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
-            .multilineTextAlignment(profileTextAlignment)
-    }
-
-    private var closeButton: some View {
-        Button {
-            dismiss()
-        } label: {
-            Image(systemName: "xmark")
-                .font(.system(size: 17, weight: .black))
-                .foregroundStyle(Color(red: 0.14, green: 0.17, blue: 0.25))
-                .frame(width: 38, height: 38)
-                .background(
-                    Circle()
-                        .fill(Color.white.opacity(0.96))
-                        .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 3)
-                )
-                .overlay(
-                    Circle()
-                        .stroke(Color.black.opacity(0.07), lineWidth: 1)
-                )
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
+        Image(
+            profileBeltImageName(
+                for: resolvedBeltId
+            )
+        )
+        .resizable()
+        .scaledToFit()
+        .rotationEffect(.degrees(-24))
+        .accessibilityHidden(true)
     }
 
     private var editProfileButton: some View {
         Button {
-            AppNavModel.sharedInstance?.push(.editProfile)
+            AppNavModel.sharedInstance?
+                .push(.editProfile)
         } label: {
-            Text(tr("עריכת פרופיל", "Edit profile"))
-                .font(.system(size: 16, weight: .heavy))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 46)
-                .background(
-                    RoundedRectangle(cornerRadius: 17, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.44, green: 0.30, blue: 0.74),
-                                    Color(red: 0.30, green: 0.20, blue: 0.62)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .shadow(
-                            color: Color(red: 0.30, green: 0.20, blue: 0.62).opacity(0.25),
-                            radius: 8,
-                            x: 0,
-                            y: 4
-                        )
+            Text(
+                tr(
+                    "עריכת פרופיל",
+                    "Edit profile"
                 )
+            )
+            .kmiFont(
+                size: 16,
+                weight: .heavy
+            )
+            .foregroundStyle(
+                KmiAppTheme.sectionHeaderContentColor
+            )
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 46)
+            .background(
+                RoundedRectangle(
+                    cornerRadius: 17,
+                    style: .continuous
+                )
+                .fill(
+                    KmiAppTheme.graniteActionBrush
+                )
+            )
         }
         .buttonStyle(.plain)
-    }
-
-    private var thinDivider: some View {
-        Rectangle()
-            .fill(Color(red: 0.72, green: 0.79, blue: 0.89))
-            .frame(height: 1)
-    }
-
-    private var thinDividerForLightCard: some View {
-        Rectangle()
-            .fill(Color(red: 0.72, green: 0.79, blue: 0.89))
-            .frame(height: 1)
+        .accessibilityLabel(
+            tr(
+                "עריכת פרופיל",
+                "Edit profile"
+            )
+        )
     }
 
     private var profileInfoSections: some View {
@@ -673,15 +689,24 @@ struct MyProfileView: View {
                     ? "—"
                     : value
             )
-            .kmiFont(size: 15, weight: .heavy)
+            .kmiFont(
+                size: 15,
+                weight: .heavy
+            )
             .foregroundStyle(profilePrimaryTextColor)
             .frame(
                 maxWidth: .infinity,
                 alignment: profileFrameAlignment
             )
-            .multilineTextAlignment(profileTextAlignment)
+            .multilineTextAlignment(
+                profileTextAlignment
+            )
             .lineLimit(4)
-            .minimumScaleFactor(0.80)
+            .minimumScaleFactor(0.72)
+            .fixedSize(
+                horizontal: false,
+                vertical: true
+            )
 
             Spacer()
                 .frame(height: 5)
@@ -725,15 +750,23 @@ struct MyProfileView: View {
                             .lineLimit(2)
                             .minimumScaleFactor(0.78)
 
-                        Text(entry.address.ifBlankDash())
-                            .kmiFont(size: 14, weight: .semibold)
-                            .foregroundStyle(
-                                isDarkMode
-                                    ? Color.white.opacity(0.74)
-                                    : Color(hex: 0xFF374151)
-                            )
-                            .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
-                            .multilineTextAlignment(profileTextAlignment)
+                        Text(
+                            entry.address.ifBlankDash()
+                        )
+                        .kmiFont(
+                            size: 14,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(
+                            profileSecondaryTextColor
+                        )
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: profileFrameAlignment
+                        )
+                        .multilineTextAlignment(
+                            profileTextAlignment
+                        )
 
                         Spacer()
                             .frame(height: 4)
@@ -768,24 +801,29 @@ struct MyProfileView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                     .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(
-                                isDarkMode
-                                    ? (
-                                        index.isMultiple(of: 2)
-                                            ? Color(hex: 0xFF111827)
-                                            : Color(hex: 0xFF1E293B)
-                                    )
-                                    : (
-                                        index.isMultiple(of: 2)
-                                            ? Color(hex: 0xFFDDEAFF)
-                                            : Color(hex: 0xFFF3F7FF)
-                                    )
-                            )
+                        RoundedRectangle(
+                            cornerRadius: 16,
+                            style: .continuous
+                        )
+                        .fill(
+                            index.isMultiple(of: 2)
+                                ? KmiAppTheme.surfaceVariant(
+                                    for: colorScheme
+                                )
+                                : KmiAppTheme.surface(
+                                    for: colorScheme
+                                )
+                        )
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(profileCardBorderColor, lineWidth: 1)
+                        RoundedRectangle(
+                            cornerRadius: 16,
+                            style: .continuous
+                        )
+                        .stroke(
+                            profileCardBorderColor,
+                            lineWidth: 1
+                        )
                     )
                     .padding(
                         .bottom,
@@ -826,8 +864,23 @@ struct MyProfileView: View {
                         passwordVisibilityIcon
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        passwordVisible
+                            ? tr(
+                                "הסתרת סיסמה",
+                                "Hide password"
+                            )
+                            : tr(
+                                "הצגת סיסמה",
+                                "Show password"
+                            )
+                    )
 
-                    Text(passwordVisible ? password : "••••••••")
+                    Text(
+                        passwordVisible
+                            ? password
+                            : "••••••••"
+                    )
                         .kmiFont(size: 15, weight: .heavy)
                         .foregroundStyle(profilePrimaryTextColor)
 
@@ -835,9 +888,18 @@ struct MyProfileView: View {
                 } else {
                     Spacer(minLength: 0)
 
-                    Text(passwordVisible ? password : "••••••••")
-                        .kmiFont(size: 15, weight: .heavy)
-                        .foregroundStyle(profilePrimaryTextColor)
+                    Text(
+                        passwordVisible
+                            ? password
+                            : "••••••••"
+                    )
+                    .kmiFont(
+                        size: 15,
+                        weight: .heavy
+                    )
+                    .foregroundStyle(
+                        profilePrimaryTextColor
+                    )
 
                     Button {
                         passwordVisible.toggle()
@@ -845,10 +907,35 @@ struct MyProfileView: View {
                         passwordVisibilityIcon
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        passwordVisible
+                            ? tr(
+                                "הסתרת סיסמה",
+                                "Hide password"
+                            )
+                            : tr(
+                                "הצגת סיסמה",
+                                "Show password"
+                            )
+                    )
                 }
             }
             .frame(maxWidth: .infinity)
-            .environment(\.layoutDirection, .leftToRight)
+            .environment(
+                \.layoutDirection,
+                .leftToRight
+            )
+            .accessibilityElement(
+                children: .combine
+            )
+            .accessibilityValue(
+                passwordVisible
+                    ? password
+                    : tr(
+                        "הסיסמה מוסתרת",
+                        "Password hidden"
+                    )
+            )
 
             Rectangle()
                 .fill(profileCardBorderColor)
@@ -868,33 +955,74 @@ struct MyProfileView: View {
                     ? "eye.slash"
                     : "eye"
         )
-        .font(.system(size: 18, weight: .bold))
+        .kmiFont(
+            size: 18,
+            weight: .bold
+        )
         .foregroundStyle(profileAccentTextColor)
         .frame(width: 28, height: 28)
         .contentShape(Rectangle())
+        .accessibilityLabel(
+            passwordVisible
+                ? tr(
+                    "הסתרת סיסמה",
+                    "Hide password"
+                )
+                : tr(
+                    "הצגת סיסמה",
+                    "Show password"
+                )
+        )
     }
 
     private var trainingTowardBeltCard: some View {
-        VStack(alignment: profileStackAlignment, spacing: 7) {
-            Text(tr("מתאמן לחגורה", "Training toward belt"))
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Color(red: 0.35, green: 0.40, blue: 0.50))
-                .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
-                .multilineTextAlignment(profileTextAlignment)
-                .lineLimit(1)
+        VStack(
+            alignment: profileStackAlignment,
+            spacing: 7
+        ) {
+            Text(
+                tr(
+                    "מתאמן לחגורה",
+                    "Training toward belt"
+                )
+            )
+            .kmiFont(
+                size: 13,
+                weight: .bold
+            )
+            .foregroundStyle(
+                profileSecondaryTextColor
+            )
+            .frame(
+                maxWidth: .infinity,
+                alignment: profileFrameAlignment
+            )
+            .multilineTextAlignment(
+                profileTextAlignment
+            )
+            .lineLimit(1)
 
             HStack(spacing: 10) {
                 if isEnglish {
-                    Image(profileBeltImageName(for: resolvedNextBeltId))
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 90, height: 38)
-                        .rotationEffect(.degrees(-5))
-                        .accessibilityHidden(true)
+                    Image(
+                        profileBeltImageName(
+                            for: resolvedNextBeltId
+                        )
+                    )
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 90, height: 38)
+                    .rotationEffect(.degrees(-5))
+                    .accessibilityHidden(true)
 
                     Text(displayedNextBelt)
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.16, green: 0.24, blue: 0.58))
+                        .kmiFont(
+                            size: 18,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            profileAccentTextColor
+                        )
                         .lineLimit(1)
                         .minimumScaleFactor(0.80)
 
@@ -903,50 +1031,459 @@ struct MyProfileView: View {
                     Spacer(minLength: 0)
 
                     Text(displayedNextBelt)
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.16, green: 0.24, blue: 0.58))
+                        .kmiFont(
+                            size: 18,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            profileAccentTextColor
+                        )
                         .lineLimit(1)
                         .minimumScaleFactor(0.80)
 
-                    Image(profileBeltImageName(for: resolvedNextBeltId))
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 90, height: 38)
-                        .rotationEffect(.degrees(5))
-                        .accessibilityHidden(true)
+                    Image(
+                        profileBeltImageName(
+                            for: resolvedNextBeltId
+                        )
+                    )
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 90, height: 38)
+                    .rotationEffect(.degrees(5))
+                    .accessibilityHidden(true)
                 }
             }
-            .environment(\.layoutDirection, .leftToRight)
+            .environment(
+                \.layoutDirection,
+                .leftToRight
+            )
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
         .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.white.opacity(0.74))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(Color(red: 0.70, green: 0.78, blue: 0.88), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 20,
+                style: .continuous
+            )
+            .fill(
+                KmiAppTheme.surfaceVariant(
+                    for: colorScheme
                 )
-                .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 3)
+            )
+        )
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: 20,
+                style: .continuous
+            )
+            .stroke(
+                profileCardBorderColor,
+                lineWidth: 1
+            )
         )
     }
     
+    // MARK: - PDF and Share
+
+    @MainActor
+    private func shareProfilePDF() {
+        guard !showProfileShareSheet else {
+            return
+        }
+
+        guard !isLoadingFirestoreProfile else {
+            profileShareErrorMessage =
+                tr(
+                    "יש להמתין לסיום טעינת הפרופיל.",
+                    "Please wait for the profile to finish loading."
+                )
+            return
+        }
+
+        guard let pdfURL = createProfilePDF() else {
+            profileShareErrorMessage =
+                tr(
+                    "יצירת קובץ הפרופיל נכשלה.",
+                    "The profile PDF could not be created."
+                )
+            return
+        }
+
+        profileShareItems = [pdfURL]
+        showProfileShareSheet = true
+    }
+
+    @MainActor
+    private func createProfilePDF() -> URL? {
+        let pageRect = CGRect(
+            x: 0,
+            y: 0,
+            width: 595,
+            height: 842
+        )
+
+        let fileName =
+            isEnglish
+                ? "KMI_My_Profile.pdf"
+                : "KMI_הפרופיל_שלי.pdf"
+
+        let fileURL =
+            FileManager.default
+                .temporaryDirectory
+                .appendingPathComponent(
+                    fileName,
+                    isDirectory: false
+                )
+
+        let branchDetails =
+            branchAddressEntries
+                .map { entry in
+                    [
+                        entry.branch.ifBlankDash(),
+                        entry.address.ifBlankDash()
+                    ]
+                    .joined(separator: " — ")
+                }
+                .joined(separator: "\n")
+                .ifBlankDash()
+
+        let profileRows: [(String, String)] = [
+            (
+                tr("שם", "Name"),
+                displayedUserName
+            ),
+            (
+                tr("חגורה נוכחית", "Current belt"),
+                displayedBelt
+            ),
+            (
+                tr("סניפים וכתובות", "Branches and addresses"),
+                branchDetails
+            ),
+            (
+                tr("קבוצה", "Group"),
+                displayedGroup
+            ),
+            (
+                tr("מאמן", "Coach"),
+                displayedCoach
+            ),
+            (
+                tr("אימון הבא", "Next training"),
+                displayedNextTraining
+            ),
+            (
+                tr("מתאמן לחגורה", "Training toward belt"),
+                displayedNextBelt
+            ),
+            (
+                tr("מייל", "Email"),
+                displayedEmail
+            ),
+            (
+                tr("טלפון", "Phone"),
+                displayedPhone
+            ),
+            (
+                tr("שם משתמש", "Username"),
+                displayedUsername
+            ),
+            (
+                tr("סיסמה", "Password"),
+                resolvedPassword
+            )
+        ]
+
+        let renderer =
+            UIGraphicsPDFRenderer(
+                bounds: pageRect
+            )
+
+        let pdfData =
+            renderer.pdfData { context in
+                MainActor.assumeIsolated {
+                    let cg = context.cgContext
+                    let pageWidth = pageRect.width
+                    let horizontalMargin: CGFloat = 34
+                    let contentWidth =
+                        pageWidth -
+                        horizontalMargin * 2
+                    let contentBottom =
+                        pageRect.height -
+                        KmiPdfFooter
+                            .CONTENT_BOTTOM_PADDING
+
+                    let textAlignment:
+                        NSTextAlignment =
+                            isEnglish
+                                ? .left
+                                : .right
+
+                    let writingDirection:                        NSWritingDirection =
+                            isEnglish
+                                ? .leftToRight
+                                : .rightToLeft
+
+                    var pageNumber = 0
+                    var currentY =
+                        KmiPdfHeader.CONTENT_TOP
+
+                    func paragraphStyle(
+                        alignment: NSTextAlignment
+                    ) -> NSMutableParagraphStyle {
+                        let style =
+                            NSMutableParagraphStyle()
+
+                        style.alignment = alignment
+                        style.baseWritingDirection =
+                            writingDirection
+                        style.lineBreakMode =
+                            .byWordWrapping
+
+                        return style
+                    }
+
+                    func drawFooter() {
+                        KmiPdfFooter.draw(
+                            context: cg,
+                            pageWidth: pageRect.width,
+                            pageHeight: pageRect.height,
+                            pageNumber: pageNumber,
+                            isEnglish: isEnglish
+                        )
+                    }
+
+                    func beginPage() {
+                        context.beginPage()
+                        pageNumber += 1
+
+                        KmiPdfHeader.draw(
+                            context: cg,
+                            pageWidth: pageRect.width,
+                            isEnglish: isEnglish,
+                            titleHebrew: "הפרופיל שלי",
+                            titleEnglish: "My Profile",
+                            subtitleHebrew: displayedUserName,
+                            subtitleEnglish: displayedUserName
+                        )
+
+                        currentY =
+                            KmiPdfHeader.CONTENT_TOP
+                    }
+
+                    func textHeight(
+                        _ text: String,
+                        width: CGFloat,
+                        font: UIFont
+                    ) -> CGFloat {
+                        let attributes:
+                            [NSAttributedString.Key: Any] = [
+                                .font: font,
+                                .paragraphStyle:
+                                    paragraphStyle(
+                                        alignment:
+                                            textAlignment
+                                    )
+                            ]
+
+                        return ceil(
+                            NSString(string: text)
+                                .boundingRect(
+                                    with: CGSize(
+                                        width: width,
+                                        height:
+                                            CGFloat
+                                                .greatestFiniteMagnitude
+                                    ),
+                                    options: [
+                                        .usesLineFragmentOrigin,
+                                        .usesFontLeading
+                                    ],
+                                    attributes: attributes,
+                                    context: nil
+                                )
+                                .height
+                        )
+                    }
+
+                    func drawText(
+                        _ text: String,
+                        rect: CGRect,
+                        font: UIFont,
+                        color: UIColor
+                    ) {
+                        let attributes:
+                            [NSAttributedString.Key: Any] = [
+                                .font: font,
+                                .foregroundColor: color,
+                                .paragraphStyle:
+                                    paragraphStyle(
+                                        alignment:
+                                            textAlignment
+                                    )
+                            ]
+
+                        NSString(string: text)
+                            .draw(
+                                with: rect,
+                                options: [
+                                    .usesLineFragmentOrigin,
+                                    .usesFontLeading
+                                ],
+                                attributes: attributes,
+                                context: nil
+                            )
+                    }
+
+                    beginPage()
+
+                    for row in profileRows {
+                        let labelFont =
+                            UIFont.systemFont(
+                                ofSize: 11,
+                                weight: .semibold
+                            )
+
+                        let valueFont =
+                            UIFont.systemFont(
+                                ofSize: 14,
+                                weight: .bold
+                            )
+
+                        let labelHeight =
+                            textHeight(
+                                row.0,
+                                width: contentWidth,
+                                font: labelFont
+                            )
+
+                        let value =
+                            row.1
+                                .trimmingCharacters(
+                                    in:
+                                        .whitespacesAndNewlines
+                                )
+                                .ifBlankDash()
+
+                        let valueHeight =
+                            max(
+                                18,
+                                textHeight(
+                                    value,
+                                    width: contentWidth,
+                                    font: valueFont
+                                )
+                            )
+
+                        let rowHeight =
+                            labelHeight +
+                            valueHeight +
+                            22
+
+                        if currentY + rowHeight >
+                            contentBottom {
+                            drawFooter()
+                            beginPage()
+                        }
+
+                        drawText(
+                            row.0,
+                            rect: CGRect(
+                                x: horizontalMargin,
+                                y: currentY,
+                                width: contentWidth,
+                                height: labelHeight + 4
+                            ),
+                            font: labelFont,
+                            color: UIColor(
+                                red: 0.30,
+                                green: 0.35,
+                                blue: 0.42,
+                                alpha: 1
+                            )
+                        )
+
+                        currentY += labelHeight + 5
+
+                        drawText(
+                            value,
+                            rect: CGRect(
+                                x: horizontalMargin,
+                                y: currentY,
+                                width: contentWidth,
+                                height: valueHeight + 4
+                            ),
+                            font: valueFont,
+                            color: UIColor(
+                                red: 0.09,
+                                green: 0.13,
+                                blue: 0.20,
+                                alpha: 1
+                            )
+                        )
+
+                        currentY += valueHeight + 8
+
+                        cg.setStrokeColor(
+                            UIColor(
+                                red: 0.82,
+                                green: 0.86,
+                                blue: 0.90,
+                                alpha: 1
+                            )
+                            .cgColor
+                        )
+                        cg.setLineWidth(0.7)
+                        cg.move(
+                            to: CGPoint(
+                                x: horizontalMargin,
+                                y: currentY
+                            )
+                        )
+                        cg.addLine(
+                            to: CGPoint(
+                                x:
+                                    horizontalMargin +
+                                    contentWidth,
+                                y: currentY
+                            )
+                        )
+                        cg.strokePath()
+
+                        currentY += 9
+                    }
+
+                    drawFooter()
+                }
+            }
+
+        do {
+            try pdfData.write(
+                to: fileURL,
+                options: .atomic
+            )
+            return fileURL
+        } catch {
+            return nil
+        }
+    }
+
     // MARK: - Firestore
 
     private func loadFirestoreProfileIfNeeded() {
-        guard let uid = Auth.auth().currentUser?.uid, !uid.isEmpty else {
-            return
-        }
+    guard
+        let uid = Auth.auth().currentUser?.uid,
+        !uid.isEmpty
+    else {
+        return
+    }
 
         guard !isLoadingFirestoreProfile else {
             return
         }
 
         isLoadingFirestoreProfile = true
-
-        AppNavModel.sharedInstance?
-            .beginLoading()
 
         Firestore.firestore()
             .collection("users")
@@ -955,13 +1492,12 @@ struct MyProfileView: View {
                 DispatchQueue.main.async {
                     defer {
                         isLoadingFirestoreProfile = false
-
-                        AppNavModel.sharedInstance?
-                            .endLoading()
                     }
 
-                    guard let data = snapshot?.data(),
-                          snapshot?.exists == true else {
+                    guard
+                        let data = snapshot?.data(),
+                        snapshot?.exists == true
+                    else {
                         return
                     }
 

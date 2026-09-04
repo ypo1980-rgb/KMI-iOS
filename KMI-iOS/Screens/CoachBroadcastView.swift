@@ -8,6 +8,9 @@ struct CoachBroadcastView: View {
     @EnvironmentObject
     private var auth: AuthViewModel
 
+    @ObservedObject
+    private var demoPrivacy = DemoPrivacy.shared
+
     @Environment(\.colorScheme)
     private var colorScheme
 
@@ -18,15 +21,22 @@ struct CoachBroadcastView: View {
     @State private var branch: String = ""
     @State private var message: String = ""
 
-    @State private var showRegionPicker: Bool = false
-    @State private var showBranchPicker: Bool = false
-
     @State private var recipients: [CoachBroadcastRecipient] = []
+
     @State private var isLoadingRecipients = false
+
+    @State private var activeRecipientsRequestID = UUID()
+
+    @State private var isPreloadingDefaults = false
+
     @State private var isSending = false
 
     @State private var alertText: String?
+
     @State private var showAlert = false
+
+    @State private var pdfShareItem:
+        CoachBroadcastPdfShareItem?
 
     @State private var sendScope: String = "groups"
 
@@ -102,126 +112,82 @@ struct CoachBroadcastView: View {
         }
     }
 
+    private var activeColorScheme: ColorScheme {
+
+        isDarkMode ? .dark : .light
+
+    }
+
     private var backgroundColors: [Color] {
-        isDarkMode
-            ? [
-                Color(
-                    red: 0.01,
-                    green: 0.02,
-                    blue: 0.09
-                ),
-                Color(
-                    red: 0.06,
-                    green: 0.09,
-                    blue: 0.16
-                ),
-                Color(
-                    red: 0.12,
-                    green: 0.23,
-                    blue: 0.54
-                ),
-                Color(
-                    red: 0.22,
-                    green: 0.74,
-                    blue: 0.97
-                )
-            ]
-            : [
-                Color(
-                    red: 0.97,
-                    green: 0.985,
-                    blue: 1.00
-                ),
-                Color(
-                    red: 0.90,
-                    green: 0.95,
-                    blue: 0.99
-                ),
-                Color(
-                    red: 0.62,
-                    green: 0.86,
-                    blue: 0.97
-                )
-            ]
+
+        KmiAppTheme.screenBackgroundColors(
+            for: activeColorScheme
+        )
+
     }
 
     private var primaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.94)
-            : Color.black.opacity(0.84)
+
+        KmiAppTheme.onBackground(
+            for: activeColorScheme
+        )
+
     }
 
     private var secondaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.68)
-            : Color.black.opacity(0.56)
-    }
 
-    private var sectionTitleColor: Color {
-        isDarkMode
-            ? Color(
-                red: 0.88,
-                green: 0.95,
-                blue: 0.99
-            )
-            : Color(
-                red: 0.04,
-                green: 0.20,
-                blue: 0.34
-            )
+        KmiAppTheme.onSurfaceVariant(
+            for: activeColorScheme
+        )
+
     }
 
     private var panelColor: Color {
-        isDarkMode
-            ? Color(
-                red: 0.04,
-                green: 0.07,
-                blue: 0.13
-            )
-            .opacity(0.92)
-            : Color.white.opacity(0.90)
+
+        KmiAppTheme.surface(
+            for: activeColorScheme
+        )
+
     }
 
     private var elevatedColor: Color {
-        isDarkMode
-            ? Color(
-                red: 0.02,
-                green: 0.09,
-                blue: 0.18
-            )
-            : Color.white.opacity(0.97)
+
+        KmiAppTheme.surfaceVariant(
+            for: activeColorScheme
+        )
+
     }
 
     private var fieldColor: Color {
-        isDarkMode
-            ? Color(
-                red: 0.02,
-                green: 0.09,
-                blue: 0.18
-            )
-            : Color.white.opacity(0.96)
+
+        KmiAppTheme.surface(
+            for: activeColorScheme
+        )
+
     }
 
     private var borderColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.13)
-            : Color.black.opacity(0.10)
+
+        KmiAppTheme.outlineVariant(
+            for: activeColorScheme
+        )
+
     }
 
     private var accentColor: Color {
-        Color(
-            red: 0.05,
-            green: 0.65,
-            blue: 0.91
+
+        KmiAppTheme.primary(
+            for: activeColorScheme
         )
+
     }
 
     private var accentBorderColor: Color {
-        Color(
-            red: 0.40,
-            green: 0.91,
-            blue: 0.98
+
+        KmiAppTheme.secondary(
+            for: activeColorScheme
         )
+
     }
 
     private func tr(
@@ -524,22 +490,85 @@ struct CoachBroadcastView: View {
         }
     }
 
+    private var displayedRecipients: [CoachBroadcastRecipient] {
+
+        recipients
+            .enumerated()
+            .map { index, recipient in
+
+                CoachBroadcastRecipient(
+                    id: recipient.id,
+                    uid: recipient.uid,
+                    name:
+                        TraineeDisplayNameMapper.displayName(
+                            realName: recipient.name,
+                            stableKey:
+                                recipient.uid.isEmpty
+                                    ? recipient.id
+                                    : recipient.uid,
+                            demoIndex: index,
+                            isEnglish: isEnglish
+                        ),
+                    phone: recipient.phone,
+                    email: recipient.email,
+                    selected: recipient.selected
+                )
+
+            }
+
+    }
+
     private var selectedRecipients: [CoachBroadcastRecipient] {
+
         recipients.filter { $0.selected }
+
     }
 
     private var selectedPhones: [String] {
-        selectedRecipients
+
+        var seenPhones = Set<String>()
+
+        return selectedRecipients
             .map(\.phone)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .map {
+                $0.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+            }
             .filter { !$0.isEmpty }
+            .filter { phone in
+
+                let comparisonKey =
+                    phone.filter(\.isNumber)
+
+                return seenPhones
+                    .insert(comparisonKey)
+                    .inserted
+
+            }
+
     }
 
     private var selectedUids: [String] {
-        selectedRecipients
+
+        var seenUids = Set<String>()
+
+        return selectedRecipients
             .map(\.uid)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .map {
+                $0.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+            }
             .filter { !$0.isEmpty }
+            .filter { uid in
+
+                seenUids
+                    .insert(uid)
+                    .inserted
+
+            }
+
     }
 
     private var allSelected: Bool {
@@ -621,8 +650,12 @@ struct CoachBroadcastView: View {
                         systemName:
                             "person.crop.circle.badge.exclamationmark"
                     )
-                    .font(.system(size: 44, weight: .bold))
+                    .kmiFont(
+                        size: 44,
+                        weight: .bold
+                    )
                     .foregroundStyle(accentColor)
+                    .accessibilityHidden(true)
 
                     Text(
                         tr(
@@ -630,12 +663,18 @@ struct CoachBroadcastView: View {
                             "This screen is available to coaches only"
                         )
                     )
-                    .kmiFont(size: 24, weight: .heavy)
+                    .kmiFont(
+                        size: 24,
+                        weight: .heavy
+                    )
                     .foregroundStyle(primaryTextColor)
                     .multilineTextAlignment(.center)
                     .fixedSize(
                         horizontal: false,
                         vertical: true
+                    )
+                    .accessibilityAddTraits(
+                        .isHeader
                     )
 
                     Spacer()
@@ -644,23 +683,47 @@ struct CoachBroadcastView: View {
                 .padding(24)
 
             } else {
-                ScrollView {
-                    VStack(spacing: 12) {
 
-                        inputFormCard
+                VStack(spacing: 0) {
 
-                        audienceCard
+                    sectionHeader
 
-                        recipientsCard
+                    ScrollView {
 
-                        selectedCountCard
+                        VStack(spacing: 12) {
 
-                        sendButtons
+                            inputFormCard
+                            audienceCard
+                            recipientsCard
+                            selectedCountCard
+                            sendButtons
+
+                        }
+                        .padding(16)
+                        .padding(.bottom, 84)
+
                     }
-                    .padding(16)
+                    .scrollDismissesKeyboard(
+                        .interactively
+                    )
+                    .safeAreaPadding(
+                        .bottom,
+                        8
+                    )
+
                 }
+
+            }
+
+            if
+                !isPreloadingDefaults &&
+                (isLoadingRecipients || isSending) {
+
+                KmiLoadingOverlay()
+
             }
         }
+
         .environment(
             \.layoutDirection,
             screenLayoutDirection
@@ -669,53 +732,203 @@ struct CoachBroadcastView: View {
             preferredScreenColorScheme
         )
         .onAppear {
+
+            activeRecipientsRequestID = UUID()
+            isLoadingRecipients = false
+
             auth.reloadProfileIfSignedIn()
+
             preloadDefaults()
+
         }
         .onChange(of: region) { _, _ in
+
+            guard !isPreloadingDefaults else {
+
+                return
+
+            }
+
+            activeRecipientsRequestID = UUID()
+            isLoadingRecipients = false
+
             branch = ""
             recipients = []
             availableBranchGroups = []
             availableBranchGroupCounts = [:]
             selectedTargetGroups = []
+
         }
-        .onChange(of: branch) { _, _ in
+        .onChange(of: branch) { _, newBranch in
+
+            guard !isPreloadingDefaults else {
+
+                return
+
+            }
+
             recipients = []
             availableBranchGroups = []
             availableBranchGroupCounts = [:]
-            selectedTargetGroups = []
 
-            if !coachGroupKey.isEmpty {
-                selectedTargetGroups.insert(coachGroupKey)
+            let cleanBranch =
+                newBranch.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+            guard !cleanBranch.isEmpty else {
+
+                activeRecipientsRequestID = UUID()
+                selectedTargetGroups = []
+                isLoadingRecipients = false
+                return
+
             }
 
-            loadRecipients()
-        }
-        .onChange(of: sendScope) { _, newScope in
-            if newScope == "branch" {
+            if coachGroupKey.isEmpty {
+
                 selectedTargetGroups = []
+                loadRecipients()
+
+            } else {
+
+                let initialGroups =
+                    Set([coachGroupKey])
+
+                if selectedTargetGroups == initialGroups {
+
+                    loadRecipients()
+
+                } else {
+
+                    selectedTargetGroups =
+                        initialGroups
+
+                }
+
+            }
+
+        }
+
+        .onChange(of: sendScope) { _, newScope in
+
+            guard !isPreloadingDefaults else {
+
+                return
+
+            }
+
+            if newScope == "branch" {
+
+                if selectedTargetGroups.isEmpty {
+
+                    loadRecipients()
+
+                } else {
+
+                    selectedTargetGroups = []
+                    loadRecipients()
+
+                }
+
             } else if selectedTargetGroups.isEmpty,
                       !coachGroupKey.isEmpty {
-                selectedTargetGroups.insert(coachGroupKey)
+
+                selectedTargetGroups.insert(
+                    coachGroupKey
+                )
+
+            } else {
+
+                loadRecipients()
+
             }
 
-            loadRecipients()
         }
         .onChange(of: selectedTargetGroups) { _, _ in
-            guard sendScope != "branch" else {
+
+            guard
+                !isPreloadingDefaults,
+                sendScope != "branch"
+            else {
+
                 return
+
             }
 
             loadRecipients()
+
         }
-        .alert(tr("הודעה", "Message"), isPresented: $showAlert) {
-            Button(tr("סגור", "Close"), role: .cancel) { }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: .coachBroadcastShareRequested
+            )
+        ) { _ in
+
+            shareBroadcastPdf()
+
+        }
+        .alert(
+            tr("הודעה", "Message"),
+            isPresented: $showAlert
+        ) {
+
+            Button(
+                tr("סגור", "Close"),
+                role: .cancel
+            ) { }
+
         } message: {
+
             Text(alertText ?? "")
+
         }
+        .sheet(item: $pdfShareItem) { item in
+
+            CoachBroadcastPdfShareSheet(
+                items: [item.url]
+            )
+
+        }
+
+    }
+
+    private var sectionHeader: some View {
+
+        Text(
+            tr(
+                "פרטי ההודעה",
+                "Message details"
+            )
+        )
+        .kmiFont(
+            size: 18,
+            weight: .heavy
+        )
+        .foregroundStyle(
+            KmiAppTheme.sectionHeaderContentColor
+        )
+        .multilineTextAlignment(.center)
+        .lineLimit(1)
+        .minimumScaleFactor(0.78)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: 54,
+            maxHeight: 54,
+            alignment: .center
+        )
+        .padding(.horizontal, 20)
+        .background(
+            KmiAppTheme.sectionHeaderBrush
+        )
+        .accessibilityAddTraits(
+            .isHeader
+        )
+
     }
 
     private var inputFormCard: some View {
+
         VStack(spacing: 10) {
             regionPickerCard
 
@@ -740,14 +953,7 @@ struct CoachBroadcastView: View {
                 style: .continuous
             )
         )
-        .shadow(
-            color: Color.black.opacity(
-                isDarkMode ? 0.16 : 0.07
-            ),
-            radius: 7,
-            x: 0,
-            y: 3
-        )
+
     }
 
     private var audienceCard: some View {
@@ -785,33 +991,33 @@ struct CoachBroadcastView: View {
                         isSelected:
                             sendScope == "branch"
                     ) {
+
+                        guard
+                            !isLoadingRecipients,
+                            !isSending
+                        else {
+
+                            return
+
+                        }
+
                         sendScope = "branch"
+
                     }
 
                     if availableBranchGroups.isEmpty {
-                        if isLoadingRecipients {
-                            HStack(spacing: 10) {
-                                ProgressView()
 
-                                Text(
-                                    tr(
-                                        "טוען את קבוצות הסניף...",
-                                        "Loading branch groups..."
-                                    )
+                        if isLoadingRecipients {
+
+                            Color.clear
+                                .frame(
+                                    maxWidth: .infinity,
+                                    minHeight: 42
                                 )
-                                .kmiFont(
-                                    size: 13,
-                                    weight: .semibold
-                                )
-                                .foregroundStyle(
-                                    secondaryTextColor
-                                )
-                            }
-                            .frame(
-                                maxWidth: .infinity,
-                                alignment: screenFrameAlignment
-                            )
+                                .accessibilityHidden(true)
+
                         }
+
                     } else {
                         Button {
                             sendScope = "groups"
@@ -837,13 +1043,12 @@ struct CoachBroadcastView: View {
                                         ? "checkmark.square.fill"
                                         : "square"
                                 )
-                                .font(
-                                    .system(
-                                        size: 20,
-                                        weight: .bold
-                                    )
+                                .kmiFont(
+                                    size: 20,
+                                    weight: .bold
                                 )
                                 .foregroundStyle(accentColor)
+                                .accessibilityHidden(true)
 
                                 Text(
                                     tr(
@@ -882,6 +1087,36 @@ struct CoachBroadcastView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .disabled(
+                            isLoadingRecipients ||
+                            isSending
+                        )
+                        .opacity(
+                            isLoadingRecipients ||
+                            isSending
+                                ? 0.58
+                                : 1
+                        )
+                        .accessibilityLabel(
+                            tr(
+                                "בחירת כל הקבוצות",
+                                "Select all groups"
+                            )
+                        )
+                        .accessibilityValue(
+                            selectedTargetGroups
+                                .isSuperset(
+                                    of: availableBranchGroups
+                                )
+                                ? tr(
+                                    "כל הקבוצות נבחרו",
+                                    "All groups selected"
+                                )
+                                : tr(
+                                    "לא כל הקבוצות נבחרו",
+                                    "Not all groups selected"
+                                )
+                        )
 
                         VStack(spacing: 8) {
                             ForEach(
@@ -915,8 +1150,10 @@ struct CoachBroadcastView: View {
                     .foregroundStyle(
                         sendScope != "branch" &&
                         effectiveGroupKeys.isEmpty
-                        ? Color.orange
-                        : secondaryTextColor
+                            ? KmiAppTheme.tertiary(
+                                for: activeColorScheme
+                            )
+                            : secondaryTextColor
                     )
                     .frame(
                         maxWidth: .infinity,
@@ -969,20 +1206,19 @@ struct CoachBroadcastView: View {
                 Image(
                     systemName:
                         isSelected
-                        ? "checkmark.square.fill"
-                        : "square"
+                            ? "checkmark.square.fill"
+                            : "square"
                 )
-                .font(
-                    .system(
-                        size: 21,
-                        weight: .bold
-                    )
+                .kmiFont(
+                    size: 21,
+                    weight: .bold
                 )
                 .foregroundStyle(
                     isSelected
-                    ? accentColor
-                    : secondaryTextColor
+                        ? accentColor
+                        : secondaryTextColor
                 )
+                .accessibilityHidden(true)
 
                 VStack(
                     alignment:
@@ -1048,6 +1284,37 @@ struct CoachBroadcastView: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(
+            isLoadingRecipients ||
+            isSending
+        )
+        .opacity(
+            isLoadingRecipients ||
+            isSending
+                ? 0.58
+                : 1
+        )
+        .accessibilityLabel(
+            tr(
+                "קבוצה \(groupName)",
+                "Group \(groupName)"
+            )
+        )
+        .accessibilityValue(
+            isSelected
+                ? tr(
+                    "נבחרה",
+                    "Selected"
+                )
+                : tr(
+                    "לא נבחרה",
+                    "Not selected"
+                )
+        )
+        .accessibilityAddTraits(
+            isSelected ? .isSelected : []
+        )
+
     }
 
     private func audienceButton(
@@ -1062,7 +1329,9 @@ struct CoachBroadcastView: View {
                     .kmiFont(size: 17, weight: .heavy)
                     .foregroundStyle(
                         isSelected
-                            ? Color.white
+                            ? KmiAppTheme.onPrimary(
+                                for: activeColorScheme
+                            )
                             : primaryTextColor
                     )
                     .multilineTextAlignment(.center)
@@ -1076,7 +1345,9 @@ struct CoachBroadcastView: View {
                     )
                     .foregroundStyle(
                         isSelected
-                            ? Color.white.opacity(0.82)
+                            ? KmiAppTheme.onPrimary(
+                                for: activeColorScheme
+                            ).opacity(0.82)
                             : secondaryTextColor
                     )
                     .multilineTextAlignment(.center)
@@ -1112,98 +1383,69 @@ struct CoachBroadcastView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityValue(subtitle)
         .accessibilityAddTraits(
             isSelected ? .isSelected : []
         )
+
     }
 
     private var regionPickerCard: some View {
-        Button {
-            showRegionPicker = true
-        } label: {
-            pickerCard(
-                title: tr(
-                    "אזור",
-                    "Region"
-                ),
-                value:
-                    region.isEmpty
-                    ? tr(
-                        "בחר אזור",
-                        "Choose region"
-                    )
-                    : region
-            )
-        }
-        .buttonStyle(.plain)
-        .popover(
-            isPresented:
-                $showRegionPicker,
-            arrowEdge: .top
-        ) {
-            pickerPopover(
-                title: tr(
-                    "בחירת אזור",
-                    "Choose region"
-                ),
-                options: regionOptions,
-                selectedValue: region
-            ) { selectedRegion in
-                region = selectedRegion
-                showRegionPicker = false
-            }
-            .presentationCompactAdaptation(
-                .popover
-            )
-        }
+
+        KmiPremiumDropdown(
+            title: tr(
+                "אזור",
+                "Region"
+            ),
+            options: regionOptions,
+            selectedValue: $region,
+            placeholder: tr(
+                "בחר אזור",
+                "Choose region"
+            ),
+            isEnglish: isEnglish,
+            isEnabled:
+                !regionOptions.isEmpty &&
+                !isLoadingRecipients &&
+                !isSending
+        )
+
     }
 
     private var branchPickerCard: some View {
-        Button {
-            showBranchPicker = true
-        } label: {
-            pickerCard(
-                title: tr(
-                    "סניף",
-                    "Branch"
-                ),
-                value:
-                    branch.isEmpty
-                    ? tr(
-                        "בחר סניף",
-                        "Choose branch"
-                    )
-                    : branch
-            )
-        }
-        .buttonStyle(.plain)
-        .popover(
-            isPresented:
-                $showBranchPicker,
-            arrowEdge: .top
-        ) {
-            pickerPopover(
-                title: tr(
-                    "בחירת סניף",
-                    "Choose branch"
-                ),
-                options: branchOptions,
-                selectedValue: branch
-            ) { selectedBranch in
-                branch = selectedBranch
-                showBranchPicker = false
-            }
-            .presentationCompactAdaptation(
-                .popover
-            )
-        }
+
+        KmiPremiumDropdown(
+            title: tr(
+                "סניף",
+                "Branch"
+            ),
+            options: branchOptions,
+            selectedValue: $branch,
+            placeholder: tr(
+                "בחר סניף",
+                "Choose branch"
+            ),
+            isEnglish: isEnglish,
+            isEnabled:
+                !region.isEmpty &&
+                !branchOptions.isEmpty &&
+                !isLoadingRecipients &&
+                !isSending
+        )
+
     }
 
     private var messageCard: some View {
+
         VStack(
-            alignment: .leading,
+            alignment:
+                isEnglish
+                    ? .leading
+                    : .trailing,
             spacing: 8
         ) {
+
             Text(
                 tr(
                     "טקסט ההודעה",
@@ -1217,14 +1459,21 @@ struct CoachBroadcastView: View {
             .foregroundStyle(primaryTextColor)
             .frame(
                 maxWidth: .infinity,
-                alignment: .leading
+                alignment: screenFrameAlignment
             )
-            .multilineTextAlignment(.leading)
+            .multilineTextAlignment(
+                screenTextAlignment
+            )
 
             ZStack(
-                alignment: .topLeading
+                alignment:
+                    isEnglish
+                        ? .topLeading
+                        : .topTrailing
             ) {
+
                 if message.isEmpty {
+
                     Text(
                         tr(
                             "כתוב הודעה למתאמנים...",
@@ -1240,12 +1489,15 @@ struct CoachBroadcastView: View {
                     )
                     .frame(
                         maxWidth: .infinity,
-                        alignment: .leading
+                        alignment: screenFrameAlignment
                     )
-                    .multilineTextAlignment(.leading)
+                    .multilineTextAlignment(
+                        screenTextAlignment
+                    )
                     .padding(.horizontal, 13)
                     .padding(.vertical, 16)
                     .allowsHitTesting(false)
+
                 }
 
                 TextEditor(
@@ -1261,18 +1513,22 @@ struct CoachBroadcastView: View {
                 .frame(
                     maxWidth: .infinity,
                     minHeight: 112,
-                    alignment: .topLeading
+                    alignment:
+                        isEnglish
+                            ? .topLeading
+                            : .topTrailing
                 )
-                .scrollContentBackground(
-                    .hidden
-                )
+                .scrollContentBackground(.hidden)
                 .padding(8)
                 .background(Color.clear)
-                .multilineTextAlignment(.leading)
+                .multilineTextAlignment(
+                    screenTextAlignment
+                )
+
             }
             .frame(
                 maxWidth: .infinity,
-                alignment: .leading
+                alignment: screenFrameAlignment
             )
             .background(fieldColor)
             .overlay(
@@ -1281,7 +1537,7 @@ struct CoachBroadcastView: View {
                     style: .continuous
                 )
                 .stroke(
-                    accentColor.opacity(0.75),
+                    borderColor,
                     lineWidth: 1
                 )
             )
@@ -1291,15 +1547,17 @@ struct CoachBroadcastView: View {
                     style: .continuous
                 )
             )
+
         }
         .frame(
             maxWidth: .infinity,
-            alignment: .leading
+            alignment: screenFrameAlignment
         )
         .environment(
             \.layoutDirection,
             screenLayoutDirection
         )
+
     }
 
     private var recipientsCard: some View {
@@ -1339,22 +1597,13 @@ struct CoachBroadcastView: View {
             )
 
             if isLoadingRecipients {
-                VStack(spacing: 8) {
-                    ProgressView()
-                        .tint(accentColor)
-                        .controlSize(.large)
 
-                    Text(
-                        tr(
-                            "טוען נמענים...",
-                            "Loading recipients..."
-                        )
+                Color.clear
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: 54
                     )
-                    .kmiFont(size: 14, weight: .bold)
-                    .foregroundStyle(secondaryTextColor)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
+                    .accessibilityHidden(true)
 
             } else if
                 !region.isEmpty &&
@@ -1400,10 +1649,15 @@ struct CoachBroadcastView: View {
                 .padding(.vertical, 10)
 
             } else {
+
                 LazyVStack(spacing: 8) {
-                    ForEach(recipients) { recipient in
+
+                    ForEach(displayedRecipients) { recipient in
+
                         recipientRow(recipient)
+
                     }
+
                 }
                 .padding(8)
                 .background(elevatedColor)
@@ -1499,7 +1753,9 @@ struct CoachBroadcastView: View {
             .kmiFont(size: 13, weight: .bold)
             .foregroundStyle(
                 allSelected
-                    ? Color.white
+                    ? KmiAppTheme.onPrimary(
+                        for: activeColorScheme
+                    )
                     : primaryTextColor
             )
             .multilineTextAlignment(.center)
@@ -1532,30 +1788,71 @@ struct CoachBroadcastView: View {
             )
         }
         .buttonStyle(.plain)
-        .disabled(recipients.isEmpty)
-        .opacity(recipients.isEmpty ? 0.45 : 1)
+        .disabled(
+            recipients.isEmpty ||
+            isSending
+        )
+        .opacity(
+            recipients.isEmpty
+                ? 0.45
+                : isSending
+                ? 0.72
+                : 1
+        )
+        .accessibilityLabel(
+            allSelected
+                ? tr(
+                    "בטל סימון לכל המתאמנים",
+                    "Unselect all trainees"
+                )
+                : tr(
+                    "סמן את כל המתאמנים",
+                    "Select all trainees"
+                )
+        )
+
     }
 
     private func recipientRow(
         _ recipient: CoachBroadcastRecipient
     ) -> some View {
-        let isSelected = recipient.selected
+        let isSelected =
+            recipients.first(
+                where: {
+                    $0.id == recipient.id
+                }
+            )?.selected ?? recipient.selected
 
         let selectionBinding = Binding<Bool>(
+
             get: {
-                recipient.selected
+
+                recipients.first(
+                    where: {
+                        $0.id == recipient.id
+                    }
+                )?.selected ?? false
+
             },
+
             set: { newValue in
+
                 recipients = recipients.map {
+
                     guard $0.id == recipient.id else {
+
                         return $0
+
                     }
 
                     var copy = $0
                     copy.selected = newValue
                     return copy
+
                 }
+
             }
+
         )
 
         return Button {
@@ -1629,9 +1926,24 @@ struct CoachBroadcastView: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(isSending)
+        .opacity(isSending ? 0.72 : 1)
+        .accessibilityLabel(recipient.name)
+        .accessibilityValue(
+            isSelected
+                ? tr(
+                    "נבחר",
+                    "Selected"
+                )
+                : tr(
+                    "לא נבחר",
+                    "Not selected"
+                )
+        )
         .accessibilityAddTraits(
             isSelected ? .isSelected : []
         )
+
     }
 
     private func recipientTexts(
@@ -1660,7 +1972,12 @@ struct CoachBroadcastView: View {
                 .lineLimit(2)
 
             Text(
-                recipient.phone.isEmpty
+                demoPrivacy.isEnabled
+                    ? tr(
+                        "מספר מוסתר",
+                        "Hidden number"
+                    )
+                    : recipient.phone.isEmpty
                     ? tr(
                         "ללא מספר טלפון",
                         "No phone number"
@@ -1774,25 +2091,21 @@ struct CoachBroadcastView: View {
             selectedUids.isEmpty
 
         return Button {
+
             sendSmsToSelected()
 
         } label: {
+
             HStack(spacing: 8) {
-                if isSending {
-                    ProgressView()
-                        .tint(Color.white)
-                } else {
-                    Image(
-                        systemName:
-                            "paperplane.fill"
-                    )
-                    .font(
-                        .system(
-                            size: 15,
-                            weight: .bold
-                        )
-                    )
-                }
+
+                Image(
+                    systemName: "paperplane.fill"
+                )
+                .kmiFont(
+                    size: 15,
+                    weight: .bold
+                )
+                .accessibilityHidden(true)
 
                 Text(
                     isSending
@@ -1802,21 +2115,33 @@ struct CoachBroadcastView: View {
                         )
                         : sendButtonText
                 )
-                .kmiFont(size: 15, weight: .heavy)
+                .kmiFont(
+                    size: 15,
+                    weight: .heavy
+                )
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
                 .minimumScaleFactor(0.75)
+
             }
-            .foregroundStyle(Color.white)
+            .foregroundStyle(
+                KmiAppTheme.onPrimary(
+                    for: activeColorScheme
+                )
+            )
             .frame(maxWidth: .infinity)
+            .frame(minHeight: 58)
             .padding(.horizontal, 12)
-            .padding(.vertical, 16)
             .background(
                 RoundedRectangle(
                     cornerRadius: 18,
                     style: .continuous
                 )
-                .fill(accentColor)
+                .fill(
+                    KmiAppTheme.primary(
+                        for: activeColorScheme
+                    )
+                )
             )
             .overlay(
                 RoundedRectangle(
@@ -1824,330 +2149,140 @@ struct CoachBroadcastView: View {
                     style: .continuous
                 )
                 .stroke(
-                    accentBorderColor,
+                    KmiAppTheme.outlineVariant(
+                        for: activeColorScheme
+                    ),
                     lineWidth: 1
                 )
             )
-            .shadow(
-                color: Color.black.opacity(
-                    isDarkMode ? 0.24 : 0.12
-                ),
-                radius: 6,
-                x: 0,
-                y: 3
-            )
+
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.45 : 1)
-    }
-
-    private func pickerPopover(
-        title: String,
-        options: [String],
-        selectedValue: String,
-        onSelect: @escaping (String) -> Void
-    ) -> some View {
-        VStack(spacing: 0) {
-            Text(title)
-                .kmiFont(
-                    size: 16,
-                    weight: .heavy
-                )
-                .foregroundStyle(primaryTextColor)
-                .frame(
-                    maxWidth: .infinity,
-                    alignment:
-                        isEnglish
-                        ? .leading
-                        : .trailing
-                )
-                .multilineTextAlignment(
-                    isEnglish
-                    ? .leading
-                    : .trailing
-                )
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-
-            Divider()
-                .overlay(borderColor)
-
-            ScrollView {
-                LazyVStack(spacing: 6) {
-                    ForEach(
-                        options,
-                        id: \.self
-                    ) { item in
-                        let isSelected =
-                            item == selectedValue
-
-                        Button {
-                            onSelect(item)
-                        } label: {
-                            HStack(spacing: 10) {
-                                if !isEnglish {
-                                    selectionIndicator(
-                                        isSelected:
-                                            isSelected
-                                    )
-                                }
-
-                                Text(item)
-                                    .kmiFont(
-                                        size: 15,
-                                        weight:
-                                            isSelected
-                                            ? .heavy
-                                            : .semibold
-                                    )
-                                    .foregroundStyle(
-                                        isSelected
-                                        ? accentColor
-                                        : primaryTextColor
-                                    )
-                                    .frame(
-                                        maxWidth: .infinity,
-                                        alignment:
-                                            isEnglish
-                                            ? .leading
-                                            : .trailing
-                                    )
-                                    .multilineTextAlignment(
-                                        isEnglish
-                                        ? .leading
-                                        : .trailing
-                                    )
-                                    .fixedSize(
-                                        horizontal: false,
-                                        vertical: true
-                                    )
-
-                                if isEnglish {
-                                    selectionIndicator(
-                                        isSelected:
-                                            isSelected
-                                    )
-                                }
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 11)
-                            .background(
-                                isSelected
-                                ? accentColor.opacity(
-                                    isDarkMode
-                                    ? 0.18
-                                    : 0.10
-                                )
-                                : Color.clear
-                            )
-                            .clipShape(
-                                RoundedRectangle(
-                                    cornerRadius: 12,
-                                    style: .continuous
-                                )
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(8)
-            }
-        }
-        .frame(
-            width: 300,
-            height:
-                min(
-                    CGFloat(
-                        options.count * 54 + 58
-                    ),
-                    370
-                )
-        )
-        .background(panelColor)
-        .environment(
-            \.layoutDirection,
-            .leftToRight
-        )
-    }
-
-    @ViewBuilder
-    private func selectionIndicator(
-        isSelected: Bool
-    ) -> some View {
-        Image(
-            systemName:
-                isSelected
-                ? "checkmark.circle.fill"
-                : "circle"
-        )
-        .font(
-            .system(
-                size: 18,
-                weight: .bold
+        .accessibilityLabel(sendButtonText)
+        .accessibilityHint(
+            tr(
+                "שומר את ההודעה ושולח אותה לנמענים שנבחרו",
+                "Saves the message and sends it to the selected recipients"
             )
         )
-        .foregroundStyle(
-            isSelected
-            ? accentColor
-            : secondaryTextColor.opacity(0.55)
-        )
-        .frame(width: 24)
-    }
-    
-    private func pickerCard(
-        title: String,
-        value: String
-    ) -> some View {
-        HStack(spacing: 10) {
-            if isEnglish {
-                pickerTexts(
-                    title: title,
-                    value: value,
-                    alignment: .leading,
-                    textAlignment: .leading
-                )
 
-                Image(
-                    systemName: "chevron.down"
-                )
-                .font(
-                    .system(
-                        size: 13,
-                        weight: .bold
-                    )
-                )
-                .foregroundStyle(accentColor)
-                .frame(width: 24)
-
-            } else {
-                Image(
-                    systemName: "chevron.down"
-                )
-                .font(
-                    .system(
-                        size: 13,
-                        weight: .bold
-                    )
-                )
-                .foregroundStyle(accentColor)
-                .frame(width: 24)
-
-                pickerTexts(
-                    title: title,
-                    value: value,
-                    alignment: .trailing,
-                    textAlignment: .trailing
-                )
-            }
-        }
-        /*
-         * LTR מכוון כאן רק את המיקום הפיזי:
-         * חץ משמאל וטקסט מימין בעברית.
-         */
-        .environment(
-            \.layoutDirection,
-            .leftToRight
-        )
-        .padding(14)
-        .background(fieldColor)
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
-            )
-            .stroke(
-                accentColor.opacity(0.75),
-                lineWidth: 1
-            )
-        )
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
-            )
-        )
-    }
-
-    private func pickerTexts(
-        title: String,
-        value: String,
-        alignment: Alignment,
-        textAlignment: TextAlignment
-    ) -> some View {
-        VStack(
-            alignment:
-                textAlignment == .leading
-                ? .leading
-                : .trailing,
-            spacing: 4
-        ) {
-            Text(title)
-                .kmiFont(
-                    size: 13,
-                    weight: .semibold
-                )
-                .foregroundStyle(secondaryTextColor)
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: alignment
-                )
-                .multilineTextAlignment(
-                    textAlignment
-                )
-
-            Text(value)
-                .kmiFont(size: 18, weight: .bold)
-                .foregroundStyle(primaryTextColor)
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: alignment
-                )
-                .multilineTextAlignment(
-                    textAlignment
-                )
-                .lineLimit(2)
-                .minimumScaleFactor(0.75)
-        }
-        .frame(
-            maxWidth: .infinity,
-            alignment: alignment
-        )
     }
 
     private func preloadDefaults() {
-        if region.isEmpty {
-            region = auth.userRegion.trimmingCharacters(
+
+        isPreloadingDefaults = true
+
+        let resolvedRegion =
+            region
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .isEmpty
+                ? auth.userRegion.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                : region.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        region = resolvedRegion
+
+        let availableBranches =
+            branchesByRegion[resolvedRegion] ?? []
+
+        let savedBranch =
+            auth.userBranch
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        let currentBranch =
+            branch.trimmingCharacters(
                 in: .whitespacesAndNewlines
             )
-        }
 
-        if branch.isEmpty {
-            let savedBranch =
-                auth.userBranch
-                    .trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    )
+        if
+            !currentBranch.isEmpty,
+            availableBranches.contains(currentBranch) {
 
-            if branchOptions.contains(savedBranch) {
-                branch = savedBranch
-            } else {
-                branch =
-                    branchOptions.first ?? ""
-            }
+            branch = currentBranch
+
+        } else if availableBranches.contains(savedBranch) {
+
+            branch = savedBranch
+
+        } else {
+
+            branch =
+                availableBranches.first ?? ""
+
         }
 
         if selectedTargetGroups.isEmpty,
            !coachGroupKey.isEmpty {
-            selectedTargetGroups.insert(coachGroupKey)
+
+            selectedTargetGroups =
+                Set([coachGroupKey])
+
         }
 
-        if !branch.isEmpty {
+        DispatchQueue.main.async {
+
+            isPreloadingDefaults = false
+
+            let cleanRegion =
+                region.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+            let cleanBranch =
+                branch.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+            guard
+                !cleanRegion.isEmpty,
+                !cleanBranch.isEmpty
+            else {
+
+                isLoadingRecipients = false
+                return
+
+            }
+
             loadRecipients()
+
         }
+
     }
 
     private func loadRecipients() {
+
+        let cleanRegion =
+            region.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let cleanBranch =
+            branch.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        guard
+            !cleanRegion.isEmpty,
+            !cleanBranch.isEmpty
+        else {
+
+            isLoadingRecipients = false
+            recipients = []
+            availableBranchGroups = []
+            availableBranchGroupCounts = [:]
+            return
+
+        }
+
         func norm(_ value: String) -> String {
             value
                 .trimmingCharacters(
@@ -2599,31 +2734,42 @@ struct CoachBroadcastView: View {
             phone: String,
             email: String
         ) -> String {
-            let phoneKey = normalizedPhone(phone)
+
+            let phoneKey =
+                normalizedPhone(phone)
 
             if !phoneKey.isEmpty {
+
                 return "phone:\(phoneKey)"
+
             }
 
-            let emailKey = email
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-                .lowercased()
+            let emailKey =
+                email
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                    .lowercased()
 
             if !emailKey.isEmpty {
+
                 return "email:\(emailKey)"
+
             }
 
-            let uidKey = uid.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
+            let uidKey =
+                uid.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
 
             if !uidKey.isEmpty {
+
                 return "uid:\(uidKey)"
+
             }
 
             return ""
+
         }
 
         let regionNorm = norm(region)
@@ -2643,6 +2789,7 @@ struct CoachBroadcastView: View {
         var previousSelectionByIdentity: [String: Bool] = [:]
 
         for recipient in recipients {
+
             let identityKey = recipientIdentityKey(
                 uid: recipient.uid,
                 phone: recipient.phone,
@@ -2650,13 +2797,19 @@ struct CoachBroadcastView: View {
             )
 
             guard !identityKey.isEmpty else {
+
                 continue
+
             }
 
             previousSelectionByIdentity[identityKey] =
                 recipient.selected
+
         }
 
+        let requestID = UUID()
+
+        activeRecipientsRequestID = requestID
         isLoadingRecipients = true
 
         let branchCandidates = Set([
@@ -2673,30 +2826,41 @@ struct CoachBroadcastView: View {
             .collection("users")
 
         query.getDocuments { snapshot, error in
+
+            guard
+                activeRecipientsRequestID == requestID
+            else {
+
+                return
+
+            }
+
             isLoadingRecipients = false
 
-            if let error {
-                recipients = []
+            if error != nil {
 
                 showError(
                     tr(
-                        "טעינת רשימת הנמענים נכשלה: \(error.localizedDescription)",
-                        "Loading the recipients failed: \(error.localizedDescription)"
+                        "לא ניתן לעדכן כרגע את רשימת הנמענים. הרשימה האחרונה נשארה מוצגת.",
+                        "The recipient list cannot be refreshed right now. The last list remains displayed."
                     )
                 )
+
                 return
+
             }
 
             guard let docs = snapshot?.documents else {
-                recipients = []
 
                 showError(
                     tr(
-                        "לא התקבלה רשימת נמענים מהשרת.",
-                        "No recipient list was received from the server."
+                        "לא ניתן לעדכן כרגע את רשימת הנמענים. הרשימה האחרונה נשארה מוצגת.",
+                        "The recipient list cannot be refreshed right now. The last list remains displayed."
                     )
                 )
+
                 return
+
             }
 
             var uniqueRecipients:
@@ -2708,13 +2872,36 @@ struct CoachBroadcastView: View {
             for doc in docs {
                 let data = doc.data()
 
-                let isActive = data["isActive"] as? Bool ?? true
+                let activeBoolean =
+                    data["isActive"] as? Bool
+
+                let activeText =
+                    [
+                        stringValue(data, "status"),
+                        stringValue(data, "active")
+                    ]
+                    .map { norm($0).lowercased() }
+                    .first { !$0.isEmpty }
+                    ?? ""
+
+                let isActive =
+                    activeBoolean != false &&
+                    activeText != "inactive" &&
+                    activeText != "disabled" &&
+                    activeText != "blocked" &&
+                    activeText != "לא פעיל"
+
                 guard isActive else { continue }
 
-                let role = norm(
-                    stringValue(data, "role")
-                )
-                .lowercased()
+                let role =
+                    [
+                        stringValue(data, "role"),
+                        stringValue(data, "userType"),
+                        stringValue(data, "type")
+                    ]
+                    .map { norm($0).lowercased() }
+                    .first { !$0.isEmpty }
+                    ?? ""
 
                 let isTrainee =
                     role.isEmpty ||
@@ -2780,15 +2967,22 @@ struct CoachBroadcastView: View {
                         .lowercased()
 
                 let countingUidValue =
-                    stringValue(data, "uid")
-                        .trimmingCharacters(
+                    [
+                        stringValue(data, "uid"),
+                        stringValue(data, "authUid")
+                    ]
+                    .map {
+                        $0.trimmingCharacters(
                             in: .whitespacesAndNewlines
                         )
+                    }
+                    .first { !$0.isEmpty }
+                    ?? ""
 
                 let countingUid =
                     countingUidValue.isEmpty
-                    ? doc.documentID
-                    : countingUidValue
+                        ? doc.documentID
+                        : countingUidValue
 
                 let countingIdentityKey =
                     recipientIdentityKey(
@@ -2871,17 +3065,23 @@ struct CoachBroadcastView: View {
                     in: .whitespacesAndNewlines
                 )
 
-                let uidValue = stringValue(
-                    data,
-                    "uid"
-                )
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
+                let uidValue =
+                    [
+                        stringValue(data, "uid"),
+                        stringValue(data, "authUid")
+                    ]
+                    .map {
+                        $0.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                    }
+                    .first { !$0.isEmpty }
+                    ?? ""
 
-                let uid = uidValue.isEmpty
-                    ? doc.documentID
-                    : uidValue
+                let uid =
+                    uidValue.isEmpty
+                        ? doc.documentID
+                        : uidValue
 
                 let identityKey = recipientIdentityKey(
                     uid: uid,
@@ -2893,12 +3093,20 @@ struct CoachBroadcastView: View {
                     continue
                 }
 
-                let name =
+                let resolvedName =
                     !fullName.isEmpty ? fullName :
                     !nameValue.isEmpty ? nameValue :
                     !displayName.isEmpty ? displayName :
                     !email.isEmpty ? email :
                     phone
+
+                let name =
+                    resolvedName.isEmpty
+                        ? tr(
+                            "מתאמן ללא שם",
+                            "Unnamed trainee"
+                        )
+                        : resolvedName
 
                 let incomingRecipient =
                     CoachBroadcastRecipient(
@@ -2914,46 +3122,129 @@ struct CoachBroadcastView: View {
                             ?? true
                         )
 
-                        if let existing =
-                            uniqueRecipients[identityKey] {
+                let normalizedCurrentPhone =
+                    normalizedPhone(phone)
+
+                let normalizedCurrentEmail =
+                    email
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                        .lowercased()
+
+                let normalizedCurrentUid =
+                    uid.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+                let existingEntry =
+                    uniqueRecipients.first {
+                        _, existingRecipient in
+
+                        let existingPhone =
+                            normalizedPhone(
+                                existingRecipient.phone
+                            )
+
+                        let existingEmail =
+                            existingRecipient.email
+                                .trimmingCharacters(
+                                    in: .whitespacesAndNewlines
+                                )
+                                .lowercased()
+
+                        let existingUid =
+                            existingRecipient.uid
+                                .trimmingCharacters(
+                                    in: .whitespacesAndNewlines
+                                )
+
+                        let samePhone =
+                            !normalizedCurrentPhone.isEmpty &&
+                            !existingPhone.isEmpty &&
+                            normalizedCurrentPhone ==
+                                existingPhone
+
+                        let sameEmail =
+                            !normalizedCurrentEmail.isEmpty &&
+                            !existingEmail.isEmpty &&
+                            normalizedCurrentEmail ==
+                                existingEmail
+
+                        let sameUid =
+                            !normalizedCurrentUid.isEmpty &&
+                            !existingUid.isEmpty &&
+                            normalizedCurrentUid ==
+                                existingUid
+
+                        return
+                            samePhone ||
+                            sameEmail ||
+                            sameUid
+
+                    }
+
+                if let existingEntry {
+
+                    let existingKey =
+                        existingEntry.key
+
+                    let existing =
+                        existingEntry.value
 
                     let preferredName =
                         existing.name.count >= name.count
-                        ? existing.name
-                        : name
+                            ? existing.name
+                            : name
 
                     let preferredPhone =
                         existing.phone.count >= phone.count
-                        ? existing.phone
-                        : phone
+                            ? existing.phone
+                            : phone
 
-                            uniqueRecipients[identityKey] =
-                                CoachBroadcastRecipient(
+                    let preferredEmail =
+                        existing.email.isEmpty
+                            ? email
+                            : existing.email
+
+                    let preferredUid =
+                        existing.uid.isEmpty
+                            ? uid
+                            : existing.uid
+
+                    uniqueRecipients[existingKey] =
+                        CoachBroadcastRecipient(
                             id: existing.id,
-                            uid:
-                                existing.uid.isEmpty
-                                ? uid
-                                : existing.uid,
+                            uid: preferredUid,
                             name: preferredName,
                             phone: preferredPhone,
-                            email:
-                                existing.email.isEmpty
-                                ? email
-                                : existing.email,
+                            email: preferredEmail,
                             selected:
                                 existing.selected ||
                                 incomingRecipient.selected
                         )
 
-                        } else {
-                            uniqueRecipients[identityKey] =
-                                incomingRecipient
-                        }
+                } else {
+
+                    uniqueRecipients[identityKey] =
+                        incomingRecipient
+
+                }
+            }
+
+            guard
+                activeRecipientsRequestID == requestID
+            else {
+
+                return
+
             }
 
             availableBranchGroupCounts =
                 discoveredGroupMembers.mapValues {
+
                     $0.count
+
                 }
 
             availableBranchGroups =
@@ -3148,8 +3439,8 @@ struct CoachBroadcastView: View {
 
                     showError(
                         tr(
-                            "ההודעה נשמרה ונפתחה אפליקציית ההודעות עם \(selectedPhones.count) מתאמנים.",
-                            "The message was saved and the messaging app opened with \(selectedPhones.count) trainees."
+                            "ההודעה נשמרה ונפתחה אפליקציית ההודעות עבור \(selectedRecipients.count) מתאמנים.",
+                            "The message was saved and the messaging app opened for \(selectedRecipients.count) trainees."
                         )
                     )
                 } else {
@@ -3162,6 +3453,671 @@ struct CoachBroadcastView: View {
                 }
             }
         }
+    }
+
+    private func shareBroadcastPdf() {
+
+        do {
+
+            let url = try createBroadcastPdf()
+
+            pdfShareItem =
+                CoachBroadcastPdfShareItem(
+                    url: url
+                )
+
+        } catch {
+
+            showError(
+                tr(
+                    "לא ניתן ליצור כרגע את קובץ ה־PDF.",
+                    "The PDF file cannot be created right now."
+                )
+            )
+
+        }
+
+    }
+
+    private func createBroadcastPdf() throws -> URL {
+
+        let pageWidth: CGFloat = 595
+        let pageHeight: CGFloat = 842
+        let pageBounds = CGRect(
+            x: 0,
+            y: 0,
+            width: pageWidth,
+            height: pageHeight
+        )
+
+        let margin: CGFloat = 32
+        let contentRight =
+            pageWidth - margin
+
+        let contentBottom =
+            pageHeight -
+            KmiPdfFooter.CONTENT_BOTTOM_PADDING
+
+        let textColor = UIColor(
+            red: 15 / 255.0,
+            green: 23 / 255.0,
+            blue: 42 / 255.0,
+            alpha: 1
+        )
+
+        let mutedTextColor = UIColor(
+            red: 80 / 255.0,
+            green: 100 / 255.0,
+            blue: 120 / 255.0,
+            alpha: 1
+        )
+
+        let accentPdfColor = UIColor(
+            red: 36 / 255.0,
+            green: 103 / 255.0,
+            blue: 158 / 255.0,
+            alpha: 1
+        )
+
+        let cardBackgroundColor = UIColor(
+            red: 248 / 255.0,
+            green: 250 / 255.0,
+            blue: 252 / 255.0,
+            alpha: 1
+        )
+
+        let cardBorderColor = UIColor(
+            red: 226 / 255.0,
+            green: 232 / 255.0,
+            blue: 240 / 255.0,
+            alpha: 1
+        )
+
+        let fileName =
+            isEnglish
+                ? "Broadcast Message.pdf"
+                : "שידור הודעה.pdf"
+
+        let directory =
+            FileManager.default.temporaryDirectory
+                .appendingPathComponent(
+                    "KmiSharedPdfs",
+                    isDirectory: true
+                )
+
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+
+        let fileURL =
+            directory.appendingPathComponent(
+                fileName,
+                isDirectory: false
+            )
+
+        if FileManager.default.fileExists(
+            atPath: fileURL.path
+        ) {
+
+            try FileManager.default.removeItem(
+                at: fileURL
+            )
+
+        }
+
+        let rendererFormat =
+            UIGraphicsPDFRendererFormat()
+
+        rendererFormat.documentInfo = [
+            kCGPDFContextTitle as String:
+                isEnglish
+                    ? "KAMI Broadcast Message"
+                    : "שידור הודעה לקבוצה",
+            kCGPDFContextCreator as String:
+                "KAMI"
+        ]
+
+        let renderer =
+            UIGraphicsPDFRenderer(
+                bounds: pageBounds,
+                format: rendererFormat
+            )
+
+        let selectedPdfRecipients =
+            displayedRecipients.filter {
+                $0.selected
+            }
+
+        let cleanGroups =
+            sendScope == "branch"
+                ? []
+                : effectiveGroupKeys
+
+        try renderer.writePDF(to: fileURL) {
+            rendererContext in
+
+            let context =
+                rendererContext.cgContext
+
+            var pageNumber = 0
+            var currentY =
+                KmiPdfHeader.CONTENT_TOP
+
+            func paragraphStyle(
+                alignment: NSTextAlignment,
+                lineBreakMode: NSLineBreakMode =
+                    .byWordWrapping
+            ) -> NSParagraphStyle {
+
+                let style =
+                    KmiPdfDirection
+                        .paragraphStyle(
+                            isEnglish: isEnglish
+                        )
+                        .mutableCopy()
+                        as? NSMutableParagraphStyle
+                    ?? NSMutableParagraphStyle()
+
+                style.baseWritingDirection =
+                    KmiPdfDirection.textDirection(
+                        isEnglish: isEnglish
+                    )
+
+                style.alignment = alignment
+                style.lineBreakMode = lineBreakMode
+
+                return style
+
+            }
+
+            func textAttributes(
+                font: UIFont,
+                color: UIColor,
+                alignment: NSTextAlignment
+            ) -> [NSAttributedString.Key: Any] {
+
+                [
+                    .font: font,
+                    .foregroundColor: color,
+                    .paragraphStyle:
+                        paragraphStyle(
+                            alignment: alignment
+                        )
+                ]
+
+            }
+
+            func drawHeader() {
+
+                KmiPdfHeader.draw(
+                    context: context,
+                    pageWidth: pageWidth,
+                    isEnglish: isEnglish,
+                    titleHebrew:
+                        "שידור הודעה לקבוצה",
+                    titleEnglish:
+                        "Broadcast Message",
+                    subtitleHebrew:
+                        "דו״ח תקשורת מאמן",
+                    subtitleEnglish:
+                        "Coach communication report"
+                )
+
+            }
+
+            func drawFooter() {
+
+                KmiPdfFooter.draw(
+                    context: context,
+                    pageWidth: pageWidth,
+                    pageHeight: pageHeight,
+                    pageNumber: pageNumber,
+                    totalPages: nil,
+                    isEnglish: isEnglish
+                )
+
+            }
+
+            func beginPage() {
+
+                if pageNumber > 0 {
+
+                    drawFooter()
+
+                }
+
+                rendererContext.beginPage()
+
+                pageNumber += 1
+                currentY =
+                    KmiPdfHeader.CONTENT_TOP
+
+                drawHeader()
+
+            }
+
+            func ensureSpace(
+                _ requiredHeight: CGFloat
+            ) {
+
+                if
+                    currentY + requiredHeight >
+                    contentBottom {
+
+                    beginPage()
+
+                }
+
+            }
+
+            func drawText(
+                _ value: String,
+                rect: CGRect,
+                font: UIFont,
+                color: UIColor = textColor,
+                alignment: NSTextAlignment? = nil
+            ) {
+
+                let resolvedAlignment =
+                    alignment ??
+                    KmiPdfDirection.textAlign(
+                        isEnglish: isEnglish
+                    )
+
+                (value as NSString).draw(
+                    with: rect,
+                    options: [
+                        .usesLineFragmentOrigin,
+                        .usesFontLeading
+                    ],
+                    attributes:
+                        textAttributes(
+                            font: font,
+                            color: color,
+                            alignment:
+                                resolvedAlignment
+                        ),
+                    context: nil
+                )
+
+            }
+
+            func measuredHeight(
+                _ value: String,
+                width: CGFloat,
+                font: UIFont
+            ) -> CGFloat {
+
+                let attributes =
+                    textAttributes(
+                        font: font,
+                        color: textColor,
+                        alignment:
+                            KmiPdfDirection.textAlign(
+                                isEnglish: isEnglish
+                            )
+                    )
+
+                let bounds =
+                    (value as NSString).boundingRect(
+                        with: CGSize(
+                            width: width,
+                            height:
+                                .greatestFiniteMagnitude
+                        ),
+                        options: [
+                            .usesLineFragmentOrigin,
+                            .usesFontLeading
+                        ],
+                        attributes: attributes,
+                        context: nil
+                    )
+
+                return ceil(bounds.height)
+
+            }
+
+            func drawSectionTitle(
+                _ value: String
+            ) {
+
+                let height: CGFloat = 24
+
+                ensureSpace(height + 8)
+
+                drawText(
+                    value,
+                    rect: CGRect(
+                        x: margin,
+                        y: currentY,
+                        width:
+                            contentRight - margin,
+                        height: height
+                    ),
+                    font:
+                        .systemFont(
+                            ofSize: 16,
+                            weight: .bold
+                        ),
+                    color: accentPdfColor
+                )
+
+                currentY += height + 4
+
+            }
+
+            func drawInfoRow(
+                label: String,
+                value: String
+            ) {
+
+                let cleanValue =
+                    value.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+                guard !cleanValue.isEmpty else {
+
+                    return
+
+                }
+
+                let rowHeight: CGFloat = 38
+
+                ensureSpace(rowHeight + 8)
+
+                let rect = CGRect(
+                    x: margin,
+                    y: currentY,
+                    width:
+                        contentRight - margin,
+                    height: rowHeight
+                )
+
+                let path =
+                    UIBezierPath(
+                        roundedRect: rect,
+                        cornerRadius: 8
+                    )
+
+                cardBackgroundColor.setFill()
+                path.fill()
+
+                cardBorderColor.setStroke()
+                path.lineWidth = 1
+                path.stroke()
+
+                drawText(
+                    "\(label): \(cleanValue)",
+                    rect: rect.insetBy(
+                        dx: 12,
+                        dy: 10
+                    ),
+                    font:
+                        .systemFont(
+                            ofSize: 11,
+                            weight: .regular
+                        )
+                )
+
+                currentY += rowHeight + 8
+
+            }
+
+            func drawWrappedBlock(
+                _ value: String,
+                font: UIFont,
+                horizontalPadding: CGFloat = 0,
+                verticalPadding: CGFloat = 0,
+                backgroundColor: UIColor? = nil
+            ) {
+
+                let cleanValue =
+                    value.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+                guard !cleanValue.isEmpty else {
+
+                    return
+
+                }
+
+                let availableWidth =
+                    contentRight -
+                    margin -
+                    horizontalPadding * 2
+
+                let textHeight =
+                    measuredHeight(
+                        cleanValue,
+                        width: availableWidth,
+                        font: font
+                    )
+
+                let blockHeight =
+                    max(
+                        24,
+                        textHeight +
+                        verticalPadding * 2
+                    )
+
+                ensureSpace(blockHeight + 8)
+
+                let blockRect = CGRect(
+                    x: margin,
+                    y: currentY,
+                    width:
+                        contentRight - margin,
+                    height: blockHeight
+                )
+
+                if let backgroundColor {
+
+                    let path =
+                        UIBezierPath(
+                            roundedRect: blockRect,
+                            cornerRadius: 8
+                        )
+
+                    backgroundColor.setFill()
+                    path.fill()
+
+                    cardBorderColor.setStroke()
+                    path.lineWidth = 1
+                    path.stroke()
+
+                }
+
+                drawText(
+                    cleanValue,
+                    rect: blockRect.insetBy(
+                        dx: horizontalPadding,
+                        dy: verticalPadding
+                    ),
+                    font: font
+                )
+
+                currentY += blockHeight + 8
+
+            }
+
+            beginPage()
+
+            drawSectionTitle(
+                isEnglish
+                    ? "Broadcast details"
+                    : "פרטי השידור"
+            )
+
+            drawInfoRow(
+                label:
+                    isEnglish
+                        ? "Region"
+                        : "אזור",
+                value: region
+            )
+
+            drawInfoRow(
+                label:
+                    isEnglish
+                        ? "Branch"
+                        : "סניף",
+                value: branch
+            )
+
+            if sendScope == "branch" {
+
+                drawInfoRow(
+                    label:
+                        isEnglish
+                            ? "Audience"
+                            : "קהל יעד",
+                    value:
+                        isEnglish
+                            ? "Entire branch"
+                            : "כל הסניף"
+                )
+
+            } else {
+
+                drawInfoRow(
+                    label:
+                        isEnglish
+                            ? "Groups"
+                            : "קבוצות",
+                    value:
+                        cleanGroups.joined(
+                            separator: ", "
+                        )
+                )
+
+            }
+
+            drawInfoRow(
+                label:
+                    isEnglish
+                        ? "Selected recipients"
+                        : "נמענים שנבחרו",
+                value:
+                    "\(selectedPdfRecipients.count)"
+            )
+
+            drawSectionTitle(
+                isEnglish
+                    ? "Message"
+                    : "תוכן ההודעה"
+            )
+
+            drawWrappedBlock(
+                message,
+                font:
+                    .systemFont(
+                        ofSize: 11,
+                        weight: .regular
+                    ),
+                horizontalPadding: 12,
+                verticalPadding: 10,
+                backgroundColor:
+                    cardBackgroundColor
+            )
+
+            if !selectedPdfRecipients.isEmpty {
+
+                drawSectionTitle(
+                    isEnglish
+                        ? "Recipients"
+                        : "רשימת נמענים"
+                )
+
+                for (
+                    index,
+                    recipient
+                ) in selectedPdfRecipients.enumerated() {
+
+                    let recipientName =
+                        recipient.name
+                            .trimmingCharacters(
+                                in:
+                                    .whitespacesAndNewlines
+                            )
+
+                    let resolvedName =
+                        recipientName.isEmpty
+                            ? (
+                                isEnglish
+                                    ? "Unnamed trainee"
+                                    : "מתאמן ללא שם"
+                            )
+                            : recipientName
+
+                    var line =
+                        "\(index + 1). \(resolvedName)"
+
+                    if
+                        !demoPrivacy.isEnabled,
+                        !recipient.phone
+                            .trimmingCharacters(
+                                in:
+                                    .whitespacesAndNewlines
+                            )
+                            .isEmpty {
+
+                        line +=
+                            " · \(recipient.phone)"
+
+                    }
+
+                    let rowFont =
+                        UIFont.systemFont(
+                            ofSize: 10.5,
+                            weight: .regular
+                        )
+
+                    let rowHeight =
+                        max(
+                            24,
+                            measuredHeight(
+                                line,
+                                width:
+                                    contentRight -
+                                    margin -
+                                    20,
+                                font: rowFont
+                            ) + 10
+                        )
+
+                    ensureSpace(rowHeight + 4)
+
+                    drawText(
+                        line,
+                        rect: CGRect(
+                            x: margin + 8,
+                            y: currentY + 5,
+                            width:
+                                contentRight -
+                                margin -
+                                16,
+                            height:
+                                rowHeight - 10
+                        ),
+                        font: rowFont,
+                        color: mutedTextColor
+                    )
+
+                    currentY += rowHeight + 4
+
+                }
+
+            }
+
+            drawFooter()
+
+        }
+
+        return fileURL
+
     }
 
     private func persistBroadcast(
@@ -3190,9 +4146,56 @@ struct CoachBroadcastView: View {
         }
 
         let currentUid = currentUser.uid
-        let cleanRegion = region.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let cleanRegion =
+            region.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let cleanBranch =
+            branch.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let cleanMessage =
+            message.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        guard
+            !cleanRegion.isEmpty,
+            !cleanBranch.isEmpty
+        else {
+
+            isSending = false
+
+            showError(
+                tr(
+                    "יש לבחור אזור וסניף לפני שליחת ההודעה.",
+                    "Choose a region and branch before sending the message."
+                )
+            )
+
+            completion(false)
+            return
+
+        }
+
+        guard !cleanMessage.isEmpty else {
+
+            isSending = false
+
+            showError(
+                tr(
+                    "נא לכתוב טקסט להודעה.",
+                    "Please write a message."
+                )
+            )
+
+            completion(false)
+            return
+
+        }
 
         let cleanTargetUids = Array(
             Set(
@@ -3207,42 +4210,102 @@ struct CoachBroadcastView: View {
         )
         .sorted()
 
-        let cleanTargetGroups = Array(
-            Set(
-                targetGroups
-                    .map {
-                        $0.trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        )
-                    }
-                    .filter { !$0.isEmpty }
-            )
-        )
-        .sorted()
+        guard !cleanTargetUids.isEmpty else {
 
-        let recipientSnapshots: [[String: String]] =
-            targetRecipients
+            isSending = false
+
+            showError(
+                tr(
+                    "לא נבחרו נמענים – סמן לפחות מתאמן אחד.",
+                    "No recipients were selected — select at least one trainee."
+                )
+            )
+
+            completion(false)
+            return
+
+        }
+
+        var seenTargetGroups = Set<String>()
+
+        let cleanTargetGroups =
+            targetGroups
                 .map {
-                    [
-                        "uid": $0.uid.trimmingCharacters(
+
+                    $0.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+                }
+                .filter { !$0.isEmpty }
+                .filter { group in
+
+                    seenTargetGroups
+                        .insert(group)
+                        .inserted
+
+                }
+
+        let rawRecipientSnapshots: [[String: String]] =
+
+            targetRecipients
+                .map { selectedRecipient in
+
+                    let realRecipient =
+                        recipients.first {
+                            $0.id == selectedRecipient.id
+                        } ?? selectedRecipient
+
+                    return [
+                        "uid": realRecipient.uid.trimmingCharacters(
                             in: .whitespacesAndNewlines
                         ),
-                        "name": $0.name.trimmingCharacters(
+                        "name": realRecipient.name.trimmingCharacters(
                             in: .whitespacesAndNewlines
                         ),
-                        "phone": $0.phone.trimmingCharacters(
+                        "phone": realRecipient.phone.trimmingCharacters(
                             in: .whitespacesAndNewlines
                         ),
-                        "email": $0.email.trimmingCharacters(
+                        "email": realRecipient.email.trimmingCharacters(
                             in: .whitespacesAndNewlines
                         )
                     ]
+
                 }
                 .filter {
+
                     !($0["uid"] ?? "").isEmpty ||
                     !($0["phone"] ?? "").isEmpty ||
                     !($0["email"] ?? "").isEmpty
+
                 }
+
+        var seenRecipientKeys = Set<String>()
+
+        let recipientSnapshots =
+            rawRecipientSnapshots.filter { recipient in
+
+                let uid =
+                    recipient["uid"] ?? ""
+
+                let phone =
+                    recipient["phone"] ?? ""
+
+                let email =
+                    recipient["email"] ?? ""
+
+                let identityKey =
+                    !uid.isEmpty
+                        ? "uid:\(uid)"
+                        : !phone.isEmpty
+                        ? "phone:\(phone)"
+                        : "email:\(email.lowercased())"
+
+                return seenRecipientKeys
+                    .insert(identityKey)
+                    .inserted
+
+            }
 
         let targetPhones = Array(
             Set(
@@ -3272,17 +4335,22 @@ struct CoachBroadcastView: View {
         .sorted()
 
         let coachName = [
+
             currentUser.displayName,
             currentUser.email
+
         ]
         .compactMap { $0 }
         .map {
+
             $0.trimmingCharacters(
                 in: .whitespacesAndNewlines
             )
+
         }
         .first { !$0.isEmpty }
-        ?? tr("מאמן", "Coach")
+
+        ?? "מאמן"
 
         let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
         let expiresAt = Date().addingTimeInterval(30 * 24 * 60 * 60)
@@ -3346,13 +4414,14 @@ struct CoachBroadcastView: View {
             merge: true
         ) { error in
             DispatchQueue.main.async {
-                if let error {
+                if error != nil {
+
                     isSending = false
 
                     showError(
                         tr(
-                            "שמירת ההודעה נכשלה: \(error.localizedDescription)",
-                            "Saving the message failed: \(error.localizedDescription)"
+                            "לא ניתן לשמור ולשלוח כרגע את ההודעה. בדוק את החיבור ונסה שוב.",
+                            "The message cannot be saved and sent right now. Check your connection and try again."
                         )
                     )
 
@@ -3371,7 +4440,50 @@ struct CoachBroadcastView: View {
     }
 }
 
+private struct CoachBroadcastPdfShareItem:
+    Identifiable {
+
+    let id = UUID()
+    let url: URL
+
+}
+
+private struct CoachBroadcastPdfShareSheet:
+    UIViewControllerRepresentable {
+
+    let items: [Any]
+
+    func makeUIViewController(
+        context: Context
+    ) -> UIActivityViewController {
+
+        UIActivityViewController(
+            activityItems: items,
+            applicationActivities: nil
+        )
+
+    }
+
+    func updateUIViewController(
+        _ uiViewController:
+            UIActivityViewController,
+        context: Context
+    ) {
+    }
+
+}
+
+extension Notification.Name {
+
+    static let coachBroadcastShareRequested =
+        Notification.Name(
+            "kmi.coachBroadcast.sharePdf"
+        )
+
+}
+
 private struct CoachBroadcastRecipient: Identifiable {
+
     let id: String
     let uid: String
     let name: String

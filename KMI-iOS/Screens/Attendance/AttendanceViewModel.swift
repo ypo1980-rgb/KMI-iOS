@@ -3,7 +3,12 @@ import Combine
 
 @MainActor
 final class AttendanceViewModel: ObservableObject {
-    @Published private(set) var state: AttendanceUiState
+
+    @Published
+    private(set) var state: AttendanceUiState
+
+    @Published
+    private(set) var isReportSaved: Bool = false
 
     private let repository: AttendanceRepository
 
@@ -184,12 +189,27 @@ final class AttendanceViewModel: ObservableObject {
             records: records
         )
 
-        state.recordsByMemberId = Dictionary(uniqueKeysWithValues: records.map { ($0.memberId, $0) })
+        state.recordsByMemberId =
+            Dictionary(
+                uniqueKeysWithValues:
+                    records.map {
+                        (
+                            $0.memberId,
+                            $0
+                        )
+                    }
+            )
+
+        isReportSaved = true
         state.isSaving = false
 
         reloadMonthMarkers()
+
         publishMessage(
-            tr("דו״ח הנוכחות נשמר", "The attendance report was saved"),
+            tr(
+                "דו״ח הנוכחות נשמר",
+                "The attendance report was saved"
+            ),
             isError: false
         )
     }
@@ -267,14 +287,28 @@ final class AttendanceViewModel: ObservableObject {
     }
     
     private func reloadRecordsOnly() {
-        let loaded = repository.loadRecords(
-            ownerUid: state.ownerUid,
-            branchName: state.branchName,
-            groupKey: state.groupKey,
-            dateIso: state.dateIso
-        )
 
-        state.recordsByMemberId = Dictionary(uniqueKeysWithValues: loaded.map { ($0.memberId, $0) })
+        let loaded =
+            repository.loadRecords(
+                ownerUid: state.ownerUid,
+                branchName: state.branchName,
+                groupKey: state.groupKey,
+                dateIso: state.dateIso
+            )
+
+        state.recordsByMemberId =
+            Dictionary(
+                uniqueKeysWithValues:
+                    loaded.map {
+                        (
+                            $0.memberId,
+                            $0
+                        )
+                    }
+            )
+
+        isReportSaved =
+            !loaded.isEmpty
     }
 
     private func reloadMonthMarkers() {

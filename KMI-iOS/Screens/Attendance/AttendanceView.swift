@@ -3,10 +3,19 @@ import FirebaseAuth
 import UIKit
 
 struct AttendanceView: View {
-    @EnvironmentObject private var auth: AuthViewModel
-    @StateObject private var vm: AttendanceViewModel
 
-    @State private var toastMessage: String?
+    @EnvironmentObject
+    private var auth: AuthViewModel
+
+    @StateObject
+    private var vm: AttendanceViewModel
+
+    @ObservedObject
+    private var demoPrivacy =
+        DemoPrivacy.shared
+
+    @State
+    private var toastMessage: String?
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
 
@@ -16,9 +25,14 @@ struct AttendanceView: View {
     @State private var newMemberName: String = ""
     @State private var newMemberPhone: String = ""
     @State private var newMemberNotes: String = ""
-    @State private var isAddMemberExpanded: Bool = false
+    @State
+    private var isAddMemberExpanded: Bool = false
 
-    @State private var pendingDeleteRow: AttendanceRowUi? = nil
+    @State
+    private var isEditingSavedReport: Bool = false
+
+    @State
+    private var pendingDeleteRow: AttendanceRowUi?
 
     private let onHomeTap: () -> Void
     private let onSearchTap: () -> Void
@@ -72,58 +86,75 @@ struct AttendanceView: View {
     private var colorScheme
 
     private var isDarkMode: Bool {
+
         colorScheme == .dark
     }
 
+    private var canEditAttendance: Bool {
+
+        !vm.isReportSaved ||
+        isEditingSavedReport
+    }
+
     private var primaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.94)
-            : Color(red: 0.12, green: 0.16, blue: 0.24)
+
+        KmiAppTheme.onSurface(
+            for: colorScheme
+        )
     }
 
     private var secondaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.68)
-            : Color(red: 0.32, green: 0.38, blue: 0.48)
+        KmiAppTheme.onSurfaceVariant(
+            for: colorScheme
+        )
     }
 
     private var cardSurfaceColor: Color {
-        isDarkMode
-            ? Color(red: 0.06, green: 0.09, blue: 0.15).opacity(0.96)
-            : Color.white.opacity(0.96)
+        KmiAppTheme.surface(
+            for: colorScheme
+        )
+        .opacity(0.96)
     }
 
     private var elevatedSurfaceColor: Color {
-        isDarkMode
-            ? Color(red: 0.09, green: 0.13, blue: 0.21)
-            : Color(red: 0.95, green: 0.97, blue: 1.0)
+        KmiAppTheme.surfaceVariant(
+            for: colorScheme
+        )
     }
 
     private var cardBorderColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.14)
-            : Color.black.opacity(0.08)
+        KmiAppTheme.outlineVariant(
+            for: colorScheme
+        )
     }
 
     private var fieldSurfaceColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.08)
-            : Color.white.opacity(0.88)
+        KmiAppTheme.surfaceVariant(
+            for: colorScheme
+        )
+        .opacity(
+            colorScheme == .dark
+                ? 0.82
+                : 0.92
+        )
     }
 
     private var fieldIconSurfaceColor: Color {
-        isDarkMode
-            ? Color(red: 0.10, green: 0.29, blue: 0.44)
-            : Color(red: 0.88, green: 0.96, blue: 1.0)
+        KmiAppTheme.secondaryContainer(
+            for: colorScheme
+        )
     }
 
     private var fieldIconColor: Color {
-        isDarkMode
-            ? Color(red: 0.35, green: 0.83, blue: 0.96)
-            : Color(red: 0.07, green: 0.45, blue: 0.72)
+        KmiAppTheme.onSecondaryContainer(
+            for: colorScheme
+        )
     }
 
-    private func tr(_ he: String, _ en: String) -> String {
+    private func tr(
+        _ he: String,
+        _ en: String
+    ) -> String {
         isEnglish ? en : he
     }
 
@@ -157,23 +188,14 @@ struct AttendanceView: View {
     }
 
     var body: some View {
+
         ZStack {
+
             LinearGradient(
                 colors:
-                    isDarkMode
-                    ? [
-                        Color(red: 0.008, green: 0.024, blue: 0.090),
-                        Color(red: 0.067, green: 0.094, blue: 0.153),
-                        Color(red: 0.063, green: 0.141, blue: 0.227),
-                        Color(red: 0.039, green: 0.212, blue: 0.341),
-                        Color(red: 0.016, green: 0.118, blue: 0.200)
-                    ]
-                    : [
-                        Color(red: 0.96, green: 0.94, blue: 1.0),
-                        Color(red: 0.91, green: 0.96, blue: 1.0),
-                        Color(red: 0.82, green: 0.94, blue: 1.0),
-                        Color(red: 0.69, green: 0.88, blue: 0.96)
-                    ],
+                    KmiAppTheme.screenBackgroundColors(
+                        for: colorScheme
+                    ),
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -182,9 +204,12 @@ struct AttendanceView: View {
             ScrollView {
                 VStack(spacing: 10) {
                     attendanceHeroCard
+
                     attendanceSummaryCard
 
-                    if isAddMemberExpanded {
+                    if isAddMemberExpanded &&
+                        !vm.isReportSaved {
+
                         addMemberCard
                     }
 
@@ -218,27 +243,45 @@ struct AttendanceView: View {
                 .padding(.bottom, 104)
             }
 
-            VStack {
-                Spacer()
+            if !vm.isReportSaved {
 
-                HStack {
-                    if isEnglish {
-                        addMemberFloatingButton
+                VStack {
 
-                        Spacer()
-                    } else {
-                        Spacer()
+                    Spacer()
 
-                        addMemberFloatingButton
+                    HStack {
+
+                        if isEnglish {
+
+                            addMemberFloatingButton
+
+                            Spacer()
+
+                        } else {
+
+                            Spacer()
+
+                            addMemberFloatingButton
+                        }
                     }
+                    .padding(.horizontal, 22)
+                    .padding(.bottom, 30)
                 }
-                .padding(.horizontal, 22)
-                .padding(.bottom, 30)
+            }
+
+            if vm.state.isSaving {
+
+                KmiLoadingOverlay()
+                    .transition(.opacity)
+                    .zIndex(100)
             }
 
             if let toastMessage {
+
                 VStack {
+
                     Spacer()
+
                     Text(toastMessage)
                         .kmiFont(
                             size: 14,
@@ -302,23 +345,47 @@ struct AttendanceView: View {
                 pendingDeleteRow = nil
             }
         } message: {
+
             Text(
                 isEnglish
-                ? "Delete \(pendingDeleteRow?.memberName ?? "this trainee") from the list?"
-                : "האם למחוק את \(pendingDeleteRow?.memberName ?? "המתאמן") מהרשימה?"
+                    ? "Delete \(displayName(for: pendingDeleteRow)) from the list?"
+                    : "האם למחוק את \(displayName(for: pendingDeleteRow)) מהרשימה?"
             )
         }
-        .onChange(of: vm.state.messageEventId) { _, _ in
-            guard let msg = vm.state.lastMessage else { return }
+
+        .onChange(
+            of: vm.state.messageEventId
+        ) { _, _ in
+
+            guard let msg =
+                vm.state.lastMessage
+            else {
+                return
+            }
+
             withAnimation {
                 toastMessage = msg
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + 2
+            ) {
+
                 withAnimation {
                     toastMessage = nil
                 }
             }
         }
+
+        .onChange(
+            of: vm.state.dateIso
+        ) { _, _ in
+
+            isEditingSavedReport = false
+            isAddMemberExpanded = false
+            pendingDeleteRow = nil
+        }
+
         .onAppear {
             let storedBranch = UserDefaults.standard.string(forKey: "kmi.user.branch") ?? ""
             let storedGroup = UserDefaults.standard.string(forKey: "kmi.user.group") ?? ""
@@ -399,27 +466,63 @@ struct AttendanceView: View {
     }
     
     private var addMemberFloatingButton: some View {
+
         Button {
-            withAnimation(.easeInOut(duration: 0.22)) {
+
+            withAnimation(
+                .easeInOut(duration: 0.22)
+            ) {
                 isAddMemberExpanded.toggle()
             }
+
         } label: {
-            Image(systemName: isAddMemberExpanded ? "xmark" : "plus")
-                .font(.system(size: 22, weight: .black))
-                .foregroundStyle(.white)
-                .frame(width: 58, height: 58)
-                .background(Color(red: 0.06, green: 0.65, blue: 0.91))
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(0.24), lineWidth: 1)
+
+            Image(
+                systemName:
+                    isAddMemberExpanded
+                        ? "xmark"
+                        : "plus"
+            )
+            .kmiFont(
+                size: 22,
+                weight: .black
+            )
+            .foregroundStyle(
+                KmiAppTheme.onSecondary(
+                    for: colorScheme
                 )
-                .shadow(color: Color.black.opacity(0.28), radius: 10, x: 0, y: 5)
+            )
+            .frame(
+                width: 56,
+                height: 56
+            )
+            .background(
+                KmiAppTheme.secondary(
+                    for: colorScheme
+                )
+            )
+            .clipShape(Circle())
+            .overlay(
+                Circle()
+                    .stroke(
+                        KmiAppTheme.onSecondary(
+                            for: colorScheme
+                        )
+                        .opacity(0.28),
+                        lineWidth: 1
+                    )
+            )
+            .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(tr("הוספת מתאמן", "Add trainee"))
+        .accessibilityLabel(
+            tr(
+                "הוספת מתאמן",
+                "Add trainee"
+            )
+        )
     }
-    
+
     private var attendanceHeroCard: some View {
         let branch =
             vm.state.branchName
@@ -543,14 +646,6 @@ struct AttendanceView: View {
                 cardBorderColor,
                 lineWidth: 1
             )
-        )
-        .shadow(
-            color: Color.black.opacity(
-                isDarkMode ? 0.28 : 0.14
-            ),
-            radius: 10,
-            x: 0,
-            y: 6
         )
     }
     
@@ -711,12 +806,26 @@ struct AttendanceView: View {
                     Spacer()
 
                     Image(systemName: "chart.bar.fill")
-                        .font(.system(size: 17, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.58, green: 0.78, blue: 1.0))
+                        .kmiFont(
+                            size: 17,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            KmiAppTheme.secondary(
+                                for: colorScheme
+                            )
+                        )
                 } else {
                     Image(systemName: "chart.bar.fill")
-                        .font(.system(size: 17, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.58, green: 0.78, blue: 1.0))
+                        .kmiFont(
+                            size: 17,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            KmiAppTheme.secondary(
+                                for: colorScheme
+                            )
+                        )
 
                     Spacer()
 
@@ -766,9 +875,9 @@ struct AttendanceView: View {
                             weight: .heavy
                         )
                         .foregroundStyle(
-                            isDarkMode
-                                ? Color(red: 0.68, green: 0.88, blue: 1.0)
-                                : Color(red: 0.10, green: 0.38, blue: 0.66)
+                            KmiAppTheme.secondary(
+                                for: colorScheme
+                            )
                         )
 
                         Spacer()
@@ -804,17 +913,9 @@ struct AttendanceView: View {
                             weight: .heavy
                         )
                         .foregroundStyle(
-                            isDarkMode
-                                ? Color(
-                                    red: 0.68,
-                                    green: 0.88,
-                                    blue: 1.0
-                                )
-                                : Color(
-                                    red: 0.10,
-                                    green: 0.38,
-                                    blue: 0.66
-                                )
+                            KmiAppTheme.secondary(
+                                for: colorScheme
+                            )
                         )
                     }
                 }
@@ -825,18 +926,26 @@ struct AttendanceView: View {
                 )
                 .progressViewStyle(.linear)
                 .tint(
-                    Color(
-                        red: 0.13,
-                        green: 0.83,
-                        blue: 0.93
+                    KmiAppTheme.secondary(
+                        for: colorScheme
                     )
                 )
                 .background(
-                    isDarkMode
-                        ? Color.white.opacity(0.14)
-                        : Color.black.opacity(0.10)
+                    KmiAppTheme.outlineVariant(
+                        for: colorScheme
+                    )
+                    .opacity(0.72)
                 )
                 .clipShape(Capsule())
+                .accessibilityLabel(
+                    tr(
+                        "אחוז נוכחות",
+                        "Attendance rate"
+                    )
+                )
+                .accessibilityValue(
+                    "\(summary.attendancePercent)%"
+                )
             }
             .padding(14)
             .background(elevatedSurfaceColor)
@@ -858,16 +967,37 @@ struct AttendanceView: View {
             )
 
             HStack(spacing: 10) {
-                statPill(title: tr("סה״כ", "Total"), value: "\(summary.totalMembers)", tint: Color(red: 0.59, green: 0.70, blue: 1.0))
-                statPill(title: tr("הגיעו", "Present"), value: summary.presentLabel, tint: Color(red: 0.13, green: 0.77, blue: 0.37))
-                statPill(title: tr("מוצדק", "Excused"), value: summary.excusedLabel, tint: Color(red: 0.96, green: 0.62, blue: 0.04))
-                statPill(title: tr("לא הגיעו", "Absent"), value: summary.absentLabel, tint: Color(red: 0.94, green: 0.27, blue: 0.27))
+                statPill(
+                    title: tr("סה״כ", "Total"),
+                    value: "\(summary.totalMembers)",
+                    tint: KmiAppTheme.secondary(
+                        for: colorScheme
+                    )
+                )
+
+                statPill(
+                    title: tr("הגיעו", "Present"),
+                    value: summary.presentLabel,
+                    tint: KmiAppTheme.success(
+                        for: colorScheme
+                    )
+                )
+
+                statPill(
+                    title: tr("לא הגיעו", "Absent"),
+                    value: summary.absentLabel,
+                    tint: KmiAppTheme.error(
+                        for: colorScheme
+                    )
+                )
             }
 
             statPill(
                 title: tr("לא סומנו", "Not marked"),
                 value: summary.unknownLabel,
-                tint: Color.white.opacity(0.65)
+                tint: KmiAppTheme.onSurfaceVariant(
+                    for: colorScheme
+                )
             )
         }
         .padding(16)
@@ -887,14 +1017,6 @@ struct AttendanceView: View {
                 cornerRadius: 22,
                 style: .continuous
             )
-        )
-        .shadow(
-            color: Color.black.opacity(
-                isDarkMode ? 0.24 : 0.10
-            ),
-            radius: 8,
-            x: 0,
-            y: 4
         )
     }
     
@@ -935,12 +1057,26 @@ struct AttendanceView: View {
                     Spacer()
 
                     Image(systemName: "person.badge.plus")
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.58, green: 0.78, blue: 1.0))
+                        .kmiFont(
+                            size: 18,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            KmiAppTheme.secondary(
+                                for: colorScheme
+                            )
+                        )
                 } else {
                     Image(systemName: "person.badge.plus")
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.58, green: 0.78, blue: 1.0))
+                        .kmiFont(
+                            size: 18,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            KmiAppTheme.secondary(
+                                for: colorScheme
+                            )
+                        )
 
                     Spacer()
 
@@ -1009,15 +1145,42 @@ struct AttendanceView: View {
                         weight: .heavy
                     )
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(
+                    KmiAppTheme.onSecondary(
+                        for: colorScheme
+                    )
+                )
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 13)
-                .background(Color(red: 0.06, green: 0.65, blue: 0.91))
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(
+                    KmiAppTheme.secondary(
+                        for: colorScheme
+                    )
+                )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 18,
+                        style: .continuous
+                    )
+                )
             }
             .buttonStyle(.plain)
-            .disabled(newMemberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .opacity(newMemberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1.0)
+            .disabled(
+                newMemberName
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                    .isEmpty
+            )
+            .opacity(
+                newMemberName
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                    .isEmpty
+                        ? 0.45
+                        : 1.0
+            )
         }
         .padding(16)
         .background(cardSurfaceColor)
@@ -1037,20 +1200,12 @@ struct AttendanceView: View {
                 style: .continuous
             )
         )
-        .shadow(
-            color: Color.black.opacity(
-                isDarkMode ? 0.24 : 0.10
-            ),
-            radius: 8,
-            x: 0,
-            y: 4
-        )
         .transition(
             .move(edge: .top)
                 .combined(with: .opacity)
         )
     }
-    
+
     private var membersCard: some View {
         VStack(alignment: screenHorizontalAlignment, spacing: 12) {
             HStack {
@@ -1093,12 +1248,26 @@ struct AttendanceView: View {
                     Spacer()
 
                     Image(systemName: "person.3.fill")
-                        .font(.system(size: 17, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.58, green: 0.78, blue: 1.0))
+                        .kmiFont(
+                            size: 17,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            KmiAppTheme.secondary(
+                                for: colorScheme
+                            )
+                        )
                 } else {
                     Image(systemName: "person.3.fill")
-                        .font(.system(size: 17, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.58, green: 0.78, blue: 1.0))
+                        .kmiFont(
+                            size: 17,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            KmiAppTheme.secondary(
+                                for: colorScheme
+                            )
+                        )
 
                     Spacer()
 
@@ -1160,14 +1329,29 @@ struct AttendanceView: View {
                 .minimumScaleFactor(0.74)
                 .padding(.vertical, 10)
             } else {
-                let uniqueRows = uniqueMembers(vm.state.rows)
+
+                let uniqueRows =
+                    uniqueMembers(
+                        vm.state.rows
+                    )
 
                 VStack(spacing: 10) {
-                    ForEach(uniqueRows) { row in
-                        memberRow(row)
+
+                    ForEach(
+                        Array(
+                            uniqueRows.enumerated()
+                        ),
+                        id: \.element.id
+                    ) { index, row in
+
+                        memberRow(
+                            row,
+                            demoIndex: index
+                        )
                     }
                 }
             }
+
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 14)
@@ -1194,16 +1378,8 @@ struct AttendanceView: View {
                 style: .continuous
             )
         )
-        .shadow(
-            color: Color.black.opacity(
-                isDarkMode ? 0.24 : 0.10
-            ),
-            radius: 8,
-            x: 0,
-            y: 4
-        )
     }
-    
+
     private var actionsCard: some View {
         VStack(alignment: screenHorizontalAlignment, spacing: 12) {
             HStack {
@@ -1241,12 +1417,26 @@ struct AttendanceView: View {
                     Spacer()
 
                     Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 17, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.58, green: 0.78, blue: 1.0))
+                        .kmiFont(
+                            size: 17,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            KmiAppTheme.secondary(
+                                for: colorScheme
+                            )
+                        )
                 } else {
                     Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 17, weight: .heavy))
-                        .foregroundStyle(Color(red: 0.58, green: 0.78, blue: 1.0))
+                        .kmiFont(
+                            size: 17,
+                            weight: .heavy
+                        )
+                        .foregroundStyle(
+                            KmiAppTheme.secondary(
+                                for: colorScheme
+                            )
+                        )
 
                     Spacer()
 
@@ -1303,10 +1493,38 @@ struct AttendanceView: View {
             }
 
             Button {
-                vm.saveReport()
+
+                guard !vm.state.isSaving else {
+                    return
+                }
+
+                if vm.isReportSaved &&
+                    !isEditingSavedReport {
+
+                    isEditingSavedReport = true
+
+                } else {
+
+                    vm.saveReport()
+                    isEditingSavedReport = false
+                }
+
             } label: {
+
                 HStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle.fill")
+
+                    Image(
+                        systemName:
+                            vm.isReportSaved &&
+                            !isEditingSavedReport
+                                ? "pencil.circle.fill"
+                                : "checkmark.circle.fill"
+                    )
+                    .kmiFont(
+                        size: 16,
+                        weight: .bold
+                    )
+                    .accessibilityHidden(true)
 
                     Text(
                         vm.state.isSaving
@@ -1314,9 +1532,17 @@ struct AttendanceView: View {
                                 "שומר...",
                                 "Saving..."
                             )
-                            : tr(
-                                "שמירת דו״ח נוכחות",
-                                "Save attendance report"
+                            : (
+                                vm.isReportSaved &&
+                                !isEditingSavedReport
+                                    ? tr(
+                                        "עריכת דיווח",
+                                        "Edit report"
+                                    )
+                                    : tr(
+                                        "שמירת דו״ח נוכחות",
+                                        "Save attendance report"
+                                    )
                             )
                     )
                     .kmiFont(
@@ -1326,29 +1552,63 @@ struct AttendanceView: View {
                     .lineLimit(2)
                     .minimumScaleFactor(0.72)
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(
+                    vm.isReportSaved &&
+                    !isEditingSavedReport
+                        ? KmiAppTheme.onSecondary(
+                            for: colorScheme
+                        )
+                        : KmiAppTheme.onSuccess(
+                            for: colorScheme
+                        )
+                )
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+                .frame(minHeight: 52)
+                .padding(.horizontal, 12)
                 .background(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 0.06, green: 0.65, blue: 0.91),
-                            Color(red: 0.13, green: 0.83, blue: 0.93)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+                    vm.isReportSaved &&
+                    !isEditingSavedReport
+                        ? KmiAppTheme.secondary(
+                            for: colorScheme
+                        )
+                        : KmiAppTheme.success(
+                            for: colorScheme
+                        )
+                )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 20,
+                        style: .continuous
                     )
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                    RoundedRectangle(
+                        cornerRadius: 20,
+                        style: .continuous
+                    )
+                    .stroke(
+                        (
+                            vm.isReportSaved &&
+                            !isEditingSavedReport
+                                ? KmiAppTheme.onSecondary(
+                                    for: colorScheme
+                                )
+                                : KmiAppTheme.onSuccess(
+                                    for: colorScheme
+                                )
+                        )
+                        .opacity(0.24),
+                        lineWidth: 1
+                    )
                 )
-                .shadow(color: Color.cyan.opacity(0.22), radius: 8, x: 0, y: 4)
             }
             .buttonStyle(.plain)
             .disabled(vm.state.isSaving)
-            .opacity(vm.state.isSaving ? 0.65 : 1.0)
+            .opacity(
+                vm.state.isSaving
+                    ? 0.65
+                    : 1
+            )
         }
         .padding(14)
         .background(cardSurfaceColor)
@@ -1368,43 +1628,88 @@ struct AttendanceView: View {
                 style: .continuous
             )
         )
-        .shadow(
-            color: Color.black.opacity(
-                isDarkMode ? 0.24 : 0.10
-            ),
-            radius: 8,
-            x: 0,
-            y: 4
+    }
+
+    private func toggleAttendanceStatus(
+
+        row: AttendanceRowUi,
+
+        targetStatus: AttendanceStatus
+
+    ) {
+
+        guard canEditAttendance else {
+            return
+        }
+
+        let nextStatus: AttendanceStatus =
+            row.status == targetStatus
+                ? .unknown
+                : targetStatus
+
+        vm.setAttendanceStatus(
+            memberId: row.memberId,
+            status: nextStatus
         )
     }
-    
-    private func toggleAttendanceStatus(
-        row: AttendanceRowUi,
-        targetStatus: AttendanceStatus
-    ) {
-        let nextStatus: AttendanceStatus = row.status == targetStatus ? .unknown : targetStatus
-        vm.setAttendanceStatus(memberId: row.memberId, status: nextStatus)
-    }
 
-    private func memberRow(_ row: AttendanceRowUi) -> some View {
-        let cleanName = row.memberName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanPhone = row.phone.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func memberRow(
+        _ row: AttendanceRowUi,
+        demoIndex: Int
+    ) -> some View {
 
-        return VStack(alignment: screenHorizontalAlignment, spacing: 10) {
+        let realName =
+            row.memberName
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        let mappedName =
+            TraineeDisplayNameMapper.displayName(
+                realName: realName,
+                stableKey: row.memberId,
+                demoIndex: demoIndex,
+                isEnglish: isEnglish
+            )
+
+        let cleanName =
+            mappedName.isEmpty
+                ? tr(
+                    "מתאמן ללא שם",
+                    "Unnamed trainee"
+                )
+                : mappedName
+
+        let cleanPhone =
+            row.phone
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        return VStack(
+            alignment: screenHorizontalAlignment,
+            spacing: 10
+        ) {
             HStack(alignment: .center, spacing: 10) {
                 if isEnglish {
                     traineeAvatar(row)
 
                     NavigationLink {
+
                         AttendanceStatsView(
                             ownerUid: vm.state.ownerUid,
                             branchName: vm.state.branchName,
                             groupKey: vm.state.groupKey,
                             memberId: row.memberId,
-                            memberName: row.memberName
+                            memberName: cleanName
                         )
+
                     } label: {
-                        VStack(alignment: .leading, spacing: 3) {
+
+                        VStack(
+                            alignment: .leading,
+                            spacing: 3
+                        ) {
                             Text(
                                 cleanName.isEmpty
                                     ? tr(
@@ -1457,15 +1762,21 @@ struct AttendanceView: View {
                     deleteMemberButton(row)
 
                     NavigationLink {
+
                         AttendanceStatsView(
                             ownerUid: vm.state.ownerUid,
                             branchName: vm.state.branchName,
                             groupKey: vm.state.groupKey,
                             memberId: row.memberId,
-                            memberName: row.memberName
+                            memberName: cleanName
                         )
+
                     } label: {
-                        VStack(alignment: .trailing, spacing: 3) {
+
+                        VStack(
+                            alignment: .trailing,
+                            spacing: 3
+                        ) {
                             Text(
                                 cleanName.isEmpty
                                     ? tr(
@@ -1525,38 +1836,52 @@ struct AttendanceView: View {
                     title: tr("הגיע", "Present"),
                     icon: "checkmark.circle.fill",
                     selected: row.status == .present,
-                    selectedColor: Color(red: 0.13, green: 0.77, blue: 0.37)
+                    selectedColor: KmiAppTheme.success(
+                        for: colorScheme
+                    )
                 ) {
-                    toggleAttendanceStatus(row: row, targetStatus: .present)
-                }
-
-                statusButton(
-                    title: tr("מוצדק", "Excused"),
-                    icon: "clock.badge.checkmark",
-                    selected: row.status == .excused,
-                    selectedColor: Color(red: 0.96, green: 0.62, blue: 0.04)
-                ) {
-                    toggleAttendanceStatus(row: row, targetStatus: .excused)
+                    toggleAttendanceStatus(
+                        row: row,
+                        targetStatus: .present
+                    )
                 }
 
                 statusButton(
                     title: tr("לא הגיע", "Absent"),
                     icon: "xmark.circle.fill",
                     selected: row.status == .absent,
-                    selectedColor: Color(red: 0.94, green: 0.27, blue: 0.27)
+                    selectedColor: KmiAppTheme.error(
+                        for: colorScheme
+                    )
                 ) {
-                    toggleAttendanceStatus(row: row, targetStatus: .absent)
+                    toggleAttendanceStatus(
+                        row: row,
+                        targetStatus: .absent
+                    )
                 }
 
                 statusButton(
                     title: tr("נקה", "Clear"),
                     icon: "minus.circle.fill",
                     selected: row.status == .unknown,
-                    selectedColor: Color(red: 0.38, green: 0.45, blue: 0.55)
+                    selectedColor: KmiAppTheme.onSurfaceVariant(
+                        for: colorScheme
+                    )
                 ) {
-                    vm.setAttendanceStatus(memberId: row.memberId, status: .unknown)
+                    vm.setAttendanceStatus(
+                        memberId: row.memberId,
+                        status: .unknown
+                    )
                 }
             }
+            .allowsHitTesting(
+                canEditAttendance
+            )
+            .opacity(
+                canEditAttendance
+                    ? 1
+                    : 0.68
+            )
 
             TextField(
                 tr(
@@ -1582,6 +1907,14 @@ struct AttendanceView: View {
             )
             .foregroundStyle(primaryTextColor)
             .lineLimit(1...4)
+            .disabled(
+                !canEditAttendance
+            )
+            .opacity(
+                canEditAttendance
+                    ? 1
+                    : 0.72
+            )
             .padding(.horizontal, 10)
             .padding(.vertical, 10)
             .background(fieldSurfaceColor)
@@ -1618,89 +1951,110 @@ struct AttendanceView: View {
                 style: .continuous
             )
             .stroke(
-                isDarkMode
-                    ? Color(red: 0.35, green: 0.72, blue: 0.94)
-                        .opacity(0.32)
-                    : Color(red: 0.55, green: 0.82, blue: 0.96),
+                KmiAppTheme.outlineVariant(
+                    for: colorScheme
+                ),
                 lineWidth: 1
             )
         )
-        .shadow(
-            color: Color.black.opacity(
-                isDarkMode ? 0.24 : 0.12
-            ),
-            radius: 8,
-            x: 0,
-            y: 5
-        )
     }
-    
+
     private func traineeAvatar(_ row: AttendanceRowUi) -> some View {
-        let tint: Color = {
-            switch row.status {
-            case .present:
-                return Color(red: 0.13, green: 0.77, blue: 0.37)
-            case .excused:
-                return Color(red: 0.96, green: 0.62, blue: 0.04)
-            case .absent:
-                return Color(red: 0.94, green: 0.27, blue: 0.27)
-            default:
-                return Color(red: 0.38, green: 0.45, blue: 0.55)
-            }
-        }()
+    let tint: Color = {
+        switch row.status {
+        case .present:
+            return KmiAppTheme.success(
+                for: colorScheme
+            )
 
-        return ZStack {
-            Circle()
-                .fill(tint.opacity(0.14))
+        case .absent:
+            return KmiAppTheme.error(
+                for: colorScheme
+            )
 
-            Image(systemName: "person.fill")
-                .font(.system(size: 16, weight: .black))
-                .foregroundStyle(tint)
+        case .excused, .unknown:
+            return KmiAppTheme.onSurfaceVariant(
+                for: colorScheme
+            )
         }
-        .frame(width: 38, height: 38)
-        .overlay(
-            Circle()
-                .stroke(tint.opacity(0.28), lineWidth: 1)
-        )
+    }()
+
+    return ZStack {
+        Circle()
+            .fill(tint.opacity(0.14))
+
+        Image(systemName: "person.fill")
+            .kmiFont(
+                size: 16,
+                weight: .black
+            )
+            .foregroundStyle(tint)
+            .accessibilityHidden(true)
     }
+    .frame(width: 38, height: 38)
+    .overlay(
+        Circle()
+            .stroke(
+                tint.opacity(0.28),
+                lineWidth: 1
+            )
+    )
+}
     
     private func deleteMemberButton(
         _ row: AttendanceRowUi
     ) -> some View {
+
         Button {
+
+            guard canEditAttendance else {
+                return
+            }
+
             pendingDeleteRow = row
+
         } label: {
-            Image(systemName: "trash.fill")
-                .font(
-                    .system(
-                        size: 14,
-                        weight: .black
-                    )
+
+            Image(
+                systemName: "trash.fill"
+            )
+                .kmiFont(
+                    size: 14,
+                    weight: .black
                 )
                 .foregroundStyle(
-                    isDarkMode
-                        ? Color(red: 1.0, green: 0.48, blue: 0.48)
-                        : Color(red: 0.86, green: 0.12, blue: 0.12)
+                    KmiAppTheme.error(
+                        for: colorScheme
+                    )
                 )
                 .frame(width: 42, height: 42)
                 .background(
-                    isDarkMode
-                        ? Color.red.opacity(0.16)
-                        : Color(red: 1.0, green: 0.93, blue: 0.93)
+                    KmiAppTheme.errorContainer(
+                        for: colorScheme
+                    )
                 )
                 .clipShape(Circle())
                 .overlay(
                     Circle()
                         .stroke(
-                            Color.red.opacity(
-                                isDarkMode ? 0.34 : 0.24
-                            ),
+                            KmiAppTheme.error(
+                                for: colorScheme
+                            )
+                            .opacity(0.30),
                             lineWidth: 1
                         )
                 )
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .disabled(
+            !canEditAttendance
+        )
+        .opacity(
+            canEditAttendance
+                ? 1
+                : 0.56
+        )
         .accessibilityLabel(
             tr(
                 "מחיקת מתאמן",
@@ -1708,7 +2062,7 @@ struct AttendanceView: View {
             )
         )
     }
-    
+
     private func statusButton(
         title: String,
         icon: String,
@@ -1719,12 +2073,11 @@ struct AttendanceView: View {
         Button(action: action) {
             VStack(spacing: 4) {
                 Image(systemName: icon)
-                    .font(
-                        .system(
-                            size: 14,
-                            weight: .black
-                        )
+                    .kmiFont(
+                        size: 14,
+                        weight: .black
                     )
+                    .accessibilityHidden(true)
 
                 Text(title)
                     .kmiFont(
@@ -1892,13 +2245,585 @@ struct AttendanceView: View {
     }
 
 
+    private func displayName(
+        for row: AttendanceRowUi?
+    ) -> String {
+
+        guard let row else {
+            return tr(
+                "המתאמן",
+                "this trainee"
+            )
+        }
+
+        let uniqueRows =
+            uniqueMembers(
+                vm.state.rows
+            )
+
+        let demoIndex =
+            uniqueRows.firstIndex {
+                $0.memberId == row.memberId
+            }
+
+        let mappedName =
+            TraineeDisplayNameMapper.displayName(
+                realName: row.memberName,
+                stableKey: row.memberId,
+                demoIndex: demoIndex,
+                isEnglish: isEnglish
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        return mappedName.isEmpty
+            ? tr(
+                "המתאמן",
+                "this trainee"
+            )
+            : mappedName
+    }
+
     private func shareReport() {
-        shareItems = [vm.state.shareText]
+
+        guard let pdfUrl =
+            createAttendancePDF()
+        else {
+            withAnimation {
+                toastMessage =
+                    tr(
+                        "לא ניתן היה ליצור את קובץ ה־PDF",
+                        "The PDF file could not be created"
+                    )
+            }
+
+            return
+        }
+
+        shareItems = [
+            pdfUrl
+        ]
+
         showShareSheet = true
     }
 
+    private func createAttendancePDF() -> URL? {
 
-    private func formattedDate(_ iso: String) -> String {
+        let rows =
+            uniqueMembers(
+                vm.state.rows
+            )
+
+        let reportDateText =
+            formattedDate(
+                vm.state.dateIso
+            )
+
+        let pageRect = CGRect(
+            x: 0,
+            y: 0,
+            width: 595,
+            height: 842
+        )
+
+        let renderer =
+            UIGraphicsPDFRenderer(
+                bounds: pageRect
+            )
+
+        let pdfData =
+            renderer.pdfData { context in
+
+                MainActor.assumeIsolated {
+
+                    let cg =
+                        context.cgContext
+
+                    let pageWidth =
+                        pageRect.width
+
+                    let horizontalMargin: CGFloat =
+                        34
+
+                let contentWidth =
+                    pageWidth -
+                    horizontalMargin * 2
+
+                let contentBottom =
+                    pageRect.height -
+                    KmiPdfFooter.CONTENT_BOTTOM_PADDING
+
+                let textAlignment: NSTextAlignment =
+                    isEnglish
+                        ? .left
+                        : .right
+
+                let writingDirection:
+                    NSWritingDirection =
+                        isEnglish
+                            ? .leftToRight
+                            : .rightToLeft
+
+                var pageNumber = 0
+
+                var currentY =
+                    KmiPdfHeader.CONTENT_TOP
+
+                func paragraphStyle(
+                    alignment: NSTextAlignment
+                ) -> NSMutableParagraphStyle {
+
+                    let style =
+                        NSMutableParagraphStyle()
+
+                    style.alignment = alignment
+                    style.baseWritingDirection =
+                        writingDirection
+                    style.lineBreakMode =
+                        .byTruncatingTail
+
+                    return style
+                }
+
+                func drawFooter() {
+
+                    KmiPdfFooter.draw(
+                        context: cg,
+                        pageWidth: pageRect.width,
+                        pageHeight: pageRect.height,
+                        pageNumber: pageNumber,
+                        isEnglish: isEnglish
+                    )
+                }
+
+                func beginPage() {
+
+                    context.beginPage()
+
+                    pageNumber += 1
+
+                    KmiPdfHeader.draw(
+                        context: cg,
+                        pageWidth: pageRect.width,
+                        isEnglish: isEnglish,
+                        titleHebrew: "דו״ח נוכחות",
+                        titleEnglish: "Attendance Report",
+                        subtitleHebrew:
+                            reportDateText,
+                        subtitleEnglish:
+                            reportDateText
+                    )
+
+                    currentY =
+                        KmiPdfHeader.CONTENT_TOP
+                }
+
+                func drawText(
+                    _ text: String,
+                    in rect: CGRect,
+                    font: UIFont,
+                    color: UIColor,
+                    alignment: NSTextAlignment
+                ) {
+
+                    let attributes:
+                        [NSAttributedString.Key: Any] = [
+                            .font: font,
+                            .foregroundColor: color,
+                            .paragraphStyle:
+                                paragraphStyle(
+                                    alignment: alignment
+                                )
+                        ]
+
+                    NSAttributedString(
+                        string: text,
+                        attributes: attributes
+                    )
+                    .draw(
+                        with: rect,
+                        options: [
+                            .usesLineFragmentOrigin,
+                            .usesFontLeading,
+                            .truncatesLastVisibleLine
+                        ],
+                        context: nil
+                    )
+                }
+
+                func statusText(
+                    for row: AttendanceRowUi
+                ) -> String {
+
+                    switch row.status {
+
+                    case .present:
+                        return tr(
+                            "הגיע",
+                            "Present"
+                        )
+
+                    case .absent:
+                        return tr(
+                            "לא הגיע",
+                            "Absent"
+                        )
+
+                    default:
+                        return tr(
+                            "לא סומן",
+                            "Not marked"
+                        )
+                    }
+                }
+
+                func statusColor(
+                    for row: AttendanceRowUi
+                ) -> UIColor {
+
+                    switch row.status {
+
+                    case .present:
+                        return UIColor(
+                            red: 0.03,
+                            green: 0.47,
+                            blue: 0.34,
+                            alpha: 1
+                        )
+
+                    case .absent:
+                        return UIColor(
+                            red: 0.73,
+                            green: 0.10,
+                            blue: 0.10,
+                            alpha: 1
+                        )
+
+                    case .excused, .unknown:
+                        return UIColor(
+                            red: 0.34,
+                            green: 0.40,
+                            blue: 0.47,
+                            alpha: 1
+                        )
+                    }
+                }
+
+                beginPage()
+
+                let branch =
+                    vm.state.branchName
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+
+                let group =
+                    vm.state.groupKey
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+
+                let branchGroupText =
+                    [
+                        branch.isEmpty
+                            ? nil
+                            : tr(
+                                "סניף: \(branch)",
+                                "Branch: \(branch)"
+                            ),
+                        group.isEmpty
+                            ? nil
+                            : tr(
+                                "קבוצה: \(group)",
+                                "Group: \(group)"
+                            )
+                    ]
+                    .compactMap { $0 }
+                    .joined(separator: " · ")
+
+                if !branchGroupText.isEmpty {
+
+                    drawText(
+                        branchGroupText,
+                        in: CGRect(
+                            x: horizontalMargin,
+                            y: currentY,
+                            width: contentWidth,
+                            height: 24
+                        ),
+                        font:
+                            UIFont.boldSystemFont(
+                                ofSize: 12
+                            ),
+                        color:
+                            UIColor(
+                                red: 0.29,
+                                green: 0.34,
+                                blue: 0.40,
+                                alpha: 1
+                            ),
+                        alignment: textAlignment
+                    )
+
+                    currentY += 30
+                }
+
+                if rows.isEmpty {
+
+                    drawText(
+                        tr(
+                            "אין מתאמנים להצגה בדו״ח",
+                            "No trainees are available for this report"
+                        ),
+                        in: CGRect(
+                            x: horizontalMargin,
+                            y: currentY + 20,
+                            width: contentWidth,
+                            height: 40
+                        ),
+                        font:
+                            UIFont.boldSystemFont(
+                                ofSize: 14
+                            ),
+                        color:
+                            UIColor(
+                                red: 0.29,
+                                green: 0.34,
+                                blue: 0.40,
+                                alpha: 1
+                            ),
+                        alignment: .center
+                    )
+
+                } else {
+
+                    for (index, row)
+                        in rows.enumerated() {
+
+                        let note =
+                            row.attendanceNote
+                                .trimmingCharacters(
+                                    in: .whitespacesAndNewlines
+                                )
+
+                        let rowHeight: CGFloat =
+                            note.isEmpty
+                                ? 46
+                                : 62
+
+                        if currentY + rowHeight >
+                            contentBottom {
+
+                            drawFooter()
+                            beginPage()
+                        }
+
+                        let rowRect =
+                            CGRect(
+                                x: horizontalMargin,
+                                y: currentY,
+                                width: contentWidth,
+                                height: rowHeight
+                            )
+
+                        let path =
+                            UIBezierPath(
+                                roundedRect: rowRect,
+                                cornerRadius: 10
+                            )
+
+                        UIColor(
+                            red: 0.96,
+                            green: 0.98,
+                            blue: 1,
+                            alpha: 1
+                        )
+                        .setFill()
+
+                        path.fill()
+
+                        UIColor(
+                            red: 0.82,
+                            green: 0.87,
+                            blue: 0.91,
+                            alpha: 1
+                        )
+                        .setStroke()
+
+                        path.lineWidth = 1
+                        path.stroke()
+
+                        let displayName =
+                            TraineeDisplayNameMapper
+                                .displayName(
+                                    realName:
+                                        row.memberName,
+                                    stableKey:
+                                        row.memberId,
+                                    demoIndex:
+                                        index,
+                                    isEnglish:
+                                        isEnglish
+                                )
+                                .trimmingCharacters(
+                                    in:
+                                        .whitespacesAndNewlines
+                                )
+
+                        let safeName =
+                            displayName.isEmpty
+                                ? tr(
+                                    "מתאמן ללא שם",
+                                    "Unnamed trainee"
+                                )
+                                : displayName
+
+                        let nameText =
+                            "\(index + 1). \(safeName)"
+
+                        let status =
+                            statusText(
+                                for: row
+                            )
+
+                        let nameWidth =
+                            contentWidth * 0.66
+
+                        let statusWidth =
+                            contentWidth -
+                            nameWidth -
+                            24
+
+                        let nameX =
+                            isEnglish
+                                ? rowRect.minX + 12
+                                : rowRect.maxX -
+                                    nameWidth -
+                                    12
+
+                        let statusX =
+                            isEnglish
+                                ? rowRect.maxX -
+                                    statusWidth -
+                                    12
+                                : rowRect.minX + 12
+
+                        drawText(
+                            nameText,
+                            in: CGRect(
+                                x: nameX,
+                                y: rowRect.minY + 8,
+                                width: nameWidth,
+                                height: 20
+                            ),
+                            font:
+                                UIFont.boldSystemFont(
+                                    ofSize: 12
+                                ),
+                            color:
+                                UIColor(
+                                    red: 0.09,
+                                    green: 0.13,
+                                    blue: 0.20,
+                                    alpha: 1
+                                ),
+                            alignment:
+                                textAlignment
+                        )
+
+                        drawText(
+                            status,
+                            in: CGRect(
+                                x: statusX,
+                                y: rowRect.minY + 8,
+                                width: statusWidth,
+                                height: 20
+                            ),
+                            font:
+                                UIFont.boldSystemFont(
+                                    ofSize: 11
+                                ),
+                            color:
+                                statusColor(
+                                    for: row
+                                ),
+                            alignment:
+                                isEnglish
+                                    ? .right
+                                    : .left
+                        )
+
+                        if !note.isEmpty {
+
+                            drawText(
+                                tr(
+                                    "הערה: \(note)",
+                                    "Note: \(note)"
+                                ),
+                                in: CGRect(
+                                    x: rowRect.minX + 12,
+                                    y: rowRect.minY + 31,
+                                    width:
+                                        rowRect.width - 24,
+                                    height: 22
+                                ),
+                                font:
+                                    UIFont.systemFont(
+                                        ofSize: 10
+                                    ),
+                                color:
+                                    UIColor(
+                                        red: 0.29,
+                                        green: 0.34,
+                                        blue: 0.40,
+                                        alpha: 1
+                                    ),
+                                alignment:
+                                    textAlignment
+                            )
+                        }
+
+                        currentY =
+                            rowRect.maxY + 8
+                    }
+                }
+
+                drawFooter()
+                }
+            }
+
+        let fileName =
+            isEnglish
+                ? "KMI_Attendance_Report.pdf"
+                : "קמי_דוח_נוכחות.pdf"
+
+        let fileUrl =
+            FileManager.default
+                .temporaryDirectory
+                .appendingPathComponent(
+                    fileName
+                )
+
+        do {
+
+            try pdfData.write(
+                to: fileUrl,
+                options: .atomic
+            )
+
+            return fileUrl
+
+        } catch {
+
+            return nil
+        }
+
+    }
+
+    private func formattedDate(
+        _ iso: String
+    ) -> String {
         let input = DateFormatter()
         input.locale = Locale(identifier: "en_US_POSIX")
         input.dateFormat = "yyyy-MM-dd"
@@ -1984,36 +2909,31 @@ private struct AttendancePremiumDatePickerSheet: View {
     }
 
     private var sheetPrimaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.94)
-            : Color(red: 0.10, green: 0.14, blue: 0.22)
+        KmiAppTheme.onSurface(
+            for: colorScheme
+        )
     }
 
     private var calendarSurfaceColor: Color {
-        isDarkMode
-            ? Color(red: 0.08, green: 0.12, blue: 0.19)
-            : Color.white.opacity(0.97)
+        KmiAppTheme.surface(
+            for: colorScheme
+        )
+        .opacity(0.97)
     }
 
     private var secondaryButtonColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.12)
-            : Color.black.opacity(0.07)
+        KmiAppTheme.surfaceVariant(
+            for: colorScheme
+        )
     }
 
     var body: some View {
         ZStack {
             LinearGradient(
                 colors:
-                    isDarkMode
-                    ? [
-                        Color(red: 0.03, green: 0.07, blue: 0.14),
-                        Color(red: 0.03, green: 0.18, blue: 0.30)
-                    ]
-                    : [
-                        Color(red: 0.94, green: 0.96, blue: 1.0),
-                        Color(red: 0.82, green: 0.93, blue: 0.98)
-                    ],
+                    KmiAppTheme.screenBackgroundColors(
+                        for: colorScheme
+                    ),
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -2059,9 +2979,9 @@ private struct AttendancePremiumDatePickerSheet: View {
                         style: .continuous
                     )
                     .stroke(
-                        isDarkMode
-                            ? Color.white.opacity(0.14)
-                            : Color.black.opacity(0.08),
+                        KmiAppTheme.outlineVariant(
+                            for: colorScheme
+                        ),
                         lineWidth: 1
                     )
                 )
@@ -2146,22 +3066,18 @@ private struct AttendancePremiumDatePickerSheet: View {
                             weight: .heavy
                         )
                         .foregroundStyle(
-                            isDarkMode
-                                ? Color(red: 0.03, green: 0.09, blue: 0.18)
-                                : Color.white
+                            KmiAppTheme.onSecondary(
+                                for: colorScheme
+                            )
                         )
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                         .frame(maxWidth: .infinity)
                         .frame(minHeight: 48)
                         .background(
-                            isDarkMode
-                                ? Color.white
-                                : Color(
-                                    red: 0.17,
-                                    green: 0.36,
-                                    blue: 0.72
-                                )
+                            KmiAppTheme.secondary(
+                                for: colorScheme
+                            )
                         )
                         .clipShape(
                             RoundedRectangle(

@@ -303,7 +303,28 @@ final class AppNavModel: ObservableObject {
     }
 
     func pop() {
+
         guard !path.isEmpty else {
+            return
+        }
+
+        /*
+         * אם By Topic נפתח ישירות מעל Home,
+         * Back צריך לחזור ל-By Belt
+         * ולא לשורש.
+         */
+        if
+            path.count == 1,
+            case .beltQuestionsByTopic(
+                let belt
+            ) = path[0] {
+
+            path = [
+                .beltQuestionsByBelt(
+                    belt: belt
+                )
+            ]
+
             return
         }
 
@@ -1621,20 +1642,75 @@ struct ContentView: View {
                             .navigationBarBackButtonHidden(true)
                         }
                         
-                    case .allLists(let belt):
-                        KmiRootLayout(title: "כל הרשימות", nav: nav, selectedIcon: .home) {
+                    case .allLists(
+                        let belt
+                    ):
+
+                        KmiRootLayout(
+                            title:
+                                tr(
+                                    "כל הרשימות",
+                                    "All Lists"
+                                ),
+                            nav:
+                                nav,
+                            selectedIcon:
+                                .home
+                        ) {
                             ExercisesTabsView(
-                                belt: belt,
-                                topicTitle: "__ALL__",
-                                subTopicTitle: nil,
-                                onPractice: { pickedBelt, topicTitle in
-                                    nav.push(.practice(belt: pickedBelt, topicTitle: topicTitle))
+                                belt:
+                                    belt,
+
+                                /*
+                                 * __ALL__ הוא token גלובלי:
+                                 * המסך אינו מוגבל לנושא מסוים.
+                                 */
+                                topicTitle:
+                                    "__ALL__",
+
+                                subTopicTitle:
+                                    nil,
+
+                                /*
+                                 * תרגול מתוך All Lists
+                                 * חייב לשמור גם את החגורה
+                                 * וגם את הנושא שנבחר.
+                                 */
+                                onPractice: {
+                                    pickedBelt,
+                                    pickedTopicTitle in
+
+                                    let cleanTopic =
+                                        pickedTopicTitle
+                                            .trimmingCharacters(
+                                                in:
+                                                    .whitespacesAndNewlines
+                                            )
+
+                                    nav.push(
+                                        .practice(
+                                            belt:
+                                                pickedBelt,
+                                            topicTitle:
+                                                cleanTopic.isEmpty
+                                                    ? "__ALL__"
+                                                    : cleanTopic
+                                        )
+                                    )
                                 },
+
+                                /*
+                                 * Home מתוך All Lists
+                                 * חוזר לשורש האפליקציה,
+                                 * ולא רק צעד אחד אחורה.
+                                 */
                                 onHome: {
                                     nav.popToRoot()
                                 }
                             )
-                            .navigationBarBackButtonHidden(true)
+                            .navigationBarBackButtonHidden(
+                                true
+                            )
                         }
 
                     case .practice(

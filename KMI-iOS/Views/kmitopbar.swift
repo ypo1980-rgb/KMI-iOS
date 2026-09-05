@@ -388,19 +388,25 @@ struct KmiTopBar: View {
     
     let titleColor: Color?
 
-    private var resolvedTitleColor: Color {
-        titleColor ??
-        (
-            colorScheme == .dark
-            ? Color.white.opacity(0.94)
-            : Color.black.opacity(0.85)
-        )
+    private var resolvedTitleColor:
+        Color {
+
+        titleColor
+        ?? KmiAppTheme
+            .onSurface(
+                for:
+                    colorScheme
+            )
     }
 
-    private var secondaryTitleColor: Color {
-        colorScheme == .dark
-        ? Color.white.opacity(0.72)
-        : Color.black.opacity(0.70)
+    private var secondaryTitleColor:
+        Color {
+
+        KmiAppTheme
+            .onSurfaceVariant(
+                for:
+                    colorScheme
+            )
     }
     
     init(
@@ -427,91 +433,189 @@ struct KmiTopBar: View {
         HStack(spacing: 10) {
             VStack(spacing: 23) {
                 if let onBack {
+
                     Button {
+
                         onBack()
+
                     } label: {
-                        Image(systemName: "chevron.backward")
-                            .kmiFont(
-                                size: 14,
-                                weight: .black
+
+                        ZStack {
+
+                            Circle()
+                                .fill(
+                                    RadialGradient(
+                                        colors: [
+                                            KmiAppTheme
+                                                .primary(
+                                                    for:
+                                                        colorScheme
+                                                )
+                                                .opacity(
+                                                    0.20
+                                                ),
+                                            KmiAppTheme
+                                                .secondary(
+                                                    for:
+                                                        colorScheme
+                                                )
+                                                .opacity(
+                                                    0.10
+                                                ),
+                                            Color.clear
+                                        ],
+                                        center:
+                                            .center,
+                                        startRadius:
+                                            2,
+                                        endRadius:
+                                            22
+                                    )
+                                )
+                                .frame(
+                                    width:
+                                        42,
+                                    height:
+                                        42
+                                )
+
+                            Image(
+                                systemName:
+                                    isEnglish
+                                        ? "chevron.right"
+                                        : "chevron.left"
+                            )
+                            .kmiIconSize(
+                                16
+                            )
+                            .fontWeight(
+                                .black
                             )
                             .foregroundStyle(
-                                Color(hex: 0xFF4B478F)
-                            )
-                            .frame(width: 30, height: 24)
-                            .background(
-                                Capsule(style: .continuous)
-                                    .fill(
-                                        Color(hex: 0xFFF0EEFF)
+                                KmiAppTheme
+                                    .primary(
+                                        for:
+                                            colorScheme
                                     )
                             )
-                            .overlay(
-                                Capsule(style: .continuous)
-                                    .stroke(
-                                        Color(hex: 0xFFB7AEF5)
-                                            .opacity(0.72),
-                                        lineWidth: 1
-                                    )
-                            )
+                        }
+                        .frame(
+                            width:
+                                42,
+                            height:
+                                42
+                        )
+                        .contentShape(
+                            Circle()
+                        )
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(
-                        isEnglish ? "Back" : "חזור"
+                    .buttonStyle(
+                        .plain
                     )
+                    .accessibilityLabel(
+                        isEnglish
+                            ? "Back"
+                            : "חזור"
+                    )
+
                 } else {
+
                     Color.clear
-                        .frame(width: 30, height: 24)
+                        .frame(
+                            width:
+                                42,
+                            height:
+                                42
+                        )
                 }
 
                 if !localizedRoleLabel
                     .trimmingCharacters(
-                        in: .whitespacesAndNewlines
+                        in:
+                            .whitespacesAndNewlines
                     )
                     .isEmpty {
-                    Text(localizedRoleLabel)
-                        .kmiFont(
-                            size: 8.5,
-                            weight: .bold
+
+                    Text(
+                        localizedRoleLabel
+                    )
+                    .kmiTypography(
+                        .caption
+                    )
+                    .fontWeight(
+                        .heavy
+                    )
+                    .lineLimit(
+                        1
+                    )
+                    .minimumScaleFactor(
+                        0.82
+                    )
+                    .multilineTextAlignment(
+                        .center
+                    )
+                    .foregroundStyle(
+                        Color.white
+                    )
+                    .padding(
+                        .horizontal,
+                        8 * displayScale
+                    )
+                    .padding(
+                        .vertical,
+                        3 * displayScale
+                    )
+                    .background {
+
+                        Capsule(
+                            style:
+                                .continuous
                         )
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.white)
-                        .padding(
-                            .horizontal,
-                            7 * displayScale
-                        )
-                        .padding(
-                            .vertical,
-                            2 * displayScale
-                        )
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(
-                                    isCoachRole
-                                        ? Color(hex: 0xFF2A1F52)
-                                        : Color(hex: 0xFF1E2947)
-                                )
-                                .opacity(0.94)
-                        )
-                        .overlay(
-                            Capsule(style: .continuous)
-                                .stroke(
-                                    (
-                                        isCoachRole
-                                            ? Color(hex: 0xFFD8B4FE)
-                                            : Color(hex: 0xFFBFDBFE)
+                        .fill(
+                            isCoachRole
+                                ? KmiAppTheme
+                                    .primary(
+                                        for:
+                                            colorScheme
                                     )
-                                    .opacity(0.30),
-                                    lineWidth: 1
-                                )
+                                : KmiAppTheme
+                                    .secondary(
+                                        for:
+                                            colorScheme
+                                    )
                         )
-                        .shadow(
-                            color: Color.black.opacity(0.10),
-                            radius: 1,
-                            x: 0,
-                            y: 1
+                        .opacity(
+                            0.94
                         )
+                    }
+                    .overlay {
+
+                        Capsule(
+                            style:
+                                .continuous
+                        )
+                        .stroke(
+                            Color.white
+                                .opacity(
+                                    0.20
+                                ),
+                            lineWidth:
+                                1
+                        )
+                    }
+                    .shadow(
+                        color:
+                            Color.black
+                                .opacity(
+                                    0.08
+                                ),
+                        radius:
+                            1,
+                        x:
+                            0,
+                        y:
+                            1
+                    )
                 } else {
                     Color.clear
                         .frame(width: 66, height: 17)
@@ -528,27 +632,56 @@ struct KmiTopBar: View {
             HStack(spacing: 8) {
                 if shouldRenderTopBeltIcon,
                    let resolvedTopBeltImageName {
-                    Image(resolvedTopBeltImageName)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(
-                            width: 46 * displayScale,
-                            height: 30 * displayScale
-                        )
-                        .accessibilityLabel(
+
+                    let isYellowBelt =
+                        resolvedTopBeltImageName
+                            .lowercased()
+                            .contains(
+                                "yellow"
+                            )
+
+                    Image(
+                        resolvedTopBeltImageName
+                    )
+                    .resizable()
+                    .scaledToFit()
+                    .frame(
+                        width:
+                            82 * displayScale,
+                        height:
+                            38 * displayScale
+                    )
+                    .scaleEffect(
+                        x:
+                            isYellowBelt
+                                ? 1.55
+                                : 1.0,
+                        y:
+                            1.0
+                    )
+                    .rotationEffect(
+                        .degrees(
                             isEnglish
-                                ? "Belt"
-                                : "חגורה"
+                                ? 20
+                                : -20
                         )
+                    )
+                    .accessibilityLabel(
+                        isEnglish
+                            ? "Belt"
+                            : "חגורה"
+                    )
                 }
 
-                Text(localizedTitle)
-                    .kmiFont(
-                        size: 20,
-                        weight: .black,
-                        design: .rounded
-                    )
-                    .foregroundStyle(resolvedTitleColor)
+                Text(
+                    localizedTitle
+                )
+                .kmiTypography(
+                    .screenTitle
+                )
+                .foregroundStyle(
+                    resolvedTitleColor
+                )
                     .lineLimit(1)
                     .allowsTightening(true)
                     .minimumScaleFactor(0.68)
@@ -569,23 +702,30 @@ struct KmiTopBar: View {
                         in: .whitespacesAndNewlines
                     )
                     .isEmpty {
-                    Text(rightText)
-                        .kmiFont(
-                            size: 18,
-                            weight: .heavy
-                        )
-                        .foregroundStyle(
-                            secondaryTitleColor
-                        )
+                    Text(
+                        rightText
+                    )
+                    .kmiTypography(
+                        .cardTitle
+                    )
+                    .foregroundStyle(
+                        secondaryTitleColor
+                    )
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                 }
             }
             .frame(
-                maxWidth: .infinity,
-                alignment: .center
+                maxWidth:
+                    .infinity,
+                minHeight:
+                    54,
+                alignment:
+                    .center
             )
-            .layoutPriority(1)
+            .layoutPriority(
+                1
+            )
 
             Spacer(minLength: 4)
 
@@ -739,7 +879,16 @@ struct KmiRootLayout<Content: View>: View {
     let titleColor: Color?
     let onPickSearchResult: ((String) -> Void)?
     let onShare: (() -> Void)?
-
+    /*
+     * Back מקומי אופציונלי.
+     *
+     * מיועד למסכים שנפתחו ב-navigationDestination
+     * מקומי ולא דרך AppNavModel.path.
+     *
+     * אם קיים override, הוא קודם ל-nav.pop().
+     */
+    let onBackOverride: (() -> Void)?
+    
     /*
      * התאמה ל־lockSearch ול־lockHome באנדרואיד.
      */
@@ -820,6 +969,7 @@ struct KmiRootLayout<Content: View>: View {
         isInsideAssistant: Bool = false,
         onPickSearchResult: ((String) -> Void)? = nil,
         onShare: (() -> Void)? = nil,
+        onBackOverride: (() -> Void)? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
@@ -842,6 +992,7 @@ struct KmiRootLayout<Content: View>: View {
         self.isInsideAssistant = isInsideAssistant
         self.onPickSearchResult = onPickSearchResult
         self.onShare = onShare
+        self.onBackOverride = onBackOverride
         self.content = content()
     }
   
@@ -913,6 +1064,43 @@ struct KmiRootLayout<Content: View>: View {
         return title
     }
     
+    private var resolvedBackAction:
+        (() -> Void)? {
+
+        guard
+            onBackOverride != nil ||
+            !nav.path.isEmpty
+        else {
+
+            return nil
+        }
+
+        return {
+
+            showGlobalIconMenu = false
+            drawerOpen = false
+            showGlobalSearch = false
+            showShareSheet = false
+            selectedGlobalSearchHit = nil
+
+            withAnimation(
+                .easeInOut(
+                    duration: 0.20
+                )
+            ) {
+
+                if let onBackOverride {
+
+                    onBackOverride()
+
+                } else {
+
+                    nav.pop()
+                }
+            }
+        }
+    }
+    
     private var roleForGlobalBadge: String {
         if let modePillIsCoach {
             return modePillIsCoach
@@ -934,70 +1122,27 @@ struct KmiRootLayout<Content: View>: View {
         )
     }
 
-    private var topBarSurfaceColor: Color {
-        colorScheme == .dark
-        ? Color(hex: 0xFF111827)
-        : Color.white
+    private var topBarSurfaceColor:
+        Color {
+
+        KmiAppTheme
+            .surface(
+                for:
+                    colorScheme
+            )
     }
 
-    private var topBarDividerColor: Color {
-        colorScheme == .dark
-        ? Color.white.opacity(0.12)
-        : Color.black.opacity(0.04)
-    }
+    private var topBarDividerColor:
+        Color {
 
-    private var globalRailGradientColors: [Color] {
-        if colorScheme == .dark {
-            return [
-                Color(hex: 0xFF1F2937).opacity(0.98),
-                Color(hex: 0xFF111827),
-                Color(hex: 0xFF1F2937).opacity(0.98)
-            ]
-        }
-
-        return [
-            Color.white.opacity(0.98),
-            Color(hex: 0xFFF8F7FF),
-            Color.white.opacity(0.98)
-        ]
-    }
-
-    private var globalRailBorderColor: Color {
-        colorScheme == .dark
-        ? Color.white.opacity(0.16)
-        : Color(hex: 0xFFE7DDFB)
-    }
-
-    private var globalRailIdleCircleColor: Color {
-        colorScheme == .dark
-        ? Color.white.opacity(0.10)
-        : Color(red: 0.94, green: 0.95, blue: 0.98)
-    }
-
-    private var globalRailTextColor: Color {
-        colorScheme == .dark
-        ? Color.white.opacity(0.90)
-        : Color(
-            red: 0.07,
-            green: 0.09,
-            blue: 0.15
-        )
-    }
-
-    private var globalRailToggleGradientColors: [Color] {
-        if colorScheme == .dark {
-            return [
-                Color(hex: 0xFF374151),
-                Color(hex: 0xFF1F2937),
-                Color(hex: 0xFF111827)
-            ]
-        }
-
-        return [
-            Color(hex: 0xFFFFFFFF),
-            Color(hex: 0xFFF2F2F4),
-            Color(hex: 0xFFE2E2E6)
-        ]
+        KmiAppTheme
+            .outline(
+                for:
+                    colorScheme
+            )
+            .opacity(
+                0.45
+            )
     }
 
     @ViewBuilder
@@ -1008,10 +1153,14 @@ struct KmiRootLayout<Content: View>: View {
     var body: some View {
         KmiSideDrawerContainer(
             isOpen: $drawerOpen,
+
             onItem: { item in
+
                 drawerOpen = false
                 showGlobalIconMenu = false
                 showGlobalSearch = false
+                showShareSheet = false
+                selectedGlobalSearchHit = nil
 
                 let defaults =
                     UserDefaults.standard
@@ -1316,22 +1465,7 @@ struct KmiRootLayout<Content: View>: View {
                         titleColor: titleColor,
                         topBeltImageName: topBeltImageName,
                         showTopBeltIcon: showTopBeltIcon,
-                        onBack:
-                            nav.path.isEmpty
-                            ? nil
-                            : {
-                                showGlobalIconMenu = false
-                                drawerOpen = false
-                                showGlobalSearch = false
-                                showShareSheet = false
-                                selectedGlobalSearchHit = nil
-
-                                withAnimation(
-                                    .easeInOut(duration: 0.20)
-                                ) {
-                                    nav.pop()
-                                }
-                            },
+                        onBack: resolvedBackAction,
                         onMenu: {
                             showGlobalIconMenu = false
                             drawerOpen = true
@@ -1440,30 +1574,11 @@ struct KmiRootLayout<Content: View>: View {
         .onReceive(
             NotificationCenter.default.publisher(
                 for: Notification.Name(
-                    "KMI_TOP_TITLE_OVERRIDE"
-                )
-            )
-        ) { notification in
-            guard let newTitle =
-                    notification.object as? String else {
-                return
-            }
-
-            let clean =
-                newTitle.trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-
-            titleOverride =
-                clean.isEmpty ? nil : clean
-        }
-        .onReceive(
-            NotificationCenter.default.publisher(
-                for: Notification.Name(
                     "KMI_OPEN_GLOBAL_SEARCH"
                 )
             )
         ) { notification in
+
             let receivedQuery =
                 (notification.object as? String)?
                     .trimmingCharacters(
@@ -1482,6 +1597,15 @@ struct KmiRootLayout<Content: View>: View {
                 )
             )
         ) { notification in
+            guard !lockSearch else {
+
+                drawerActionErrorMessage =
+                    isEnglish
+                    ? "Search is not available on this screen."
+                    : "החיפוש אינו זמין במסך זה."
+
+                return
+            }
             let query =
                 (notification.object as? String)?
                     .trimmingCharacters(
@@ -1520,6 +1644,27 @@ struct KmiRootLayout<Content: View>: View {
         }
     }
 
+    private func openVoiceCommandsSafely() {
+
+        showGlobalIconMenu =
+            false
+
+        drawerOpen =
+            false
+
+        let opened =
+            VoiceCommandsBridge
+                .open()
+
+        if !opened {
+
+            drawerActionErrorMessage =
+                isEnglish
+                ? "Voice commands are not connected yet."
+                : "הפקודות הקוליות עדיין אינן מחוברות."
+        }
+    }
+    
     private var globalVoiceCommandsToggle: some View {
         HStack(spacing: 0) {
             globalVoiceCommandsButton
@@ -1529,85 +1674,142 @@ struct KmiRootLayout<Content: View>: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: 28)
-        .offset(y: 84)
+        .offset(
+            y:
+                83
+        )
         .environment(
             \.layoutDirection,
             .leftToRight
         )
     }
 
-    private var globalVoiceCommandsButton: some View {
-        Button {
-            showGlobalIconMenu = false
-            drawerOpen = false
+    private var globalVoiceCommandsButton:
+        some View {
 
-            VoiceCommandsBridge.open()
+        Button {
+
+            openVoiceCommandsSafely()
         } label: {
-            Image(systemName: "mic.fill")
-                .kmiFont(
-                    size: 15,
-                    weight: .black
+
+            ZStack {
+
+                UnevenRoundedRectangle(
+                    topLeadingRadius:
+                        0,
+                    bottomLeadingRadius:
+                        18,
+                    bottomTrailingRadius:
+                        18,
+                    topTrailingRadius:
+                        0,
+                    style:
+                        .continuous
                 )
-                .foregroundStyle(
-                    Color(hex: 0xFF4B478F)
-                )
-                .frame(width: 48, height: 28)
-                .background(
+                .fill(
                     LinearGradient(
                         colors: [
-                            Color(hex: 0xFFF8F7FF),
-                            Color(hex: 0xFFF0EEFF),
-                            Color(hex: 0xFFE6E2FF)
+                            Color(
+                                hex:
+                                    0xFFF8F7FF
+                            ),
+                            Color(
+                                hex:
+                                    0xFFF0EEFF
+                            ),
+                            Color(
+                                hex:
+                                    0xFFE6E2FF
+                            )
                         ],
-                        startPoint: .top,
-                        endPoint: .bottom
+                        startPoint:
+                            .top,
+                        endPoint:
+                            .bottom
                     )
                 )
-                .clipShape(
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: 0,
-                        bottomLeadingRadius: 18,
-                        bottomTrailingRadius: 18,
-                        topTrailingRadius: 0,
-                        style: .continuous
+
+                UnevenRoundedRectangle(
+                    topLeadingRadius:
+                        0,
+                    bottomLeadingRadius:
+                        18,
+                    bottomTrailingRadius:
+                        18,
+                    topTrailingRadius:
+                        0,
+                    style:
+                        .continuous
+                )
+                .stroke(
+                    Color(
+                        hex:
+                            0xFFB7AEF5
+                    ),
+                    lineWidth:
+                        1
+                )
+
+                Rectangle()
+                    .fill(
+                        Color.white
+                            .opacity(
+                                0.40
+                            )
+                    )
+                    .frame(
+                        height:
+                            1
+                    )
+                    .frame(
+                        maxHeight:
+                            .infinity,
+                        alignment:
+                            .top
+                    )
+
+                Image(
+                    systemName:
+                        "mic.fill"
+                )
+                .kmiIconSize(
+                    16
+                )
+                .foregroundStyle(
+                    Color(
+                        hex:
+                            0xFF4B478F
                     )
                 )
-                .overlay(
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: 0,
-                        bottomLeadingRadius: 18,
-                        bottomTrailingRadius: 18,
-                        topTrailingRadius: 0,
-                        style: .continuous
-                    )
-                    .stroke(
-                        Color(hex: 0xFFB7AEF5),
-                        lineWidth: 1
-                    )
+            }
+            .frame(
+                width:
+                    48,
+                height:
+                    28
+            )
+            .contentShape(
+                UnevenRoundedRectangle(
+                    topLeadingRadius:
+                        0,
+                    bottomLeadingRadius:
+                        18,
+                    bottomTrailingRadius:
+                        18,
+                    topTrailingRadius:
+                        0,
+                    style:
+                        .continuous
                 )
-                .overlay(
-                    Rectangle()
-                        .fill(
-                            Color.white.opacity(0.40)
-                        )
-                        .frame(height: 1),
-                    alignment: .top
-                )
-                .contentShape(
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: 0,
-                        bottomLeadingRadius: 18,
-                        bottomTrailingRadius: 18,
-                        topTrailingRadius: 0,
-                        style: .continuous
-                    )
-                )
+            )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(
+            .plain
+        )
         .accessibilityLabel(
             isEnglish
-            ? "Voice commands"
-            : "פקודות קוליות"
+                ? "Voice commands"
+                : "פקודות קוליות"
         )
     }
 
@@ -1620,110 +1822,197 @@ struct KmiRootLayout<Content: View>: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: 28)
-        .offset(y: 84)
+        .offset(
+            y:
+                83
+        )
         .environment(
             \.layoutDirection,
             .leftToRight
         )
     }
 
-    private var globalIconRailToggleButton: some View {
+    private var globalIconRailToggleButton:
+        some View {
+
         Button {
+
             withAnimation(
                 .spring(
-                    response: 0.25,
-                    dampingFraction: 0.9
+                    response:
+                        0.25,
+                    dampingFraction:
+                        0.90
                 )
             ) {
-                showGlobalIconMenu.toggle()
+
+                showGlobalIconMenu
+                    .toggle()
             }
+
         } label: {
-            Image(
-                systemName:
-                    showGlobalIconMenu
-                        ? "chevron.up"
-                        : "chevron.down"
-            )
-            .kmiFont(
-                size: 17,
-                weight: .black
-            )
-            .foregroundStyle(
-                Color(hex: 0xFF4B478F)
-            )
-            .frame(width: 48, height: 28)
-            .background(
-                LinearGradient(
-                    colors: globalRailToggleGradientColors,
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .clipShape(
+
+            ZStack {
+
                 UnevenRoundedRectangle(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: 18,
-                    bottomTrailingRadius: 18,
-                    topTrailingRadius: 0,
-                    style: .continuous
+                    topLeadingRadius:
+                        0,
+                    bottomLeadingRadius:
+                        18,
+                    bottomTrailingRadius:
+                        18,
+                    topTrailingRadius:
+                        0,
+                    style:
+                        .continuous
                 )
-            )
-            .overlay(
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(
+                                hex:
+                                    0xFFF8F7FF
+                            ),
+                            Color(
+                                hex:
+                                    0xFFF0EEFF
+                            ),
+                            Color(
+                                hex:
+                                    0xFFE6E2FF
+                            )
+                        ],
+                        startPoint:
+                            .top,
+                        endPoint:
+                            .bottom
+                    )
+                )
+
                 UnevenRoundedRectangle(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: 18,
-                    bottomTrailingRadius: 18,
-                    topTrailingRadius: 0,
-                    style: .continuous
+                    topLeadingRadius:
+                        0,
+                    bottomLeadingRadius:
+                        18,
+                    bottomTrailingRadius:
+                        18,
+                    topTrailingRadius:
+                        0,
+                    style:
+                        .continuous
                 )
                 .stroke(
-                    colorScheme == .dark
-                    ? Color.white.opacity(0.18)
-                    : Color.black.opacity(0.20),
-                    lineWidth: 1
+                    Color(
+                        hex:
+                            0xFFB7AEF5
+                    ),
+                    lineWidth:
+                        1
                 )
-            )
-            .overlay(
+
                 Rectangle()
                     .fill(
-                        Color.black.opacity(0.13)
+                        Color.white
+                            .opacity(
+                                0.40
+                            )
                     )
-                    .frame(height: 1),
-                alignment: .top
+                    .frame(
+                        height:
+                            1
+                    )
+                    .frame(
+                        maxHeight:
+                            .infinity,
+                        alignment:
+                            .top
+                    )
+
+                Image(
+                    systemName:
+                        "chevron.down"
+                )
+                .kmiIconSize(
+                    16
+                )
+                .fontWeight(
+                    .black
+                )
+                .foregroundStyle(
+                    Color(
+                        hex:
+                            0xFF4B478F
+                    )
+                )
+                .rotationEffect(
+                    .degrees(
+                        showGlobalIconMenu
+                            ? 180
+                            : 0
+                    )
+                )
+                .animation(
+                    .spring(
+                        response:
+                            0.26,
+                        dampingFraction:
+                            0.78
+                    ),
+                    value:
+                        showGlobalIconMenu
+                )
+            }
+            .frame(
+                width:
+                    48,
+                height:
+                    28
             )
             .contentShape(
                 UnevenRoundedRectangle(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: 18,
-                    bottomTrailingRadius: 18,
-                    topTrailingRadius: 0,
-                    style: .continuous
+                    topLeadingRadius:
+                        0,
+                    bottomLeadingRadius:
+                        18,
+                    bottomTrailingRadius:
+                        18,
+                    topTrailingRadius:
+                        0,
+                    style:
+                        .continuous
                 )
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(
+            .plain
+        )
         .scaleEffect(
-            showGlobalIconMenu ? 0.97 : 1
+            showGlobalIconMenu
+                ? 0.97
+                : 1.0
         )
         .animation(
             .spring(
-                response: 0.22,
-                dampingFraction: 0.78
+                response:
+                    0.22,
+                dampingFraction:
+                    0.78
             ),
-            value: showGlobalIconMenu
+            value:
+                showGlobalIconMenu
         )
         .accessibilityLabel(
             showGlobalIconMenu
-            ? (
-                isEnglish
-                ? "Close icon rail"
-                : "סגור סרגל אייקונים"
-            )
-            : (
-                isEnglish
-                ? "Open icon rail"
-                : "פתח סרגל אייקונים"
-            )
+                ? (
+                    isEnglish
+                        ? "Close icon rail"
+                        : "סגור סרגל אייקונים"
+                )
+                : (
+                    isEnglish
+                        ? "Open icon rail"
+                        : "פתח סרגל אייקונים"
+                )
         )
     }
 
@@ -1751,206 +2040,376 @@ struct KmiRootLayout<Content: View>: View {
         return items
     }
     
-    private var globalIconSideRailLayer: some View {
+    private var globalIconSideRailLayer:
+        some View {
+
         ZStack {
+
             if showGlobalIconMenu {
-                Color.black.opacity(0.001)
+
+                Color.black
+                    .opacity(
+                        0.001
+                    )
                     .ignoresSafeArea()
-                    .contentShape(Rectangle())
+                    .contentShape(
+                        Rectangle()
+                    )
                     .onTapGesture {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                            showGlobalIconMenu = false
+
+                        withAnimation(
+                            .spring(
+                                response:
+                                    0.25,
+                                dampingFraction:
+                                    0.90
+                            )
+                        ) {
+
+                            showGlobalIconMenu =
+                                false
                         }
                     }
 
                 globalVerticalRailPanel
                     .frame(
-                        maxWidth: .infinity,
-                        maxHeight: .infinity,
-                        alignment: .topTrailing
+                        maxWidth:
+                            .infinity,
+                        maxHeight:
+                            .infinity,
+                        alignment:
+                            .topTrailing
                     )
-                    .padding(.top, 130)
-                    .padding(.trailing, 2)
+                    .padding(
+                        .top,
+                        120
+                    )
+                    .padding(
+                        .trailing,
+                        2
+                    )
                     .environment(
                         \.layoutDirection,
                         .leftToRight
                     )
                     .transition(
                         .opacity
-                            .combined(with: .move(edge: .trailing))
+                            .combined(
+                                with:
+                                    .move(
+                                        edge:
+                                            .trailing
+                                    )
+                            )
                     )
-                    .zIndex(40)
+                    .zIndex(
+                        40
+                    )
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .environment(\.layoutDirection, .leftToRight)
+        .frame(
+            maxWidth:
+                .infinity,
+            maxHeight:
+                .infinity
+        )
+        .environment(
+            \.layoutDirection,
+            .leftToRight
+        )
     }
 
-    private var globalVerticalRailPanel: some View {
-        VStack(spacing: 8) {
-            ForEach(globalRailItems, id: \.self) { item in
+    private var globalVerticalRailPanel:
+        some View {
+
+        VStack(
+            spacing:
+                5
+        ) {
+
+            ForEach(
+                globalRailItems,
+                id:
+                    \.self
+            ) { item in
+
                 let isEnabled =
-                    isGlobalRailItemEnabled(item)
+                    isGlobalRailItemEnabled(
+                        item
+                    )
 
                 Button {
-                    guard isEnabled else {
+
+                    /*
+                     * Home נעול עדיין מגיב ללחיצה
+                     * כדי להציג את הודעת Android.
+                     */
+                    if item == .home,
+                       lockHome {
+
+                        onGlobalIconTap(
+                            .home
+                        )
+
+                        return
+                    }
+
+                    guard
+                        isEnabled
+                    else {
+
                         return
                     }
 
                     if suppressNextGlobalRailTap {
-                        suppressNextGlobalRailTap = false
+
+                        suppressNextGlobalRailTap =
+                            false
+
                         return
                     }
 
                     withAnimation(
                         .spring(
-                            response: 0.25,
-                            dampingFraction: 0.9
+                            response:
+                                0.25,
+                            dampingFraction:
+                                0.90
                         )
                     ) {
-                        showGlobalIconMenu = false
+
+                        showGlobalIconMenu =
+                            false
                     }
 
-                    onGlobalIconTap(item)
+                    onGlobalIconTap(
+                        item
+                    )
+
                 } label: {
-                    globalRailIcon(item)
-                        .opacity(isEnabled ? 1 : 0.58)
+
+                    globalRailIcon(
+                        item
+                    )
+                    .opacity(
+                        isEnabled
+                            ? 1.0
+                            : 0.58
+                    )
                 }
-                .buttonStyle(.plain)
-                .disabled(!isEnabled)
-                .onLongPressGesture(
-                    minimumDuration: 0.55,
-                    maximumDistance: 30
-                ) {
-                    guard item == .search,
-                          isEnabled,
-                          enableVoiceCommandsLongPress else {
-                        return
-                    }
-
-                    suppressNextGlobalRailTap = true
-
-                    withAnimation(
-                        .spring(
-                            response: 0.25,
-                            dampingFraction: 0.9
-                        )
-                    ) {
-                        showGlobalIconMenu = false
-                    }
-
-                    drawerOpen = false
-                    VoiceCommandsBridge.open()
-
-                    /*
-                     * גיבוי למקרה שהמערכת אינה שולחת לאחר מכן
-                     * את פעולת הלחיצה הרגילה של הכפתור.
-                     */
-                    DispatchQueue.main.asyncAfter(
-                        deadline: .now() + 0.8
-                    ) {
-                        suppressNextGlobalRailTap = false
-                    }
-                }
+                .buttonStyle(
+                    .plain
+                )
+                .disabled(
+                    !isEnabled &&
+                    !(item == .home && lockHome)
+                )
             }
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 9)
-        .background(
+        .padding(
+            .horizontal,
+            2
+        )
+        .padding(
+            .vertical,
+            6
+        )
+        .frame(
+            width:
+                68
+        )
+        .background {
+
             RoundedRectangle(
-                cornerRadius: 22,
-                style: .continuous
+                cornerRadius:
+                    22,
+                style:
+                    .continuous
             )
             .fill(
                 LinearGradient(
-                    colors: globalRailGradientColors,
-                    startPoint: .top,
-                    endPoint: .bottom
+                    colors: [
+                        KmiAppTheme
+                            .surface(
+                                for:
+                                    colorScheme
+                            ),
+                        KmiAppTheme
+                            .surfaceVariant(
+                                for:
+                                    colorScheme
+                            ),
+                        KmiAppTheme
+                            .surface(
+                                for:
+                                    colorScheme
+                            )
+                    ],
+                    startPoint:
+                        .top,
+                    endPoint:
+                        .bottom
                 )
             )
-        )
-        .overlay(
+        }
+        .overlay {
+
             RoundedRectangle(
-                cornerRadius: 22,
-                style: .continuous
+                cornerRadius:
+                    22,
+                style:
+                    .continuous
             )
             .stroke(
-                globalRailBorderColor,
-                lineWidth: 1
+                KmiAppTheme
+                    .outlineVariant(
+                        for:
+                            colorScheme
+                    ),
+                lineWidth:
+                    1
             )
-        )
+        }
         .shadow(
-            color: Color.black.opacity(0.16),
-            radius: 10,
-            x: 0,
-            y: 6
+            color:
+                Color.black
+                    .opacity(
+                        0.08
+                    ),
+            radius:
+                2,
+            x:
+                0,
+            y:
+                1
         )
     }
 
-    private func globalRailIcon(_ item: KmiIconStripItem) -> some View {
-        let isSelected = selectedIcon == item
+    private func globalRailIcon(
+        _ item:
+            KmiIconStripItem
+    ) -> some View {
 
-        return VStack(spacing: 3) {
+        let tint =
+            globalRailIconTint(
+                item
+            )
+
+        let isEnabled =
+            isGlobalRailItemEnabled(
+                item
+            )
+
+        return VStack(
+            spacing:
+                3
+        ) {
+
             ZStack {
+
                 Circle()
                     .fill(
-                        isSelected
-                            ? Color(
-                                red: 0.31,
-                                green: 0.27,
-                                blue: 0.78
-                            )
-                            .opacity(
-                                colorScheme == .dark
-                                    ? 0.34
-                                    : 0.18
-                            )
-                            : globalRailIdleCircleColor
+                        tint.opacity(
+                            isEnabled
+                                ? 0.16
+                                : 0.08
+                        )
                     )
-                    .shadow(
-                        color: Color.black.opacity(0.12),
-                        radius: 3,
-                        x: 0,
-                        y: 2
+                    .frame(
+                        width:
+                            34,
+                        height:
+                            34
+                    )
+
+                Circle()
+                    .stroke(
+                        tint.opacity(
+                            isEnabled
+                                ? 0.24
+                                : 0.12
+                        ),
+                        lineWidth:
+                            1
+                    )
+                    .frame(
+                        width:
+                            34,
+                        height:
+                            34
                     )
 
                 Image(
-                    systemName: globalRailSystemIcon(item)
+                    systemName:
+                        globalRailSystemIcon(
+                            item
+                        )
                 )
-                .kmiFont(
-                    size: 20,
-                    weight: .black
+                .kmiIconSize(
+                    17
                 )
                 .foregroundStyle(
-                    isSelected
-                        ? Color(
-                            red: 0.31,
-                            green: 0.27,
-                            blue: 0.78
-                        )
-                        : globalRailIconTint(item)
+                    isEnabled
+                        ? tint
+                        : KmiAppTheme
+                            .onSurfaceVariant(
+                                for:
+                                    colorScheme
+                            )
+                            .opacity(
+                                0.45
+                            )
                 )
             }
-            .frame(width: 42, height: 42)
 
-            Text(globalRailTitle(item))
-                .kmiFont(
-                    size: 10,
-                    weight: .black
+            Text(
+                globalRailTitle(
+                    item
                 )
-                .foregroundStyle(globalRailTextColor)
-                .lineLimit(1)
-                .minimumScaleFactor(0.70)
-                .multilineTextAlignment(.center)
-                .frame(width: 62)
-                .frame(minHeight: 12)
+            )
+            .kmiTypography(
+                .caption
+            )
+            .fontWeight(
+                .bold
+            )
+            .foregroundStyle(
+                isEnabled
+                    ? KmiAppTheme
+                        .onSurface(
+                            for:
+                                colorScheme
+                        )
+                    : KmiAppTheme
+                        .onSurfaceVariant(
+                            for:
+                                colorScheme
+                        )
+                        .opacity(
+                            0.52
+                        )
+            )
+            .lineLimit(
+                1
+            )
+            .minimumScaleFactor(
+                0.66
+            )
         }
-        .frame(width: 68)
-        .frame(minHeight: 60)
+        .frame(
+            maxWidth:
+                .infinity
+        )
+        .padding(
+            .vertical,
+            2
+        )
         .contentShape(
             RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
+                cornerRadius:
+                    14,
+                style:
+                    .continuous
             )
         )
     }
@@ -2027,21 +2486,36 @@ struct KmiRootLayout<Content: View>: View {
     private func isGlobalRailItemEnabled(
         _ item: KmiIconStripItem
     ) -> Bool {
+
         switch item {
+
         case .assistant:
-            return !isInsideAssistant &&
+
+            return
+                !isInsideAssistant &&
                 selectedIcon != .assistant
 
         case .settings,
              .stats,
              .guide:
+
             return selectedIcon != item
 
         case .search:
+
             return !lockSearch
 
-        case .home,
-             .share:
+        case .home:
+
+            /*
+             * כמו Android:
+             * Home נשאר מוצג אבל נראה disabled
+             * כאשר lockHome פעיל.
+             */
+            return !lockHome
+
+        case .share:
+
             return true
         }
     }
@@ -2170,6 +2644,18 @@ struct KmiRootLayout<Content: View>: View {
     }
 
     private func performGlobalShare() {
+        showGlobalIconMenu =
+            false
+
+        drawerOpen =
+            false
+
+        showGlobalSearch =
+            false
+
+        selectedGlobalSearchHit =
+            nil
+        
         if let onShare {
             onShare()
             return

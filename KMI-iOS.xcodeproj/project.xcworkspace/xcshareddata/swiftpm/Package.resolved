@@ -1,5 +1,5 @@
 {
-  "originHash" : "7ed78cec4688813732ed048994a6c24c5c081e333197fce4007040cea0ee7d0c",
+  "originHash" : "e073f3578604b81a2ea806b905c326e657a9179b97d556c4e5778b362b3cc091",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -116,6 +116,15 @@
       "state" : {
         "revision" : "040d087ac2267d2ddd4cca36c757d1c6a05fdbfe",
         "version" : "101.0.0"
+      }
+    },
+    {
+      "identity" : "kosherswift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Elyahu41/KosherSwift.git",
+      "state" : {
+        "revision" : "e97a6f3847f95cacc3f60e1a29df15d2bb05ea20",
+        "version" : "2.0.0"
       }
     },
     {

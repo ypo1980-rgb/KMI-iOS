@@ -106,35 +106,30 @@ struct ForumView: View {
     private var demoPrivacy = DemoPrivacy.shared
 
     @State private var errorText: String? = nil
-
     @State private var canUseExtras: Bool = false
     @State private var lockText: String = ""
-
     @State private var branch: String = ""
     @State private var groupKey: String = ""
     @State private var fullName: String = ""
     @State private var email: String = ""
-
     @State private var messages: [ForumUiMessage] = []
-
     @State private var isMessagesLoading: Bool = false
-
     @State private var showParticipantsSheet: Bool = false
 
     // רשימת משתתפים אמיתיים לפי users בסניף — כמו באנדרואיד.
     // אם לא נמצאו משתמשים, forumParticipants ייפול לשמות מתוך ההודעות.
     @State private var participantsByUsers: [ForumParticipantUi] = []
     @State private var isParticipantsLoading: Bool = false
-
     @State private var isForumControlsCollapsed: Bool = true
     @State private var showRoomDetails: Bool = false
-    
     @State private var input: String = ""
     @State private var editingMessageId: String? = nil
     @State private var editText: String = ""
     @FocusState private var isComposerFocused: Bool
     @State private var pickedSearchHit: ForumExerciseHit? = nil
-    
+    @State private var showForumShareSheet: Bool = false
+    @State private var forumShareItems: [Any] = []
+
     #if canImport(FirebaseStorage)
     @State private var attachedImageData: Data? = nil
     @State private var attachedVideoUrl: URL? = nil
@@ -158,110 +153,82 @@ struct ForumView: View {
     #endif
 
     private var isDarkMode: Bool {
-
         colorScheme == .dark
 
     }
 
     private var gradient: LinearGradient {
-
         LinearGradient(
 
             colors:
                 KmiAppTheme.screenBackgroundColors(
                     for: colorScheme
                 ),
-
             startPoint: .top,
-
             endPoint: .bottom
-
         )
-
     }
 
     private var forumCardColor: Color {
-
         KmiAppTheme.surface(
-
             for: colorScheme
-
         )
-
     }
 
 private var forumCardBorderColor: Color {
-
     KmiAppTheme.outlineVariant(
         for: colorScheme
     )
-
 }
 
 private var forumPrimaryTextColor: Color {
-
     KmiAppTheme.onSurface(
         for: colorScheme
     )
-
 }
 
 private var forumSecondaryTextColor: Color {
-
     KmiAppTheme.onSurfaceVariant(
         for: colorScheme
     )
-
 }
 
 private var forumPlaceholderTextColor: Color {
-
     KmiAppTheme.onSurfaceVariant(
         for: colorScheme
     )
     .opacity(0.78)
-
 }
 
 private var forumComposerColor: Color {
-
     KmiAppTheme.surface(
         for: colorScheme
     )
-
 }
 
     private var forumMyBubbleColor: Color {
-
         KmiAppTheme.primaryContainer(
             for: colorScheme
         )
-
     }
 
     private var forumOtherBubbleColor: Color {
-
         KmiAppTheme.surface(
             for: colorScheme
         )
         .opacity(0.96)
-
     }
 
     private var forumMyBubbleTextColor: Color {
-
         KmiAppTheme.onPrimaryContainer(
             for: colorScheme
         )
-
     }
 
     private var forumOtherBubbleTextColor: Color {
-
         KmiAppTheme.onSurface(
             for: colorScheme
         )
-
     }
 
     private var forumSuccessGreen: Color {
@@ -269,68 +236,52 @@ private var forumComposerColor: Color {
     }
 
     private var forumMutedActionColor: Color {
-
         KmiAppTheme.surfaceVariant(
             for: colorScheme
         )
-
     }
 
     private var forumDangerTextColor: Color {
-
         KmiAppTheme.error(
             for: colorScheme
         )
-
     }
 
 private var forumStatusIconBackground: Color {
-
     KmiAppTheme.surfaceVariant(
         for: colorScheme
     )
-
 }
 
 private var forumStatusIconColor: Color {
-
     KmiAppTheme.onSurface(
         for: colorScheme
     )
-
 }
 
 private var forumStatusBackButtonColor: Color {
-
     KmiAppTheme.surfaceVariant(
         for: colorScheme
     )
-
 }
 
     private var forumLockCardColor: Color {
-
         KmiAppTheme.surface(
             for: colorScheme
         )
         .opacity(0.96)
-
     }
 
     private var forumLockBorderColor: Color {
-
         KmiAppTheme.outlineVariant(
             for: colorScheme
         )
-
     }
 
     private var forumLockIconBackground: Color {
-
         KmiAppTheme.surfaceVariant(
             for: colorScheme
         )
-
     }
 
     private var forumLockAccentColor: Color {
@@ -455,7 +406,6 @@ private var forumStatusBackButtonColor: Color {
     private func hasActiveSubscriptionAccess(_ defaults: UserDefaults = .standard) -> Bool {
         let now = Date().timeIntervalSince1970 * 1000
         let accessUntil = defaults.double(forKey: "sub_access_until")
-
         let verifiedAndValid =
             defaults.bool(forKey: "google_subscription_verified") &&
             accessUntil > now
@@ -573,29 +523,19 @@ private var forumStatusBackButtonColor: Color {
     }
     
     var body: some View {
-
         ZStack {
-
             gradient.ignoresSafeArea()
-
             if !canUseExtras {
-
                 lockedView
-
             } else if branch.isEmpty || groupKey.isEmpty {
-
                 missingGroupView
-
             } else {
-
                 chatView
-
             }
 
             if canUseExtras &&
                 (!branch.isEmpty && !groupKey.isEmpty) &&
                 (isMessagesLoading || isParticipantsLoading) {
-
                 KmiLoadingOverlay()
             }
 
@@ -603,14 +543,58 @@ private var forumStatusBackButtonColor: Color {
 
         .onAppear { boot() }
         .onDisappear { stopListener() }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("KMI_GLOBAL_SEARCH_PICK"))) { output in
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name("KMI_GLOBAL_SEARCH_PICK")
+            )
+        ) { output in
             guard let key = output.object as? String else { return }
             guard let parsed = parseSearchKey(key) else { return }
             pickedSearchHit = parsed
         }
+
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name(
+                    "KMI_GLOBAL_SHARE_REQUEST"
+                )
+            )
+        ) { notification in
+
+            guard
+                canUseExtras,
+                !branch.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ).isEmpty,
+                !groupKey.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ).isEmpty
+            else {
+                return
+            }
+
+            if let request =
+                notification.object as? NSMutableDictionary {
+                request["handled"] = true
+            }
+
+            do {
+                let pdfUrl = try createForumPdf()
+                forumShareItems = [pdfUrl]
+                showForumShareSheet = true
+            } catch {
+                errorText = tr(
+                    "לא הצלחנו ליצור את דוח הפורום.",
+                    "We could not create the forum report."
+                )
+            }
+        }
+
         .sheet(item: $pickedSearchHit) { hit in
-            ForumExerciseExplanationSheet(
-                hit: hit,
+            ExerciseExplanationDialog(
+                belt: hit.belt,
+                topic: hit.topic,
+                item: hit.item,
                 branch: branch,
                 groupKey: groupKey,
                 isEnglish: isEnglish
@@ -620,7 +604,20 @@ private var forumStatusBackButtonColor: Color {
             participantsSheet
         }
 
-#if canImport(FirebaseStorage)
+        .sheet(isPresented: $showForumShareSheet) {
+
+            KmiShareSheet(
+                items: forumShareItems
+            )
+            .presentationDetents([
+                .medium,
+                .large
+            ])
+            .presentationDragIndicator(.visible)
+
+        }
+
+        #if canImport(FirebaseStorage)
 .onChange(of: imagePickerItem) { _, newItem in
     guard let newItem else { return }
     Task { await loadPickedImage(newItem) }
@@ -832,34 +829,21 @@ private var forumStatusBackButtonColor: Color {
                 systemName:
                     "person.crop.circle.badge.exclamationmark"
             )
-            .font(
-                .system(
-                    size: 34,
-                    weight: .heavy
-                )
-            )
+            .kmiFont(size: 34, weight: .heavy)
             .foregroundStyle(
-                Color(
-                    red: 1.0,
-                    green: 107.0 / 255.0,
-                    blue: 107.0 / 255.0
-                )
+                KmiAppTheme.error(for: colorScheme)
             )
             .frame(width: 68, height: 68)
             .background(
                 Circle()
                     .fill(
-                        isDarkMode
-                            ? Color.white.opacity(0.08)
-                            : Color.white.opacity(0.82)
+                        KmiAppTheme.surfaceVariant(for: colorScheme)
                     )
             )
             .overlay {
                 Circle()
                     .stroke(
-                        isDarkMode
-                            ? Color.white.opacity(0.12)
-                            : forumCardBorderColor,
+                        KmiAppTheme.outlineVariant(for: colorScheme),
                         lineWidth: 1
                     )
             }
@@ -913,19 +897,15 @@ private var forumStatusBackButtonColor: Color {
                     size: 16,
                     weight: .bold
                 )
-                .foregroundStyle(.white)
+                .foregroundStyle(
+                    KmiAppTheme.onPrimary(for: colorScheme)
+                )
                 .frame(maxWidth: .infinity)
-                .frame(height: 46)
+                .frame(minHeight: 46)
                 .background(
                     Capsule(style: .continuous)
                         .fill(
-                            isDarkMode
-                                ? Color.white.opacity(0.16)
-                                : Color(
-                                    red: 37.0 / 255.0,
-                                    green: 99.0 / 255.0,
-                                    blue: 235.0 / 255.0
-                                )
+                            KmiAppTheme.primary(for: colorScheme)
                         )
                 )
             }
@@ -954,8 +934,10 @@ private var forumStatusBackButtonColor: Color {
                 ScrollView {
                     LazyVStack(spacing: 6) {
                         if messages.isEmpty {
-                            emptyForumMessagesView
-                                .padding(.top, 18)
+                            if !isMessagesLoading {
+                                emptyForumMessagesView
+                                    .padding(.top, 18)
+                            }
                         } else {
                             ForEach(messages) { msg in
                                 messageBubble(msg)
@@ -990,31 +972,24 @@ if let attachedMediaType {
                 ? "video.fill"
                 : "paperclip"
         )
-        .font(
-            .system(
-                size: 15,
-                weight: .bold
-            )
-        )
+        .kmiFont(size: 15, weight: .bold)
         .foregroundStyle(
-            attachedMediaType == "image"
-                ? Color.blue
-                : Color.purple
+            KmiAppTheme.secondary(for: colorScheme)
         )
         .frame(width: 30, height: 30)
         .background(
             Circle()
                 .fill(
-                    (
-                        attachedMediaType == "image"
-                        ? Color.blue
-                        : Color.purple
-                    )
-                    .opacity(
-                        isDarkMode ? 0.18 : 0.10
-                    )
+                    KmiAppTheme.surfaceVariant(for: colorScheme)
                 )
         )
+        .overlay {
+            Circle()
+                .stroke(
+                    KmiAppTheme.outlineVariant(for: colorScheme),
+                    lineWidth: 1
+                )
+        }
 
         Text(
             attachedMediaType == "image"
@@ -1595,9 +1570,7 @@ composer
         .background(
             Capsule(style: .continuous)
                 .fill(
-                    isDarkMode
-                        ? Color.white.opacity(0.07)
-                        : Color.white.opacity(0.72)
+                    KmiAppTheme.surfaceVariant(for: colorScheme)
                 )
         )
         .overlay {
@@ -1743,9 +1716,7 @@ composer
                 style: .continuous
             )
             .fill(
-                isDarkMode
-                    ? Color.white.opacity(0.055)
-                    : Color.white.opacity(0.70)
+                KmiAppTheme.surface(for: colorScheme)
             )
         )
         .overlay {
@@ -3041,35 +3012,32 @@ private func participantAvatar(
     }
     
     private func stopListener() {
-
         listener?.remove()
-
         listener = nil
-
         participantsByUsers = []
-
         isMessagesLoading = false
-
         isParticipantsLoading = false
 
     }
     
     private func loadForumParticipantsForBranch(_ branchValue: String) async {
         let cleanBranch = branchValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
 
         await MainActor.run {
             participantsByUsers = []
             isParticipantsLoading = true
         }
 
-        guard !cleanBranch.isEmpty else {
+        guard !cleanBranch.isEmpty, !cleanGroup.isEmpty else {
             await MainActor.run {
                 participantsByUsers = []
                 isParticipantsLoading = false
             }
+
             return
         }
-        
+
         let currentUid = Auth.auth().currentUser?.uid
         let currentEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let currentName = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3178,6 +3146,26 @@ private func participantAvatar(
             return Array(Set(out.filter { !$0.isEmpty }))
         }
 
+        func groupTokens(from data: [String: Any]) -> [String] {
+            var out: [String] = []
+
+            if let groups = data["groups"] as? [String] {
+                out.append(contentsOf: groups.map { normalizeForumText($0) })
+            }
+
+            if let groupNames = data["groupNames"] as? [String] {
+                out.append(contentsOf: groupNames.map { normalizeForumText($0) })
+            }
+
+            out.append(contentsOf: splitTokens(data["groupsCsv"] as? String))
+            out.append(contentsOf: splitTokens(data["group"] as? String))
+            out.append(contentsOf: splitTokens(data["groupKey"] as? String))
+            out.append(contentsOf: splitTokens(data["activeGroup"] as? String))
+            out.append(contentsOf: splitTokens(data["active_group"] as? String))
+
+            return Array(Set(out.filter { !$0.isEmpty }))
+        }
+
         func matchesBranch(tokens: [String], candidates: Set<String>) -> Bool {
             guard !tokens.isEmpty, !candidates.isEmpty else { return false }
 
@@ -3199,26 +3187,46 @@ private func participantAvatar(
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
             let docEmail =
-                ((data["email"] as? String) ?? "")
+                ((data["email"] as? String) ??
+                 (data["emailLower"] as? String) ??
+                 (data["userEmail"] as? String) ??
+                 (data["user_email"] as? String) ??
+                 "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
 
-            let phone =
-                ((data["phone"] as? String) ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let rawPhone =
+                ((data["phone"] as? String) ??
+                 (data["phoneNumber"] as? String) ??
+                 (data["phone_number"] as? String) ??
+                 (data["mobile"] as? String) ??
+                 "")
+
+            let digits = rawPhone.filter(\.isNumber)
+
+            let normalizedPhone: String
+            if digits.hasPrefix("972"), digits.count >= 11 {
+                normalizedPhone = "0" + digits.dropFirst(3)
+            } else if digits.hasPrefix("05") {
+                normalizedPhone = digits
+            } else if digits.count == 9, digits.hasPrefix("5") {
+                normalizedPhone = "0\(digits)"
+            } else {
+                normalizedPhone = digits
+            }
 
             let name = userName(from: data) ?? ""
-
-            if !uid.isEmpty {
-                return "uid:\(uid)"
-            }
 
             if !docEmail.isEmpty {
                 return "email:\(docEmail)"
             }
 
-            if !phone.isEmpty {
-                return "phone:\(phone)"
+            if !normalizedPhone.isEmpty {
+                return "phone:\(normalizedPhone)"
+            }
+
+            if !uid.isEmpty {
+                return "uid:\(uid)"
             }
 
             if !name.isEmpty {
@@ -3267,6 +3275,39 @@ private func participantAvatar(
             })
         )
 
+        let normalizedGroupCandidates = Set(
+            [
+                cleanGroup,
+                cleanGroup.replacingOccurrences(of: " + ", with: " ו"),
+                cleanGroup.replacingOccurrences(of: " ו", with: " + "),
+                swapDash(cleanGroup, to: "-"),
+                swapDash(cleanGroup, to: "–"),
+                swapDash(cleanGroup, to: "—"),
+                swapDash(cleanGroup, to: "־")
+            ]
+            .flatMap { value in
+                [value] + splitTokens(value)
+            }
+            .map { normalizeForumText($0) }
+            .filter { !$0.isEmpty }
+        )
+
+        func matchesGroup(tokens: [String]) -> Bool {
+            guard !normalizedGroupCandidates.isEmpty else {
+                return true
+            }
+
+            guard !tokens.isEmpty else {
+                return false
+            }
+
+            return tokens.contains { token in
+                normalizedGroupCandidates.contains(
+                    normalizeForumText(token)
+                )
+            }
+        }
+
         var docsById: [String: QueryDocumentSnapshot] = [:]
 
         for candidate in candidates {
@@ -3303,11 +3344,16 @@ private func participantAvatar(
             let data = doc.data()
 
             guard isAllowedForumRole(data),
-                  userName(from: data) != nil else {
+                  userName(from: data) != nil,
+                  matchesGroup(tokens: groupTokens(from: data)) else {
                 continue
             }
 
-            let key = participantUniqueKey(id: doc.documentID, data: data)
+            let key = participantUniqueKey(
+                id: doc.documentID,
+                data: data
+            )
+
             grouped[key] = doc
         }
 
@@ -3316,7 +3362,11 @@ private func participantAvatar(
             guard let name = userName(from: data) else { return nil }
 
             let docEmail =
-                ((data["email"] as? String) ?? "")
+                ((data["email"] as? String) ??
+                 (data["emailLower"] as? String) ??
+                 (data["userEmail"] as? String) ??
+                 (data["user_email"] as? String) ??
+                 "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
 
@@ -3332,7 +3382,11 @@ private func participantAvatar(
                 isMe: (
                     (currentUid != nil && docUid == currentUid) ||
                     (!currentEmail.isEmpty && docEmail == currentEmail) ||
-                    (!currentName.isEmpty && name.trimmingCharacters(in: .whitespacesAndNewlines) == currentName)
+                    (
+                        !currentName.isEmpty &&
+                        name.trimmingCharacters(in: .whitespacesAndNewlines)
+                            .caseInsensitiveCompare(currentName) == .orderedSame
+                    )
                 )
             )
         }
@@ -3478,6 +3532,485 @@ private func participantAvatar(
 
     }
 
+    // MARK: - Forum PDF
+
+    private func createForumPdf() throws -> URL {
+
+        let pageRect = CGRect(
+            x: 0,
+            y: 0,
+            width: 595,
+            height: 842
+        )
+
+        let renderer = UIGraphicsPDFRenderer(
+            bounds: pageRect
+        )
+
+        let cleanBranch = branch
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let cleanGroup = groupKey
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let filename = isEnglish
+            ? "forum_report.pdf"
+            : "דוח_פורום.pdf"
+
+        let outputUrl =
+            FileManager.default.temporaryDirectory
+                .appendingPathComponent(filename)
+
+        if FileManager.default.fileExists(
+            atPath: outputUrl.path
+        ) {
+
+            try FileManager.default.removeItem(
+                at: outputUrl
+            )
+
+        }
+
+        try renderer.writePDF(
+            to: outputUrl
+        ) { rendererContext in
+
+            let contentLeft: CGFloat = 36
+
+            let contentRight =
+                pageRect.width - 36
+
+            let contentWidth =
+                contentRight - contentLeft
+
+            let contentBottom =
+                pageRect.height -
+                KmiPdfFooter.CONTENT_BOTTOM_PADDING
+
+            let authorFont =
+                UIFont.systemFont(
+                    ofSize: 11.5,
+                    weight: .bold
+                )
+
+            let messageFont =
+                UIFont.systemFont(
+                    ofSize: 10.5,
+                    weight: .regular
+                )
+
+            let dateFont =
+                UIFont.systemFont(
+                    ofSize: 8.5,
+                    weight: .regular
+                )
+
+            let authorColor = UIColor(
+                red: 15.0 / 255.0,
+                green: 23.0 / 255.0,
+                blue: 42.0 / 255.0,
+                alpha: 1
+            )
+
+            let secondaryColor = UIColor(
+                red: 71.0 / 255.0,
+                green: 85.0 / 255.0,
+                blue: 105.0 / 255.0,
+                alpha: 1
+            )
+
+            let rowColor = UIColor(
+                red: 248.0 / 255.0,
+                green: 250.0 / 255.0,
+                blue: 252.0 / 255.0,
+                alpha: 1
+            )
+
+            let borderColor = UIColor(
+                red: 203.0 / 255.0,
+                green: 213.0 / 255.0,
+                blue: 225.0 / 255.0,
+                alpha: 1
+            )
+
+            let dateFormatter = DateFormatter()
+
+            dateFormatter.locale = Locale(
+                identifier: isEnglish
+                    ? "en_US_POSIX"
+                    : "he_IL"
+            )
+
+            dateFormatter.calendar =
+                Calendar(identifier: .gregorian)
+
+            dateFormatter.dateFormat =
+                "dd/MM/yyyy HH:mm"
+
+            var pageNumber = 0
+
+            var currentY =
+                KmiPdfHeader.CONTENT_TOP
+
+            func startPage() {
+
+                rendererContext.beginPage()
+
+                pageNumber += 1
+
+                KmiPdfHeader.draw(
+                    context:
+                        rendererContext.cgContext,
+                    pageWidth:
+                        pageRect.width,
+                    isEnglish:
+                        isEnglish,
+                    titleHebrew:
+                        "דו״ח פורום הסניף",
+                    titleEnglish:
+                        "Branch Forum Report",
+                    subtitleHebrew:
+                        [cleanBranch, cleanGroup]
+                            .filter { !$0.isEmpty }
+                            .joined(separator: " · "),
+                    subtitleEnglish:
+                        [cleanBranch, cleanGroup]
+                            .filter { !$0.isEmpty }
+                            .joined(separator: " · ")
+                )
+
+                currentY =
+                    KmiPdfHeader.CONTENT_TOP
+
+            }
+
+            func finishPage() {
+
+                KmiPdfFooter.draw(
+                    context:
+                        rendererContext.cgContext,
+                    pageWidth:
+                        pageRect.width,
+                    pageHeight:
+                        pageRect.height,
+                    pageNumber:
+                        pageNumber,
+                    totalPages:
+                        nil,
+                    isEnglish:
+                        isEnglish
+                )
+
+            }
+
+            func paragraphStyle(
+                alignment: NSTextAlignment
+            ) -> NSParagraphStyle {
+
+                let style = NSMutableParagraphStyle()
+
+                style.baseWritingDirection =
+                    KmiPdfDirection.textDirection(
+                        isEnglish: isEnglish
+                    )
+
+                style.alignment = alignment
+
+                style.lineBreakMode =
+                    .byWordWrapping
+
+                return style
+
+            }
+
+            func textHeight(
+                _ value: String,
+                font: UIFont,
+                width: CGFloat
+            ) -> CGFloat {
+
+                let attributes:
+                    [NSAttributedString.Key: Any] = [
+
+                        .font: font,
+
+                        .paragraphStyle:
+                            paragraphStyle(
+                                alignment:
+                                    KmiPdfDirection.textAlign(
+                                        isEnglish:
+                                            isEnglish
+                                    )
+                            )
+
+                    ]
+
+                return ceil(
+                    (value as NSString)
+                        .boundingRect(
+                            with: CGSize(
+                                width: width,
+                                height:
+                                    .greatestFiniteMagnitude
+                            ),
+                            options: [
+                                .usesLineFragmentOrigin,
+                                .usesFontLeading
+                            ],
+                            attributes: attributes,
+                            context: nil
+                        )
+                        .height
+                )
+
+            }
+
+            func drawText(
+                _ value: String,
+                rect: CGRect,
+                font: UIFont,
+                color: UIColor,
+                alignment: NSTextAlignment
+            ) {
+
+                let attributes:
+                    [NSAttributedString.Key: Any] = [
+
+                        .font: font,
+
+                        .foregroundColor: color,
+
+                        .paragraphStyle:
+                            paragraphStyle(
+                                alignment: alignment
+                            )
+
+                    ]
+
+                (value as NSString).draw(
+                    with: rect,
+                    options: [
+                        .usesLineFragmentOrigin,
+                        .usesFontLeading
+                    ],
+                    attributes: attributes,
+                    context: nil
+                )
+
+            }
+
+            startPage()
+
+            if messages.isEmpty {
+
+                drawText(
+                    tr(
+                        "אין הודעות בחדר הפורום שנבחר.",
+                        "There are no messages in this forum room."
+                    ),
+                    rect: CGRect(
+                        x: contentLeft,
+                        y: currentY + 30,
+                        width: contentWidth,
+                        height: 40
+                    ),
+                    font: authorFont,
+                    color: secondaryColor,
+                    alignment: .center
+                )
+
+            } else {
+
+                for message in messages.sorted(
+                    by: {
+                        $0.createdAtMillis <
+                        $1.createdAtMillis
+                    }
+                ) {
+
+                    let author =
+                        displayedAuthorName(
+                            for: message
+                        )
+
+                    let cleanMessage = message.text
+                        .replacingOccurrences(
+                            of: "\r",
+                            with: " "
+                        )
+                        .replacingOccurrences(
+                            of: "\n",
+                            with: " "
+                        )
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+
+                    let displayedMessage: String
+
+                    if !cleanMessage.isEmpty {
+
+                        displayedMessage =
+                            cleanMessage
+
+                    } else if message.mediaType == "image" {
+
+                        displayedMessage = tr(
+                            "תמונה מצורפת",
+                            "Attached image"
+                        )
+
+                    } else if message.mediaType == "video" {
+
+                        displayedMessage = tr(
+                            "סרטון מצורף",
+                            "Attached video"
+                        )
+
+                    } else {
+
+                        displayedMessage = tr(
+                            "הודעה ללא טקסט",
+                            "Message without text"
+                        )
+
+                    }
+
+                    let innerWidth = contentWidth - 24
+
+                    let authorHeight =
+                        textHeight(
+                            author,
+                            font: authorFont,
+                            width: innerWidth
+                        )
+
+                    let messageHeight =
+                        textHeight(
+                            displayedMessage,
+                            font: messageFont,
+                            width: innerWidth
+                        )
+
+                    let availablePageHeight =
+                        contentBottom -
+                        KmiPdfHeader.CONTENT_TOP
+
+                    let requestedRowHeight = max(
+                        58,
+                        12 +
+                        authorHeight +
+                        5 +
+                        messageHeight +
+                        17
+                    )
+
+                    let rowHeight = min(
+                        requestedRowHeight,
+                        availablePageHeight
+                    )
+
+                    if currentY + rowHeight > contentBottom {
+                        finishPage()
+                        startPage()
+                    }
+
+                    let rowRect = CGRect(
+                        x: contentLeft,
+                        y: currentY,
+                        width: contentWidth,
+                        height: rowHeight
+                    )
+
+                    let rowPath = UIBezierPath(
+                        roundedRect: rowRect,
+                        cornerRadius: 10
+                    )
+
+                    rowColor.setFill()
+
+                    rowPath.fill()
+
+                    borderColor.setStroke()
+
+                    rowPath.lineWidth = 1
+
+                    rowPath.stroke()
+
+                    let textX =
+                        contentLeft + 12
+
+                    drawText(
+                        author,
+                        rect: CGRect(
+                            x: textX,
+                            y: currentY + 8,
+                            width: innerWidth,
+                            height: authorHeight + 2
+                        ),
+                        font: authorFont,
+                        color: authorColor,
+                        alignment:
+                            KmiPdfDirection.textAlign(
+                                isEnglish: isEnglish
+                            )
+                    )
+
+                    drawText(
+                        displayedMessage,
+                        rect: CGRect(
+                            x: textX,
+                            y:
+                                currentY +
+                                11 +
+                                authorHeight,
+                            width: innerWidth,
+                            height: messageHeight + 3
+                        ),
+                        font: messageFont,
+                        color: authorColor,
+                        alignment:
+                            KmiPdfDirection.textAlign(
+                                isEnglish: isEnglish
+                            )
+                    )
+
+                    drawText(
+                        dateFormatter.string(
+                            from: message.createdAt
+                        ),
+                        rect: CGRect(
+                            x: textX,
+                            y: currentY + rowHeight - 15,
+                            width: innerWidth,
+                            height: 11
+                        ),
+                        font: dateFont,
+                        color: secondaryColor,
+                        alignment:
+                            KmiPdfDirection.endTextAlign(
+                                isEnglish: isEnglish
+                            )
+                    )
+
+                    currentY += rowHeight + 8
+
+                }
+
+            }
+
+            finishPage()
+
+        }
+
+        return outputUrl
+
+    }
+    
     // MARK: - Send / Update / Delete
 
     private func sendOrUpdate() async {
@@ -3529,42 +4062,55 @@ private func participantAvatar(
 
         }
 
-        if let editId = editingMessageId {
+        do {
 
-            guard
-                let messageBeingEdited =
-                    messages.first(
-                        where: { $0.id == editId }
-                    ),
-                canModifyMessage(messageBeingEdited)
-            else {
+            if let editId = editingMessageId {
 
-                await MainActor.run {
+                guard
+                    let messageBeingEdited =
+                        messages.first(
+                            where: { $0.id == editId }
+                        ),
+                    canModifyMessage(messageBeingEdited)
+                else {
 
-                    errorText = tr(
+                    await MainActor.run {
 
-                        "אין הרשאה לערוך הודעה זו.",
+                        errorText = tr(
 
-                        "You do not have permission to edit this message."
+                            "אין הרשאה לערוך הודעה זו.",
 
-                    )
+                            "You do not have permission to edit this message."
+
+                        )
+
+                    }
+
+                    return
 
                 }
 
-                return
-
             }
-
-        }
-
-        do {
 
             let safeAuthorName = fullName
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-                .ifEmpty(UserDefaults.standard.string(forKey: "displayName") ?? "")
-                .ifEmpty(UserDefaults.standard.string(forKey: "name") ?? "")
+                .ifEmpty(
+                    UserDefaults.standard.string(
+                        forKey: "displayName"
+                    ) ?? ""
+                )
+                .ifEmpty(
+                    UserDefaults.standard.string(
+                        forKey: "name"
+                    ) ?? ""
+                )
                 .ifEmpty(email)
-                .ifEmpty(tr("משתתף", "Participant"))
+                .ifEmpty(
+                    tr(
+                        "משתתף",
+                        "Participant"
+                    )
+                )
 
             let cleanBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
             let cleanGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3577,16 +4123,37 @@ private func participantAvatar(
             let expiresAtDate = Date().addingTimeInterval(forumMessageRetentionSeconds)
 
             var base: [String: Any] = [
+
+                "roomId": roomId,
+
                 "branch": cleanBranch,
+
                 "groupKey": cleanGroup,
+
                 "authorName": safeAuthorName,
+
                 "authorEmail": email,
+
                 "authorUid": uid ?? "",
+
+                "authorIsManager": isManagerOverride,
+
                 "text": trimmed,
+
                 "createdAtMillis": nowMillis,
+
                 "expiresAt": Timestamp(date: expiresAtDate),
+
                 "retentionDays": forumMessageRetentionDays,
-                "isPinned": false
+
+                "isPinned": false,
+
+                "pushStatus": "pending",
+
+                "pushCreatedBy": "ios_forum",
+
+                "source": "ios_forum"
+
             ]
 
             #if canImport(FirebaseStorage)
@@ -3613,9 +4180,17 @@ private func participantAvatar(
                 .document(roomId)
 
             let messagePreview = messagePreviewText(
+
                 text: trimmed,
+
                 mediaType: base["mediaType"] as? String
+
             )
+
+            base["messagePreview"] = messagePreview
+
+            base["hasMedia"] =
+                base["mediaUrl"] != nil
 
             try? await roomRef.setData(
                 [
@@ -3631,29 +4206,145 @@ private func participantAvatar(
                     "updatedAt": FieldValue.serverTimestamp(),
                     "updatedAtMillis": nowMillis,
                     "lastMessagePreview": messagePreview,
+
                     "lastMessageSenderName": safeAuthorName,
-                    "lastMessageSenderUid": uid ?? ""
-                ],
-                merge: true
+
+                    "lastMessageSenderUid": uid ?? "",
+
+                    "lastMessageAuthorName": safeAuthorName,
+
+                    "lastMessageAuthorUid": uid ?? "",
+
+                    "lastMessageHasMedia":
+                        base["mediaUrl"] != nil,
+
+                    "lastMessageMediaType":
+                        base["mediaType"] as? String ?? "",
+
+                    "source": "ios_forum"
+
+                    ],
+
+                    merge: true
             )
 
             let col = roomRef.collection("messages")
 
             if let editId = editingMessageId {
-                base.removeValue(forKey: "createdAtMillis")
-                base.removeValue(forKey: "expiresAt")
-                base.removeValue(forKey: "retentionDays")
-                base.removeValue(forKey: "isPinned")
-                base["updatedAt"] = FieldValue.serverTimestamp()
-                base["updatedAtMillis"] = nowMillis
 
-                try await col.document(editId).setData(base, merge: true)
+                base.removeValue(
+                    forKey: "createdAtMillis"
+                )
+
+                base.removeValue(
+                    forKey: "expiresAt"
+                )
+
+                base.removeValue(
+                    forKey: "retentionDays"
+                )
+
+                base.removeValue(
+                    forKey: "isPinned"
+                )
+
+                if let originalMessage =
+                    messages.first(
+                        where: { $0.id == editId }
+                    ) {
+
+                    base["messageId"] =
+                        originalMessage.messageId
+
+                }
+
+                base["updatedAt"] =
+                    FieldValue.serverTimestamp()
+
+                base["updatedAtMillis"] =
+                    nowMillis
+
+                base["edited"] = true
+
+                try await col
+                    .document(editId)
+                    .setData(
+                        base,
+                        merge: true
+                    )
             } else {
-                let newDoc = col.document()
-                base["messageId"] = newDoc.documentID
-                base["createdAt"] = FieldValue.serverTimestamp()
 
-                try await newDoc.setData(base, merge: true)
+                let newDoc = col.document()
+
+                base["messageId"] =
+                    newDoc.documentID
+
+                base["createdAt"] =
+                    FieldValue.serverTimestamp()
+
+                base["updatedAtMillis"] =
+                    nowMillis
+
+                try await newDoc.setData(
+                    base,
+                    merge: true
+                )
+
+                try? await roomRef.setData(
+
+                    [
+
+                        "lastMessageId":
+                            newDoc.documentID,
+
+                        "lastMessagePreview":
+                            messagePreview,
+
+                        "lastMessageAuthorUid":
+                            uid ?? "",
+
+                        "lastMessageAuthorName":
+                            safeAuthorName,
+
+                        "lastMessageAt":
+                            FieldValue.serverTimestamp(),
+
+                        "lastMessageAtMillis":
+                            nowMillis,
+
+                        "lastMessageHasMedia":
+                            base["mediaUrl"] != nil,
+
+                        "lastMessageMediaType":
+                            base["mediaType"] as? String ?? "",
+
+                        "pendingPushMessageId":
+                            newDoc.documentID,
+
+                        "pendingPushAuthorUid":
+                            uid ?? "",
+
+                        "pendingPushPreview":
+                            messagePreview,
+
+                        "pendingPushAt":
+                            FieldValue.serverTimestamp(),
+
+                        "pendingPushAtMillis":
+                            nowMillis,
+
+                        "updatedAt":
+                            FieldValue.serverTimestamp(),
+
+                        "updatedAtMillis":
+                            nowMillis
+
+                    ],
+
+                    merge: true
+
+                )
+
             }
 
             await MainActor.run {
@@ -3846,1013 +4537,6 @@ private func participantAvatar(
         df.locale = Locale(identifier: isEnglish ? "en_US_POSIX" : "he_IL")
         df.dateFormat = isEnglish ? "MM/dd HH:mm" : "dd/MM HH:mm"
         return df.string(from: d)
-    }
-}
-
-// MARK: - Explanation Sheet
-
-private struct ForumExerciseExplanationSheet: View {
-
-    let hit: ForumExerciseHit
-    let branch: String
-    let groupKey: String
-    let isEnglish: Bool
-
-    private var textAlignment: TextAlignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    private var frameAlignment: Alignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    private var stackAlignment: HorizontalAlignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    private func tr(_ he: String, _ en: String) -> String {
-        isEnglish ? en : he
-    }
-
-    @Environment(\.dismiss)
-    private var dismiss
-
-    @Environment(\.colorScheme)
-    private var colorScheme
-
-    @State private var explanationText: String = ""
-    @State private var explanationSourceText: String = ""
-    @State private var isLoading = true
-    @State private var errorText: String? = nil
-
-    @State private var showEditor = false
-    @State private var draftText: String = ""
-
-    @State private var favorites: Set<String> = []
-
-    private var isDarkMode: Bool {
-        colorScheme == .dark
-    }
-
-    private var sheetBackground: LinearGradient {
-        LinearGradient(
-            colors:
-                isDarkMode
-                ? [
-                    Color(
-                        red: 11.0 / 255.0,
-                        green: 20.0 / 255.0,
-                        blue: 26.0 / 255.0
-                    ),
-                    Color(
-                        red: 15.0 / 255.0,
-                        green: 27.0 / 255.0,
-                        blue: 34.0 / 255.0
-                    ),
-                    Color(
-                        red: 17.0 / 255.0,
-                        green: 27.0 / 255.0,
-                        blue: 33.0 / 255.0
-                    )
-                ]
-                : [
-                    Color(
-                        red: 0.97,
-                        green: 0.98,
-                        blue: 1.00
-                    ),
-                    Color(
-                        red: 0.91,
-                        green: 0.95,
-                        blue: 1.00
-                    )
-                ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-    }
-
-    private var sheetCardColor: Color {
-        isDarkMode
-            ? Color(
-                red: 32.0 / 255.0,
-                green: 44.0 / 255.0,
-                blue: 51.0 / 255.0
-            )
-            : Color.white.opacity(0.94)
-    }
-
-    private var sheetSecondaryCardColor: Color {
-        isDarkMode
-            ? Color(
-                red: 24.0 / 255.0,
-                green: 34.0 / 255.0,
-                blue: 41.0 / 255.0
-            )
-            : Color.white.opacity(0.92)
-    }
-
-    private var sheetBorderColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.12)
-            : Color.black.opacity(0.06)
-    }
-
-    private var sheetPrimaryTextColor: Color {
-        isDarkMode
-            ? Color(
-                red: 233.0 / 255.0,
-                green: 237.0 / 255.0,
-                blue: 239.0 / 255.0
-            )
-            : Color.black.opacity(0.84)
-    }
-
-    private var sheetSecondaryTextColor: Color {
-        isDarkMode
-            ? Color(
-                red: 191.0 / 255.0,
-                green: 200.0 / 255.0,
-                blue: 205.0 / 255.0
-            )
-            : Color.black.opacity(0.56)
-    }
-
-    private var sheetMutedTextColor: Color {
-        isDarkMode
-            ? Color(
-                red: 134.0 / 255.0,
-                green: 150.0 / 255.0,
-                blue: 160.0 / 255.0
-            )
-            : Color.black.opacity(0.46)
-    }
-
-    private var sheetAccentColor: Color {
-        Color(
-            red: 37.0 / 255.0,
-            green: 99.0 / 255.0,
-            blue: 235.0 / 255.0
-        )
-    }
-
-    private var db: Firestore {
-        Firestore.firestore()
-    }
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                sheetBackground
-                    .ignoresSafeArea()
-
-                VStack(spacing: 14) {
-                    header
-
-                    if isLoading {
-                        VStack(spacing: 12) {
-                            ProgressView()
-                                .tint(sheetAccentColor)
-
-                            Text(
-                                tr(
-                                    "טוען הסבר...",
-                                    "Loading explanation..."
-                                )
-                            )
-                            .kmiFont(
-                                size: 13,
-                                weight: .semibold
-                            )
-                            .foregroundStyle(
-                                sheetSecondaryTextColor
-                            )
-                        }
-                        .frame(
-                            maxWidth: .infinity,
-                            maxHeight: .infinity
-                        )
-                    } else {
-                        ScrollView {
-                            VStack(
-                                alignment: stackAlignment,
-                                spacing: 14
-                            ) {
-                                VStack(
-                                    alignment: stackAlignment,
-                                    spacing: 10
-                                ) {
-                                    Text(
-                                        tr(
-                                            "הסבר",
-                                            "Explanation"
-                                        )
-                                    )
-                                    .kmiFont(
-                                        size: 18,
-                                        weight: .heavy
-                                    )
-                                    .foregroundStyle(
-                                        sheetPrimaryTextColor
-                                    )
-                                    .frame(
-                                        maxWidth: .infinity,
-                                        alignment: frameAlignment
-                                    )
-
-                                    Text(
-                                        explanationText.isEmpty
-                                            ? tr(
-                                                "אין כרגע הסבר לתרגיל הזה.",
-                                                "There is no explanation for this exercise yet."
-                                            )
-                                            : explanationText
-                                    )
-                                    .kmiFont(
-                                        size: 16,
-                                        weight: .semibold
-                                    )
-                                    .foregroundStyle(
-                                        sheetPrimaryTextColor.opacity(0.94)
-                                    )
-                                    .frame(
-                                        maxWidth: .infinity,
-                                        alignment: frameAlignment
-                                    )
-                                    .multilineTextAlignment(
-                                        textAlignment
-                                    )
-                                    .lineSpacing(5)
-                                    .fixedSize(
-                                        horizontal: false,
-                                        vertical: true
-                                    )
-                                }
-                                .padding(16)
-                                .background(
-                                    RoundedRectangle(
-                                        cornerRadius: 20,
-                                        style: .continuous
-                                    )
-                                    .fill(sheetCardColor)
-                                )
-                                .overlay {
-                                    RoundedRectangle(
-                                        cornerRadius: 20,
-                                        style: .continuous
-                                    )
-                                    .stroke(
-                                        sheetBorderColor,
-                                        lineWidth: 1
-                                    )
-                                }
-                                .shadow(
-                                    color: Color.black.opacity(
-                                        isDarkMode ? 0.18 : 0.06
-                                    ),
-                                    radius: 5,
-                                    x: 0,
-                                    y: 2
-                                )
-
-                                if let errorText,
-                                   !errorText.isEmpty {
-                                    Text(errorText)
-                                        .kmiFont(
-                                            size: 12,
-                                            weight: .semibold
-                                        )
-                                        .foregroundStyle(
-                                            Color.red
-                                        )
-                                        .frame(
-                                            maxWidth: .infinity,
-                                            alignment: frameAlignment
-                                        )
-                                        .multilineTextAlignment(
-                                            textAlignment
-                                        )
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(
-                                            RoundedRectangle(
-                                                cornerRadius: 14,
-                                                style: .continuous
-                                            )
-                                            .fill(
-                                                Color.red.opacity(
-                                                    isDarkMode ? 0.16 : 0.08
-                                                )
-                                            )
-                                        )
-                                }
-
-                                infoCard
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 8)
-                        }
-                    }
-
-                    Button {
-                        dismiss()
-                    } label: {
-                        Text(
-                            tr(
-                                "סגור",
-                                "Close"
-                            )
-                        )
-                        .kmiFont(
-                            size: 17,
-                            weight: .heavy
-                        )
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
-                        .background(
-                            RoundedRectangle(
-                                cornerRadius: 16,
-                                style: .continuous
-                            )
-                            .fill(sheetAccentColor)
-                        )
-                        .shadow(
-                            color: sheetAccentColor.opacity(0.24),
-                            radius: 5,
-                            x: 0,
-                            y: 3
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
-                }
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .sheet(isPresented: $showEditor) {
-                explanationEditorSheet
-            }
-            .task {
-                loadFavorites()
-                await loadExplanation()
-            }
-        }
-        .environment(
-            \.layoutDirection,
-            isEnglish
-                ? .leftToRight
-                : .rightToLeft
-        )
-    }
-
-    private var header: some View {
-        HStack(
-            alignment: .center,
-            spacing: 12
-        ) {
-            HStack(spacing: 8) {
-                Button {
-                    toggleFavorite()
-                } label: {
-                    Image(
-                        systemName:
-                            isFavorite
-                            ? "star.fill"
-                            : "star"
-                    )
-                    .font(
-                        .system(
-                            size: 17,
-                            weight: .heavy
-                        )
-                    )
-                    .foregroundStyle(
-                        isFavorite
-                            ? Color.yellow
-                            : sheetMutedTextColor
-                    )
-                    .frame(width: 40, height: 40)
-                    .background(
-                        Circle()
-                            .fill(sheetSecondaryCardColor)
-                    )
-                    .overlay {
-                        Circle()
-                            .stroke(
-                                sheetBorderColor,
-                                lineWidth: 1
-                            )
-                    }
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    draftText = explanationText
-                    showEditor = true
-                } label: {
-                    Image(
-                        systemName:
-                            "square.and.pencil"
-                    )
-                    .font(
-                        .system(
-                            size: 17,
-                            weight: .heavy
-                        )
-                    )
-                    .foregroundStyle(
-                        sheetAccentColor
-                    )
-                    .frame(width: 40, height: 40)
-                    .background(
-                        Circle()
-                            .fill(sheetSecondaryCardColor)
-                    )
-                    .overlay {
-                        Circle()
-                            .stroke(
-                                sheetBorderColor,
-                                lineWidth: 1
-                            )
-                    }
-                }
-                .buttonStyle(.plain)
-            }
-
-            Spacer(minLength: 0)
-
-            VStack(
-                alignment: stackAlignment,
-                spacing: 4
-            ) {
-                Text(hit.displayName)
-                    .kmiFont(
-                        size: 22,
-                        weight: .heavy
-                    )
-                    .foregroundStyle(
-                        sheetPrimaryTextColor
-                    )
-                    .frame(
-                        maxWidth: .infinity,
-                        alignment: frameAlignment
-                    )
-                    .multilineTextAlignment(
-                        textAlignment
-                    )
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.76)
-
-                Text(
-                    "\(isEnglish ? hit.belt.id.capitalized : hit.belt.heb)"
-                    + (
-                        hit.topic.isEmpty
-                            ? ""
-                            : " · \(hit.topic)"
-                    )
-                )
-                .kmiFont(
-                    size: 13,
-                    weight: .semibold
-                )
-                .foregroundStyle(
-                    sheetSecondaryTextColor
-                )
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: frameAlignment
-                )
-                .multilineTextAlignment(
-                    textAlignment
-                )
-                .lineLimit(2)
-            }
-        }
-        .environment(
-            \.layoutDirection,
-            .leftToRight
-        )
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background(
-            RoundedRectangle(
-                cornerRadius: 22,
-                style: .continuous
-            )
-            .fill(sheetCardColor)
-        )
-        .overlay {
-            RoundedRectangle(
-                cornerRadius: 22,
-                style: .continuous
-            )
-            .stroke(
-                sheetBorderColor,
-                lineWidth: 1
-            )
-        }
-        .shadow(
-            color: Color.black.opacity(
-                isDarkMode ? 0.18 : 0.06
-            ),
-            radius: 5,
-            x: 0,
-            y: 2
-        )
-        .padding(.horizontal, 16)
-        .padding(.top, 16)
-    }
-
-    private var infoCard: some View {
-        VStack(
-            alignment: stackAlignment,
-            spacing: 8
-        ) {
-            HStack(spacing: 8) {
-                if !isEnglish {
-                    Spacer(minLength: 0)
-                }
-
-                Text(
-                    tr(
-                        "מסך אמת",
-                        "Live Screen"
-                    )
-                )
-                .kmiFont(
-                    size: 12,
-                    weight: .heavy
-                )
-                .foregroundStyle(
-                    sheetPrimaryTextColor
-                )
-
-                Image(
-                    systemName:
-                        "checkmark.seal.fill"
-                )
-                .font(
-                    .system(
-                        size: 15,
-                        weight: .bold
-                    )
-                )
-                .foregroundStyle(
-                    Color.green.opacity(0.90)
-                )
-
-                if isEnglish {
-                    Spacer(minLength: 0)
-                }
-            }
-
-            Text(
-                explanationSourceText.isEmpty
-                    ? tr(
-                        "ההסבר מוצג מתוך נתוני האפליקציה.",
-                        "The explanation is shown from the app data."
-                    )
-                    : (
-                        isEnglish
-                            ? "Explanation source: \(explanationSourceText)"
-                            : "מקור ההסבר: \(explanationSourceText)"
-                    )
-            )
-            .kmiFont(
-                size: 12,
-                weight: .semibold
-            )
-            .foregroundStyle(
-                sheetSecondaryTextColor
-            )
-            .frame(
-                maxWidth: .infinity,
-                alignment: frameAlignment
-            )
-            .multilineTextAlignment(
-                textAlignment
-            )
-
-            if !branch.isEmpty ||
-                !groupKey.isEmpty {
-                Text(
-                    isEnglish
-                        ? "Forum: \(branch) / \(groupKey)"
-                        : "פורום: \(branch) / \(groupKey)"
-                )
-                .kmiFont(
-                    size: 10.5,
-                    weight: .semibold
-                )
-                .foregroundStyle(
-                    sheetMutedTextColor
-                )
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: frameAlignment
-                )
-                .multilineTextAlignment(
-                    textAlignment
-                )
-            }
-        }
-        .padding(14)
-        .frame(
-            maxWidth: .infinity,
-            alignment: frameAlignment
-        )
-        .background(
-            RoundedRectangle(
-                cornerRadius: 18,
-                style: .continuous
-            )
-            .fill(sheetSecondaryCardColor)
-        )
-        .overlay {
-            RoundedRectangle(
-                cornerRadius: 18,
-                style: .continuous
-            )
-            .stroke(
-                sheetBorderColor,
-                lineWidth: 1
-            )
-        }
-    }
-
-    private var explanationEditorSheet: some View {
-        NavigationStack {
-            ZStack {
-                sheetBackground
-                    .ignoresSafeArea()
-
-                VStack(spacing: 16) {
-                    VStack(
-                        alignment: stackAlignment,
-                        spacing: 8
-                    ) {
-                        Text(
-                            tr(
-                                "עריכת הסבר",
-                                "Edit Explanation"
-                            )
-                        )
-                        .kmiFont(
-                            size: 22,
-                            weight: .heavy
-                        )
-                        .foregroundStyle(
-                            sheetPrimaryTextColor
-                        )
-                        .frame(
-                            maxWidth: .infinity,
-                            alignment: frameAlignment
-                        )
-
-                        Text(hit.displayName)
-                            .kmiFont(
-                                size: 12,
-                                weight: .semibold
-                            )
-                            .foregroundStyle(
-                                sheetSecondaryTextColor
-                            )
-                            .frame(
-                                maxWidth: .infinity,
-                                alignment: frameAlignment
-                            )
-                    }
-
-                    TextEditor(text: $draftText)
-                        .kmiFont(
-                            size: 16,
-                            weight: .semibold
-                        )
-                        .foregroundStyle(
-                            sheetPrimaryTextColor
-                        )
-                        .padding(12)
-                        .frame(minHeight: 280)
-                        .scrollContentBackground(.hidden)
-                        .background(
-                            RoundedRectangle(
-                                cornerRadius: 18,
-                                style: .continuous
-                            )
-                            .fill(sheetCardColor)
-                        )
-                        .overlay {
-                            RoundedRectangle(
-                                cornerRadius: 18,
-                                style: .continuous
-                            )
-                            .stroke(
-                                sheetBorderColor,
-                                lineWidth: 1
-                            )
-                        }
-                        .multilineTextAlignment(
-                            textAlignment
-                        )
-
-                    if let errorText,
-                       !errorText.isEmpty {
-                        Text(errorText)
-                            .kmiFont(
-                                size: 12,
-                                weight: .semibold
-                            )
-                            .foregroundStyle(.red)
-                            .frame(
-                                maxWidth: .infinity,
-                                alignment: frameAlignment
-                            )
-                            .multilineTextAlignment(
-                                textAlignment
-                            )
-                    }
-
-                    HStack(spacing: 12) {
-                        Button {
-                            showEditor = false
-                        } label: {
-                            Text(
-                                tr(
-                                    "בטל",
-                                    "Cancel"
-                                )
-                            )
-                            .kmiFont(
-                                size: 16,
-                                weight: .heavy
-                            )
-                            .foregroundStyle(
-                                sheetPrimaryTextColor
-                            )
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 46)
-                            .background(
-                                RoundedRectangle(
-                                    cornerRadius: 15,
-                                    style: .continuous
-                                )
-                                .fill(sheetSecondaryCardColor)
-                            )
-                            .overlay {
-                                RoundedRectangle(
-                                    cornerRadius: 15,
-                                    style: .continuous
-                                )
-                                .stroke(
-                                    sheetBorderColor,
-                                    lineWidth: 1
-                                )
-                            }
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            Task {
-                                await saveExplanation()
-                            }
-                        } label: {
-                            Text(
-                                tr(
-                                    "שמור",
-                                    "Save"
-                                )
-                            )
-                            .kmiFont(
-                                size: 16,
-                                weight: .heavy
-                            )
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 46)
-                            .background(
-                                RoundedRectangle(
-                                    cornerRadius: 15,
-                                    style: .continuous
-                                )
-                                .fill(sheetAccentColor)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    Spacer()
-                }
-                .padding(16)
-            }
-            .navigationBarTitleDisplayMode(.inline)
-        }
-        .environment(
-            \.layoutDirection,
-            isEnglish
-                ? .leftToRight
-                : .rightToLeft
-        )
-    }
-
-    private var isFavorite: Bool {
-        favorites.contains(normalizedFavoriteId(hit.item))
-    }
-
-    private func loadExplanation() async {
-        isLoading = true
-        errorText = nil
-        explanationSourceText = ""
-
-        do {
-            let snap = try await db.collection("exercise_explanations")
-                .document(documentId)
-                .getDocument()
-
-            let firestoreText = (snap.data()?["text"] as? String ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-
-            if !firestoreText.isEmpty {
-                explanationText = cleanExplanationText(firestoreText)
-                explanationSourceText = "Firestore"
-                isLoading = false
-                return
-            }
-
-            let sharedText = findExplanationForHit(
-                belt: hit.belt,
-                rawItem: hit.item,
-                topic: hit.topic
-            )
-
-            explanationText = sharedText
-            explanationSourceText = "Shared Explanations"
-
-        } catch {
-            let sharedText = findExplanationForHit(
-                belt: hit.belt,
-                rawItem: hit.item,
-                topic: hit.topic
-            )
-
-            explanationText = sharedText
-            explanationSourceText = "Shared Explanations"
-            errorText = tr(
-                "Firestore לא החזיר הסבר, מוצג הסבר מקומי מהאפליקציה.",
-                "Firestore did not return an explanation, showing a local app explanation."
-            )
-        }
-
-        isLoading = false
-    }
-
-    private func findExplanationForHit(
-        belt: Belt,
-        rawItem: String,
-        topic: String
-    ) -> String {
-        let explanations = Explanations()
-
-        let raw = rawItem.trimmingCharacters(in: .whitespacesAndNewlines)
-        let display = hit.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let cleanDisplay = cleanExplanationKey(display)
-        let cleanRaw = cleanExplanationKey(raw)
-
-        let beforeParentheses = cleanDisplay
-            .components(separatedBy: "(")
-            .first?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? cleanDisplay
-
-        let afterDoubleColon = raw
-            .components(separatedBy: "::")
-            .last?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? raw
-
-        let afterColon = raw
-            .components(separatedBy: ":")
-            .last?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? raw
-
-        let candidates = [
-            raw,
-            display,
-            cleanRaw,
-            cleanDisplay,
-            beforeParentheses,
-            afterDoubleColon,
-            afterColon,
-            topic.trimmingCharacters(in: .whitespacesAndNewlines)
-        ]
-        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        .filter { !$0.isEmpty }
-        .reduce(into: [String]()) { result, item in
-            if !result.contains(item) {
-                result.append(item)
-            }
-        }
-
-        for candidate in candidates {
-            let value = explanations.get(belt: belt, item: candidate)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-
-            if isRealExplanation(value) {
-                return cleanExplanationText(value)
-            }
-        }
-
-        return tr("אין כרגע הסבר לתרגיל הזה.", "There is no explanation for this exercise yet.")
-    }
-
-    private func cleanExplanationKey(_ raw: String) -> String {
-        raw
-            .replacingOccurrences(of: "–", with: "-")
-            .replacingOccurrences(of: "—", with: "-")
-            .replacingOccurrences(of: "־", with: "-")
-            .replacingOccurrences(of: "  ", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func cleanExplanationText(_ raw: String) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if trimmed.contains("::") {
-            return trimmed
-                .components(separatedBy: "::")
-                .dropFirst()
-                .joined(separator: "::")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        return trimmed
-    }
-
-    private func isRealExplanation(_ raw: String) -> Bool {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if trimmed.isEmpty { return false }
-        if trimmed.hasPrefix("הסבר מפורט על") { return false }
-        if trimmed.hasPrefix("אין כרגע") { return false }
-
-        return true
-    }
-
-    private func saveExplanation() async {
-        errorText = nil
-
-        let trimmed = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        do {
-            try await db.collection("exercise_explanations")
-                .document(documentId)
-                .setData([
-                    "beltId": hit.belt.id,
-                    "beltHeb": hit.belt.heb,
-                    "topic": hit.topic,
-                    "item": hit.item,
-                    "itemNormalized": normalizedFavoriteId(hit.item),
-                    "text": trimmed,
-                    "updatedAt": FieldValue.serverTimestamp(),
-                    "updatedByUid": Auth.auth().currentUser?.uid as Any,
-                    "updatedByEmail": Auth.auth().currentUser?.email as Any
-                ], merge: true)
-
-            explanationText = trimmed
-            showEditor = false
-        } catch {
-            errorText = tr(
-                "לא הצלחנו לשמור את ההסבר. נסו שוב.",
-                "We could not save the explanation. Please try again."
-            )
-        }
-    }
-
-    private func loadFavorites() {
-        let stored = UserDefaults.standard.stringArray(forKey: "forum_exercise_favorites") ?? []
-        favorites = Set(stored)
-    }
-
-    private func toggleFavorite() {
-        let key = normalizedFavoriteId(hit.item)
-        if favorites.contains(key) {
-            favorites.remove(key)
-        } else {
-            favorites.insert(key)
-        }
-        UserDefaults.standard.set(Array(favorites), forKey: "forum_exercise_favorites")
-    }
-
-    private var documentId: String {
-        "\(hit.belt.id)__\(normalizedFavoriteId(hit.item))"
-    }
-
-    private func normalizedFavoriteId(_ raw: String) -> String {
-        raw
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "–", with: "-")
-            .replacingOccurrences(of: "—", with: "-")
-            .replacingOccurrences(of: "  ", with: " ")
-            .lowercased()
     }
 }
 

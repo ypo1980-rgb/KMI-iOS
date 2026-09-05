@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import Combine
 import Shared
 
@@ -46,27 +47,97 @@ struct BeltQuestionsByBeltView: View {
     }
 
     private var byBeltCardSurfaceColor: Color {
-        colorScheme == .dark
-            ? Color(
-                red: 0.055,
-                green: 0.075,
-                blue: 0.115
-            )
-            .opacity(0.97)
-            : Color.white.opacity(0.96)
+        KmiAppTheme.surface(
+            for: colorScheme
+        )
     }
 
     private var byBeltCardBorderColor: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(0.14)
-            : Color.black.opacity(0.06)
+        KmiAppTheme.outlineVariant(
+            for: colorScheme
+        )
     }
 
-    private var byBeltCardShadowColor: Color {
-        Color.black.opacity(
+    private var byBeltTitleColor: Color {
+        KmiAppTheme.onSurface(
+            for: colorScheme
+        )
+    }
+
+    private var byBeltSecondaryTextColor: Color {
+        KmiAppTheme.onSurfaceVariant(
+            for: colorScheme
+        )
+    }
+
+    private var readableBeltAccent: Color {
+
+        switch selectedBelt {
+
+        case .black
+            where colorScheme == .dark:
+
+            return KmiAppTheme.onSurface(
+                for: colorScheme
+            )
+
+        case .white
+            where colorScheme == .dark:
+
+            return KmiAppTheme.onSurface(
+                for: colorScheme
+            )
+
+        case .white:
+
+            return KmiAppTheme.onSurfaceVariant(
+                for: colorScheme
+            )
+
+        case .yellow
+            where colorScheme == .light:
+
+            return Color(
+                red: 201.0 / 255.0,
+                green: 138.0 / 255.0,
+                blue: 0.0 / 255.0
+            )
+
+        default:
+
+            return BeltPaletteByBeltScreen
+                .color(
+                    for: selectedBelt
+                )
+        }
+    }
+
+    private var byBeltRowSubColor: Color {
+        readableBeltAccent
+            .opacity(0.88)
+    }
+
+    private var byBeltSubTopicsBackground: Color {
+        readableBeltAccent.opacity(
+            colorScheme == .dark
+                ? 0.12
+                : 0.10
+        )
+    }
+
+    private var byBeltSubTopicsBorder: Color {
+        readableBeltAccent.opacity(
             colorScheme == .dark
                 ? 0.34
-                : 0.08
+                : 0.38
+        )
+    }
+
+    private var byBeltSubTopicDivider: Color {
+        readableBeltAccent.opacity(
+            colorScheme == .dark
+                ? 0.28
+                : 0.36
         )
     }
     
@@ -131,22 +202,43 @@ struct BeltQuestionsByBeltView: View {
     @Environment(\.colorScheme)
     private var colorScheme
 
-    @StateObject private var coach = CoachService.shared
-    // ✅ החגורות שמציגים בגלגל (ללא לבנה)
-    private let belts: [Belt] = [.yellow, .orange, .green, .blue, .brown, .black]
-    // נתוני התרגילים נשלפים דרך TopicsEngine + ContentRepo.shared,
-    // ולא דרך קטלוג מקומי קשיח.
-    
-    // ✅ החגורה שנבחרה בפועל במסך
+    // החגורות שמוצגות בקרוסלה.
+    // חגורה לבנה אינה מוצגת כאן — כמו באנדרואיד.
+    private let belts: [Belt] = [
+        .yellow,
+        .orange,
+        .green,
+        .blue,
+        .brown,
+        .black
+    ]
+
+    // החגורה הפעילה במסך.
     @State private var selectedBelt: Belt = .orange
-    @State private var byTopicActiveBelt: Belt = .orange
+
+    // מונע אתחול חוזר של החגורה בכל onAppear.
     @State private var didInitializeSelectedBelt: Bool = false
-    @State private var tab: Tab = .byBelt
+
+    // מצב התפריט הצידי.
     @State private var quickMenuOpen: Bool = false
     @State private var showPracticeMenu: Bool = false
     @State private var expandedTopic: String? = nil
+
     @State private var accessRefreshTick: Int = 0
 
+    /*
+     * Performance:
+     *
+     * הנתונים של כל חגורה נבנים פעם אחת
+     * ונשמרים לפי:
+     *
+     * belt + language
+     *
+     * שינוי UI כמו פתיחת נושא או Quick Menu
+     * לא גורם יותר לסריקה מחדש של ContentRepo.
+     */
+    @State private var beltTopicsCache:
+        [String: [BeltTopicUi]] = [:]
     @State private var generalNoteTitle: String = ""
     @State private var generalNoteText: String = ""
     @State private var showGeneralNote: Bool = false
@@ -222,10 +314,22 @@ struct BeltQuestionsByBeltView: View {
     }
     
     private struct BeltTopicUi: Identifiable {
+
         let id: String
+
         let title: String
+
         let subtitle: String?
+
         let linkedSubjects: [SubjectTopic]
+
+        /*
+         * נשמרים כבר בזמן בניית ה-cache.
+         *
+         * כך ה-ForEach אינו קורא שוב
+         * ל-ContentRepo בכל render.
+         */
+        let subTitles: [String]
     }
     
     private struct TopicDetailsUi {
@@ -237,28 +341,43 @@ struct BeltQuestionsByBeltView: View {
         belt: Belt,
         topicTitle: String
     ) -> Int {
+
         let cleanTopicTitle =
-            topicTitle.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
+            topicTitle
+                .trimmingCharacters(
+                    in:
+                        .whitespacesAndNewlines
+                )
 
         var pendingSubTopics =
-            ContentRepo.shared.getSubTopicsFor(
-                belt: belt,
-                topicTitle: cleanTopicTitle
-            )
+            ContentRepo.shared
+                .getSubTopicsFor(
+                    belt:
+                        belt,
+                    topicTitle:
+                        cleanTopicTitle
+                )
 
+        var cursor = 0
         var totalCount = 0
 
-        while !pendingSubTopics.isEmpty {
-            let current =
-                pendingSubTopics.removeFirst()
+        while cursor <
+            pendingSubTopics.count {
 
-            totalCount += current.items.count
+            let current =
+                pendingSubTopics[
+                    cursor
+                ]
+
+            totalCount +=
+                current.items.count
 
             pendingSubTopics.append(
-                contentsOf: current.subTopics
+                contentsOf:
+                    current.subTopics
             )
+
+            cursor += 1
         }
 
         return totalCount
@@ -268,24 +387,32 @@ struct BeltQuestionsByBeltView: View {
         belt: Belt,
         topicTitle: String
     ) -> TopicDetailsUi {
-        let cleanTopicTitle =
-            topicTitle.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
 
+        let cleanTopicTitle =
+            topicTitle
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        /*
+         * קריאה אחת בלבד ל-ContentRepo.
+         */
         let topLevelSubTopics =
-            ContentRepo.shared.getSubTopicsFor(
-                belt: belt,
-                topicTitle: cleanTopicTitle
-            )
+            ContentRepo.shared
+                .getSubTopicsFor(
+                    belt: belt,
+                    topicTitle:
+                        cleanTopicTitle
+                )
 
         let cleanSubTitles =
             topLevelSubTopics
                 .map {
-                    $0.title.trimmingCharacters(
-                        in:
-                            .whitespacesAndNewlines
-                    )
+                    $0.title
+                        .trimmingCharacters(
+                            in:
+                                .whitespacesAndNewlines
+                        )
                 }
                 .filter {
                     !$0.isEmpty &&
@@ -294,18 +421,51 @@ struct BeltQuestionsByBeltView: View {
                 .reduce(
                     into: [String]()
                 ) { result, title in
-                    if !result.contains(title) {
-                        result.append(title)
+
+                    if !result.contains(
+                        title
+                    ) {
+                        result.append(
+                            title
+                        )
                     }
                 }
 
+        /*
+         * סריקת BFS ללא removeFirst().
+         *
+         * removeFirst() מזיז את כל המערך
+         * בכל איטרציה.
+         */
+        var pendingSubTopics =
+            topLevelSubTopics
+
+        var cursor = 0
+
+        var totalCount = 0
+
+        while cursor <
+            pendingSubTopics.count {
+
+            let current =
+                pendingSubTopics[
+                    cursor
+                ]
+
+            totalCount +=
+                current.items.count
+
+            pendingSubTopics.append(
+                contentsOf:
+                    current.subTopics
+            )
+
+            cursor += 1
+        }
+
         return TopicDetailsUi(
             itemCount:
-                deepExerciseCount(
-                    belt: belt,
-                    topicTitle:
-                        cleanTopicTitle
-                ),
+                totalCount,
             subTitles:
                 cleanSubTitles
         )
@@ -366,360 +526,643 @@ struct BeltQuestionsByBeltView: View {
         return 10
     }
     
-    private var beltTopicsUi: [BeltTopicUi] {
-        let rawTopicTitles = TopicsEngine.shared.topicTitlesFor(belt: selectedBelt)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .reduce(into: [String]()) { partial, item in
-                if !partial.contains(item) {
-                    partial.append(item)
-                }
-            }
-        
-        let detailsByTitle: [String: TopicDetailsUi] = Dictionary(
-            uniqueKeysWithValues: rawTopicTitles.map { title in
-                (title, topicDetailsFor(belt: selectedBelt, topicTitle: title))
-            }
-        )
-        
-        let topicTitles = rawTopicTitles
-            .enumerated()
-            .sorted { lhs, rhs in
-                let lhsDetails = detailsByTitle[lhs.element] ?? TopicDetailsUi(itemCount: 0, subTitles: [])
-                let rhsDetails = detailsByTitle[rhs.element] ?? TopicDetailsUi(itemCount: 0, subTitles: [])
-                
-                let lhsRank = topicPriorityRankForUi(
-                    belt: selectedBelt,
-                    title: lhs.element,
-                    details: lhsDetails
-                )
-                
-                let rhsRank = topicPriorityRankForUi(
-                    belt: selectedBelt,
-                    title: rhs.element,
-                    details: rhsDetails
-                )
-                
-                if lhsRank != rhsRank {
-                    return lhsRank < rhsRank
-                }
-                
-                return lhs.offset < rhs.offset
-            }
-            .map { $0.element }
-        
-        return topicTitles.map { title in
-            let details = detailsByTitle[title] ?? TopicDetailsUi(itemCount: 0, subTitles: [])
-            let subCount = details.subTitles.count
-            let itemCount = details.itemCount
+    private func beltTopicsCacheKey(
+        for targetBelt: Belt
+    ) -> String {
 
-            let subtitle: String? = {
-                if subCount > 0 {
-                    return subTopicsAndExercisesText(
-                        subTopicsCount: subCount,
-                        exercisesCount: itemCount
+        /*
+         * ה-subtitle תלוי בשפה,
+         * לכן עברית ואנגלית מקבלות cache נפרד.
+         */
+        "\(targetBelt.id)::\(effectiveLanguageCode)"
+    }
+
+    private func buildBeltTopicsUi(
+        for targetBelt: Belt
+    ) -> [BeltTopicUi] {
+
+        let rawTopicTitles =
+            TopicsEngine.shared
+                .topicTitlesFor(
+                    belt:
+                        targetBelt
+                )
+                .map {
+                    $0.trimmingCharacters(
+                        in:
+                            .whitespacesAndNewlines
                     )
-                } else {
-                    return exercisesCountText(itemCount)
                 }
-            }()
+                .filter {
+                    !$0.isEmpty
+                }
+                .reduce(
+                    into: [String]()
+                ) { result, title in
+
+                    if !result.contains(
+                        title
+                    ) {
+                        result.append(
+                            title
+                        )
+                    }
+                }
+
+        /*
+         * topicDetailsFor נקרא בדיוק
+         * פעם אחת לכל נושא בזמן בניית ה-cache.
+         */
+        let detailsByTitle:
+            [String: TopicDetailsUi] =
+                Dictionary(
+                    uniqueKeysWithValues:
+                        rawTopicTitles.map {
+                            title in
+
+                            (
+                                title,
+                                topicDetailsFor(
+                                    belt:
+                                        targetBelt,
+                                    topicTitle:
+                                        title
+                                )
+                            )
+                        }
+                )
+
+        let orderedTopicTitles =
+            rawTopicTitles
+                .enumerated()
+                .sorted {
+                    lhs,
+                    rhs in
+
+                    let lhsDetails =
+                        detailsByTitle[
+                            lhs.element
+                        ]
+                        ?? TopicDetailsUi(
+                            itemCount: 0,
+                            subTitles: []
+                        )
+
+                    let rhsDetails =
+                        detailsByTitle[
+                            rhs.element
+                        ]
+                        ?? TopicDetailsUi(
+                            itemCount: 0,
+                            subTitles: []
+                        )
+
+                    let lhsRank =
+                        topicPriorityRankForUi(
+                            belt:
+                                targetBelt,
+                            title:
+                                lhs.element,
+                            details:
+                                lhsDetails
+                        )
+
+                    let rhsRank =
+                        topicPriorityRankForUi(
+                            belt:
+                                targetBelt,
+                            title:
+                                rhs.element,
+                            details:
+                                rhsDetails
+                        )
+
+                    if lhsRank != rhsRank {
+                        return lhsRank <
+                            rhsRank
+                    }
+
+                    return lhs.offset <
+                        rhs.offset
+                }
+                .map {
+                    $0.element
+                }
+
+        return orderedTopicTitles.map {
+            title in
+
+            let details =
+                detailsByTitle[
+                    title
+                ]
+                ?? TopicDetailsUi(
+                    itemCount: 0,
+                    subTitles: []
+                )
+
+            let subCount =
+                details.subTitles.count
+
+            let itemCount =
+                details.itemCount
+
+            let subtitle: String?
+
+            if subCount > 0 {
+
+                subtitle =
+                    subTopicsAndExercisesText(
+                        subTopicsCount:
+                            subCount,
+                        exercisesCount:
+                            itemCount
+                    )
+
+            } else {
+
+                subtitle =
+                    exercisesCountText(
+                        itemCount
+                    )
+            }
 
             return BeltTopicUi(
-                id: "belt-topic::\(selectedBelt.id)::\(title)",
-                title: title,
-                subtitle: subtitle,
-                linkedSubjects: []
+                id:
+                    "belt-topic::\(targetBelt.id)::\(title)",
+                title:
+                    title,
+                subtitle:
+                    subtitle,
+                linkedSubjects:
+                    [],
+                subTitles:
+                    details.subTitles
             )
         }
+    }
+
+    private func ensureBeltTopicsCache(
+        for targetBelt: Belt,
+        force: Bool = false
+    ) {
+
+        let key =
+            beltTopicsCacheKey(
+                for:
+                    targetBelt
+            )
+
+        if
+            !force,
+            beltTopicsCache[key] != nil {
+
+            /*
+             * כבר נטען.
+             * לא נוגעים ב-ContentRepo.
+             */
+            return
+        }
+
+        let rows =
+            buildBeltTopicsUi(
+                for:
+                    targetBelt
+            )
+
+        beltTopicsCache[
+            key
+        ] = rows
+    }
+
+    private var beltTopicsUi:
+        [BeltTopicUi] {
+
+        let key =
+            beltTopicsCacheKey(
+                for:
+                    selectedBelt
+            )
+
+        return beltTopicsCache[
+            key
+        ] ?? []
     }
     
     @State private var practiceTokenFromLists: String = "__ALL__"
-    
-    private enum Tab {
-        case byBelt
-        case byTopic
-    }
 
     private var quickMenuBelt: Belt {
-        tab == .byTopic ? byTopicActiveBelt : selectedBelt
+        selectedBelt
     }
 
     private var screenTitleForMode: String {
-        if tab == .byTopic {
-            return isEnglish ? "Exercises by Topic" : "תרגילים לפי נושא"
-        }
-
-        return beltDisplayTitle(selectedBelt)
+        beltDisplayTitle(selectedBelt)
     }
 
-    private var beltScreenQuickMenuItems: [BeltScreenQuickMenuItem] {
-        var items: [BeltScreenQuickMenuItem] = []
-
-        items.append(
-            BeltScreenQuickMenuItem(
-                title: isEnglish ? "Weak Points" : "נקודות תורפה",
-                systemImage: "exclamationmark.triangle.fill"
-            ) {
-                if LockedContentPolicy.shouldShowLock(
-                    accessMode: LockedContentPolicy.currentAccessMode(),
-                    title: isEnglish ? "Weak Points" : "נקודות תורפה"
-                ) {
-                    nav.push(.subscriptionPlans)
-                } else {
-                    nav.push(.weakPoints(belt: quickMenuBelt))
-                }
-            }
-        )
-
-        if tab == .byBelt {
-            items.append(
-                BeltScreenQuickMenuItem(
-                    title:
-                        isEnglish
-                            ? "All Lists"
-                            : "כל הרשימות",
-                    systemImage:
-                        "list.bullet.rectangle.fill"
-                ) {
-                    if LockedContentPolicy
-                        .shouldShowLock(
-                            accessMode:
-                                LockedContentPolicy
-                                    .currentAccessMode(),
-                            title:
-                                isEnglish
-                                    ? "All Lists"
-                                    : "כל הרשימות"
-                        ) {
-                        nav.push(
-                            .subscriptionPlans
-                        )
-                    } else {
-                        nav.push(
-                            .allLists(
-                                belt:
-                                    quickMenuBelt
-                            )
-                        )
-                    }
-                }
+    private func closeQuickMenuForNavigation() {
+        withAnimation(
+            .spring(
+                response: 0.24,
+                dampingFraction: 0.90
             )
+        ) {
+            quickMenuOpen = false
+        }
+    }
+
+    private func runLockedQuickMenuAction(
+        title: String,
+        action: () -> Void
+    ) {
+        closeQuickMenuForNavigation()
+
+        let accessMode =
+            LockedContentPolicy.currentAccessMode()
+
+        if LockedContentPolicy.shouldShowLock(
+            accessMode: accessMode,
+            title: title
+        ) {
+            nav.push(.subscriptionPlans)
+            return
         }
 
-        items.append(
+        action()
+    }
+
+    private var beltScreenQuickMenuItems:
+        [BeltScreenQuickMenuItem] {
+
+        let weakPointsTitle =
+            isEnglish
+                ? "Weak Points"
+                : "נקודות תורפה"
+
+        let allListsTitle =
+            isEnglish
+                ? "All Lists"
+                : "כל הרשימות"
+
+        let practiceTitle =
+            isEnglish
+                ? "Practice"
+                : "תרגול"
+
+        let summaryTitle =
+            isEnglish
+                ? "Summary"
+                : "מסך סיכום"
+
+        let voiceTitle =
+            isEnglish
+                ? "Voice Assistant"
+                : "עוזר קולי"
+
+        let pdfTitle =
+            isEnglish
+                ? "PDF Materials"
+                : "חומרי PDF"
+
+        return [
+
             BeltScreenQuickMenuItem(
                 title:
-                    isEnglish
-                        ? "Practice"
-                        : "תרגול",
+                    weakPointsTitle,
+                systemImage:
+                    "exclamationmark.triangle.fill"
+            ) {
+
+                runLockedQuickMenuAction(
+                    title:
+                        weakPointsTitle
+                ) {
+
+                    nav.push(
+                        .weakPoints(
+                            belt:
+                                selectedBelt
+                        )
+                    )
+                }
+            },
+
+            BeltScreenQuickMenuItem(
+                title:
+                    allListsTitle,
+                systemImage:
+                    "list.bullet.rectangle.fill"
+            ) {
+
+                runLockedQuickMenuAction(
+                    title:
+                        allListsTitle
+                ) {
+
+                    nav.push(
+                        .allLists(
+                            belt:
+                                selectedBelt
+                        )
+                    )
+                }
+            },
+
+            BeltScreenQuickMenuItem(
+                title:
+                    practiceTitle,
                 systemImage:
                     "figure.martial.arts"
             ) {
-                if LockedContentPolicy.shouldShowLock(
-                    accessMode:
-                        LockedContentPolicy
-                            .currentAccessMode(),
+
+                runLockedQuickMenuAction(
                     title:
-                        isEnglish
-                            ? "Practice"
-                            : "תרגול"
+                        practiceTitle
                 ) {
-                    nav.push(
-                        .subscriptionPlans
-                    )
-                } else {
-                    withAnimation(
-                        .spring(
-                            response: 0.24,
-                            dampingFraction: 0.9
-                        )
-                    ) {
-                        quickMenuOpen = false
-                    }
 
-                    showPracticeMenu = true
+                    showPracticeMenu =
+                        true
                 }
-            }
-        )
+            },
 
-        if tab == .byBelt {
-            items.append(
-                BeltScreenQuickMenuItem(
-                    title:
-                        isEnglish
-                            ? "Summary"
-                            : "מסך סיכום",
-                    systemImage:
-                        "chart.bar.doc.horizontal"
-                ) {
-                    if LockedContentPolicy
-                        .shouldShowLock(
-                            accessMode:
-                                LockedContentPolicy
-                                    .currentAccessMode(),
-                            title:
-                                isEnglish
-                                    ? "Summary"
-                                    : "מסך סיכום"
-                        ) {
-                        nav.push(
-                            .subscriptionPlans
-                        )
-                    } else {
-                        nav.push(
-                            .summary(
-                                belt:
-                                    quickMenuBelt,
-                                topic:
-                                    nil,
-                                subTopic:
-                                    nil
-                            )
-                        )
-                    }
-                }
-            )
-        }
-
-        items.append(
             BeltScreenQuickMenuItem(
                 title:
-                    isEnglish
-                        ? "Voice Assistant"
-                        : "עוזר קולי",
-                systemImage: "mic.fill"
+                    summaryTitle,
+                systemImage:
+                    "chart.bar.doc.horizontal"
             ) {
-                nav.push(.voiceAssistant)
-            }
-        )
 
-        items.append(
+                runLockedQuickMenuAction(
+                    title:
+                        summaryTitle
+                ) {
+
+                    nav.push(
+                        .summary(
+                            belt:
+                                selectedBelt,
+                            topic:
+                                nil,
+                            subTopic:
+                                nil
+                        )
+                    )
+                }
+            },
+
             BeltScreenQuickMenuItem(
-                title: isEnglish ? "Final Exam" : "מבחן מסכם",
-                systemImage: "checkmark.seal.fill"
+                title:
+                    voiceTitle,
+                systemImage:
+                    "mic.fill"
             ) {
-                if LockedContentPolicy.shouldShowLock(
-                    accessMode: LockedContentPolicy.currentAccessMode(),
-                    title: isEnglish ? "Final Exam" : "מבחן מסכם"
+
+                runLockedQuickMenuAction(
+                    title:
+                        voiceTitle
                 ) {
-                    nav.push(.subscriptionPlans)
-                } else {
-                    nav.push(.beltFinalExam(belt: quickMenuBelt))
+
+                    nav.push(
+                        .voiceAssistant
+                    )
+                }
+            },
+
+            BeltScreenQuickMenuItem(
+                title:
+                    pdfTitle,
+                systemImage:
+                    "doc.richtext.fill"
+            ) {
+
+                runLockedQuickMenuAction(
+                    title:
+                        pdfTitle
+                ) {
+
+                    createAndSharePDF()
                 }
             }
-        )
-
-        if coach.isCoach {
-            items.append(
-                BeltScreenQuickMenuItem(
-                    title: isEnglish ? "Internal Exam" : "מבחן פנימי",
-                    systemImage: "checklist"
-                ) {
-                    nav.push(.internalExam(belt: quickMenuBelt))
-                }
-            )
-        }
-
-        return items
+        ]
     }
     
-    private func beltFromStoredId(_ raw: String?) -> Belt? {
-        let clean = (raw ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        
+    private func beltFromStoredId(
+        _ raw: String?
+    ) -> Belt? {
+
+        let clean =
+            (raw ?? "")
+                .trimmingCharacters(
+                    in:
+                        .whitespacesAndNewlines
+                )
+                .lowercased()
+
+        guard !clean.isEmpty else {
+            return nil
+        }
+
+        /*
+         * Android Belt.fromAny(...)
+         *
+         * כל דרגות השחורה / דאן
+         * ממופות לחגורה שחורה אחת
+         * בקרוסלה.
+         */
+        if
+            clean == "black" ||
+            clean == "שחור" ||
+            clean == "שחורה" ||
+            clean == "חגורה שחורה" ||
+            clean.hasPrefix("black_dan_") ||
+            clean.hasPrefix("black dan ") ||
+            clean.hasPrefix("black belt dan ") ||
+            clean.contains("שחורה דאן") ||
+            clean.contains("שחור דאן") {
+
+            return .black
+        }
+
         switch clean {
-        case "white", "לבן", "לבנה", "חגורה לבנה":
-            return Belt.white
-        case "yellow", "צהוב", "צהובה", "חגורה צהובה":
-            return Belt.yellow
-        case "orange", "כתום", "כתומה", "חגורה כתומה":
-            return Belt.orange
-        case "green", "ירוק", "ירוקה", "חגורה ירוקה":
-            return Belt.green
-        case "blue", "כחול", "כחולה", "חגורה כחולה":
-            return Belt.blue
-        case "brown", "חום", "חומה", "חגורה חומה":
-            return Belt.brown
-        case "black", "שחור", "שחורה", "חגורה שחורה":
-            return Belt.black
+
+        case
+            "white",
+            "לבן",
+            "לבנה",
+            "חגורה לבנה":
+
+            return .white
+
+        case
+            "yellow",
+            "צהוב",
+            "צהובה",
+            "חגורה צהובה":
+
+            return .yellow
+
+        case
+            "orange",
+            "כתום",
+            "כתומה",
+            "חגורה כתומה":
+
+            return .orange
+
+        case
+            "green",
+            "ירוק",
+            "ירוקה",
+            "חגורה ירוקה":
+
+            return .green
+
+        case
+            "blue",
+            "כחול",
+            "כחולה",
+            "חגורה כחולה":
+
+            return .blue
+
+        case
+            "brown",
+            "חום",
+            "חומה",
+            "חגורה חומה":
+
+            return .brown
+
         default:
             return nil
         }
     }
-    
+
     private func nextBelt(
-        after registered: Belt
+        after registeredBelt: Belt
     ) -> Belt {
-        guard let currentIndex =
-            belts.firstIndex(
-                of: registered
-            ) else {
-            return Belt.orange
+
+        /*
+         * Android:
+         * שחורה היא התחנה האחרונה.
+         *
+         * חומה -> שחורה
+         * שחורה / דאן -> שחורה
+         */
+        if registeredBelt == .black {
+            return .black
         }
 
         /*
-         * חגורה שחורה היא החגורה האחרונה.
-         * לא חוזרים ממנה לחגורה הצהובה.
+         * לבנה אינה מוצגת בקרוסלה.
+         * הבאה אחריה היא צהובה.
          */
-        if currentIndex >=
-            belts.count - 1 {
-            return registered
+        if registeredBelt == .white {
+            return .yellow
+        }
+
+        guard
+            let registeredIndex =
+                belts.firstIndex(
+                    of:
+                        registeredBelt
+                )
+        else {
+            return .orange
+        }
+
+        guard
+            registeredIndex >= 0,
+            registeredIndex <
+                belts.count - 1
+        else {
+            return registeredBelt
         }
 
         return belts[
-            currentIndex + 1
+            registeredIndex + 1
         ]
     }
 
     private func initialBeltLikeAndroid(
         defaults: UserDefaults = .standard
     ) -> Belt {
-        /*
-         * חגורה שהועברה במפורש למסך מקבלת
-         * קדימות, למשל מפקודה קולית או מקישור ישיר.
-         *
-         * חגורה לבנה אינה מוצגת בגלגל ולכן
-         * אינה נחשבת בחירה מפורשת תקינה כאן.
-         */
-        if belt != .white,
-           belts.contains(belt) {
-            return belt
-        }
 
+        /*
+         * Android source of truth:
+         *
+         * אין חגורה רשומה -> כתומה
+         *
+         * לבנה   -> צהובה
+         * צהובה  -> כתומה
+         * כתומה  -> ירוקה
+         * ירוקה  -> כחולה
+         * כחולה  -> חומה
+         * חומה   -> שחורה
+         *
+         * שחורה / דאן 1...10
+         * -> שחורה
+         *
+         * חשוב:
+         * לא משתמשים ב-selectedBelt ישן
+         * ולא ב-belt שהועבר למסך
+         * לקביעת נקודת הפתיחה הרגילה.
+         */
         let storedRaw =
             defaults.string(
-                forKey: "current_belt"
+                forKey:
+                    "current_belt"
             )
             ?? defaults.string(
-                forKey: "belt_current"
+                forKey:
+                    "belt_current"
             )
             ?? defaults.string(
-                forKey: "currentBelt"
+                forKey:
+                    "currentBelt"
             )
             ?? defaults.string(
-                forKey: "belt"
+                forKey:
+                    "belt"
             )
 
-        let clean =
+        let cleanStoredRaw =
             (storedRaw ?? "")
                 .trimmingCharacters(
-                    in: .whitespacesAndNewlines
+                    in:
+                        .whitespacesAndNewlines
                 )
 
-        guard !clean.isEmpty,
-              let registeredBelt =
-                beltFromStoredId(clean) else {
-            return Belt.orange
+        /*
+         * משתמש ללא חגורה רשומה,
+         * או ערך שלא ניתן לזהות:
+         * Android מתחיל מכתומה.
+         */
+        guard
+            !cleanStoredRaw.isEmpty,
+            let registeredBelt =
+                beltFromStoredId(
+                    cleanStoredRaw
+                )
+        else {
+            return .orange
         }
 
-        if registeredBelt == .white {
-            return Belt.yellow
-        }
+        let initialBelt =
+            nextBelt(
+                after:
+                    registeredBelt
+            )
 
-        return nextBelt(
-            after: registeredBelt
+        /*
+         * הגנה נוספת:
+         * הקרוסלה מציגה רק את
+         * החגורות שנמצאות ב-belts.
+         */
+        return belts.contains(
+            initialBelt
         )
+            ? initialBelt
+            : .orange
     }
 
     private func toSharedSubject(
@@ -810,38 +1253,13 @@ struct BeltQuestionsByBeltView: View {
         return (doneCount, all.count)
     }
     
-    private func topicAccentColor(_ topicTitle: String) -> Color {
-        let clean = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        if clean.contains("הגנות") || clean.lowercased().contains("defense") {
-            return Color.green.opacity(0.86)
-        }
-        
-        if clean.contains("שחרור") || clean.lowercased().contains("release") {
-            return Color.blue.opacity(0.78)
-        }
-        
-        if clean.contains("יד") || clean.contains("אגרוף") || clean.contains("מרפק") {
-            return Color.red.opacity(0.78)
-        }
-        
-        if clean.contains("בעיטה") || clean.contains("בעיטות") {
-            return Color.orange.opacity(0.86)
-        }
-        
-        if clean.contains("בלימות") || clean.contains("גלגולים") {
-            return Color.purple.opacity(0.78)
-        }
-        
-        if clean.contains("קרקע") {
-            return Color.orange.opacity(0.80)
-        }
-        
-        if clean.contains("קאוול") {
-            return Color.gray.opacity(0.70)
-        }
-        
-        return BeltPaletteByBeltScreen.color(for: selectedBelt)
+    private func topicAccentColor(
+        _ topicTitle: String
+    ) -> Color {
+
+        _ = topicTitle
+
+        return readableBeltAccent
     }
     
     private func topicImageName(_ topicTitle: String) -> String? {
@@ -889,6 +1307,18 @@ struct BeltQuestionsByBeltView: View {
             lower.contains("breakfall") ||
             lower.contains("roll") {
             return "topic_breakfalls_rolls"
+        }
+        
+        if selectedBelt == .yellow &&
+            (
+                clean.contains("מניעת התקרבות התוקף") ||
+                clean.contains("מניעת התקרבות") ||
+                clean.contains("התקרבות התוקף") ||
+                lower.contains("prevent attacker approach") ||
+                lower.contains("prevent approach")
+            ) {
+
+            return "topic_prevent_attacker_approach"
         }
         
         if clean.contains("עמידת מוצא") ||
@@ -972,300 +1402,274 @@ struct BeltQuestionsByBeltView: View {
         )
     }
     
+    private func isDefenseTopic(
+        _ topicTitle: String
+    ) -> Bool {
+        let clean =
+            topicTitle
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        let lower =
+            clean.lowercased()
+
+        return
+            clean.contains("הגנות") ||
+            lower.contains("defense") ||
+            lower.contains("defenses")
+    }
+
     private func openTopicFromByBelt(
         topicTitle: String,
         hasSubs: Bool,
         isExpanded: Bool
     ) {
-        if isTopicLocked(topicTitle) {
-            nav.push(.subscriptionPlans)
+        let cleanTopicTitle =
+            topicTitle
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        guard !cleanTopicTitle.isEmpty else {
             return
         }
-        
-        if hasSubs {
-            withAnimation(.easeInOut(duration: 0.22)) {
-                expandedTopic = isExpanded ? nil : topicTitle
-            }
-        } else {
-            selectedExerciseRoute = BeltTopicExerciseRoute(
-                belt: selectedBelt,
-                topicTitle: topicTitle
+
+        /*
+         * Android parity:
+         * קודם בודקים הרשאה.
+         */
+        if isTopicLocked(
+            cleanTopicTitle
+        ) {
+            nav.push(
+                .subscriptionPlans
             )
+
+            return
         }
+
+        /*
+         * Android parity:
+         * אם יש תתי־נושאים,
+         * לא מנווטים למסך חדש.
+         *
+         * פותחים / סוגרים אותם
+         * בתוך הכרטיס.
+         */
+        if hasSubs {
+            withAnimation(
+                .easeInOut(
+                    duration: 0.22
+                )
+            ) {
+                expandedTopic =
+                    isExpanded
+                        ? nil
+                        : cleanTopicTitle
+            }
+
+            return
+        }
+
+        /*
+         * Android parity:
+         * נושא "הגנות" ללא תתי־נושאים
+         * אינו נכנס ישירות ל-Materials.
+         *
+         * Android שולח אותו ל-
+         * onOpenDefenseMenu ->
+         * openSubTopics.
+         *
+         * ב-iOS אנחנו משתמשים במסלול
+         * תתי־הנושאים הקיים.
+         */
+        if isDefenseTopic(
+            cleanTopicTitle
+        ) {
+            selectedTopicSubTopicsRoute =
+                BeltTopicSubTopicsRoute(
+                    belt:
+                        selectedBelt,
+                    topicTitle:
+                        cleanTopicTitle,
+                    linkedSubjects:
+                        []
+                )
+
+            return
+        }
+
+        /*
+         * נושא רגיל ללא תתי־נושאים:
+         * כניסה ישירה למסך התרגילים.
+         */
+        selectedExerciseRoute =
+            BeltTopicExerciseRoute(
+                belt:
+                    selectedBelt,
+                topicTitle:
+                    cleanTopicTitle
+            )
     }
    
     @ViewBuilder
     private func navigationChevron(
         hasSubs: Bool,
         isExpanded: Bool,
-        isEnglish: Bool
+        isEnglish _: Bool
     ) -> some View {
-        let isDarkMode =
-            colorScheme == .dark
 
         if hasSubs {
+
             Image(
                 systemName:
                     isExpanded
-                    ? "chevron.up"
-                    : "chevron.down"
+                        ? "chevron.up"
+                        : "chevron.down"
             )
-            .kmiFont(
-                size: 14,
-                weight: .heavy
-            )
+            .resizable()
+            .scaledToFit()
             .foregroundStyle(
-                isDarkMode
-                    ? Color.white.opacity(0.66)
-                    : Color.black.opacity(0.42)
+                readableBeltAccent
             )
-            .frame(width: 20)
-        } else {
-            Image(
-                systemName:
-                    isEnglish
-                    ? "chevron.right"
-                    : "chevron.left"
-            )
-            .kmiFont(
-                size: 13,
-                weight: .bold
-            )
-            .foregroundStyle(
-                isDarkMode
-                    ? Color.white.opacity(0.52)
-                    : Color.black.opacity(0.30)
-            )
-            .frame(width: 20)
+            .kmiIconSize(20)
+            .accessibilityHidden(true)
         }
     }
-    
+
     private func topicTextBlock(
         title: String,
         subtitle: String?,
         isEnglish: Bool
     ) -> some View {
-        let isDarkMode =
-            colorScheme == .dark
 
-        let titleColor =
-            isDarkMode
-            ? Color.white.opacity(0.94)
-            : Color.black.opacity(0.86)
-
-        let beltSubtitleColor: Color = {
-            switch selectedBelt {
-            case .white:
-                return isDarkMode
-                    ? Color.white.opacity(0.82)
-                    : Color.gray.opacity(0.82)
-
-            case .black:
-                return isDarkMode
-                    ? Color.white.opacity(0.76)
-                    : Color.black.opacity(0.72)
-
-            case .yellow:
-                return isDarkMode
-                    ? Color(
-                        red: 1.00,
-                        green: 0.84,
-                        blue: 0.24
-                    )
-                    : Color(
-                        red: 0.72,
-                        green: 0.53,
-                        blue: 0.02
-                    )
-
-            default:
-                return BeltPaletteByBeltScreen
-                    .color(for: selectedBelt)
-                    .opacity(
-                        isDarkMode ? 1.0 : 0.88
-                    )
-            }
-        }()
+        let cleanSubtitle =
+            subtitle?
+                .trimmingCharacters(
+                    in:
+                        .whitespacesAndNewlines
+                )
+            ?? ""
 
         return VStack(
             alignment:
                 isEnglish
-                ? .leading
-                : .trailing,
-            spacing: 3
+                    ? .leading
+                    : .trailing,
+            spacing: 1
         ) {
-            Text(uiTopicTitle(title))
-                .kmiFont(
-                    size: 18,
-                    weight: .heavy
+
+            Text(
+                uiTopicTitle(title)
+            )
+            .kmiTypography(
+                .cardTitle
+            )
+            .foregroundStyle(
+                byBeltTitleColor
+            )
+            .frame(
+                maxWidth: .infinity,
+                alignment:
+                    isEnglish
+                        ? .leading
+                        : .trailing
+            )
+            .multilineTextAlignment(
+                isEnglish
+                    ? .leading
+                    : .trailing
+            )
+            .lineLimit(2)
+
+            if !cleanSubtitle.isEmpty {
+
+                Text(
+                    cleanSubtitle
                 )
-                .foregroundStyle(titleColor)
+                .kmiTypography(
+                    .caption
+                )
+                .fontWeight(
+                    .heavy
+                )
+                .foregroundStyle(
+                    byBeltRowSubColor
+                )
                 .frame(
                     maxWidth: .infinity,
                     alignment:
                         isEnglish
-                        ? .leading
-                        : .trailing
+                            ? .leading
+                            : .trailing
                 )
                 .multilineTextAlignment(
                     isEnglish
                         ? .leading
                         : .trailing
                 )
-                .lineLimit(1)
-                .minimumScaleFactor(0.76)
-
-            if let subtitle,
-               !subtitle.isEmpty {
-
-                Text(subtitle)
-                    .kmiFont(
-                        size: 13,
-                        weight: .bold
-                    )
-                    .foregroundStyle(
-                        beltSubtitleColor
-                    )
-                    .frame(
-                        maxWidth: .infinity,
-                        alignment:
-                            isEnglish
-                            ? .leading
-                            : .trailing
-                    )
-                    .multilineTextAlignment(
-                        isEnglish
-                            ? .leading
-                            : .trailing
-                    )
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                .lineLimit(2)
             }
         }
     }
-    
+
+    @ViewBuilder
     private func topicIconBox(
         topicTitle: String,
-        accent: Color
+        accent _: Color
     ) -> some View {
-        let isDarkMode =
-            colorScheme == .dark
 
-        return ZStack {
-            RoundedRectangle(
-                cornerRadius: 12,
-                style: .continuous
-            )
-            .fill(
-                isDarkMode
-                    ? Color.white.opacity(0.10)
-                    : Color.white.opacity(0.92)
-            )
-            .overlay(
-                RoundedRectangle(
-                    cornerRadius: 12,
-                    style: .continuous
-                )
-                .stroke(
-                    isDarkMode
-                        ? accent.opacity(0.34)
-                        : accent.opacity(0.18),
-                    lineWidth: 1
-                )
-            )
-            .shadow(
-                color:
-                    Color.black.opacity(
-                        isDarkMode ? 0.24 : 0.05
-                    ),
-                radius: 2,
-                x: 0,
-                y: 1
-            )
-            
-            if let imageName =
-                topicImageName(topicTitle) {
+        if let imageName =
+            topicImageName(
+                topicTitle
+            ) {
 
-                Image(imageName)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(
-                        width: 46,
-                        height: 46
-                    )
-                    .clipShape(
-                        RoundedRectangle(
-                            cornerRadius: 12,
-                            style: .continuous
-                        )
-                    )
-            } else {
-                Image(
-                    systemName:
-                        topicSymbolName(topicTitle)
+            Image(imageName)
+                .resizable()
+                .scaledToFill()
+                .frame(
+                    width: 38,
+                    height: 31
                 )
-                .kmiFont(
-                    size: 19,
-                    weight: .heavy
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 10,
+                        style: .continuous
+                    )
                 )
-                .foregroundStyle(accent)
-            }
         }
-        .frame(
-            width: 46,
-            height: 46
+    }
+
+    private func topicAccentStrip(
+        _ accent: Color
+    ) -> some View {
+
+        RoundedRectangle(
+            cornerRadius: 999,
+            style: .continuous
         )
-    }
-    
-    private func topicAccentStrip(_ accent: Color) -> some View {
-        RoundedRectangle(cornerRadius: 999, style: .continuous)
-            .fill(
-                LinearGradient(
-                    colors: [
-                        accent.opacity(1.0),
-                        accent.opacity(0.72)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .frame(width: 3, height: 34)
-    }
-    
-    @ViewBuilder
-    private var tabContent: some View {
-        ZStack {
-            if tab == .byTopic {
-                BeltQuestionsByTopicView(
-                    belt: selectedBelt,
-                    embeddedMode: true,
-                    onSwitchToByBelt: {
-                        withAnimation(.spring(response: 0.24, dampingFraction: 0.92)) {
-                            quickMenuOpen = false
-                            tab = .byBelt
-                        }
+        .fill(
 
-                        DispatchQueue.main.async {
-                            NotificationCenter.default.post(
-                                name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
-                                object: screenTitleForMode
-                            )
-                        }
-                    },
-                    onActiveBeltChange: { activeBelt in
-                        byTopicActiveBelt = activeBelt
-                    }
-                )
-                .onAppear {
-                    byTopicActiveBelt = selectedBelt
-                }
-                .transition(.opacity)
-            } else {
-                byBeltContent
-                    .transition(.opacity)
-            }
-        }
-        .animation(.easeInOut(duration: 0.25), value: tab)
+            LinearGradient(
+                colors: [
+                    accent,
+                    accent.opacity(
+                        colorScheme == .dark
+                            ? 0.90
+                            : 0.82
+                    )
+                ],
+                startPoint:
+                    .top,
+                endPoint:
+                    .bottom
+            )
+        )
+        .frame(
+            width: 3,
+            height: 34
+        )
     }
     
     private struct BeltPDFSourceRow {
@@ -1695,192 +2099,327 @@ struct BeltQuestionsByBeltView: View {
     }
 
     var body: some View {
-        ZStack {
+
+        ZStack(
+            alignment: .top
+        ) {
+
             KmiAppBackground()
-            
+
             VStack(spacing: 0) {
+
                 beltModeTabs
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.top, 4)
-                    .padding(.bottom, -2)
-                
-                tabContent
+
+                Spacer()
+                    .frame(height: 4)
+
+                byBeltContent
+                    .padding(
+                        .horizontal,
+                        14
+                    )
             }
-            
-            if tab == .byBelt {
-                GeometryReader { geo in
-                    let isCompactHeight = geo.size.height < 760
-                    let pickerWidth: CGFloat = isCompactHeight ? 332 : 346
-                    let pickerHeight: CGFloat = isCompactHeight ? 168 : 176
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .top
+            )
 
-                    VStack {
-                        Spacer()
+            GeometryReader { geo in
 
-                        BeltArcPicker(
-                            belts: belts,
-                            selectedBelt: $selectedBelt,
-                            isEnglish: isEnglish
-                        )
-                        .frame(width: pickerWidth, height: pickerHeight)
-                        .offset(y: 7)
-                        .padding(.bottom, 0)
-                    }
-                    .frame(width: geo.size.width, height: geo.size.height, alignment: .bottom)
+                VStack(spacing: 0) {
+
+                    Spacer(
+                        minLength: 0
+                    )
+
+                    BeltArcPicker(
+                        belts: belts,
+                        selectedBelt: $selectedBelt,
+                        isEnglish: isEnglish
+                    )
+                    .frame(
+                        width: geo.size.width,
+                        height: 152
+                    )
                 }
-                .zIndex(40)
-                .allowsHitTesting(!quickMenuOpen)
+                .frame(
+                    width: geo.size.width,
+                    height: geo.size.height,
+                    alignment: .bottom
+                )
             }
-            
+            .zIndex(40)
+            .allowsHitTesting(
+                !quickMenuOpen
+            )
+                    
             BeltScreenSideQuickMenuOverlay(
-                isPresented: $quickMenuOpen,
-                isEnglish: isEnglish,
-                accent: BeltPaletteByBeltScreen.color(for: quickMenuBelt),
-                items: beltScreenQuickMenuItems,
+                isPresented:
+                    $quickMenuOpen,
+                isEnglish:
+                    isEnglish,
+                accent:
+                    BeltPaletteByBeltScreen
+                        .color(
+                            for:
+                                quickMenuBelt
+                        ),
+                items:
+                    beltScreenQuickMenuItems,
                 onClose: {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                        quickMenuOpen = false
+                    withAnimation(
+                        .spring(
+                            response: 0.28,
+                            dampingFraction:
+                                0.86
+                        )
+                    ) {
+                        quickMenuOpen =
+                            false
                     }
                 }
             )
             .zIndex(1200)
         }
-        .environment(\.layoutDirection, screenLayoutDirection)
+        .environment(
+            \.layoutDirection,
+            screenLayoutDirection
+        )
         .onAppear {
-            quickMenuOpen = false
 
-            guard !didInitializeSelectedBelt else {
-                NotificationCenter.default.post(
-                    name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
-                    object: screenTitleForMode
+            quickMenuOpen =
+                false
+
+            /*
+             * אם המסך כבר אותחל בעבר,
+             * רק מוודאים שה-cache קיים.
+             */
+            if didInitializeSelectedBelt {
+
+                ensureBeltTopicsCache(
+                    for:
+                        selectedBelt
                 )
+
+                NotificationCenter
+                    .default
+                    .post(
+                        name:
+                            Notification.Name(
+                                "KMI_TOP_TITLE_OVERRIDE"
+                            ),
+                        object:
+                            screenTitleForMode
+                    )
+
                 return
             }
 
-            // Android parity:
-            // כניסה ראשונה למסך דרך מסך הבית מתחילה במצב לפי חגורה.
-            tab = .byBelt
-            expandedTopic = nil
+            expandedTopic =
+                nil
 
-            /*
-             * התאמה לאנדרואיד:
-             *
-             * אין חגורה רשומה -> כתומה.
-             * חגורה לבנה      -> צהובה.
-             * חגורה רגילה     -> החגורה הבאה.
-             * חגורה שחורה     -> נשארים בשחורה.
-             */
             selectedBelt =
                 initialBeltLikeAndroid()
 
-            byTopicActiveBelt =
-                selectedBelt
-
-            didInitializeSelectedBelt = true
-
-            NotificationCenter.default.post(
-                name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
-                object: screenTitleForMode
-            )
-        }
-        .onChange(of: belt) { _, newBelt in
             /*
-             * המסך עשוי להישאר בזיכרון בזמן
-             * שפקודה קולית בוחרת חגורה אחרת.
+             * בנייה אחת בלבד של נתוני
+             * החגורה הראשונה.
              */
-            guard newBelt != .white,
-                  belts.contains(newBelt),
-                  selectedBelt != newBelt else {
+            ensureBeltTopicsCache(
+                for:
+                    selectedBelt
+            )
+
+            didInitializeSelectedBelt =
+                true
+
+            NotificationCenter
+                .default
+                .post(
+                    name:
+                        Notification.Name(
+                            "KMI_TOP_TITLE_OVERRIDE"
+                        ),
+                    object:
+                        screenTitleForMode
+                )
+        }
+        .onChange(
+            of: belt
+        ) { _, newBelt in
+
+            /*
+             * מאפשר לפקודה קולית או
+             * לניווט גלובלי לעדכן חגורה
+             * גם כאשר המסך נשאר בזיכרון.
+             */
+            guard
+                newBelt != .white,
+                belts.contains(newBelt),
+                selectedBelt != newBelt
+            else {
                 return
             }
 
-            selectedBelt = newBelt
-            byTopicActiveBelt = newBelt
-            expandedTopic = nil
-            quickMenuOpen = false
-            tab = .byBelt
+            selectedBelt =
+                newBelt
+
+            expandedTopic =
+                nil
+
+            quickMenuOpen =
+                false
         }
-        .onChange(of: selectedBelt) { _, newValue in
-            expandedTopic = nil
+        .onChange(
+            of: selectedBelt
+        ) { _, newValue in
+
+            expandedTopic =
+                nil
 
             /*
-             * מסנכרנים את החגורה הפעילה עם
-             * שאר מסכי האפליקציה.
+             * אם החגורה כבר נפתחה בעבר:
+             * O(1), אין טעינת ContentRepo.
+             *
+             * אם זו הפעם הראשונה:
+             * היא נבנית פעם אחת ונשמרת.
              */
+            ensureBeltTopicsCache(
+                for:
+                    newValue
+            )
+
             UserDefaults.standard.set(
                 newValue.id,
-                forKey: "selected_belt"
+                forKey:
+                    "selected_belt"
             )
 
-            NotificationCenter.default.post(
-                name: Notification.Name(
-                    "KMI_SELECTED_BELT_CHANGED"
-                ),
-                object: newValue.id
-            )
-
-            if tab == .byBelt {
-                byTopicActiveBelt = newValue
-            }
+            NotificationCenter
+                .default
+                .post(
+                    name:
+                        Notification.Name(
+                            "KMI_SELECTED_BELT_CHANGED"
+                        ),
+                    object:
+                        newValue.id
+                )
 
             if quickMenuOpen {
-                withAnimation(.spring(response: 0.24, dampingFraction: 0.92)) {
-                    quickMenuOpen = false
+
+                withAnimation(
+                    .spring(
+                        response:
+                            0.24,
+                        dampingFraction:
+                            0.92
+                    )
+                ) {
+                    quickMenuOpen =
+                        false
                 }
             }
 
-            NotificationCenter.default.post(
-                name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
-                object: screenTitleForMode
-            )
-        }
-        .onChange(of: tab) { _, _ in
-            NotificationCenter.default.post(
-                name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
-                object: screenTitleForMode
-            )
-        }
-        .onReceive(
-            NotificationCenter.default.publisher(
-                for: Notification.Name("KMI_GLOBAL_SEARCH_PICK")
-            )
-        ) { notif in
-            guard let key = notif.object as? String else { return }
-            pickedExercise = ExerciseSelection.fromSearchKey(key)
-        }
-        .onReceive(
-            NotificationCenter.default.publisher(
-                for: Notification.Name(
-                    "KMI_ACCESS_CHANGED"
+            NotificationCenter
+                .default
+                .post(
+                    name:
+                        Notification.Name(
+                            "KMI_TOP_TITLE_OVERRIDE"
+                        ),
+                    object:
+                        screenTitleForMode
                 )
-            )
-        ) { _ in
-            accessRefreshTick += 1
         }
-        .onReceive(
-            NotificationCenter.default.publisher(
-                for: UserDefaults.didChangeNotification
-            )
-        ) { _ in
+        .onChange(
+            of:
+                effectiveLanguageCode
+        ) { _, _ in
+
             /*
-             * מרענן את אייקוני הנעילה כאשר
-             * נתוני המנוי משתנים מקומית.
+             * טקסטי subtitle משתנים
+             * בין עברית לאנגלית.
              */
+            ensureBeltTopicsCache(
+                for:
+                    selectedBelt,
+                force:
+                    true
+            )
+        }
+        .onReceive(
+            NotificationCenter
+                .default
+                .publisher(
+                    for:
+                        Notification.Name(
+                            "KMI_GLOBAL_SEARCH_PICK"
+                        )
+                )
+        ) { notif in
+
+            guard
+                let key =
+                    notif.object
+                        as? String
+            else {
+                return
+            }
+
+            pickedExercise =
+                ExerciseSelection
+                    .fromSearchKey(
+                        key
+                    )
+        }
+        .onReceive(
+            NotificationCenter
+                .default
+                .publisher(
+                    for:
+                        Notification.Name(
+                            "KMI_ACCESS_CHANGED"
+                        )
+                )
+        ) { _ in
             accessRefreshTick += 1
         }
         .onReceive(
-            NotificationCenter.default.publisher(
-                for: Notification.Name(
-                    "KMI_BELT_MATERIALS_SHARE_PDF"
+            NotificationCenter
+                .default
+                .publisher(
+                    for:
+                        UserDefaults
+                            .didChangeNotification
                 )
-            )
+        ) { _ in
+            accessRefreshTick += 1
+        }
+        .onReceive(
+            NotificationCenter
+                .default
+                .publisher(
+                    for:
+                        Notification.Name(
+                            "KMI_BELT_MATERIALS_SHARE_PDF"
+                        )
+                )
         ) { _ in
             createAndSharePDF()
         }
         .onDisappear {
-            NotificationCenter.default.post(
-                name: Notification.Name("KMI_TOP_TITLE_OVERRIDE"),
-                object: ""
-            )
+            NotificationCenter
+                .default
+                .post(
+                    name:
+                        Notification.Name(
+                            "KMI_TOP_TITLE_OVERRIDE"
+                        ),
+                    object:
+                        ""
+                )
         }
         .navigationDestination(item: $selectedLinkedTopicRoute) { route in
             LinkedTopicSubTopicsView(
@@ -1891,95 +2430,214 @@ struct BeltQuestionsByBeltView: View {
                 }
             )
         }
-        .navigationDestination(item: $selectedTopicSubTopicsRoute) { route in
-            BeltTopicSubTopicsView(
-                belt: route.belt,
-                topicTitle: route.topicTitle,
-                linkedSubjects: route.linkedSubjects,
-                onPickAllTopic: {
-                    selectedExerciseRoute = BeltTopicExerciseRoute(
-                        belt: route.belt,
-                        topicTitle: route.topicTitle
-                    )
-                },
-                onPickSubTopic: { subTopicTitle in
-                    selectedExerciseRoute = BeltTopicExerciseRoute(
-                        belt: route.belt,
-                        topicTitle: route.topicTitle,
-                        forcedSubTopicTitle: subTopicTitle
-                    )
-                },
-                onPickLinkedSubject: { subject in
-                    selectedSubjectForSubTopics = subject
-                }
-            )
-        }
-        .navigationDestination(item: $selectedExerciseRoute) { (route: BeltQuestionsByBeltView.BeltTopicExerciseRoute) in
+      
+        .navigationDestination(
+            item:
+                $selectedTopicSubTopicsRoute
+        ) { route in
+
             KmiRootLayout(
-                title: route.forcedSubTopicTitle ?? route.topicTitle,
-                nav: nav,
-                selectedIcon: .search
+                title:
+                    uiTopicTitle(
+                        route.topicTitle
+                    ),
+                nav:
+                    nav,
+                selectedIcon:
+                    .search,
+                onBackOverride: {
+
+                    selectedTopicSubTopicsRoute =
+                        nil
+                }
             ) {
-                MaterialsView(
-                    belt: route.belt,
-                    topicTitle: route.topicTitle,
-                    subTopicTitle: route.forcedSubTopicTitle,
-                    onSummary: {
-                        belt,
-                        topicTitle,
+                BeltTopicSubTopicsView(
+                    belt:
+                        route.belt,
+                    topicTitle:
+                        route.topicTitle,
+                    linkedSubjects:
+                        route.linkedSubjects,
+
+                    onPickAllTopic: {
+                        selectedExerciseRoute =
+                            BeltTopicExerciseRoute(
+                                belt:
+                                    route.belt,
+                                topicTitle:
+                                    route.topicTitle
+                            )
+                    },
+
+                    onPickSubTopic: {
                         subTopicTitle in
 
-                        selectedBelt = belt
+                        let cleanSubTopic =
+                            subTopicTitle
+                                .trimmingCharacters(
+                                    in:
+                                        .whitespacesAndNewlines
+                                )
+
+                        guard
+                            !cleanSubTopic.isEmpty
+                        else {
+                            return
+                        }
+
+                        selectedExerciseRoute =
+                            BeltTopicExerciseRoute(
+                                belt:
+                                    route.belt,
+                                topicTitle:
+                                    route.topicTitle,
+                                forcedSubTopicTitle:
+                                    cleanSubTopic
+                            )
+                    },
+
+                    onPickLinkedSubject: {
+                        subject in
+
+                        selectedSubjectForSubTopics =
+                            subject
+                    }
+                )
+                .navigationBarBackButtonHidden(
+                    true
+                )
+            }
+        }
+
+        .navigationDestination(
+            item:
+                $selectedExerciseRoute
+        ) { route in
+
+            KmiRootLayout(
+                title:
+                    uiTopicTitle(
+                        route.forcedSubTopicTitle
+                            ?? route.topicTitle
+                    ),
+                nav:
+                    nav,
+                selectedIcon:
+                    .search,
+                onBackOverride: {
+
+                    selectedExerciseRoute =
+                        nil
+                }
+            ) {
+                MaterialsView(
+                    belt:
+                        route.belt,
+                    topicTitle:
+                        route.topicTitle,
+                    subTopicTitle:
+                        route.forcedSubTopicTitle,
+
+                    onSummary: {
+                        pickedBelt,
+                        pickedTopicTitle,
+                        pickedSubTopicTitle in
+
+                        selectedBelt =
+                            pickedBelt
 
                         let cleanTopic =
-                            topicTitle
+                            pickedTopicTitle
                                 .trimmingCharacters(
-                                    in: .whitespacesAndNewlines
+                                    in:
+                                        .whitespacesAndNewlines
                                 )
 
                         let cleanSubTopic =
-                            subTopicTitle?
+                            pickedSubTopicTitle?
                                 .trimmingCharacters(
-                                    in: .whitespacesAndNewlines
+                                    in:
+                                        .whitespacesAndNewlines
                                 )
 
                         nav.push(
                             .summary(
-                                belt: belt,
+                                belt:
+                                    pickedBelt,
                                 topic:
                                     cleanTopic.isEmpty
-                                    ? nil
-                                    : cleanTopic,
+                                        ? nil
+                                        : cleanTopic,
                                 subTopic:
                                     cleanSubTopic?
                                         .isEmpty == false
-                                    ? cleanSubTopic
-                                    : nil
+                                        ? cleanSubTopic
+                                        : nil
                             ),
-                            presentationDelay: 0.30
+                            presentationDelay:
+                                0.30
                         )
                     },
+
                     onPractice: {
-                        belt,
-                        topicTitle in
-                        selectedBelt = belt
-                        practiceTokenFromLists = topicTitle
-                        nav.push(.practice(belt: belt, topicTitle: topicTitle))
+                        pickedBelt,
+                        pickedTopicTitle in
+
+                        selectedBelt =
+                            pickedBelt
+
+                        let cleanTopic =
+                            pickedTopicTitle
+                                .trimmingCharacters(
+                                    in:
+                                        .whitespacesAndNewlines
+                                )
+
+                        practiceTokenFromLists =
+                            cleanTopic.isEmpty
+                                ? "__ALL__"
+                                : cleanTopic
+
+                        nav.push(
+                            .practice(
+                                belt:
+                                    pickedBelt,
+                                topicTitle:
+                                    cleanTopic.isEmpty
+                                        ? "__ALL__"
+                                        : cleanTopic
+                            )
+                        )
                     }
                 )
-                .navigationBarBackButtonHidden(true)
+                .navigationBarBackButtonHidden(
+                    true
+                )
             }
         }
-        .navigationDestination(item: $selectedSubjectForSubTopics) { subject in
+
+        .navigationDestination(
+            item:
+                $selectedSubjectForSubTopics
+        ) { subject in
+
             SubjectSubTopicsView(
-                belt: selectedBelt,
-                subject: subject,
-                onPickSection: { sectionTitle in
-                    selectedSubjectSectionRoute = SubjectSectionExerciseRoute(
-                        belt: selectedBelt,
-                        subject: subject,
-                        sectionTitle: sectionTitle
-                    )
+                belt:
+                    selectedBelt,
+                subject:
+                    subject,
+                onPickSection: {
+                    sectionTitle in
+
+                    selectedSubjectSectionRoute =
+                        SubjectSectionExerciseRoute(
+                            belt:
+                                selectedBelt,
+                            subject:
+                                subject,
+                            sectionTitle:
+                                sectionTitle
+                        )
                 }
             )
         }
@@ -2104,116 +2762,176 @@ struct BeltQuestionsByBeltView: View {
             )
         }
         .sheet(
-            isPresented: $showGeneralNote,
+            isPresented:
+                $showGeneralNote,
             onDismiss: {
-                generalNoteTitle = ""
-                generalNoteText = ""
+
+                generalNoteTitle =
+                    ""
+
+                generalNoteText =
+                    ""
             }
         ) {
-            VStack(spacing: 16) {
+
+            VStack(
+                spacing:
+                    16
+            ) {
+
                 Capsule()
                     .fill(
-                        colorScheme == .dark
-                            ? Color.white.opacity(0.28)
-                            : Color.black.opacity(0.18)
+                        KmiAppTheme
+                            .outline(
+                                for:
+                                    colorScheme
+                            )
+                            .opacity(
+                                0.45
+                            )
                     )
                     .frame(
-                        width: 42,
-                        height: 5
+                        width:
+                            42,
+                        height:
+                            5
                     )
-                    .padding(.top, 10)
-
-                Image(systemName: "info.circle.fill")
-                    .kmiFont(
-                        size: 34,
-                        weight: .heavy
-                    )
-                    .foregroundStyle(
-                        colorScheme == .dark
-                            ? Color(
-                                red: 0.38,
-                                green: 0.65,
-                                blue: 0.98
-                            )
-                            : Color(
-                                red: 0.15,
-                                green: 0.39,
-                                blue: 0.92
-                            )
+                    .padding(
+                        .top,
+                        10
                     )
 
-                Text(generalNoteTitle)
-                    .kmiFont(
-                        size: 20,
-                        weight: .black
-                    )
-                    .foregroundStyle(
-                        colorScheme == .dark
-                            ? Color.white.opacity(0.95)
-                            : Color.black.opacity(0.86)
-                    )
-                    .multilineTextAlignment(.center)
+                Image(
+                    systemName:
+                        "info.circle.fill"
+                )
+                .kmiIconSize(
+                    34
+                )
+                .foregroundStyle(
+                    KmiAppTheme
+                        .secondary(
+                            for:
+                                colorScheme
+                        )
+                )
+
+                Text(
+                    generalNoteTitle
+                )
+                .kmiTypography(
+                    .sectionTitle
+                )
+                .foregroundStyle(
+                    KmiAppTheme
+                        .onSurface(
+                            for:
+                                colorScheme
+                        )
+                )
+                .multilineTextAlignment(
+                    .center
+                )
+                .frame(
+                    maxWidth:
+                        .infinity
+                )
 
                 ScrollView {
-                    Text(generalNoteText)
-                        .kmiFont(
-                            size: 16,
-                            weight: .semibold
-                        )
-                        .foregroundStyle(
-                            colorScheme == .dark
-                                ? Color.white.opacity(0.78)
-                                : Color.black.opacity(0.68)
-                        )
-                        .frame(
-                            maxWidth: .infinity,
-                            alignment:
-                                isEnglish
-                                ? .leading
-                                : .trailing
-                        )
-                        .multilineTextAlignment(
+
+                    Text(
+                        generalNoteText
+                    )
+                    .kmiTypography(
+                        .body
+                    )
+                    .foregroundStyle(
+                        KmiAppTheme
+                            .onSurfaceVariant(
+                                for:
+                                    colorScheme
+                            )
+                    )
+                    .frame(
+                        maxWidth:
+                            .infinity,
+                        alignment:
                             isEnglish
                                 ? .leading
                                 : .trailing
-                        )
+                    )
+                    .multilineTextAlignment(
+                        isEnglish
+                            ? .leading
+                            : .trailing
+                    )
                 }
 
                 Button {
-                    showGeneralNote = false
+
+                    showGeneralNote =
+                        false
+
                 } label: {
+
                     Text(
                         isEnglish
                             ? "Close"
                             : "סגור"
                     )
-                    .kmiFont(
-                        size: 17,
-                        weight: .black
+                    .kmiTypography(
+                        .action
                     )
-                    .foregroundStyle(Color.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(
+                    .foregroundStyle(
+                        KmiAppTheme
+                            .onPrimary(
+                                for:
+                                    colorScheme
+                            )
+                    )
+                    .frame(
+                        maxWidth:
+                            .infinity
+                    )
+                    .frame(
+                        minHeight:
+                            48
+                    )
+                    .background {
+
                         RoundedRectangle(
-                            cornerRadius: 16,
-                            style: .continuous
+                            cornerRadius:
+                                14,
+                            style:
+                                .continuous
                         )
-                        .fill(Color.blue)
-                    )
+                        .fill(
+                            KmiAppTheme
+                                .primary(
+                                    for:
+                                        colorScheme
+                                )
+                        )
+                    }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(
+                    .plain
+                )
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 18)
+            .padding(
+                .horizontal,
+                20
+            )
+            .padding(
+                .bottom,
+                18
+            )
             .background(
-                colorScheme == .dark
-                    ? Color(
-                        red: 0.055,
-                        green: 0.075,
-                        blue: 0.115
+                KmiAppTheme
+                    .surface(
+                        for:
+                            colorScheme
                     )
-                    : Color.white
             )
             .environment(
                 \.layoutDirection,
@@ -2223,7 +2941,9 @@ struct BeltQuestionsByBeltView: View {
                 .medium,
                 .large
             ])
-            .presentationDragIndicator(.hidden)
+            .presentationDragIndicator(
+                .visible
+            )
         }
         .alert(
             isEnglish
@@ -2257,62 +2977,69 @@ struct BeltQuestionsByBeltView: View {
         title: String,
         text: String
     ) -> some View {
+
         Button {
+
             generalNoteTitle =
                 isEnglish
-                ? "General note: \(uiTopicTitle(title))"
-                : "הערה כללית: \(uiTopicTitle(title))"
+                    ? "General note: \(uiTopicTitle(title))"
+                    : "הערה כללית: \(uiTopicTitle(title))"
 
             generalNoteText =
                 text.trimmingCharacters(
-                    in: .whitespacesAndNewlines
+                    in:
+                        .whitespacesAndNewlines
                 )
 
-            showGeneralNote = true
+            showGeneralNote =
+                true
+
         } label: {
-            Image(systemName: "info.circle.fill")
-                .kmiFont(
-                    size: 20,
-                    weight: .heavy
+
+            ZStack {
+
+                Circle()
+                    .fill(
+                        KmiAppTheme
+                            .secondaryContainer(
+                                for: colorScheme
+                            )
+                    )
+
+                Circle()
+                    .stroke(
+                        KmiAppTheme
+                            .secondary(
+                                for: colorScheme
+                            )
+                            .opacity(0.45),
+                        lineWidth: 1
+                    )
+
+                Image(
+                    systemName:
+                        "info.circle.fill"
                 )
+                .resizable()
+                .scaledToFit()
                 .foregroundStyle(
-                    colorScheme == .dark
-                        ? Color(
-                            red: 0.38,
-                            green: 0.65,
-                            blue: 0.98
-                        )
-                        : Color(
-                            red: 0.15,
-                            green: 0.39,
-                            blue: 0.92
+                    KmiAppTheme
+                        .onSecondaryContainer(
+                            for: colorScheme
                         )
                 )
-                .frame(
-                    width: 30,
-                    height: 30
-                )
-                .background(
-                    Circle()
-                        .fill(
-                            colorScheme == .dark
-                                ? Color.blue.opacity(0.20)
-                                : Color(
-                                    red: 0.91,
-                                    green: 0.95,
-                                    blue: 1.00
-                                )
-                        )
-                )
-                .overlay(
-                    Circle()
-                        .stroke(
-                            Color.blue.opacity(0.42),
-                            lineWidth: 1
-                        )
-                )
+                .kmiIconSize(17)
+            }
+            .frame(
+                width: 26,
+                height: 26
+            )
         }
         .buttonStyle(.plain)
+        .frame(
+            width: 30,
+            height: 30
+        )
     }
 
     @ViewBuilder
@@ -2326,47 +3053,85 @@ struct BeltQuestionsByBeltView: View {
         accent: Color,
         rowMinHeight: CGFloat
     ) -> some View {
-        let rowOpacity: Double =
-            locked ? 0.88 : 1.0
 
         let topicGeneralNote =
             ContentRepo.shared
                 .getTopicGeneralNote(
-                    belt: selectedBelt,
-                    topicTitle: topicTitle
+                    belt:
+                        selectedBelt,
+                    topicTitle:
+                        topicTitle
                 )?
                 .trimmingCharacters(
-                    in: .whitespacesAndNewlines
+                    in:
+                        .whitespacesAndNewlines
                 )
             ?? ""
 
         VStack(spacing: 0) {
+
             topicMainRow(
-                entry: entry,
-                topicTitle: topicTitle,
-                hasSubs: hasSubs,
-                isExpanded: isExpanded,
-                locked: locked,
-                generalNote: topicGeneralNote,
-                accent: accent,
-                rowMinHeight: rowMinHeight
+                entry:
+                    entry,
+                topicTitle:
+                    topicTitle,
+                hasSubs:
+                    hasSubs,
+                isExpanded:
+                    isExpanded,
+                locked:
+                    locked,
+                generalNote:
+                    topicGeneralNote,
+                accent:
+                    accent,
+                rowMinHeight:
+                    rowMinHeight
             )
 
-            if hasSubs && isExpanded {
+            if hasSubs &&
+                isExpanded {
+
                 expandedSubTopicsBlock(
-                    topicTitle: topicTitle,
-                    subTitles: subTitles,
-                    accent: accent
+                    topicTitle:
+                        topicTitle,
+                    subTitles:
+                        subTitles,
+                    accent:
+                        accent
                 )
             }
         }
-        .contentShape(Rectangle())
-        .opacity(rowOpacity)
+        .frame(
+            maxWidth: .infinity
+        )
+        .frame(
+            minHeight:
+                rowMinHeight
+        )
+        .padding(
+            .horizontal,
+            10
+        )
+        .padding(
+            .vertical,
+            1
+        )
+        .contentShape(
+            RoundedRectangle(
+                cornerRadius: 18,
+                style: .continuous
+            )
+        )
         .onTapGesture {
+
             openTopicFromByBelt(
-                topicTitle: topicTitle,
-                hasSubs: hasSubs,
-                isExpanded: isExpanded
+                topicTitle:
+                    topicTitle,
+                hasSubs:
+                    hasSubs,
+                isExpanded:
+                    isExpanded
             )
         }
     }
@@ -2380,77 +3145,178 @@ struct BeltQuestionsByBeltView: View {
         locked: Bool,
         generalNote: String,
         accent: Color,
-        rowMinHeight: CGFloat
+        rowMinHeight _: CGFloat
     ) -> some View {
-        HStack(spacing: 8) {
+
+        HStack(spacing: 0) {
+
             if isEnglish {
-                navigationChevron(
-                    hasSubs: hasSubs,
-                    isExpanded: isExpanded,
-                    isEnglish: isEnglish
+
+                topicAccentStrip(
+                    accent
                 )
 
-                topicIconBox(
-                    topicTitle: topicTitle,
-                    accent: accent
-                )
+                Spacer()
+                    .frame(width: 5)
+
+                if topicImageName(
+                    topicTitle
+                ) != nil {
+
+                    topicIconBox(
+                        topicTitle:
+                            topicTitle,
+                        accent:
+                            accent
+                    )
+
+                    Spacer()
+                        .frame(width: 6)
+                }
 
                 topicTextBlock(
-                    title: entry.title,
-                    subtitle: entry.subtitle,
-                    isEnglish: isEnglish
+                    title:
+                        entry.title,
+                    subtitle:
+                        entry.subtitle,
+                    isEnglish:
+                        true
                 )
 
+                Spacer()
+                    .frame(width: 4)
+
                 if !generalNote.isEmpty {
+
                     generalNoteButton(
-                        title: topicTitle,
-                        text: generalNote
+                        title:
+                            topicTitle,
+                        text:
+                            generalNote
                     )
                 }
 
                 if locked {
+
+                    Spacer()
+                        .frame(width: 4)
+
                     PulsingLockBadge()
+                        .frame(
+                            width: 20,
+                            height: 20
+                        )
                 }
 
-                topicAccentStrip(accent)
+                if hasSubs {
+
+                    Spacer()
+                        .frame(width: 4)
+
+                    navigationChevron(
+                        hasSubs:
+                            true,
+                        isExpanded:
+                            isExpanded,
+                        isEnglish:
+                            true
+                    )
+                    .frame(
+                        width: 20,
+                        height: 20
+                    )
+                }
+
             } else {
-                navigationChevron(
-                    hasSubs: hasSubs,
-                    isExpanded: isExpanded,
-                    isEnglish: isEnglish
-                )
 
-                if !generalNote.isEmpty {
-                    generalNoteButton(
-                        title: topicTitle,
-                        text: generalNote
+                if hasSubs {
+
+                    navigationChevron(
+                        hasSubs:
+                            true,
+                        isExpanded:
+                            isExpanded,
+                        isEnglish:
+                            false
                     )
+                    .frame(
+                        width: 20,
+                        height: 20
+                    )
+
+                    Spacer()
+                        .frame(width: 4)
                 }
 
                 if locked {
+
                     PulsingLockBadge()
+                        .frame(
+                            width: 20,
+                            height: 20
+                        )
+
+                    Spacer()
+                        .frame(width: 4)
                 }
 
-                Spacer(minLength: 0)
+                if !generalNote.isEmpty {
+
+                    generalNoteButton(
+                        title:
+                            topicTitle,
+                        text:
+                            generalNote
+                    )
+
+                    Spacer()
+                        .frame(width: 4)
+                }
 
                 topicTextBlock(
-                    title: entry.title,
-                    subtitle: entry.subtitle,
-                    isEnglish: isEnglish
+                    title:
+                        entry.title,
+                    subtitle:
+                        entry.subtitle,
+                    isEnglish:
+                        false
                 )
 
-                topicIconBox(
-                    topicTitle: topicTitle,
-                    accent: accent
-                )
+                if topicImageName(
+                    topicTitle
+                ) != nil {
 
-                topicAccentStrip(accent)
+                    Spacer()
+                        .frame(width: 6)
+
+                    topicIconBox(
+                        topicTitle:
+                            topicTitle,
+                        accent:
+                            accent
+                    )
+
+                    Spacer()
+                        .frame(width: 5)
+                }
+
+                topicAccentStrip(
+                    accent
+                )
             }
         }
-        .environment(\.layoutDirection, .leftToRight)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(minHeight: rowMinHeight)
+        .environment(
+            \.layoutDirection,
+            .leftToRight
+        )
+        .padding(
+            .horizontal,
+            7
+        )
+        .padding(
+            .vertical,
+            4
+        )
     }
 
     @ViewBuilder
@@ -2459,30 +3325,51 @@ struct BeltQuestionsByBeltView: View {
         subTitles: [String],
         accent: Color
     ) -> some View {
+
         VStack(spacing: 8) {
-            ForEach(subTitles, id: \.self) { sub in
+
+            ForEach(
+                subTitles,
+                id: \.self
+            ) { sub in
+
                 subTopicButton(
-                    topicTitle: topicTitle,
-                    subTitle: sub
+                    topicTitle:
+                        topicTitle,
+                    subTitle:
+                        sub
                 )
             }
 
-            let directItems = ContentRepo.shared.getAllItemsFor(
-                belt: selectedBelt,
-                topicTitle: topicTitle,
-                subTopicTitle: nil
+            /*
+             * Android parity:
+             * כאשר נושא מורחב,
+             * "פתח את כל הנושא"
+             * מוצג תמיד.
+             */
+            fullTopicButton(
+                topicTitle:
+                    topicTitle,
+                accent:
+                    accent
             )
-
-            if !directItems.isEmpty {
-                fullTopicButton(
-                    topicTitle: topicTitle,
-                    accent: accent
-                )
-            }
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 12)
-        .transition(.move(edge: .top).combined(with: .opacity))
+        .padding(
+            .horizontal,
+            12
+        )
+        .padding(
+            .bottom,
+            12
+        )
+        .transition(
+            .move(
+                edge: .top
+            )
+            .combined(
+                with: .opacity
+            )
+        )
     }
 
     private func subTopicExercisesCountForUi(
@@ -2490,168 +3377,267 @@ struct BeltQuestionsByBeltView: View {
         topicTitle: String,
         subTopicTitle: String
     ) -> Int {
-        let cleanTopicTitle = topicTitle
-            .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let cleanSubTopicTitle = subTopicTitle
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanTopicTitle =
+            topicTitle
+                .trimmingCharacters(
+                    in:
+                        .whitespacesAndNewlines
+                )
 
-        let topLevelSubTopics = ContentRepo.shared.getSubTopicsFor(
-            belt: belt,
-            topicTitle: cleanTopicTitle
-        )
+        let cleanSubTopicTitle =
+            subTopicTitle
+                .trimmingCharacters(
+                    in:
+                        .whitespacesAndNewlines
+                )
 
-        guard let matchingSubTopic = topLevelSubTopics.first(where: {
-            $0.title.trimmingCharacters(in: .whitespacesAndNewlines) ==
-            cleanSubTopicTitle
-        }) else {
+        let topLevelSubTopics =
+            ContentRepo.shared
+                .getSubTopicsFor(
+                    belt:
+                        belt,
+                    topicTitle:
+                        cleanTopicTitle
+                )
+
+        guard
+            let matchingSubTopic =
+                topLevelSubTopics
+                    .first(
+                        where: {
+                            $0.title
+                                .trimmingCharacters(
+                                    in:
+                                        .whitespacesAndNewlines
+                                )
+                            ==
+                            cleanSubTopicTitle
+                        }
+                    )
+        else {
+
             return 0
         }
 
-        var pendingSubTopics = [matchingSubTopic]
+        /*
+         * BFS עם cursor.
+         *
+         * אין removeFirst(),
+         * ולכן אין הזזת מערך בכל איטרציה.
+         */
+        var pendingSubTopics = [
+            matchingSubTopic
+        ]
+
+        var cursor = 0
         var totalCount = 0
 
-        while !pendingSubTopics.isEmpty {
-            let current = pendingSubTopics.removeFirst()
+        while cursor <
+            pendingSubTopics.count {
 
-            totalCount += current.items.count
-            pendingSubTopics.append(contentsOf: current.subTopics)
+            let current =
+                pendingSubTopics[
+                    cursor
+                ]
+
+            totalCount +=
+                current.items.count
+
+            pendingSubTopics.append(
+                contentsOf:
+                    current.subTopics
+            )
+
+            cursor += 1
         }
 
         return totalCount
     }
 
     @ViewBuilder
+
     private func subTopicButton(
         topicTitle: String,
         subTitle: String
     ) -> some View {
+
         let itemCount =
             subTopicExercisesCountForUi(
-                belt: selectedBelt,
-                topicTitle: topicTitle,
-                subTopicTitle: subTitle
+                belt:
+                    selectedBelt,
+                topicTitle:
+                    topicTitle,
+                subTopicTitle:
+                    subTitle
             )
 
         let subTopicGeneralNote =
             ContentRepo.shared
                 .getSubTopicGeneralNote(
-                    belt: selectedBelt,
-                    topicTitle: topicTitle,
-                    subTopicTitle: subTitle
+                    belt:
+                        selectedBelt,
+                    topicTitle:
+                        topicTitle,
+                    subTopicTitle:
+                        subTitle
                 )?
                 .trimmingCharacters(
-                    in: .whitespacesAndNewlines
+                    in:
+                        .whitespacesAndNewlines
                 )
             ?? ""
 
-        let isDarkMode =
-            colorScheme == .dark
+        let openSubTopic = {
 
-        let subtitleColor =
-            BeltPaletteByBeltScreen
-                .color(for: selectedBelt)
-                .opacity(
-                    isDarkMode ? 1.0 : 0.88
+            if
+                isTopicLocked(
+                    topicTitle
+                )
+                ||
+                isTopicLocked(
+                    subTitle
+                ) {
+
+                nav.push(
+                    .subscriptionPlans
                 )
 
-        let openSubTopic = {
-            if isTopicLocked(topicTitle)
-                || isTopicLocked(subTitle) {
-
-                nav.push(.subscriptionPlans)
             } else {
+
                 selectedExerciseRoute =
                     BeltTopicExerciseRoute(
-                        belt: selectedBelt,
-                        topicTitle: topicTitle,
-                        forcedSubTopicTitle: subTitle
+                        belt:
+                            selectedBelt,
+                        topicTitle:
+                            topicTitle,
+                        forcedSubTopicTitle:
+                            subTitle
                     )
             }
         }
 
-        HStack(spacing: 10) {
+        HStack(
+            spacing:
+                8
+        ) {
+
             if isEnglish {
+
                 VStack(
-                    alignment: .leading,
-                    spacing: 3
+                    alignment:
+                        .leading,
+                    spacing:
+                        2
                 ) {
-                    subTopicTitleLine(subTitle)
+
+                    subTopicTitleLine(
+                        subTitle
+                    )
 
                     Text(
-                        exercisesCountText(itemCount)
+                        exercisesCountText(
+                            itemCount
+                        )
                     )
-                    .kmiFont(
-                        size: 12,
-                        weight: .bold
+                    .kmiTypography(
+                        .caption
                     )
-                    .foregroundStyle(subtitleColor)
-                    .frame(
-                        maxWidth: .infinity,
-                        alignment: .leading
-                    )
-                    .multilineTextAlignment(.leading)
-                }
-
-                Spacer(minLength: 0)
-
-                if !subTopicGeneralNote.isEmpty {
-                    generalNoteButton(
-                        title: subTitle,
-                        text: subTopicGeneralNote
-                    )
-                }
-
-                Image(systemName: "chevron.right")
-                    .kmiFont(
-                        size: 11,
-                        weight: .bold
+                    .fontWeight(
+                        .bold
                     )
                     .foregroundStyle(
-                        isDarkMode
-                            ? Color.white.opacity(0.54)
-                            : Color.black.opacity(0.26)
+                        readableBeltAccent
                     )
+                    .frame(
+                        maxWidth:
+                            .infinity,
+                        alignment:
+                            .leading
+                    )
+                    .multilineTextAlignment(
+                        .leading
+                    )
+                }
+
+                if !subTopicGeneralNote.isEmpty {
+
+                    generalNoteButton(
+                        title:
+                            subTitle,
+                        text:
+                            subTopicGeneralNote
+                    )
+                }
+
+                Image(
+                    systemName:
+                        "chevron.right"
+                )
+                .kmiIconSize(
+                    15
+                )
+                .foregroundStyle(
+                    readableBeltAccent
+                )
+
             } else {
-                Image(systemName: "chevron.left")
-                    .kmiFont(
-                        size: 11,
-                        weight: .bold
-                    )
-                    .foregroundStyle(
-                        isDarkMode
-                            ? Color.white.opacity(0.54)
-                            : Color.black.opacity(0.26)
-                    )
+
+                Image(
+                    systemName:
+                        "chevron.left"
+                )
+                .kmiIconSize(
+                    15
+                )
+                .foregroundStyle(
+                    readableBeltAccent
+                )
 
                 if !subTopicGeneralNote.isEmpty {
+
                     generalNoteButton(
-                        title: subTitle,
-                        text: subTopicGeneralNote
+                        title:
+                            subTitle,
+                        text:
+                            subTopicGeneralNote
                     )
                 }
 
-                Spacer(minLength: 0)
-
                 VStack(
-                    alignment: .trailing,
-                    spacing: 3
+                    alignment:
+                        .trailing,
+                    spacing:
+                        2
                 ) {
-                    subTopicTitleLine(subTitle)
+
+                    subTopicTitleLine(
+                        subTitle
+                    )
 
                     Text(
-                        exercisesCountText(itemCount)
+                        exercisesCountText(
+                            itemCount
+                        )
                     )
-                    .kmiFont(
-                        size: 12,
-                        weight: .bold
+                    .kmiTypography(
+                        .caption
                     )
-                    .foregroundStyle(subtitleColor)
+                    .fontWeight(
+                        .bold
+                    )
+                    .foregroundStyle(
+                        readableBeltAccent
+                    )
                     .frame(
-                        maxWidth: .infinity,
-                        alignment: .trailing
+                        maxWidth:
+                            .infinity,
+                        alignment:
+                            .trailing
                     )
-                    .multilineTextAlignment(.trailing)
+                    .multilineTextAlignment(
+                        .trailing
+                    )
                 }
             }
         }
@@ -2659,462 +3645,706 @@ struct BeltQuestionsByBeltView: View {
             \.layoutDirection,
             .leftToRight
         )
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(
+            .horizontal,
+            8
+        )
+        .padding(
+            .vertical,
+            5
+        )
+        .frame(
+            minHeight:
+                48
+        )
         .background(
+            Color.clear
+        )
+        .contentShape(
             RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
-            )
-            .fill(
-                isDarkMode
-                    ? Color.white.opacity(0.07)
-                    : Color.white.opacity(0.78)
+                cornerRadius:
+                    12,
+                style:
+                    .continuous
             )
         )
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
-            )
-            .stroke(
-                isDarkMode
-                    ? Color.white.opacity(0.12)
-                    : Color.black.opacity(0.05),
-                lineWidth: 1
-            )
-        )
-        .contentShape(Rectangle())
         .onTapGesture {
+
             openSubTopic()
         }
     }
 
     @ViewBuilder
-    private func subTopicTitleLine(_ subTitle: String) -> some View {
-        let titleColor =
-            colorScheme == .dark
-                ? Color.white.opacity(0.90)
-                : Color.black.opacity(0.82)
 
-        HStack(spacing: 6) {
+    private func subTopicTitleLine(
+        _ subTitle: String
+    ) -> some View {
+
+        HStack(
+            spacing:
+                6
+        ) {
+
             if isEnglish {
-                Text(uiTopicTitle(subTitle))
-                    .kmiFont(
-                        size: 15,
-                        weight: .heavy
-                    )
-                    .foregroundStyle(titleColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
 
-                if isTopicLocked(subTitle) {
-                    Image(systemName: "lock.fill")
-                        .kmiFont(
-                            size: 11.5,
-                            weight: .black
-                        )
-                        .foregroundStyle(
-                            Color.orange.opacity(0.90)
-                        )
+                Text(
+                    uiTopicTitle(
+                        subTitle
+                    )
+                )
+                .kmiTypography(
+                    .cardTitle
+                )
+                .foregroundStyle(
+                    byBeltTitleColor
+                )
+                .lineLimit(
+                    2
+                )
+                .minimumScaleFactor(
+                    0.72
+                )
+
+                if isTopicLocked(
+                    subTitle
+                ) {
+
+                    Image(
+                        systemName:
+                            "lock.fill"
+                    )
+                    .kmiIconSize(
+                        12
+                    )
+                    .foregroundStyle(
+                        KmiAppTheme
+                            .warning(
+                                for:
+                                    colorScheme
+                            )
+                    )
                 }
 
-                Spacer(minLength: 0)
+                Spacer(
+                    minLength:
+                        0
+                )
+
             } else {
-                Spacer(minLength: 0)
 
-                if isTopicLocked(subTitle) {
-                    Image(systemName: "lock.fill")
-                        .kmiFont(
-                            size: 11.5,
-                            weight: .black
-                        )
-                        .foregroundStyle(
-                            Color.orange.opacity(0.90)
-                        )
+                Spacer(
+                    minLength:
+                        0
+                )
+
+                if isTopicLocked(
+                    subTitle
+                ) {
+
+                    Image(
+                        systemName:
+                            "lock.fill"
+                    )
+                    .kmiIconSize(
+                        12
+                    )
+                    .foregroundStyle(
+                        KmiAppTheme
+                            .warning(
+                                for:
+                                    colorScheme
+                            )
+                    )
                 }
 
-                Text(uiTopicTitle(subTitle))
-                    .kmiFont(
-                        size: 15,
-                        weight: .heavy
+                Text(
+                    uiTopicTitle(
+                        subTitle
                     )
-                    .foregroundStyle(titleColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                )
+                .kmiTypography(
+                    .cardTitle
+                )
+                .foregroundStyle(
+                    byBeltTitleColor
+                )
+                .lineLimit(
+                    2
+                )
+                .minimumScaleFactor(
+                    0.72
+                )
             }
         }
-        .environment(\.layoutDirection, .leftToRight)
+        .environment(
+            \.layoutDirection,
+            .leftToRight
+        )
         .frame(
-            maxWidth: .infinity,
-            alignment: isEnglish ? .leading : .trailing
+            maxWidth:
+                .infinity,
+            alignment:
+                isEnglish
+                    ? .leading
+                    : .trailing
         )
     }
 
     @ViewBuilder
+
     private func fullTopicButton(
         topicTitle: String,
         accent: Color
     ) -> some View {
+
         Button {
-            if isTopicLocked(topicTitle) {
-                nav.push(.subscriptionPlans)
-            } else {
-                selectedExerciseRoute = BeltTopicExerciseRoute(
-                    belt: selectedBelt,
-                    topicTitle: topicTitle
+
+            if isTopicLocked(
+                topicTitle
+            ) {
+
+                nav.push(
+                    .subscriptionPlans
                 )
+
+            } else {
+
+                selectedExerciseRoute =
+                    BeltTopicExerciseRoute(
+                        belt:
+                            selectedBelt,
+                        topicTitle:
+                            topicTitle
+                    )
             }
+
         } label: {
-            let titleColor =
-                colorScheme == .dark
-                    ? Color.white.opacity(0.90)
-                    : Color.black.opacity(0.82)
 
-            HStack(spacing: 10) {
+            HStack(
+                spacing:
+                    8
+            ) {
+
                 if isEnglish {
-                    Image(systemName: "list.bullet.rectangle.fill")
-                        .kmiFont(
-                            size: 14,
-                            weight: .heavy
-                        )
-                        .foregroundStyle(accent)
 
-                    Text("Full topic")
-                        .kmiFont(
-                            size: 15,
-                            weight: .heavy
-                        )
-                        .foregroundStyle(titleColor)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
+                    Image(
+                        systemName:
+                            "list.bullet.rectangle.fill"
+                    )
+                    .kmiIconSize(
+                        15
+                    )
+                    .foregroundStyle(
+                        accent
+                    )
 
-                    if isTopicLocked(topicTitle) {
-                        Image(systemName: "lock.fill")
-                            .kmiFont(
-                                size: 11.5,
-                                weight: .black
-                            )
-                            .foregroundStyle(
-                                Color.orange.opacity(0.90)
-                            )
+                    Text(
+                        "Full topic"
+                    )
+                    .kmiTypography(
+                        .cardTitle
+                    )
+                    .foregroundStyle(
+                        byBeltTitleColor
+                    )
+
+                    if isTopicLocked(
+                        topicTitle
+                    ) {
+
+                        Image(
+                            systemName:
+                                "lock.fill"
+                        )
+                        .kmiIconSize(
+                            12
+                        )
+                        .foregroundStyle(
+                            KmiAppTheme
+                                .warning(
+                                    for:
+                                        colorScheme
+                                )
+                        )
                     }
 
-                    Spacer(minLength: 0)
+                    Spacer(
+                        minLength:
+                            0
+                    )
+
                 } else {
-                    Spacer(minLength: 0)
 
-                    if isTopicLocked(topicTitle) {
-                        Image(systemName: "lock.fill")
-                            .kmiFont(
-                                size: 11.5,
-                                weight: .black
-                            )
-                            .foregroundStyle(
-                                Color.orange.opacity(0.90)
-                            )
+                    Spacer(
+                        minLength:
+                            0
+                    )
+
+                    if isTopicLocked(
+                        topicTitle
+                    ) {
+
+                        Image(
+                            systemName:
+                                "lock.fill"
+                        )
+                        .kmiIconSize(
+                            12
+                        )
+                        .foregroundStyle(
+                            KmiAppTheme
+                                .warning(
+                                    for:
+                                        colorScheme
+                                )
+                        )
                     }
 
-                    Text("כל הנושא")
-                        .kmiFont(
-                            size: 15,
-                            weight: .heavy
-                        )
-                        .foregroundStyle(titleColor)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
+                    Text(
+                        "כל הנושא"
+                    )
+                    .kmiTypography(
+                        .cardTitle
+                    )
+                    .foregroundStyle(
+                        byBeltTitleColor
+                    )
 
-                    Image(systemName: "list.bullet.rectangle.fill")
-                        .kmiFont(
-                            size: 14,
-                            weight: .heavy
-                        )
-                        .foregroundStyle(accent)
+                    Image(
+                        systemName:
+                            "list.bullet.rectangle.fill"
+                    )
+                    .kmiIconSize(
+                        15
+                    )
+                    .foregroundStyle(
+                        accent
+                    )
                 }
             }
-            .environment(\.layoutDirection, .leftToRight)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(
-                    cornerRadius: 16,
-                    style: .continuous
-                )
-                .fill(
-                    colorScheme == .dark
-                        ? Color.white.opacity(0.07)
-                        : Color.white.opacity(0.78)
-                )
+            .environment(
+                \.layoutDirection,
+                .leftToRight
             )
-            .overlay(
-                RoundedRectangle(
-                    cornerRadius: 16,
-                    style: .continuous
-                )
-                .stroke(
-                    colorScheme == .dark
-                        ? Color.white.opacity(0.12)
-                        : Color.black.opacity(0.05),
-                    lineWidth: 1
-                )
+            .padding(
+                .horizontal,
+                8
+            )
+            .padding(
+                .vertical,
+                5
+            )
+            .frame(
+                minHeight:
+                    48
+            )
+            .contentShape(
+                Rectangle()
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(
+            .plain
+        )
     }
    
     private var beltModeTabs: some View {
+
         HStack(spacing: 0) {
+
             Button {
-                withAnimation(.spring(response: 0.24, dampingFraction: 0.92)) {
+
+                withAnimation(
+                    .spring(
+                        response: 0.24,
+                        dampingFraction: 0.92
+                    )
+                ) {
                     quickMenuOpen = false
-                    tab = .byTopic
                 }
+
+                /*
+                 * חשוב:
+                 * ניווט אחד בלבד.
+                 *
+                 * לא דוחפים קודם By Belt
+                 * ואז By Topic.
+                 */
+                nav.push(
+                    .beltQuestionsByTopic(
+                        belt: selectedBelt
+                    )
+                )
+
             } label: {
+
                 beltModeTabButton(
-                    title: isEnglish ? "By Topic" : "לפי נושא",
-                    selected: tab == .byTopic
+                    title:
+                        isEnglish
+                            ? "By Topic"
+                            : "לפי נושא",
+                    selected:
+                        false,
+                    leadingInset:
+                        38,
+                    trailingInset:
+                        0
                 )
             }
             .buttonStyle(.plain)
 
             Rectangle()
-                .fill(Color.white.opacity(0.42))
-                .frame(width: 1, height: 34)
+                .fill(
+                    KmiAppTheme
+                        .sectionHeaderContentColor
+                        .opacity(0.65)
+                )
+                .frame(
+                    width: 1,
+                    height: 24
+                )
+                .offset(y: -4)
 
             Button {
-                withAnimation(.spring(response: 0.24, dampingFraction: 0.92)) {
-                    quickMenuOpen = false
-                    tab = .byBelt
-                }
+                // כבר נמצאים במסך By Belt.
             } label: {
+
                 beltModeTabButton(
-                    title: isEnglish ? "By Belt" : "לפי חגורה",
-                    selected: tab == .byBelt
+                    title:
+                        isEnglish
+                            ? "By Belt"
+                            : "לפי חגורה",
+                    selected:
+                        true,
+                    leadingInset:
+                        0,
+                    trailingInset:
+                        38
                 )
             }
             .buttonStyle(.plain)
         }
-        .environment(\.layoutDirection, .leftToRight)
-        .frame(width: 278, height: 48)
+        .environment(
+            \.layoutDirection,
+            .leftToRight
+        )
+        .frame(
+            maxWidth: .infinity
+        )
+        .frame(
+            height: 48
+        )
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 0.18, green: 0.34, blue: 0.45),
-                            Color(red: 0.12, green: 0.27, blue: 0.38)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
+            KmiAppTheme
+                .sectionHeaderBrush
+        )
+        .overlay {
+
+            Rectangle()
+                .stroke(
+                    KmiAppTheme
+                        .sectionHeaderContentColor
+                        .opacity(0.34),
+                    lineWidth: 1
                 )
+        }
+        .padding(
+            .bottom,
+            6
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.white.opacity(0.22), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.24), radius: 8, x: 0, y: 4)
     }
-    
+
     private func beltModeTabButton(
         title: String,
-        selected: Bool
+        selected: Bool,
+        leadingInset: CGFloat,
+        trailingInset: CGFloat
     ) -> some View {
-        Text(title)
-            .kmiFont(
-                size: 17,
-                weight: .heavy
-            )
-            .foregroundStyle(
-                selected
-                    ? Color.white
-                    : Color.white.opacity(0.72)
-            )
-            .lineLimit(1)
-            .minimumScaleFactor(0.70)
-            .frame(maxWidth: .infinity)
-            .frame(height: 44)
-            .contentShape(Rectangle())
+
+        ZStack(
+            alignment: .bottom
+        ) {
+
+            Text(title)
+                .kmiTypography(
+                    .action
+                )
+                .foregroundStyle(
+                    KmiAppTheme
+                        .sectionHeaderContentColor
+                        .opacity(
+                            selected
+                                ? 1.0
+                                : 0.82
+                        )
+                )
+                .lineLimit(1)
+                .minimumScaleFactor(
+                    0.70
+                )
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: .infinity
+                )
+                .padding(
+                    .leading,
+                    leadingInset
+                )
+                .padding(
+                    .trailing,
+                    trailingInset
+                )
+
+            if selected {
+
+                Rectangle()
+                    .fill(
+                        KmiAppTheme
+                            .sectionHeaderContentColor
+                    )
+                    .frame(
+                        maxWidth: .infinity
+                    )
+                    .frame(
+                        height: 3
+                    )
+                    .padding(
+                        .horizontal,
+                        58
+                    )
+                    .padding(
+                        .bottom,
+                        4
+                    )
+            }
+        }
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: .infinity
+        )
+        .contentShape(
+            Rectangle()
+        )
     }
     
     @ViewBuilder
     private var byBeltContent: some View {
+
+        let rowMinHeight: CGFloat =
+            54
+
+        let visibleRows: CGFloat =
+            6
+
+        let listHeight: CGFloat =
+            rowMinHeight
+            * visibleRows
+            + 10
+
+        let fabSize: CGFloat =
+            120
+
+        let fabClearance: CGFloat =
+            fabSize * 0.34
+
         VStack(spacing: 0) {
-            GeometryReader { geo in
-                let rowMinHeight: CGFloat = 78
-                let visibleRows: CGFloat = 5.25
-                let rowSpacing: CGFloat = 2
-                let listHeight =
-                    rowMinHeight * visibleRows
-                    + rowSpacing * (visibleRows - 1)
-                    + 6
-                let cardHeight =
-                    min(
-                        geo.size.height * 0.94,
-                        listHeight + 112
-                    )
-                
-                VStack(spacing: 7) {
+
+            VStack(spacing: 0) {
+
+                Text(
+                    isEnglish
+                        ? "Topics in Belt"
+                        : "נושאים בחגורה"
+                )
+                .kmiTypography(
+                    .sectionTitle
+                )
+                .foregroundStyle(
+                    byBeltTitleColor
+                )
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: .center
+                )
+                .multilineTextAlignment(
+                    .center
+                )
+                .lineLimit(1)
+                .padding(
+                    .horizontal,
+                    14
+                )
+
+                Spacer()
+                    .frame(height: 2)
+
+                if beltTopicsUi.isEmpty {
+
                     Text(
                         isEnglish
-                            ? "Topics in Belt"
-                            : "נושאים בחגורה"
+                            ? "No topics to display"
+                            : "אין נושאים להצגה"
                     )
-                        .kmiFont(
-                            size: 18,
-                            weight: .heavy
-                        )
-                        .foregroundStyle(
-                            colorScheme == .dark
-                                ? Color.white.opacity(0.94)
-                                : Color.black.opacity(0.84)
-                        )
-                        .frame(
-                            maxWidth: .infinity,
-                            alignment: .center
-                        )
-                        .lineLimit(1)
-                        .padding(.top, 0)
-                        
-                        if beltTopicsUi.isEmpty {
-                            Text(
-                                isEnglish
-                                    ? "No topics to display"
-                                    : "אין נושאים להצגה"
-                            )
-                            .kmiFont(
-                                size: 15,
-                                weight: .semibold
-                            )
-                            .foregroundStyle(
-                                colorScheme == .dark
-                                    ? Color.white.opacity(0.62)
-                                    : Color.black.opacity(0.52)
-                            )
-                            .frame(
-                                maxWidth: .infinity,
-                                alignment: .center
-                            )
-                            .padding(.vertical, 22)
-                        } else {
-                            ScrollViewReader { proxy in
-                                ScrollView(showsIndicators: false) {
-                                    VStack(spacing: 0) {
-                                        Color.clear
-                                            .frame(height: 0)
-                                            .id("topics_top_anchor")
-                                        
-                                        ForEach(beltTopicsUi, id: \.id) { entry in
-                                            let topicTitle = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
-                                            
-                                            let details = topicDetailsFor(
-                                                belt: selectedBelt,
-                                                topicTitle: topicTitle
-                                            )
-                                            
-                                            let subTitles = {
-                                                let fromEngine = details.subTitles
-                                                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                                                    .filter { !$0.isEmpty && $0 != topicTitle }
+                    .kmiTypography(.body)
+                    .foregroundStyle(
+                        byBeltRowSubColor
+                    )
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .center
+                    )
+                    .multilineTextAlignment(
+                        .center
+                    )
+                    .padding(20)
 
-                                                if !fromEngine.isEmpty {
-                                                    return fromEngine
-                                                }
+                } else {
 
-                                                return ContentRepo.shared.getSubTopicsFor(
-                                                    belt: selectedBelt,
-                                                    topicTitle: topicTitle
-                                                )
-                                                .map {
-                                                    $0.title.trimmingCharacters(in: .whitespacesAndNewlines)
-                                                }
-                                                .filter {
-                                                    !$0.isEmpty && $0 != topicTitle
-                                                }
-                                                .reduce(into: [String]()) { partial, item in
-                                                    if !partial.contains(item) {
-                                                        partial.append(item)
-                                                    }
-                                                }
-                                            }()
+                    ScrollViewReader { proxy in
 
-                                            let hasSubs = !subTitles.isEmpty
-                                            let isExpanded = expandedTopic == topicTitle
-                                            let locked = isTopicLocked(topicTitle)
-                                            let accent = topicAccentColor(topicTitle)
-                                            
-                                            topicRowCard(
-                                                entry: entry,
-                                                topicTitle: topicTitle,
-                                                subTitles: subTitles,
-                                                hasSubs: hasSubs,
-                                                isExpanded: isExpanded,
-                                                locked: locked,
-                                                accent: accent,
-                                                rowMinHeight: rowMinHeight
+                        ScrollView(
+                            showsIndicators: false
+                        ) {
+
+                            VStack(spacing: 0) {
+
+                                Color.clear
+                                    .frame(height: 0)
+                                    .id(
+                                        "topics_top_anchor"
+                                    )
+
+                                ForEach(
+                                    Array(
+                                        beltTopicsUi.enumerated()
+                                    ),
+                                    id: \.element.id
+                                ) { index, entry in
+
+                                    let topicTitle =
+                                        entry.title
+                                            .trimmingCharacters(
+                                                in:
+                                                    .whitespacesAndNewlines
                                             )
 
-                                            Divider()
-                                                .overlay(
-                                                    colorScheme == .dark
-                                                        ? Color.white.opacity(0.13)
-                                                        : Color.black.opacity(0.10)
-                                                )
-                                                .padding(.horizontal, 10)
-                                        }
-                                    }
-                                    .padding(.horizontal, 2)
-                                    .padding(.bottom, 8)
-                                }
-                                .frame(maxHeight: listHeight)
-                                .onChange(of: selectedBelt) { _, _ in
-                                    withAnimation(.easeInOut(duration: 0.18)) {
-                                        proxy.scrollTo("topics_top_anchor", anchor: .top)
+                                    let subTitles =
+                                        entry.subTitles
+
+                                    let hasSubs =
+                                        !subTitles.isEmpty
+
+                                    let isExpanded =
+                                        expandedTopic ==
+                                        topicTitle
+
+                                    let locked =
+                                        isTopicLocked(
+                                            topicTitle
+                                        )
+
+                                    let accent =
+                                        topicAccentColor(
+                                            topicTitle
+                                        )
+
+                                    topicRowCard(
+                                        entry:
+                                            entry,
+                                        topicTitle:
+                                            topicTitle,
+                                        subTitles:
+                                            subTitles,
+                                        hasSubs:
+                                            hasSubs,
+                                        isExpanded:
+                                            isExpanded,
+                                        locked:
+                                            locked,
+                                        accent:
+                                            accent,
+                                        rowMinHeight:
+                                            rowMinHeight
+                                    )
+
+                                    if index !=
+                                        beltTopicsUi.count - 1 {
+
+                                        Divider()
+                                            .overlay(
+                                                byBeltCardBorderColor
+                                            )
+                                            .padding(
+                                                .horizontal,
+                                                18
+                                            )
                                     }
                                 }
                             }
                         }
+                        .frame(
+                            height:
+                                listHeight
+                        )
+                        .onChange(
+                            of: selectedBelt
+                        ) { _, _ in
+
+                            proxy.scrollTo(
+                                "topics_top_anchor",
+                                anchor: .top
+                            )
+                        }
                     }
-                    .padding(.top, 5)
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 7)
-                    .background(
-                        RoundedRectangle(
-                            cornerRadius: 22,
-                            style: .continuous
-                        )
-                        .fill(byBeltCardSurfaceColor)
-                    )
-                    .overlay(
-                        RoundedRectangle(
-                            cornerRadius: 22,
-                            style: .continuous
-                        )
-                        .stroke(
-                            byBeltCardBorderColor,
-                            lineWidth: 1
-                        )
-                    )
-                    .shadow(
-                        color: byBeltCardShadowColor,
-                        radius: 9,
-                        x: 0,
-                        y: 4
-                    )
-                    .clipShape(
-                        RoundedRectangle(
-                            cornerRadius: 22,
-                            style: .continuous
-                        )
-                    )
-                    .frame(height: cardHeight)
-                    .padding(.horizontal, 16)
-                    .padding(.top, -2)
-                    .padding(.bottom, 0)
+                }
             }
+            .padding(
+                .vertical,
+                6
+            )
+            .background(
+
+                RoundedRectangle(
+                    cornerRadius: 24,
+                    style: .continuous
+                )
+                .fill(
+                    byBeltCardSurfaceColor
+                )
+            )
+            .overlay {
+
+                RoundedRectangle(
+                    cornerRadius: 24,
+                    style: .continuous
+                )
+                .stroke(
+                    byBeltCardBorderColor,
+                    lineWidth: 1
+                )
+            }
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: 24,
+                    style: .continuous
+                )
+            )
+            .padding(
+                .horizontal,
+                6
+            )
+            .padding(
+                .bottom,
+                fabClearance + 2
+            )
         }
+        .frame(
+            maxWidth: .infinity,
+            alignment: .top
+        )
         .zIndex(1)
-        .allowsHitTesting(!quickMenuOpen)
+        .allowsHitTesting(
+            !quickMenuOpen
+        )
     }
     
     // MARK: - Belt Palette + Wheel4
@@ -3779,88 +5009,198 @@ private struct BeltScreenQuickMenuItem: Identifiable {
 }
 
 private struct BeltScreenSideQuickMenuOverlay: View {
-    @Binding var isPresented: Bool
-    
+
+    @Binding
+    var isPresented: Bool
+
     let isEnglish: Bool
     let accent: Color
     let items: [BeltScreenQuickMenuItem]
     let onClose: () -> Void
-    
+
     var body: some View {
+
         GeometryReader { geometry in
-            let fabWidth: CGFloat = 46
-            let panelWidth: CGFloat = 248
-            let fabHeight: CGFloat = 84
 
-            let centerY =
-                geometry.size.height * 0.52
+            let triggerWidth: CGFloat =
+                38
 
-            let fabX =
-                geometry.size.width -
-                fabWidth
+            let triggerHeight: CGFloat =
+                72
 
-            let panelX =
-                geometry.size.width -
-                fabWidth -
-                8 -
-                panelWidth
-            
-            ZStack(alignment: .topLeading) {
+            let panelGap: CGFloat =
+                8
+
+            let panelWidth: CGFloat =
+                min(
+                    248,
+                    max(
+                        220,
+                        geometry.size.width
+                            - triggerWidth
+                            - 24
+                    )
+                )
+
+            /*
+             * Android parity:
+             * הטריגר יושב קרוב לתחתית,
+             * מעל אזור החגורות.
+             */
+            let bottomSpacing: CGFloat =
+                72
+
+            let triggerTop: CGFloat =
+                max(
+                    12,
+                    geometry.size.height
+                        - geometry.safeAreaInsets.bottom
+                        - bottomSpacing
+                        - triggerHeight
+                )
+
+            let startIsLeft =
+                isEnglish
+
+            let triggerX: CGFloat =
+                startIsLeft
+                    ? 0
+                    : geometry.size.width
+                        - triggerWidth
+
+            let panelX: CGFloat =
+                startIsLeft
+                    ? triggerWidth
+                        + panelGap
+                    : geometry.size.width
+                        - triggerWidth
+                        - panelGap
+                        - panelWidth
+
+            /*
+             * הפאנל נפתח מעל הטריגר,
+             * כדי שלא ייחתך בתחתית המסך.
+             */
+            let panelY: CGFloat =
+                max(
+                    12,
+                    triggerTop
+                        - 220
+                )
+
+            ZStack(
+                alignment:
+                    .topLeading
+            ) {
+
                 if isPresented {
+
                     BeltScreenQuickMenuPanel(
                         title:
                             isEnglish
-                            ? "Quick Menu"
-                            : "תפריט מהיר",
-                        isEnglish: isEnglish,
-                        accent: accent,
-                        items: items,
-                        onClose: onClose
+                                ? "Quick Menu"
+                                : "תפריט מהיר",
+                        isEnglish:
+                            isEnglish,
+                        accent:
+                            accent,
+                        items:
+                            items,
+                        onClose: {
+
+                            withAnimation(
+                                .spring(
+                                    response:
+                                        0.28,
+                                    dampingFraction:
+                                        0.86
+                                )
+                            ) {
+
+                                isPresented =
+                                    false
+                            }
+
+                            onClose()
+                        }
                     )
-                    .frame(width: panelWidth)
+                    .frame(
+                        width:
+                            panelWidth
+                    )
                     .offset(
-                        x: panelX,
-                        y: centerY - 104
+                        x:
+                            panelX,
+                        y:
+                            panelY
                     )
                     .transition(
-                        .scale(scale: 0.94)
-                            .combined(
-                                with: .opacity
-                            )
+                        .move(
+                            edge:
+                                startIsLeft
+                                    ? .leading
+                                    : .trailing
+                        )
+                        .combined(
+                            with:
+                                .opacity
+                        )
                     )
-                    .zIndex(51)
+                    .zIndex(
+                        51
+                    )
                 }
-                
+
                 Button {
+
                     withAnimation(
                         .spring(
-                            response: 0.28,
-                            dampingFraction: 0.86
+                            response:
+                                0.28,
+                            dampingFraction:
+                                0.86
                         )
                     ) {
-                        isPresented.toggle()
+
+                        isPresented
+                            .toggle()
                     }
+
                 } label: {
+
                     BeltScreenSideQuickFab(
-                        isOpen: isPresented,
-                        accent: accent
+                        accent:
+                            accent,
+                        attachedToLeftEdge:
+                            startIsLeft
                     )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(
+                    .plain
+                )
                 .frame(
-                    width: fabWidth,
-                    height: fabHeight
+                    width:
+                        triggerWidth,
+                    height:
+                        triggerHeight
                 )
                 .offset(
-                    x: fabX,
-                    y: centerY
+                    x:
+                        triggerX,
+                    y:
+                        triggerTop
                 )
-                .zIndex(52)
+                .zIndex(
+                    52
+                )
             }
             .frame(
-                width: geometry.size.width,
-                height: geometry.size.height,
-                alignment: .topLeading
+                width:
+                    geometry.size.width,
+                height:
+                    geometry.size.height,
+                alignment:
+                    .topLeading
             )
             .environment(
                 \.layoutDirection,
@@ -3869,69 +5209,153 @@ private struct BeltScreenSideQuickMenuOverlay: View {
         }
         .ignoresSafeArea(
             .keyboard,
-            edges: .bottom
+            edges:
+                .bottom
         )
     }
 }
 
 private struct BeltScreenSideQuickFab: View {
-    let isOpen: Bool
+
+    @Environment(\.colorScheme)
+    private var colorScheme
+
     let accent: Color
+    let attachedToLeftEdge: Bool
 
-    var body: some View {
-        ZStack {
-            UnevenRoundedRectangle(
-                topLeadingRadius: 18,
-                bottomLeadingRadius: 18,
-                bottomTrailingRadius: 0,
-                topTrailingRadius: 0,
-                style: .continuous
-            )
-            .fill(fabGradient)
+    private var triggerShape:
+        UnevenRoundedRectangle {
 
-            UnevenRoundedRectangle(
-                topLeadingRadius: 18,
-                bottomLeadingRadius: 18,
-                bottomTrailingRadius: 0,
-                topTrailingRadius: 0,
-                style: .continuous
-            )
-            .stroke(Color.white.opacity(0.72), lineWidth: 1)
-
-            Image(
-                systemName:
-                    isOpen
-                    ? "xmark"
-                    : "line.3.horizontal"
-            )
-            .kmiFont(
-                size: 23,
-                weight: .heavy
-            )
-            .foregroundStyle(Color.white)
-        }
-        .frame(width: 46, height: 84)
-        .shadow(
-            color: Color.black.opacity(0.24),
-            radius: 9,
-            x: 0,
-            y: 5
+        UnevenRoundedRectangle(
+            topLeadingRadius:
+                attachedToLeftEdge
+                    ? 0
+                    : 18,
+            bottomLeadingRadius:
+                attachedToLeftEdge
+                    ? 0
+                    : 18,
+            bottomTrailingRadius:
+                attachedToLeftEdge
+                    ? 18
+                    : 0,
+            topTrailingRadius:
+                attachedToLeftEdge
+                    ? 18
+                    : 0,
+            style:
+                .continuous
         )
     }
 
-    private var fabGradient: LinearGradient {
-        LinearGradient(
-            colors: [
-                accent.opacity(0.98),
-                accent.opacity(0.78)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
+    private var iconColor: Color {
+
+        let uiColor =
+            UIColor(accent)
+
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        guard uiColor.getRed(
+            &red,
+            green: &green,
+            blue: &blue,
+            alpha: &alpha
+        ) else {
+            return .white
+        }
+
+        let luminance =
+            0.2126 * red
+            + 0.7152 * green
+            + 0.0722 * blue
+
+        return luminance < 0.55
+            ? .white
+            : .black
+    }
+
+    var body: some View {
+
+        ZStack {
+
+            triggerShape
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            accent.opacity(
+                                0.84
+                            ),
+                            accent,
+                            accent.opacity(
+                                0.88
+                            )
+                        ],
+                        startPoint:
+                            .top,
+                        endPoint:
+                            .bottom
+                    )
+                )
+
+            triggerShape
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white
+                                .opacity(
+                                    0.22
+                                ),
+                            Color.clear
+                        ],
+                        startPoint:
+                            .leading,
+                        endPoint:
+                            .trailing
+                    )
+                )
+
+            triggerShape
+                .stroke(
+                    KmiAppTheme
+                        .outlineVariant(
+                            for:
+                                colorScheme
+                        )
+                        .opacity(
+                            0.55
+                        ),
+                    lineWidth:
+                        0.75
+                )
+
+            Image(
+                systemName:
+                    "line.3.horizontal"
+            )
+            .kmiIconSize(
+                26
+            )
+            .foregroundStyle(
+                iconColor
+            )
+        }
+        .frame(
+            width:
+                38,
+            height:
+                72
         )
     }
 }
 
 private struct BeltScreenQuickMenuPanel: View {
+    
+    @Environment(\.colorScheme)
+    private var colorScheme
+    
     let title: String
     let isEnglish: Bool
     let accent: Color
@@ -3954,9 +5378,8 @@ private struct BeltScreenQuickMenuPanel: View {
         VStack(alignment: stackAlignment, spacing: 0) {
             HStack(spacing: 8) {
                 Text(title)
-                    .kmiFont(
-                        size: 15,
-                        weight: .heavy
+                    .kmiTypography(
+                        .cardTitle
                     )
                     .foregroundStyle(
                         accent.opacity(0.92)
@@ -3967,11 +5390,13 @@ private struct BeltScreenQuickMenuPanel: View {
                 Spacer(minLength: 0)
 
                 Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .kmiFont(
-                            size: 11,
-                            weight: .heavy
-                        )
+                    Image(
+                        systemName:
+                            "xmark"
+                    )
+                    .kmiIconSize(
+                        12
+                    )
                         .foregroundStyle(accent)
                 }
                 .buttonStyle(.plain)
@@ -4169,37 +5594,45 @@ private struct BeltScreenQuickMenuRow: View {
 }
 
 private struct PulsingLockBadge: View {
-    @State private var pulse: Bool = false
-    
+
+    @Environment(\.colorScheme)
+    private var colorScheme
+
+    @State
+    private var pulse = false
+
     var body: some View {
-        Image(systemName: "lock.fill")
-            .kmiFont(
-                size: 13.5,
-                weight: .black
-            )
-            .foregroundStyle(
-                Color.orange.opacity(0.92)
-            )
-            .frame(
-                minWidth: 25,
-                minHeight: 25
-            )
-            .background(
-                Circle()
-                    .fill(Color.orange.opacity(0.13))
-            )
-            .overlay(
-                Circle()
-                    .stroke(Color.orange.opacity(0.28), lineWidth: 1)
-            )
-            .scaleEffect(pulse ? 1.08 : 1.0)
-            .onAppear {
-                withAnimation(
-                    .easeInOut(duration: 0.78)
-                    .repeatForever(autoreverses: true)
-                ) {
-                    pulse = true
-                }
+
+        Image(
+            systemName:
+                "lock.fill"
+        )
+        .resizable()
+        .scaledToFit()
+        .foregroundStyle(
+            KmiAppTheme
+                .tertiary(
+                    for: colorScheme
+                )
+        )
+        .kmiIconSize(16)
+        .scaleEffect(
+            pulse
+                ? 1.00
+                : 0.90
+        )
+        .onAppear {
+
+            withAnimation(
+                .linear(
+                    duration: 0.90
+                )
+                .repeatForever(
+                    autoreverses: true
+                )
+            ) {
+                pulse = true
             }
+        }
     }
 }

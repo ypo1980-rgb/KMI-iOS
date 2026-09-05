@@ -20,38 +20,9 @@ private struct HomeTrainingManagementItem: Identifiable {
     let request: TrainingManagementRequest
 }
 
-private struct HomePDFShareSheet: UIViewControllerRepresentable {
-    let items: [Any]
-
-    func makeUIViewController(
-        context: Context
-    ) -> UIActivityViewController {
-        UIActivityViewController(
-            activityItems: items,
-            applicationActivities: nil
-        )
-    }
-
-    func updateUIViewController(
-        _ uiViewController: UIActivityViewController,
-        context: Context
-    ) {
-    }
-}
-
-private enum HomePDFExportError: LocalizedError {
+private enum HomePDFExportError: Error {
     case noTrainings
     case writeFailed
-
-    var errorDescription: String? {
-        switch self {
-        case .noTrainings:
-            return "אין אימונים זמינים ליצירת PDF"
-
-        case .writeFailed:
-            return "לא ניתן היה ליצור את קובץ ה־PDF"
-        }
-    }
 }
 
 private enum HomeHolidayCalendar {
@@ -293,6 +264,19 @@ struct HomeView: View {
     @AppStorage("sub_access_until") private var subscriptionAccessUntil: Double = 0
     
     @StateObject private var trainingsVm = HomeTrainingsViewModel()
+    @State private var isInitialTrainingsLoadPending = true
+
+    private var isWaitingForTrainingProfile: Bool {
+        guard let uid = Auth.auth().currentUser?.uid else {
+            return false
+        }
+        return auth.isProfileLoading ||
+            (auth.loadedProfileUID != uid && !auth.profileLoadFailed)
+    }
+
+    private var isHomeTrainingsLoading: Bool {
+        isInitialTrainingsLoadPending || isWaitingForTrainingProfile
+    }
 
     @State private var goVoiceAssistant: Bool = false
     @State private var goMonthly: Bool = false
@@ -333,7 +317,7 @@ struct HomeView: View {
     // Android parity: quick menu icon must always be visible on Home
     @State private var showHomeQuickMenu: Bool = false
     
-    // Global search navigation
+    // Global exercise search result
     @State private var pickedExercise: ExerciseSelection? = nil
     
     // Coach broadcast from Firestore — Android parity
@@ -1598,6 +1582,17 @@ struct HomeView: View {
                             isEnglish: isEnglish
                         )
                         .padding(.top, 6)
+                    } else if isHomeTrainingsLoading {
+                        Color.clear
+                            .frame(height: 1)
+                    } else if auth.profileLoadFailed {
+                        emptyBlock(
+                            message: tr(
+                                "לא ניתן לטעון את פרטי המשתמש. בדוק את החיבור ונסה שוב.",
+                                "Unable to load your profile. Check your connection and try again."
+                            )
+                        )
+                        .padding(.top, 6)
                     } else if effectiveUpcomingTrainings.isEmpty {
                         emptyBlock(
                             message: effectiveStatusMessage ??
@@ -1697,8 +1692,22 @@ struct HomeView: View {
                     quickMenuOverlay
                 }
                 .overlay {
-                    if isLoadingTrainingOverrides {
-                        KmiLoadingOverlay()
+                    if isHomeTrainingsLoading || isLoadingTrainingOverrides {
+                        ZStack {
+                            LinearGradient(
+                                colors: HomeVisualTheme.backgroundColors(
+                                    for: colorScheme
+                                ),
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                            .ignoresSafeArea()
+                            KmiLoadingOverlay()
+                        }
+                        .frame(
+                            maxWidth: .infinity,
+                            maxHeight: .infinity
+                        )
                     }
                 }
 
@@ -1709,42 +1718,10 @@ struct HomeView: View {
                 .onReceive(
                     NotificationCenter.default.publisher(
                         for: Notification.Name(
-                            "KMI_GLOBAL_SEARCH_PICK"
-                        )
-                    )
-                ) { notification in
-                    guard let key = notification.object as? String else {
-                        return
-                    }
-
-                    pickedExercise =
-                        ExerciseSelection.fromSearchKey(key)
-                }
-                .onReceive(
-                    NotificationCenter.default.publisher(
-                        for: Notification.Name(
                             "KMI_HOME_SHARE_PDF"
                         )
                     )
                 ) { _ in
-                    guard !isAbroadUser else {
-                        pdfExportErrorMessage =
-                            tr(
-                                "יצירת PDF אינה זמינה במצב חו״ל.",
-                                "PDF export is unavailable in abroad mode."
-                            )
-                        return
-                    }
-
-                    guard !effectiveUpcomingTrainings.isEmpty else {
-                        pdfExportErrorMessage =
-                            tr(
-                                "אין אימונים זמינים ליצירת PDF.",
-                                "There are no training sessions available for PDF export."
-                            )
-                        return
-                    }
-
                     shareUpcomingTrainingsPDF()
                 }
                 .task {
@@ -1784,10 +1761,17 @@ struct HomeView: View {
                         ) { _, _ in
                             startTrainingOverrideListener()
                         }
-                        .onChange(of: auth.userRegion) { _, _ in
-                            reloadTrainingsIfNeeded()
-                            startTrainingOverrideListener()
-                        }
+                .onChange(of: auth.isProfileLoading) { _, isLoading in
+                    guard !isLoading else {
+                        return
+                    }
+                    reloadTrainingsIfNeeded()
+                    startTrainingOverrideListener()
+                }
+                .onChange(of: auth.userRegion) { _, _ in
+                    reloadTrainingsIfNeeded()
+                    startTrainingOverrideListener()
+                }
                         .onChange(of: auth.userBranch) { _, _ in
                             reloadTrainingsIfNeeded()
                             startCoachBroadcastListener()
@@ -1876,14 +1860,19 @@ struct HomeView: View {
             MyProfileView()
                 .navigationBarBackButtonHidden(true)
         }
-                                .navigationDestination(item: $pickedExercise) { selection in
-                                    ExerciseDetailView(
+                                .sheet(item: $pickedExercise) { selection in
+                                    ExerciseExplanationDialog(
                                         belt: selection.belt,
-                                        topicTitle: selection.topicTitle,
-                                        item: selection.item
+                                        topic: selection.topicTitle,
+                                        item: selection.item,
+                                        branch: resolvedBranch,
+                                        groupKey: resolvedGroup,
+                                        isEnglish: isEnglish
                                     )
+                                    .presentationDetents([.large])
+                                    .presentationDragIndicator(.visible)
                                 }
-                                )
+                             )
 
                                 let presentationContent = AnyView(
                                     navigationContent
@@ -1929,9 +1918,11 @@ struct HomeView: View {
             .presentationDragIndicator(.visible)
         }
                                         .sheet(item: $pdfShareItem) { shareItem in
-                                            HomePDFShareSheet(
+                                            KmiShareSheet(
                                                 items: [shareItem.url]
                                             )
+                                            .presentationDetents([.medium, .large])
+                                            .presentationDragIndicator(.visible)
                                         }
                                         )
 
@@ -2283,6 +2274,17 @@ struct HomeView: View {
 
     @MainActor
     private func shareUpcomingTrainingsPDF() {
+        guard !isHomeTrainingsLoading,
+              !isLoadingTrainingOverrides else {
+            return
+        }
+        guard !auth.profileLoadFailed else {
+            pdfExportErrorMessage = tr(
+                "לא ניתן ליצור PDF כי טעינת פרטי המשתמש נכשלה.",
+                "Cannot create a PDF because your profile could not be loaded."
+            )
+            return
+        }
         guard !isAbroadUser else {
             pdfExportErrorMessage =
                 tr(
@@ -2455,9 +2457,10 @@ struct HomeView: View {
             ) -> NSMutableParagraphStyle {
                 let style = NSMutableParagraphStyle()
                 style.alignment = alignment
-                style.baseWritingDirection = isEnglish
-                    ? .leftToRight
-                    : .rightToLeft
+                style.baseWritingDirection =
+                    KmiPdfDirection.textDirection(
+                        isEnglish: isEnglish
+                    )
                 style.lineBreakMode = .byTruncatingTail
                 return style
             }
@@ -2505,7 +2508,9 @@ struct HomeView: View {
                 .font: UIFont.boldSystemFont(ofSize: 17),
                 .foregroundColor: blue,
                 .paragraphStyle: pdfParagraphStyle(
-                    alignment: isEnglish ? .left : .right
+                    alignment: KmiPdfDirection.textAlign(
+                        isEnglish: isEnglish
+                    )
                 )
             ]
 
@@ -2643,7 +2648,9 @@ struct HomeView: View {
                     minimum: CGFloat
                 ) -> CGFloat {
                     let paragraph = pdfParagraphStyle(
-                        alignment: isEnglish ? .left : .right
+                        alignment: KmiPdfDirection.textAlign(
+                            isEnglish: isEnglish
+                        )
                     )
                     paragraph.lineBreakMode = .byWordWrapping
 
@@ -2809,14 +2816,28 @@ struct HomeView: View {
                     height: cardHeight - 28
                 )
 
-                let rightAlignment: NSTextAlignment =
-                    isEnglish ? .left : .right
+                let startColumnRect =
+                    isEnglish
+                    ? leftColumnRect
+                    : rightColumnRect
 
-                let leftAlignment: NSTextAlignment =
-                    isEnglish ? .left : .right
+                let endColumnRect =
+                    isEnglish
+                    ? rightColumnRect
+                    : leftColumnRect
+
+                let startAlignment =
+                    KmiPdfDirection.textAlign(
+                        isEnglish: isEnglish
+                    )
+
+                let endAlignment =
+                    KmiPdfDirection.textAlign(
+                        isEnglish: isEnglish
+                    )
 
                 let placeStyle = pdfParagraphStyle(
-                    alignment: rightAlignment
+                    alignment: startAlignment
                 )
                 placeStyle.lineBreakMode = .byWordWrapping
 
@@ -2830,15 +2851,13 @@ struct HomeView: View {
                     .font: UIFont.boldSystemFont(ofSize: 10.5),
                     .foregroundColor: blue,
                     .paragraphStyle: pdfParagraphStyle(
-                        alignment: leftAlignment
+                        alignment: endAlignment
                     )
                 ]
-
                 let addressStyle = pdfParagraphStyle(
-                    alignment: leftAlignment
+                    alignment: endAlignment
                 )
                 addressStyle.lineBreakMode = .byWordWrapping
-
                 let valueAttributes: [NSAttributedString.Key: Any] = [
                     .font: UIFont.systemFont(
                         ofSize: 12.5,
@@ -2847,9 +2866,8 @@ struct HomeView: View {
                     .foregroundColor: textDark,
                     .paragraphStyle: addressStyle
                 ]
-
                 let coachStyle = pdfParagraphStyle(
-                    alignment: leftAlignment
+                    alignment: endAlignment
                 )
                 coachStyle.lineBreakMode = .byWordWrapping
 
@@ -2872,9 +2890,9 @@ struct HomeView: View {
                 )
                 .draw(
                     in: CGRect(
-                        x: rightColumnRect.minX,
-                        y: rightColumnRect.minY,
-                        width: rightColumnRect.width,
+                        x: startColumnRect.minX,
+                        y: startColumnRect.minY,
+                        width: startColumnRect.width,
                         height: placeHeight
                     )
                 )
@@ -2883,12 +2901,12 @@ struct HomeView: View {
                     .font: UIFont.boldSystemFont(ofSize: 10.5),
                     .foregroundColor: blue,
                     .paragraphStyle: pdfParagraphStyle(
-                        alignment: rightAlignment
+                        alignment: startAlignment
                     )
                 ]
 
                 let dateValueStyle = pdfParagraphStyle(
-                    alignment: rightAlignment
+                    alignment: startAlignment
                 )
                 dateValueStyle.lineBreakMode = .byWordWrapping
 
@@ -2907,9 +2925,9 @@ struct HomeView: View {
                 )
                 .draw(
                     in: CGRect(
-                        x: rightColumnRect.minX,
-                        y: rightColumnRect.minY + placeHeight + 4,
-                        width: rightColumnRect.width,
+                        x: startColumnRect.minX,
+                        y: startColumnRect.minY + placeHeight + 4,
+                        width: startColumnRect.width,
                         height: 16
                     )
                 )
@@ -2920,9 +2938,9 @@ struct HomeView: View {
                 )
                 .draw(
                     in: CGRect(
-                        x: rightColumnRect.minX,
-                        y: rightColumnRect.minY + placeHeight + 22,
-                        width: rightColumnRect.width,
+                        x: startColumnRect.minX,
+                        y: startColumnRect.minY + placeHeight + 22,
+                        width: startColumnRect.width,
                         height: 36
                     )
                 )
@@ -2936,9 +2954,9 @@ struct HomeView: View {
                 )
                 .draw(
                     in: CGRect(
-                        x: leftColumnRect.minX,
-                        y: leftColumnRect.minY,
-                        width: leftColumnRect.width,
+                        x: endColumnRect.minX,
+                        y: endColumnRect.minY,
+                        width: endColumnRect.width,
                         height: 16
                     )
                 )
@@ -2949,9 +2967,9 @@ struct HomeView: View {
                 )
                 .draw(
                     in: CGRect(
-                        x: leftColumnRect.minX,
-                        y: leftColumnRect.minY + 18,
-                        width: leftColumnRect.width,
+                        x: endColumnRect.minX,
+                        y: endColumnRect.minY + 18,
+                        width: endColumnRect.width,
                         height: addressHeight
                     )
                 )
@@ -2965,9 +2983,9 @@ struct HomeView: View {
                 )
                 .draw(
                     in: CGRect(
-                        x: leftColumnRect.minX,
-                        y: leftColumnRect.minY + addressHeight + 24,
-                        width: leftColumnRect.width,
+                        x: endColumnRect.minX,
+                        y: endColumnRect.minY + addressHeight + 24,
+                        width: endColumnRect.width,
                         height: 16
                     )
                 )
@@ -2978,9 +2996,9 @@ struct HomeView: View {
                 )
                 .draw(
                     in: CGRect(
-                        x: leftColumnRect.minX,
-                        y: leftColumnRect.minY + addressHeight + 41,
-                        width: leftColumnRect.width,
+                        x: endColumnRect.minX,
+                        y: endColumnRect.minY + addressHeight + 41,
+                        width: endColumnRect.width,
                         height: coachHeight
                     )
                 )
@@ -3081,10 +3099,15 @@ struct HomeView: View {
     }
 
     private func reloadTrainingsIfNeeded() {
-        if isAbroadUser {
+        guard !isWaitingForTrainingProfile else {
             return
         }
-
+        defer {
+            isInitialTrainingsLoadPending = false
+        }
+        guard !isAbroadUser, !auth.profileLoadFailed else {
+            return
+        }
         trainingsVm.loadForCurrentUser(auth: auth)
     }
     
@@ -5580,8 +5603,7 @@ private struct CoachMessagesCard: View {
                 )
         )
     }
-
-    }
+ }
 
     private struct CoachMessagesHistorySheet: View {
 
@@ -5610,11 +5632,8 @@ private struct CoachMessagesCard: View {
     }
     
         var body: some View {
-
             NavigationStack {
-
                 ZStack {
-
                     LinearGradient(
                         colors:
                             KmiAppTheme.screenBackgroundColors(
@@ -5629,9 +5648,7 @@ private struct CoachMessagesCard: View {
                         showsIndicators: false
                     ) {
                     VStack(spacing: 12) {
-
                         if messages.isEmpty {
-
                             VStack(spacing: 8) {
 
                                 Image(
@@ -5648,7 +5665,6 @@ private struct CoachMessagesCard: View {
                                     .opacity(0.78)
                                 )
                                 .accessibilityHidden(true)
-
                                 Text(
                                     isEnglish
                                         ? "No messages right now."

@@ -10,6 +10,7 @@
 		7E6CD4862F5434CD00BE189A /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7E6CD4852F5434CD00BE189A /* FirebaseCore */; };
 		7E6CD4882F5434D700BE189A /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 7E6CD4872F5434D700BE189A /* FirebaseAuth */; };
 		7E6D2C3E2FA6473A00EB82B2 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 7E6D2C3D2FA6473A00EB82B2 /* LaunchScreen.storyboard */; };
+		7E77B04D304BFED3008FBA6F /* KosherSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 7E77B04C304BFED3008FBA6F /* KosherSwift */; };
 		7E7B0F3E2F587F88000D9087 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 7E7B0F3D2F587F88000D9087 /* FirebaseFirestore */; };
 		7E7F771D2FA493C90048059D /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 7E7F771C2FA493C90048059D /* GoogleSignIn */; };
 		7E7F771F2FA493C90048059D /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 7E7F771E2FA493C90048059D /* GoogleSignInSwift */; };
@@ -62,6 +63,7 @@
 				7E6CD4862F5434CD00BE189A /* FirebaseCore in Frameworks */,
 				7E7F771D2FA493C90048059D /* GoogleSignIn in Frameworks */,
 				7E7B0F3E2F587F88000D9087 /* FirebaseFirestore in Frameworks */,
+				7E77B04D304BFED3008FBA6F /* KosherSwift in Frameworks */,
 				7E6CD4882F5434D700BE189A /* FirebaseAuth in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -123,6 +125,7 @@
 				7E7B0F3D2F587F88000D9087 /* FirebaseFirestore */,
 				7E7F771C2FA493C90048059D /* GoogleSignIn */,
 				7E7F771E2FA493C90048059D /* GoogleSignInSwift */,
+				7E77B04C304BFED3008FBA6F /* KosherSwift */,
 			);
 			productName = "KMI-iOS";
 			productReference = 7E6CF5212F3907D90061115C /* KMI-iOS.app */;
@@ -155,6 +158,7 @@
 			packageReferences = (
 				7E6CD4842F54328C00BE189A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				7E7F771B2FA493C90048059D /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				7E77B04B304BFED3008FBA6F /* XCRemoteSwiftPackageReference "KosherSwift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 7E6CF5222F3907D90061115C /* Products */;
@@ -449,6 +453,14 @@
 				minimumVersion = 12.10.0;
 			};
 		};
+		7E77B04B304BFED3008FBA6F /* XCRemoteSwiftPackageReference "KosherSwift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Elyahu41/KosherSwift.git";
+			requirement = {
+				kind = exactVersion;
+				version = 2.0.0;
+			};
+		};
 		7E7F771B2FA493C90048059D /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
@@ -469,6 +481,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 7E6CD4842F54328C00BE189A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseAuth;
+		};
+		7E77B04C304BFED3008FBA6F /* KosherSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7E77B04B304BFED3008FBA6F /* XCRemoteSwiftPackageReference "KosherSwift" */;
+			productName = KosherSwift;
 		};
 		7E7B0F3D2F587F88000D9087 /* FirebaseFirestore */ = {
 			isa = XCSwiftPackageProductDependency;

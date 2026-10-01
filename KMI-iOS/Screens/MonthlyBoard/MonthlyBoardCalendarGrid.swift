@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct MonthlyBoardCalendarGrid: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let monthData: MonthlyBoardMonthData
     let selectedDate: Date?
     let onSelectDay: (MonthlyBoardDayItem) -> Void
@@ -12,8 +14,11 @@ struct MonthlyBoardCalendarGrid: View {
             LazyVGrid(columns: columns, spacing: 8) {
                 ForEach(monthData.weekdaySymbolsHeb.indices, id: \.self) { index in
                     Text(monthData.weekdaySymbolsHeb[index])
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.90))
+                        .kmiTypography(.caption)
+                        .fontWeight(.bold)
+                        .foregroundStyle(
+                            KmiAppTheme.onSurface(for: colorScheme)
+                        )
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
                 }
@@ -35,7 +40,14 @@ struct MonthlyBoardCalendarGrid: View {
     }
 
     private func isItemSelected(_ item: MonthlyBoardDayItem) -> Bool {
-        guard let selectedDate, let itemDate = item.date else { return false }
-        return Calendar.current.isDate(selectedDate, inSameDayAs: itemDate)
+        guard let selectedDate,
+              let itemDate = item.date else {
+            return false
+        }
+
+        return ShabbatHolidayCheckerIOS.calendar.isDate(
+            selectedDate,
+            inSameDayAs: itemDate
+        )
     }
 }

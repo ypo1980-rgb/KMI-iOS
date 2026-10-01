@@ -4,7 +4,10 @@ enum MonthlyTrainingBoardBuilder {
 
     static func buildMonth(
         for monthDate: Date,
-        calendar: Calendar = MonthlyTrainingBoardBuilder.makeCalendar()
+        calendar: Calendar = MonthlyTrainingBoardBuilder.makeCalendar(),
+        archiveTrainings: [MonthlyBoardTrainingItem]? = nil,
+        cancelledDates: Set<Date> = [],
+        summaryDates: Set<Date> = []
     ) -> MonthlyBoardMonthData {
         guard let monthInterval = calendar.dateInterval(of: .month, for: monthDate) else {
             return MonthlyBoardMonthData(
@@ -15,11 +18,32 @@ enum MonthlyTrainingBoardBuilder {
             )
         }
 
-        let trainings = MonthlyTrainingBoardDataSource.trainings(forMonth: monthDate, calendar: calendar)
-        let holidays = MonthlyTrainingBoardDataSource.holidays(forMonth: monthDate, calendar: calendar)
+        let trainings = archiveTrainings
+            ?? MonthlyTrainingBoardDataSource.trainings(
+                forMonth: monthDate,
+                calendar: calendar
+            )
 
-        let trainingsByKey = Dictionary(grouping: trainings) { dateKey(for: $0.date, calendar: calendar) }
-        let holidaysByKey = Dictionary(grouping: holidays) { dateKey(for: $0.date, calendar: calendar) }
+        let holidays = MonthlyTrainingBoardDataSource.holidays(
+            forMonth: monthDate,
+            calendar: calendar
+        )
+
+        let trainingsByKey = Dictionary(grouping: trainings) {
+            dateKey(for: $0.date, calendar: calendar)
+        }
+
+        let holidaysByKey = Dictionary(grouping: holidays) {
+            dateKey(for: $0.date, calendar: calendar)
+        }
+
+        let cancelledDateKeys = Set(cancelledDates.map {
+            dateKey(for: $0, calendar: calendar)
+        })
+
+        let summaryDateKeys = Set(summaryDates.map {
+            dateKey(for: $0, calendar: calendar)
+        })
 
         let firstDayOfMonth = monthInterval.start
         let firstWeekday = calendar.component(.weekday, from: firstDayOfMonth) // 1=Sunday
@@ -39,9 +63,15 @@ enum MonthlyTrainingBoardBuilder {
             let existingHolidays = holidaysByKey[key] ?? []
             let isBlocked = ShabbatHolidayCheckerIOS.isBlockedDate(currentDate)
 
-            let effectiveTrainings = (isBlocked || !existingHolidays.isEmpty)
-                ? []
-                : (trainingsByKey[key] ?? [])
+            let effectiveTrainings: [MonthlyBoardTrainingItem]
+
+            if archiveTrainings != nil {
+                effectiveTrainings = trainingsByKey[key] ?? []
+            } else {
+                effectiveTrainings = (isBlocked || !existingHolidays.isEmpty)
+                    ? []
+                    : (trainingsByKey[key] ?? [])
+            }
             
             items.append(
                 MonthlyBoardDayItem(
@@ -52,7 +82,9 @@ enum MonthlyTrainingBoardBuilder {
                     isToday: calendar.isDateInToday(currentDate),
                     isInDisplayedMonth: true,
                     trainings: effectiveTrainings,
-                    holidays: existingHolidays
+                    holidays: existingHolidays,
+                    hasCancelledTraining: cancelledDateKeys.contains(key),
+                    hasSummary: summaryDateKeys.contains(key)
                 )
             )
 
@@ -86,9 +118,9 @@ enum MonthlyTrainingBoardBuilder {
     }
 
     static func makeCalendar() -> Calendar {
-        var calendar = Calendar(identifier: .gregorian)
+        var calendar = ShabbatHolidayCheckerIOS.calendar
         calendar.locale = Locale(identifier: "he_IL")
-        calendar.timeZone = .current
+        calendar.firstWeekday = 1
         return calendar
     }
 
@@ -116,6 +148,7 @@ enum MonthlyTrainingBoardBuilder {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "he_IL")
         formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
         formatter.dateFormat = "LLLL yyyy"
         return formatter.string(from: date)
     }
@@ -124,6 +157,7 @@ enum MonthlyTrainingBoardBuilder {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "he_IL")
         formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
         formatter.dateFormat = "EEEE, d בMMMM yyyy"
         return formatter.string(from: date)
     }

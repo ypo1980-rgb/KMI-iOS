@@ -121,9 +121,17 @@ final class TrainingSummaryViewModel: ObservableObject {
     }
 
     func loadSummaryDaysForMonth(year: Int, month1to12: Int) {
-        guard
-            let start = Self.makeDate(year: year, month: month1to12, day: 1),
-            let end = Calendar.current.date(byAdding: .month, value: 1, to: start)
+        guard (1...12).contains(month1to12),
+              let start = Self.makeDate(
+                  year: year,
+                  month: month1to12,
+                  day: 1
+              ),
+              let end = ShabbatHolidayCheckerIOS.calendar.date(
+                  byAdding: .month,
+                  value: 1,
+                  to: start
+              )
         else {
             state.summaryDaysInCalendarMonth = []
             return
@@ -611,7 +619,9 @@ final class TrainingSummaryViewModel: ObservableObject {
         formatter.locale =
             Locale(identifier: "en_US_POSIX")
         formatter.calendar =
-            Calendar(identifier: .gregorian)
+            ShabbatHolidayCheckerIOS.calendar
+        formatter.timeZone =
+            ShabbatHolidayCheckerIOS.timeZone
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.isLenient = false
 
@@ -630,22 +640,44 @@ final class TrainingSummaryViewModel: ObservableObject {
     }
 
     private static func isoString(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: date)
+        isoDateFormatter().string(from: date)
     }
 
-    private static func makeDate(year: Int, month: Int, day: Int) -> Date? {
-        Calendar.current.date(from: DateComponents(year: year, month: month, day: day))
+    private static func makeDate(
+        year: Int,
+        month: Int,
+        day: Int
+    ) -> Date? {
+        ShabbatHolidayCheckerIOS.calendar.date(
+            from: DateComponents(
+                year: year,
+                month: month,
+                day: day
+            )
+        )
     }
 
-    private static func dateComponents(fromIso iso: String) -> DateComponents {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"
-        guard let date = f.date(from: iso) else { return DateComponents() }
-        return Calendar.current.dateComponents([.year, .month, .day], from: date)
+    private static func dateComponents(
+        fromIso iso: String
+    ) -> DateComponents {
+        guard let date = isoDateFormatter().date(from: iso) else {
+            return DateComponents()
+        }
+
+        return ShabbatHolidayCheckerIOS.calendar.dateComponents(
+            [.year, .month, .day],
+            from: date
+        )
+    }
+
+    private static func isoDateFormatter() -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = ShabbatHolidayCheckerIOS.calendar
+        formatter.timeZone = ShabbatHolidayCheckerIOS.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        return formatter
     }
 }
 

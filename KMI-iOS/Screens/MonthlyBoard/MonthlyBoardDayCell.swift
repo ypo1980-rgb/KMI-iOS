@@ -1,9 +1,16 @@
 import SwiftUI
 
 struct MonthlyBoardDayCell: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.layoutDirection) private var layoutDirection
+
     let item: MonthlyBoardDayItem
     let isSelected: Bool
     let onTap: () -> Void
+
+    private var isEnglish: Bool {
+        layoutDirection == .leftToRight
+    }
 
     var body: some View {
         Group {
@@ -16,16 +23,37 @@ struct MonthlyBoardDayCell: View {
                     VStack(alignment: .trailing, spacing: 6) {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
-                                if item.hasHolidays || fallbackHolidayTitle != nil {
+                                if item.hasHolidays ||
+                                    fallbackHolidayTitle != nil ||
+                                    item.hasCancelledTraining {
                                     Circle()
-                                        .fill(item.holidays.first?.isMajor == true ? Color.red.opacity(0.95) : Color.red.opacity(0.95))
+                                        .fill(Color.red.opacity(0.95))
                                         .frame(width: 8, height: 8)
+                                        .accessibilityLabel(
+                                            item.hasCancelledTraining
+                                                ? (isEnglish ? "Cancelled training" : "אימון שבוטל")
+                                                : (isEnglish ? "Holiday or Saturday" : "חג או שבת")
+                                        )
                                 }
 
                                 if item.hasTrainings {
                                     Circle()
                                         .fill(trainingColor)
                                         .frame(width: 8, height: 8)
+                                        .accessibilityLabel(
+                                            isEnglish ? "Training" : "אימון"
+                                        )
+                                }
+
+                                if item.hasSummary {
+                                    Image(systemName: "doc.text.fill")
+                                        .kmiIconSize(9)
+                                        .foregroundStyle(
+                                            KmiAppTheme.secondary(for: colorScheme)
+                                        )
+                                        .accessibilityLabel(
+                                            isEnglish ? "Training summary" : "סיכום אימון"
+                                        )
                                 }
                             }
 
@@ -50,13 +78,17 @@ struct MonthlyBoardDayCell: View {
                             if let training = item.trainings.first {
                                 Text(training.title)
                                     .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(Color.white.opacity(0.92))
+                                    .foregroundStyle(
+                                        KmiAppTheme.onSurface(for: colorScheme)
+                                    )
                                     .lineLimit(1)
                                     .frame(maxWidth: .infinity, alignment: .trailing)
                             } else if shouldShowNoTrainingText {
-                                Text("אין אימונים")
+                                Text(isEnglish ? "No training" : "אין אימונים")
                                     .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(Color.white.opacity(0.82))
+                                    .foregroundStyle(
+                                        KmiAppTheme.onSurfaceVariant(for: colorScheme)
+                                    )
                                     .lineLimit(1)
                                     .frame(maxWidth: .infinity, alignment: .trailing)
                             }
@@ -83,29 +115,24 @@ struct MonthlyBoardDayCell: View {
     }
 
     private var backgroundColor: Color {
-        if isSelected {
-            return Color.cyan.opacity(0.22)
-        }
-        if item.isToday {
-            return Color.white.opacity(0.18)
-        }
-        if item.hasHolidays || fallbackHolidayTitle != nil {
-            return Color.red.opacity(0.12)
-        }
-        if item.hasTrainings {
-            return Color.blue.opacity(0.14)
-        }
-        return Color.white.opacity(0.08)
+        KmiAppTheme.surface(for: colorScheme)
     }
 
     private var borderColor: Color {
-        if isSelected { return Color.cyan.opacity(0.95) }
-        if item.isToday { return Color.white.opacity(0.75) }
-        return Color.white.opacity(0.16)
+        if isSelected {
+            return KmiAppTheme.primary(for: colorScheme)
+        }
+
+        if item.isToday {
+            return KmiAppTheme.secondary(for: colorScheme)
+        }
+
+        return KmiAppTheme.outline(for: colorScheme)
+            .opacity(0.45)
     }
 
     private var textColor: Color {
-        item.isToday ? .white : .white.opacity(0.95)
+        KmiAppTheme.onSurface(for: colorScheme)
     }
 
     private var trainingColor: Color {
@@ -137,8 +164,11 @@ struct MonthlyBoardDayCell: View {
             return firstHoliday
         }
 
-        if ShabbatHolidayCheckerIOS.isBlockedDate(date) {
-            return "שבת"
+        if ShabbatHolidayCheckerIOS.calendar.component(
+            .weekday,
+            from: date
+        ) == 7 {
+            return isEnglish ? "Saturday" : "שבת"
         }
 
         return nil

@@ -198,6 +198,9 @@ enum AppRoute: Hashable {
     case coachBroadcast
     case progress
     case trainingHistory
+    case trainingArchive(
+        sources: [TrainingArchiveSource]
+    )
     case freeSessions(
         branch: String,
         groupKey: String,
@@ -399,6 +402,9 @@ final class AppNavModel: ObservableObject {
 struct ContentView: View {
 
     @EnvironmentObject private var auth: AuthViewModel
+
+    @ObservedObject private var demoPrivacy =
+        DemoPrivacy.shared
 
     @StateObject private var nav =
         AppNavModel()
@@ -1520,6 +1526,42 @@ struct ContentView: View {
                         KmiRootLayout(title: "היסטוריית אימונים", nav: nav, selectedIcon: .home) {
                             TrainingHistoryView()
                                 .navigationBarBackButtonHidden(true)
+                        }
+
+                    case .trainingArchive(let sources):
+                        KmiRootLayout(
+                            title: tr(
+                                "ארכיון אימונים",
+                                "Training Archive"
+                            ),
+                            nav: nav,
+                            selectedIcon: nil,
+                            showShareAction: true
+                        ) {
+                            TrainingArchiveView(
+                                sources: sources,
+                                isEnglish: isEnglish,
+                                coachDisplayName: { realName in
+                                    let cleanName = realName
+                                        .trimmingCharacters(
+                                            in: .whitespacesAndNewlines
+                                        )
+
+                                    guard !cleanName.isEmpty else {
+                                        return ""
+                                    }
+
+                                    if demoPrivacy.isEnabled {
+                                        return tr("מאמן", "Coach")
+                                    }
+
+                                    return TrainingCatalogIOS.displayCoach(
+                                        cleanName,
+                                        isEnglish: isEnglish
+                                    )
+                                }
+                            )
+                            .navigationBarBackButtonHidden(true)
                         }
 
                     case .freeSessions(let branch, let groupKey, let uid, let name):

@@ -1,6 +1,6 @@
 import Foundation
 
-enum MonthlyBoardCellKind: Equatable {
+enum MonthlyBoardCellKind: Hashable {
     case empty
     case day
 }
@@ -39,6 +39,10 @@ struct MonthlyBoardDayItem: Identifiable, Hashable {
     let isInDisplayedMonth: Bool
     let trainings: [MonthlyBoardTrainingItem]
     let holidays: [MonthlyBoardHolidayItem]
+
+    // סימונים נפרדים: ביטול אימון אינו בהכרח חג.
+    var hasCancelledTraining: Bool = false
+    var hasSummary: Bool = false
 
     var hasTrainings: Bool { !trainings.isEmpty }
     var hasHolidays: Bool { !holidays.isEmpty }

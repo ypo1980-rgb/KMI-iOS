@@ -42,11 +42,24 @@ final class TrainingSummaryLocalStore {
         if toSave.createdAtMs <= 0 { toSave.createdAtMs = now }
         toSave.updatedAtMs = now
 
-        if let encoded = try? JSONEncoder().encode(toSave) {
-            defaults.set(encoded, forKey: keyFor(ownerUid: ownerUid, role: role, summaryId: toSave.id))
+        guard let encoded = try? JSONEncoder().encode(toSave) else {
+            return
         }
 
-        addMarkedDay(ownerUid: ownerUid, role: role, dateIso: toSave.dateIso)
+        defaults.set(
+            encoded,
+            forKey: keyFor(
+                ownerUid: ownerUid,
+                role: role,
+                summaryId: toSave.id
+            )
+        )
+
+        addMarkedDay(
+            ownerUid: ownerUid,
+            role: role,
+            dateIso: toSave.dateIso
+        )
     }
 
     func clearForOwner(
@@ -54,7 +67,30 @@ final class TrainingSummaryLocalStore {
         role: SummaryAuthorRole,
         summaryId: String
     ) {
-        defaults.removeObject(forKey: keyFor(ownerUid: ownerUid, role: role, summaryId: summaryId))
+        let savedSummary = loadForOwner(
+            ownerUid: ownerUid,
+            role: role,
+            summaryId: summaryId
+        )
+
+        defaults.removeObject(
+            forKey: keyFor(
+                ownerUid: ownerUid,
+                role: role,
+                summaryId: summaryId
+            )
+        )
+
+        let dateIso = (savedSummary?.dateIso ?? summaryId).trimmed()
+        let daysKey = markedDaysKey(
+            ownerUid: ownerUid,
+            role: role
+        )
+
+        let remainingDays = (defaults.stringArray(forKey: daysKey) ?? [])
+            .filter { $0.trimmed() != dateIso }
+
+        defaults.set(remainingDays, forKey: daysKey)
     }
 
     func addMarkedDay(ownerUid: String, role: SummaryAuthorRole, dateIso: String) {

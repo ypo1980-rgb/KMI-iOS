@@ -1471,83 +1471,67 @@ struct HomeView: View {
     }
     
     private var homeQuickMenuItems: [HomeQuickMenuItem] {
-        var items: [HomeQuickMenuItem] = []
-
-        items.append(
+        [
             HomeQuickMenuItem(
-                title: tr("עוזר קולי", "Voice Assistant") + lockSuffix,
-                systemImage: "mic.fill"
+                title: tr(
+                    "ארכיון אימונים",
+                    "Training Archive"
+                ) + lockSuffix,
+                systemImage: "clock.arrow.circlepath"
             ) {
                 runPremiumHomeAction {
-                    goVoiceAssistant = true
-                }
-            }
-        )
+                    let sources = effectiveUpcomingTrainings.map { training in
+                        let source = trainingSource(for: training)
 
-        if !isAbroadUser {
-            items.append(
-                HomeQuickMenuItem(
-                    title: tr("לוח אימונים חודשי", "Monthly Calendar") + lockSuffix,
-                    systemImage: "calendar"
-                ) {
-                    runPremiumHomeAction {
-                        goMonthly = true
-                    }
-                }
-            )
-
-            items.append(
-                HomeQuickMenuItem(
-                    title: tr("סיכום אימון", "Training Summary") + lockSuffix,
-                    systemImage: "square.and.pencil"
-                ) {
-                    runPremiumHomeAction {
-                        let formatter = DateFormatter()
-                        formatter.locale = Locale(identifier: "en_US_POSIX")
-                        formatter.dateFormat = "yyyy-MM-dd"
-                        let todayIso = formatter.string(from: Date())
-
-                        nav.push(.trainingSummary(pickedDateIso: todayIso))
-                    }
-                }
-            )
-
-            items.append(
-                HomeQuickMenuItem(
-                    title: tr("אימונים חופשיים", "Free Trainings") + lockSuffix,
-                    systemImage: "plus"
-                ) {
-                    runPremiumHomeAction {
-                        let branch = freeSessionsBranch
-                        let groupKey = freeSessionsGroupKey
-                        let uid = freeSessionsUid
-                        let name = freeSessionsName
-
-                        guard !branch.isEmpty,
-                              !groupKey.isEmpty,
-                              !uid.isEmpty else {
-                            freeSessionsErrorMessage =
-                                tr(
-                                    "חסרים סניף, קבוצה או פרטי משתמש לפתיחת אימונים חופשיים.",
-                                    "Branch, group or user details are missing."
-                                )
-                            return
-                        }
-
-                        nav.push(
-                            .freeSessions(
-                                branch: branch,
-                                groupKey: groupKey,
-                                uid: uid,
-                                name: name
-                            )
+                        return TrainingArchiveSource(
+                            training: training,
+                            branch: source.branch,
+                            group: source.group
                         )
                     }
-                }
-            )
-        }
 
-        return items
+                    nav.push(
+                        .trainingArchive(
+                            sources: sources
+                        )
+                    )
+                }
+            },
+
+            HomeQuickMenuItem(
+                title: tr(
+                    "אימונים חופשיים",
+                    "Free Trainings"
+                ) + lockSuffix,
+                systemImage: "plus"
+            ) {
+                runPremiumHomeAction {
+                    let branch = freeSessionsBranch
+                    let groupKey = freeSessionsGroupKey
+                    let uid = freeSessionsUid
+                    let name = freeSessionsName
+
+                    guard !branch.isEmpty,
+                          !groupKey.isEmpty,
+                          !uid.isEmpty else {
+                        freeSessionsErrorMessage = tr(
+                            "חסרים סניף, קבוצה או פרטי משתמש לפתיחת אימונים חופשיים.",
+                            "Branch, group or user details are missing."
+                        )
+                        return
+                    }
+
+                    nav.push(
+                        .freeSessions(
+                            branch: branch,
+                            groupKey: groupKey,
+                            uid: uid,
+                            name: name
+                        )
+                    )
+                }
+            }
+        ]
     }
     
     var body: some View {
@@ -1563,9 +1547,7 @@ struct HomeView: View {
                 )
                 .ignoresSafeArea()
             
-                ScrollView(showsIndicators: false) {
-                VStack(spacing: 10) {
-                    
+                VStack(spacing: 4) {
                     WeekHeaderPill(
                         title: tr(
                             "אימונים לשבוע הקרוב",
@@ -1573,8 +1555,10 @@ struct HomeView: View {
                         ),
                         subtitle: currentWeekSubtitle
                     )
-                    .padding(.top, -2)
-                    
+
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 8) {
+
                     if isAbroadUser {
                         HomeAbroadBranchNotice(
                             region: resolvedRegion,
@@ -1606,7 +1590,7 @@ struct HomeView: View {
 
                                 HomeTrainingCardAndroidStyle(
                                     training: training,
-                                    group: resolvedGroup,
+                                    group: trainingSource(for: training).group,
                                     isEnglish: isEnglish,
                                     isCoach: isCoachUser,
                                     activeOverride: trainingOverride,
@@ -1639,13 +1623,21 @@ struct HomeView: View {
                         )
                     }
 
-                    Spacer(minLength: 4)
+                            Rectangle()
+                                .fill(
+                                    KmiAppTheme.outlineVariant(for: colorScheme)
+                                )
+                                .frame(height: 2)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 8)
+                                .padding(.bottom, 10)
+                                .accessibilityHidden(true)
 
-                    CoachMessagesCard(
-                        title: tr(
-                            "הודעות ואירועים",
-                            "Messages & Events"
-                        ),
+                            CoachMessagesCard(
+                                title: tr(
+                                    "הודעות ואירועים",
+                                    "Messages & Events"
+                                ),
                         coachName: resolvedCoachBroadcastName,
                         message: resolvedCoachBroadcastMessage,
                         branch: resolvedCoachBroadcastBranch,
@@ -1660,12 +1652,14 @@ struct HomeView: View {
                     )
                     .padding(.horizontal, 18)
 
-                    Spacer(minLength: 10)
-                }
-                .padding(.bottom, 4)
-            }
-        }
-        .safeAreaInset(
+                            Spacer(minLength: 10)
+                                }
+                                .padding(.bottom, 28)
+                            }
+                            .frame(maxHeight: .infinity)
+                        }
+                    }
+                .safeAreaInset(
             edge: .bottom,
             spacing: 0
         ) {
@@ -2007,157 +2001,135 @@ struct HomeView: View {
     }
 
     private var quickMenuOverlay: some View {
-
         GeometryReader { geo in
-
-            let menuAccent =
-                KmiBeltPalette.color(
-                    for: resolvedBelt
-                )
-
-            let fabWidth: CGFloat = 38
-            let fabHalfHeight: CGFloat = 36
-
-            let edgeInset: CGFloat = 8
-
-            let panelWidth = min(
-                CGFloat(230),
-                max(
-                    0,
-                    geo.size.width -
-                    fabWidth -
-                    edgeInset * 2
+            let accent = KmiBeltPalette.color(
+                for: BeltFlow.nextBeltForUser(
+                    registeredBelt: resolvedBelt
                 )
             )
+
+            let railWidth: CGFloat = 46
+            let closedHeight: CGFloat = 58
+            let availableHeight = max(0, geo.size.height - 16)
+            let preferredPanelHeight =
+                CGFloat(homeQuickMenuItems.count) * 82 + 68
 
             let panelHeight = min(
-                CGFloat(420),
-                max(
-                    0,
-                    geo.size.height -
-                    edgeInset * 2
-                )
+                preferredPanelHeight,
+                availableHeight
             )
 
-            // הטאב נשאר בצד שמאל הפיזי בשתי השפות.
-            let fabX = fabWidth / 2
+            let visibleHeight =
+                showHomeQuickMenu ? panelHeight : closedHeight
 
-            let preferredY =
-                geo.size.height / 2 + 88
+            let centerX = isEnglish
+                ? railWidth / 2
+                : geo.size.width - railWidth / 2
 
-            let fabY = min(
+            let centerY = min(
                 max(
-                    fabHalfHeight + edgeInset,
-                    preferredY
+                    visibleHeight / 2 + 8,
+                    geo.size.height / 2
                 ),
                 max(
-                    fabHalfHeight,
-                    geo.size.height -
-                    fabHalfHeight -
-                    edgeInset
+                    visibleHeight / 2,
+                    geo.size.height - visibleHeight / 2 - 8
                 )
-            )
-
-            let panelX =
-                fabWidth +
-                edgeInset +
-                panelWidth / 2
-            let panelY = min(
-                max(edgeInset + panelHeight / 2, preferredY),
-                geo.size.height - edgeInset - panelHeight / 2
             )
 
             ZStack {
                 if showHomeQuickMenu {
-                    ScrollView(.vertical, showsIndicators: true) {
+                    ScrollView(.vertical, showsIndicators: false) {
                         HomePremiumQuickMenuPanel(
                             title: tr("תפריט מהיר", "Quick Menu"),
                             isEnglish: isEnglish,
-                            accentColor: menuAccent,
+                            accentColor: accent,
                             items: homeQuickMenuItems,
                             onClose: {
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                                withAnimation(
+                                    .spring(
+                                        response: 0.25,
+                                        dampingFraction: 0.90
+                                    )
+                                ) {
                                     showHomeQuickMenu = false
                                 }
                             }
                         )
-                        .frame(width: panelWidth)
                     }
                     .frame(
-                        width: panelWidth,
-                        height: panelHeight,
-                        alignment: .top
+                        width: railWidth,
+                        height: panelHeight
                     )
-                    .background(
-                        KmiAppTheme.surface(for: colorScheme)
-                    )
+                    .background(accent.opacity(0.96))
                     .clipShape(
-                        RoundedRectangle(
-                            cornerRadius: 22,
-                            style: .continuous
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: isEnglish ? 0 : 22,
+                            bottomLeadingRadius: isEnglish ? 0 : 22,
+                            bottomTrailingRadius: isEnglish ? 22 : 0,
+                            topTrailingRadius: isEnglish ? 22 : 0
                         )
                     )
                     .overlay(
-                        RoundedRectangle(
-                            cornerRadius: 22,
-                            style: .continuous
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: isEnglish ? 0 : 22,
+                            bottomLeadingRadius: isEnglish ? 0 : 22,
+                            bottomTrailingRadius: isEnglish ? 22 : 0,
+                            topTrailingRadius: isEnglish ? 22 : 0
                         )
                         .stroke(
-                            KmiAppTheme.outlineVariant(for: colorScheme),
-                            lineWidth: 1
+                            Color.white.opacity(0.70),
+                            lineWidth: 1.4
                         )
                         .allowsHitTesting(false)
                     )
-                    .position(x: panelX, y: panelY)
-                    .transition(
-                        .scale(scale: 0.94)
-                        .combined(with: .opacity)
-                    )
-                    .zIndex(51)
-                }
-
-                Button {
-                    withAnimation(
-                        .spring(
-                            response: 0.28,
-                            dampingFraction: 0.86
-                        )
-                    ) {
-                        showHomeQuickMenu.toggle()
+                    .position(x: centerX, y: centerY)
+                    .transition(.opacity)
+                } else {
+                    Button {
+                        withAnimation(
+                            .spring(
+                                response: 0.25,
+                                dampingFraction: 0.90
+                            )
+                        ) {
+                            showHomeQuickMenu = true
+                        }
+                    } label: {
+                        Image(systemName: "line.3.horizontal")
+                            .kmiIconSize(20)
+                            .fontWeight(.bold)
+                            .foregroundStyle(.white)
+                            .frame(
+                                width: railWidth,
+                                height: closedHeight
+                            )
+                            .background(accent.opacity(0.96))
+                            .clipShape(
+                                UnevenRoundedRectangle(
+                                    topLeadingRadius: isEnglish ? 0 : 18,
+                                    bottomLeadingRadius: isEnglish ? 0 : 18,
+                                    bottomTrailingRadius: isEnglish ? 18 : 0,
+                                    topTrailingRadius: isEnglish ? 18 : 0
+                                )
+                            )
                     }
-                } label: {
-
-                    ModernHomeQuickFab(
-                        isOpen: showHomeQuickMenu,
-                        accentColor: menuAccent
+                    .buttonStyle(.plain)
+                    .position(x: centerX, y: centerY)
+                    .accessibilityLabel(
+                        tr("פתח תפריט מהיר", "Open quick menu")
                     )
                 }
-                .buttonStyle(.plain)
-                .position(
-                    x: fabX,
-                    y: fabY
-                )
-                .accessibilityLabel(
-                    showHomeQuickMenu
-                    ? tr("סגור תפריט מהיר", "Close quick menu")
-                    : tr("פתח תפריט מהיר", "Open quick menu")
-                )
-                .zIndex(52)
             }
-            .frame(width: geo.size.width, height: geo.size.height)
+            .frame(
+                width: geo.size.width,
+                height: geo.size.height
+            )
             .environment(\.layoutDirection, .leftToRight)
         }
-        .allowsHitTesting(true)
-        .ignoresSafeArea(
-            .keyboard,
-            edges: .bottom
-        )
-        .frame(
-            maxWidth: .infinity,
-            maxHeight: .infinity,
-            alignment: .topLeading
-        )
+        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
+
 
     // MARK: - Week Header
 
@@ -4660,52 +4632,58 @@ private struct HomeTrainingCardAndroidStyle: View {
     }
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             VStack(spacing: 2) {
                 Text(branchTitle)
-                    .kmiFont(
-                        size: 15,
-                        weight: .black
-                    )
+                    .kmiFont(size: 15, weight: .black)
                     .foregroundStyle(
-                        HomeVisualTheme.primaryText(
-                            for: colorScheme
-                        )
+                        isCancelledByCoach || isCancelledByHoliday
+                            ? KmiAppTheme.onErrorContainer(for: colorScheme)
+                            : HomeVisualTheme.primaryText(for: colorScheme)
                     )
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.80)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
-                    .padding(.horizontal, isCoach ? 40 : 0)
+                    .padding(.horizontal, isCoach ? 36 : 0)
 
-                if !groupTitle.isEmpty {
-                    Text(groupTitle)
-                        .kmiFont(
-                            size: 12,
-                            weight: .semibold
+                let groupAndCoachLine = [
+                    groupTitle,
+                    coachText.isEmpty
+                        ? ""
+                        : (
+                            isEnglish
+                                ? "Coach: \(coachText)"
+                                : "מאמן: \(coachText)"
                         )
+                ]
+                .filter { !$0.isEmpty }
+                .joined(separator: " · ")
+
+                if !groupAndCoachLine.isEmpty {
+                    Text(groupAndCoachLine)
+                        .kmiFont(size: 12, weight: .semibold)
                         .foregroundStyle(
-                            HomeVisualTheme.secondaryText(
-                                for: colorScheme
-                            )
+                            isCancelledByCoach || isCancelledByHoliday
+                                ? KmiAppTheme.onErrorContainer(for: colorScheme)
+                                : HomeVisualTheme.secondaryText(for: colorScheme)
                         )
                         .lineLimit(1)
-                        .minimumScaleFactor(0.80)
+                        .minimumScaleFactor(0.76)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
                 }
 
                 if !dateLine.isEmpty {
                     Text(dateLine)
-                        .kmiFont(
-                            size: 12.4,
-                            weight: .black
-                        )
+                        .kmiFont(size: 12.4, weight: .bold)
                         .foregroundStyle(
-                            HomeVisualTheme.primaryText(
-                                for: colorScheme
-                            )
+                            isCancelledByCoach || isCancelledByHoliday
+                                ? KmiAppTheme.onErrorContainer(for: colorScheme)
+                                : HomeVisualTheme.primaryText(for: colorScheme)
                         )
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.76)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
                 }
@@ -4715,19 +4693,10 @@ private struct HomeTrainingCardAndroidStyle: View {
                 } else if isCancelledByHoliday {
                     holidayCancellationBanner
                 } else {
-                    if wasChangedByCoach {
-                        trainingOverrideBanner
-                    }
-
                     TimelineView(
-                        .periodic(
-                            from: .now,
-                            by: 1
-                        )
+                        .periodic(from: .now, by: 1)
                     ) { timeline in
-                        liveTrainingStatusBanner(
-                            at: timeline.date
-                        )
+                        liveTrainingStatusBanner(at: timeline.date)
                     }
                 }
             }
@@ -4797,32 +4766,9 @@ private struct HomeTrainingCardAndroidStyle: View {
                 addressText.isEmpty ? 0.72 : 1
             )
 
-            if !coachText.isEmpty {
-                Text(
-                    isEnglish
-                        ? "Coach: \(coachText)"
-                        : "מאמן: \(coachText)"
-                )
-                .kmiFont(
-                    size: 11.2,
-                    weight: .bold
-                )
-                .foregroundStyle(
-                    HomeVisualTheme.secondaryText(
-                        for: colorScheme
-                    )
-                )
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: .leading
-                )
-                .multilineTextAlignment(.leading)
-                .environment(\.layoutDirection, rowDirection)
-            }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 9)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(
@@ -4830,9 +4776,13 @@ private struct HomeTrainingCardAndroidStyle: View {
                 style: .continuous
             )
             .fill(
-                HomeVisualTheme.cardBackground(
-                    for: colorScheme
-                )
+                isCancelledByCoach || isCancelledByHoliday
+                    ? KmiAppTheme.errorContainer(for: colorScheme)
+                    : (
+                        wasChangedByCoach
+                            ? KmiAppTheme.primaryContainer(for: colorScheme)
+                            : HomeVisualTheme.cardBackground(for: colorScheme)
+                    )
             )
         )
         .overlay(
@@ -4841,9 +4791,12 @@ private struct HomeTrainingCardAndroidStyle: View {
                 style: .continuous
             )
             .stroke(
-                HomeVisualTheme.cardBorder(
-                    for: colorScheme
-                ),
+                (
+                    isCancelledByCoach || isCancelledByHoliday
+                        ? KmiAppTheme.onErrorContainer(for: colorScheme)
+                        : KmiAppTheme.primary(for: colorScheme)
+                )
+                .opacity(0.35),
                 lineWidth: 1
             )
         )
@@ -5949,278 +5902,170 @@ private struct HomeQuickMenuItem: Identifiable {
 }
 
 private struct HomePremiumQuickMenuPanel: View {
-
-    @Environment(\.colorScheme)
-    private var colorScheme
-
     let title: String
-
     let isEnglish: Bool
-
     let accentColor: Color
-
     let items: [HomeQuickMenuItem]
-
     let onClose: () -> Void
 
-    private var menuAccent: Color {
-
-        let uiColor = UIColor(accentColor)
-
-        var red: CGFloat = 0
-        var green: CGFloat = 0
-        var blue: CGFloat = 0
-        var alpha: CGFloat = 0
-
-        guard uiColor.getRed(
-            &red,
-            green: &green,
-            blue: &blue,
-            alpha: &alpha
-        ) else {
-            return accentColor
-        }
-
-        let luminance =
-            0.2126 * red +
-            0.7152 * green +
-            0.0722 * blue
-
-        if colorScheme == .dark &&
-            luminance < 0.45 {
-            return .white
-        }
-
-        if colorScheme == .light &&
-            luminance > 0.78 {
-            return KmiAppTheme.onSurfaceVariant(
-                for: colorScheme
-            )
-        }
-
-        return accentColor
-    }
-
     var body: some View {
-
-        VStack(
-            alignment: .leading,
-            spacing: 0
-        ) {
-            HStack(spacing: 8) {
-                Text(title)
-                    .kmiFont(
-                        size: 16,
-                        weight: .heavy
-                    )
-                    .foregroundStyle(
-                        menuAccent
-                    )
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-                    .frame(
-                        maxWidth: .infinity,
-                        alignment: .leading
-                    )
-                    .multilineTextAlignment(.leading)
-
-                Button(action: onClose) {
-
-                    Image(systemName: "xmark")
-                        .kmiFont(
-                            size: 15,
-                            weight: .heavy
-                        )
-                        .foregroundStyle(
-                            menuAccent
-                        )
-                        .frame(
-                            width: 40,
-                            height: 40
-                        )
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(
-                    isEnglish ? "Close quick menu" : "סגור תפריט מהיר"
-                )
-            }
-            .environment(
-                \.layoutDirection,
-                isEnglish ? .leftToRight : .rightToLeft
-            )
-            .padding(.horizontal, 10)
-            .padding(.top, 6)
-            .padding(.bottom, 4)
-            
+        VStack(spacing: 0) {
             ForEach(
                 Array(items.enumerated()),
                 id: \.element.id
             ) { index, item in
-
                 HomePremiumQuickMenuRow(
                     title: item.title,
                     systemImage: item.systemImage,
                     isEnglish: isEnglish,
-                    accentColor: menuAccent,
+                    accentColor: accentColor,
                     action: item.action
                 )
 
-                if index != items.count - 1 {
-
-                    Rectangle()
-                        .fill(
-                            menuAccent.opacity(0.32)
-                        )
-                        .frame(height: 1)
-                        .padding(.horizontal, 8)
-                        .accessibilityHidden(true)
+                if index < items.count - 1 {
+                    separator
                 }
             }
+
+            separator
+
+            Button(action: onClose) {
+                Image(systemName: "line.3.horizontal")
+                    .kmiIconSize(17)
+                    .fontWeight(.bold)
+                    .foregroundStyle(.white)
+                    .frame(width: 25, height: 25)
+                    .overlay(
+                        Circle()
+                            .stroke(
+                                Color.white.opacity(0.74),
+                                lineWidth: 1.1
+                            )
+                    )
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 58)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                isEnglish ? "Close quick menu" : "סגור תפריט מהיר"
+            )
         }
-        .padding(.bottom, 10)
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 3)
+        .padding(.vertical, 5)
+        .frame(width: 46)
+        .background(accentColor.opacity(0.96))
+        .accessibilityLabel(title)
+    }
+
+    private var separator: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.70))
+            .frame(height: 1.4)
+            .padding(.horizontal, 3)
+            .padding(.vertical, 4)
+            .accessibilityHidden(true)
     }
 }
 
 private struct HomePremiumQuickMenuRow: View {
+    @Environment(\.colorScheme)
+    private var colorScheme
 
     let title: String
-
     let systemImage: String
-
     let isEnglish: Bool
-
     let accentColor: Color
-
     let action: () -> Void
-
-    @State private var isLockExpanded = false
 
     private var isLocked: Bool {
         title.hasSuffix(" 🔒")
     }
 
     private var cleanTitle: String {
-        isLocked
-            ? String(title.dropLast(2))
-            : title
+        isLocked ? String(title.dropLast(2)) : title
     }
 
-    private var textAlignment: TextAlignment {
-        .leading
+    private var displayTitle: String {
+        switch cleanTitle {
+        case "ארכיון אימונים":
+            return "ארכיון\nאימונים"
+        case "Training Archive":
+            return "Training\nArchive"
+        case "אימונים חופשיים":
+            return "אימונים\nחופשיים"
+        case "Free Trainings":
+            return "Free\nTrainings"
+        default:
+            return cleanTitle
+        }
     }
 
-    private var frameAlignment: Alignment {
-        .leading
-    }
-
-    private var rowDirection: LayoutDirection {
-        isEnglish ? .leftToRight : .rightToLeft
+    private var iconColor: Color {
+        systemImage == "plus"
+            ? KmiAppTheme.secondary(for: colorScheme)
+            : KmiAppTheme.primary(for: colorScheme)
     }
 
     var body: some View {
-
         Button(action: action) {
-
-            HStack(spacing: 7) {
-
+            VStack(spacing: 2) {
                 Image(systemName: systemImage)
-                    .kmiFont(
-                        size: 11,
-                        weight: .bold
-                    )
-                    .foregroundStyle(
-                        accentColor
-                    )
-                    .frame(
-                        width: 20,
-                        height: 20
-                    )
+                    .kmiIconSize(13)
+                    .fontWeight(.bold)
+                    .foregroundStyle(iconColor)
+                    .frame(width: 27, height: 27)
                     .background(
                         Circle()
                             .fill(
-                                accentColor.opacity(0.12)
+                                KmiAppTheme.surface(for: colorScheme)
                             )
                     )
                     .overlay(
                         Circle()
                             .stroke(
-                                accentColor.opacity(0.30),
+                                iconColor.opacity(0.28),
                                 lineWidth: 1
                             )
                     )
                     .accessibilityHidden(true)
 
-                Text(cleanTitle)
-                    .kmiFont(
-                        size: 13,
-                        weight: .semibold
-                    )
-                    .foregroundStyle(
-                        accentColor
-                    )
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.76)
-                    .frame(
-                        maxWidth: .infinity,
-                        alignment: frameAlignment
-                    )
-                    .multilineTextAlignment(
-                        textAlignment
-                    )
+                Text(displayTitle)
+                    .kmiFont(size: 9, weight: .bold)
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.70)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
 
                 if isLocked {
-
                     Image(systemName: "lock.fill")
-                        .kmiFont(
-                            size: 12,
-                            weight: .bold
-                        )
-                        .foregroundStyle(
-                            accentColor
-                        )
-                        .scaleEffect(
-                            isLockExpanded
-                                ? 1
-                                : 0.90
-                        )
-                        .accessibilityLabel(
-                            isEnglish
-                                ? "Premium feature"
-                                : "תכונת פרימיום"
-                        )
-                        .onAppear {
-                            withAnimation(
-                                .easeInOut(duration: 0.9)
-                                .repeatForever(
-                                    autoreverses: true
-                                )
-                            ) {
-                                isLockExpanded = true
-                            }
-                        }
+                        .kmiIconSize(10)
+                        .foregroundStyle(.white)
+                        .accessibilityHidden(true)
                 }
             }
-            .environment(
-                \.layoutDirection,
-                rowDirection
-            )
-            .frame(
-                minHeight: 44
-            )
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .contentShape(
-                RoundedRectangle(
-                    cornerRadius: 12,
-                    style: .continuous
-                )
-            )
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 72)
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(
+            cleanTitle + (
+                isLocked
+                    ? (
+                        isEnglish
+                            ? ", Premium feature"
+                            : ", תכונת פרימיום"
+                    )
+                    : ""
+            )
+        )
     }
 }
+
 
 private struct ModernHomeQuickFab: View {
 

@@ -12,15 +12,34 @@ private enum KmiGlobalLanguage {
     static var isEnglish: Bool {
         let defaults = UserDefaults.standard
 
-        let values = [
-            defaults.string(forKey: "kmi_app_language")?.lowercased(),
-            defaults.string(forKey: "app_language")?.lowercased(),
-            defaults.string(forKey: "initial_language_code")?.lowercased(),
-            defaults.string(forKey: "selected_language_code")?.lowercased()
+        let orderedValues = [
+            defaults.string(forKey: "kmi_app_language"),
+            defaults.string(forKey: "selected_language_code"),
+            defaults.string(forKey: "app_language"),
+            defaults.string(forKey: "initial_language_code")
         ]
-        .compactMap { $0 }
 
-        return values.contains("en") || values.contains("english")
+        for raw in orderedValues.compactMap({ $0 }) {
+            let clean =
+                raw
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                    .lowercased()
+
+            switch clean {
+            case "he", "hebrew", "עברית":
+                return false
+
+            case "en", "english":
+                return true
+
+            default:
+                continue
+            }
+        }
+
+        return false
     }
 
     static var layoutDirection: LayoutDirection {
@@ -34,73 +53,42 @@ private enum KmiGlobalText {
         _ raw: String,
         isEnglish: Bool
     ) -> String {
-        let clean = raw
-            .replacingOccurrences(
-                of: "\n",
-                with: " "
-            )
-            .replacingOccurrences(
-                of: "מצב",
-                with: ""
-            )
-            .trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
+        let normalized =
+            raw
+                .replacingOccurrences(
+                    of: "\n",
+                    with: " "
+                )
+                .replacingOccurrences(
+                    of: "מצב",
+                    with: ""
+                )
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
 
-        guard !clean.isEmpty else {
+        switch normalized {
+        case "":
             return ""
+
+        case "coach",
+             "trainer",
+             "instructor",
+             "coach_user",
+             "kmi_coach",
+             "מאמן":
+            return isEnglish ? "Coach" : "מאמן"
+
+        case "admin",
+             "administrator",
+             "manager",
+             "מנהל":
+            return isEnglish ? "Admin" : "מנהל"
+
+        default:
+            return isEnglish ? "Trainee" : "מתאמן"
         }
-
-        let normalized = clean.lowercased()
-
-        let isCoach =
-            normalized == "coach" ||
-            normalized == "trainer" ||
-            normalized == "instructor" ||
-            normalized == "coach_user" ||
-            normalized == "kmi_coach" ||
-            normalized == "מאמן" ||
-            normalized.contains("coach") ||
-            normalized.contains("מאמן")
-
-        let isAdmin =
-            normalized == "admin" ||
-            normalized == "administrator" ||
-            normalized == "manager" ||
-            normalized == "מנהל" ||
-            normalized.contains("admin") ||
-            normalized.contains("מנהל")
-
-        let isTrainee =
-            normalized == "trainee" ||
-            normalized == "student" ||
-            normalized == "trainee_user" ||
-            normalized == "kmi_trainee" ||
-            normalized == "מתאמן" ||
-            normalized.contains("trainee") ||
-            normalized.contains("מתאמן")
-
-        if isCoach {
-            return isEnglish
-                ? "Coach"
-                : "מאמן"
-        }
-
-        if isAdmin {
-            return isEnglish
-                ? "Admin"
-                : "מנהל"
-        }
-
-        if isTrainee {
-            return isEnglish
-                ? "Trainee"
-                : "מתאמן"
-        }
-
-        return isEnglish
-            ? "Trainee"
-            : "מתאמן"
     }
     
     static func screenTitle(_ raw: String, isEnglish: Bool) -> String {
@@ -139,7 +127,11 @@ private enum KmiGlobalText {
             "דוח תשלומים": "Payments Report",
             "דו״ח תשלומים": "Payments Report",
             "הגדרות": "Settings",
+            "הפרופיל שלי": "My Profile",
             "עריכת פרופיל": "Edit Profile",
+            "טופס רישום": "Registration Form",
+            "לוח אימונים חודשי": "Monthly Training Board",
+            "ארכיון אימונים": "Training Archive",
             "צור קשר": "Contact Us",
             "אודות הרשת": "About the Network",
             "אודות השיטה": "About the Method",
@@ -181,7 +173,11 @@ private enum KmiGlobalText {
             "Payment Details": "פרטי תשלום",
             "Payments Report": "דו״ח תשלומים",
             "Settings": "הגדרות",
+            "My Profile": "הפרופיל שלי",
             "Edit Profile": "עריכת פרופיל",
+            "Registration Form": "טופס רישום",
+            "Monthly Training Board": "לוח אימונים חודשי",
+            "Training Archive": "ארכיון אימונים",
             "Contact Us": "צור קשר",
             "About the Network": "אודות הרשת",
             "About the Method": "אודות השיטה",
@@ -227,6 +223,8 @@ private enum KmiGlobalText {
             "מרכז בקרה ולוגים": "Control Center & Logs",
             "ניהול מנוי": "Subscription",
             "תוכניות מנוי": "Subscription Plans",
+            "הפרופיל שלי": "My Profile",
+            "עריכת פרופיל": "Edit Profile",
             "אודות הרשת": "About the Network",
             "אודות השיטה": "About the Method",
             "אודות איציק ביטון": "About Itzik Biton",
@@ -372,41 +370,25 @@ struct KmiTopBar: View {
     }
 
     private var isCoachRole: Bool {
-        let normalizedRole =
-            roleLabel
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-                .lowercased()
-
-        return normalizedRole == "coach" ||
-            normalizedRole == "instructor" ||
-            normalizedRole == "מאמן" ||
-            normalizedRole.contains("coach") ||
-            normalizedRole.contains("מאמן")
+        KmiGlobalText.roleLabel(
+            roleLabel,
+            isEnglish: true
+        ) == "Coach"
     }
     
     let titleColor: Color?
 
-    private var resolvedTitleColor:
-        Color {
-
+    private var resolvedTitleColor: Color {
         titleColor
-        ?? KmiAppTheme
-            .onSurface(
-                for:
-                    colorScheme
+            ?? KmiAppTheme.onSurface(
+                for: colorScheme
             )
     }
 
-    private var secondaryTitleColor:
-        Color {
-
-        KmiAppTheme
-            .onSurfaceVariant(
-                for:
-                    colorScheme
-            )
+    private var secondaryTitleColor: Color {
+        KmiAppTheme.onSurfaceVariant(
+            for: colorScheme
+        )
     }
     
     init(
@@ -431,7 +413,7 @@ struct KmiTopBar: View {
     
     var body: some View {
         let hasRole = !localizedRoleLabel.isEmpty
-        let barHeight: CGFloat = hasRole ? 68 : 64
+        let barHeight: CGFloat = 68
 
         return ZStack {
             Text(localizedTitle)
@@ -444,6 +426,12 @@ struct KmiTopBar: View {
                 .padding(.horizontal, 58)
                 .padding(.bottom, hasRole ? 4 : 0)
                 .layoutPriority(1)
+                .environment(
+                    \.layoutDirection,
+                    isEnglish
+                        ? .leftToRight
+                        : .rightToLeft
+                )
 
             HStack(spacing: 0) {
                 if let onBack {
@@ -451,29 +439,37 @@ struct KmiTopBar: View {
                         ZStack {
                             Circle()
                                 .fill(
-                                    RadialGradient(
-                                        colors: [
-                                            KmiAppTheme.primary(for: colorScheme)
-                                                .opacity(0.20),
-                                            KmiAppTheme.secondary(for: colorScheme)
-                                                .opacity(0.10),
-                                            .clear
-                                        ],
-                                        center: .center,
-                                        startRadius: 0,
-                                        endRadius: 22
-                                    )
+                                    KmiAppTheme
+                                        .sectionHeaderContentColor
+                                        .opacity(0.14)
                                 )
 
-                            Image(systemName: "arrow.counterclockwise")
-                                .kmiIconSize(30)
-                                .fontWeight(.bold)
-                                .foregroundStyle(
-                                    KmiAppTheme.primary(for: colorScheme)
+                            Circle()
+                                .stroke(
+                                    KmiAppTheme
+                                        .sectionHeaderContentColor
+                                        .opacity(0.35),
+                                    lineWidth: 1
                                 )
+
+                            Image(
+                                systemName:
+                                    "arrow.counterclockwise"
+                            )
+                            .kmiIconSize(28)
+                            .fontWeight(.bold)
+                            .foregroundStyle(
+                                KmiAppTheme.secondary(
+                                    for: colorScheme
+                                )
+                            )
                         }
                         .frame(width: 42, height: 42)
                         .contentShape(Circle())
+                        .environment(
+                            \.layoutDirection,
+                            .leftToRight
+                        )
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(isEnglish ? "Back" : "חזור")
@@ -616,6 +612,7 @@ struct KmiTopBar: View {
 struct KmiRootLayout<Content: View>: View {
     @EnvironmentObject private var auth: AuthViewModel
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dismiss) private var dismiss
 
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
@@ -895,27 +892,6 @@ struct KmiRootLayout<Content: View>: View {
     }
   
     private var effectiveRole: String {
-        /*
-         * AuthViewModel הוא מקור האמת הראשון.
-         *
-         * מאחר ש־userRole הוא @Published, שינוי התפקיד
-         * מרענן מיד את KmiRootLayout ואת KmiTopBar.
-         */
-        let authRole =
-            auth.userRole
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-                .lowercased()
-
-        if !authRole.isEmpty {
-            return authRole
-        }
-
-        /*
-         * user_role משמש כמקור גיבוי בזמן העלייה
-         * הראשונית של האפליקציה.
-         */
         let activeRole =
             storedActiveUserRole
                 .trimmingCharacters(
@@ -927,28 +903,16 @@ struct KmiRootLayout<Content: View>: View {
             return activeRole
         }
 
-        let defaults = UserDefaults.standard
+        let authRole =
+            auth.userRole
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
 
-        let roleAliasKeys = [
-            "role",
-            "userRole",
-            "profile_role"
-        ]
-
-        for key in roleAliasKeys {
-            let storedRole =
-                defaults.string(forKey: key)?
-                    .trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    )
-                    .lowercased() ?? ""
-
-            if !storedRole.isEmpty {
-                return storedRole
-            }
-        }
-
-        return "trainee"
+        return authRole.isEmpty
+            ? "trainee"
+            : authRole
     }
 
     private var effectiveTopBarTitle: String {
@@ -962,19 +926,27 @@ struct KmiRootLayout<Content: View>: View {
         return title
     }
     
-    private var resolvedBackAction:
-        (() -> Void)? {
+    private var resolvedBackAction: (() -> Void)? {
+        let normalizedTitle =
+            title
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
 
-        guard
-            onBackOverride != nil ||
-            !nav.path.isEmpty
-        else {
+        let isHomeScreen =
+            nav.path.isEmpty
+            && (
+                normalizedTitle == "מסך הבית"
+                || normalizedTitle == "בית"
+                || normalizedTitle == "home"
+            )
 
+        guard !isHomeScreen, !lockHome else {
             return nil
         }
 
         return {
-
             showGlobalIconMenu = false
             drawerOpen = false
             showGlobalSearch = false
@@ -982,18 +954,14 @@ struct KmiRootLayout<Content: View>: View {
             selectedGlobalSearchHit = nil
 
             withAnimation(
-                .easeInOut(
-                    duration: 0.20
-                )
+                .easeInOut(duration: 0.20)
             ) {
-
                 if let onBackOverride {
-
                     onBackOverride()
-
-                } else {
-
+                } else if !nav.path.isEmpty {
                     nav.pop()
+                } else {
+                    dismiss()
                 }
             }
         }
@@ -1021,16 +989,15 @@ struct KmiRootLayout<Content: View>: View {
     }
 
     private var globalTopBarHeight: CGFloat {
-        globalRoleBadgeText.isEmpty ? 64 : 68
+        68
     }
 
-    private var topBarSurfaceColor:
-        Color {
-
-        KmiAppTheme
-            .surface(
-                for:
-                    colorScheme
+    private var topBarBackground: some View {
+        Rectangle()
+            .fill(
+                KmiAppTheme.surface(
+                    for: colorScheme
+                )
             )
     }
 
@@ -1258,7 +1225,7 @@ struct KmiRootLayout<Content: View>: View {
                     )
 
                 case .myProfile:
-                    nav.push(.editProfile)
+                    nav.push(.myProfile)
 
                 case .coachBroadcast:
                     nav.push(.coachBroadcast)
@@ -1373,7 +1340,7 @@ struct KmiRootLayout<Content: View>: View {
                             drawerOpen = true
                         }
                     )
-                    .background(topBarSurfaceColor)
+                    .background(topBarBackground)
                     .overlay(
                         Rectangle()
                             .fill(topBarDividerColor)

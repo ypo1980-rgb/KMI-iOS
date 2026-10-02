@@ -49,6 +49,31 @@ enum HolidayCalendarStore {
 
     private static let cachedEntries = loadEntries()
 
+    static func holidayNamesForDisplay(
+        on date: Date,
+        isEnglish: Bool = false
+    ) -> [String] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone =
+            TimeZone(identifier: "Asia/Jerusalem")
+            ?? TimeZone(secondsFromGMT: 0)
+            ?? .current
+
+        var seen = Set<String>()
+
+        return cachedEntries
+            .filter {
+                calendar.isDate($0.date, inSameDayAs: date)
+            }
+            .map {
+                $0.displayName(isEnglish: isEnglish)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .filter {
+                !$0.isEmpty && seen.insert($0).inserted
+            }
+    }
+
     private struct HolidayIdentity: Hashable {
         let date: Date
         let name: String

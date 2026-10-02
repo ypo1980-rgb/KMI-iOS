@@ -25,119 +25,6 @@ private enum HomePDFExportError: Error {
     case writeFailed
 }
 
-private enum HomeHolidayCalendar {
-
-    private static let blockingKeywords = [
-        "ראש השנה",
-        "יום כיפור",
-        "כיפור",
-        "סוכות",
-        "שמחת תורה",
-        "פסח",
-        "חול המועד פסח",
-        "שבועות",
-        "תשעה באב"
-    ]
-
-    private static let nonBlockingKeywords = [
-        "ראש חודש",
-        "ספירת העומר",
-        "לג בעומר",
-        "ט״ו בשבט",
-        "טו בשבט",
-        "יום העצמאות",
-        "יום הזיכרון",
-        "יום השואה",
-        "פורים קטן",
-        "שושן פורים",
-        "חנוכה",
-        "צום",
-        "תענית",
-        "ערב"
-    ]
-
-    private static let blockedDateKeys: Set<String> = {
-        guard let url = Bundle.main.url(
-            forResource: "holidays_hebrew_2024_2026",
-            withExtension: "json"
-        ),
-        let data = try? Data(contentsOf: url),
-        let root = try? JSONSerialization.jsonObject(
-            with: data
-        ) as? [String: Any],
-        let items = root["items"] as? [[String: Any]] else {
-            return []
-        }
-
-        var result = Set<String>()
-
-        for item in items {
-            let titleKeys = [
-                "title",
-                "title_he",
-                "hebrew",
-                "name",
-                "category",
-                "subcat"
-            ]
-
-            let title = titleKeys
-                .compactMap { key in
-                    item[key] as? String
-                }
-                .joined(separator: " ")
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-                .lowercased()
-
-            guard !title.isEmpty else {
-                continue
-            }
-
-            let containsNonBlocking =
-                nonBlockingKeywords.contains { keyword in
-                    title.contains(keyword.lowercased())
-                }
-
-            if containsNonBlocking {
-                continue
-            }
-
-            let containsBlocking =
-                blockingKeywords.contains { keyword in
-                    title.contains(keyword.lowercased())
-                }
-
-            guard containsBlocking,
-                  let dateKey = item["date_iso"] as? String,
-                  !dateKey.isEmpty else {
-                continue
-            }
-
-            result.insert(dateKey)
-        }
-
-        return result
-    }()
-
-    static func isTrainingBlocked(
-        on date: Date
-    ) -> Bool {
-        let formatter = DateFormatter()
-        formatter.calendar =
-            Calendar(identifier: .gregorian)
-        formatter.locale =
-            Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyy-MM-dd"
-
-        return blockedDateKeys.contains(
-            formatter.string(from: date)
-        )
-    }
-}
-
 private struct CoachHomeMessage: Identifiable, Hashable {
     let id: String
     let text: String
@@ -229,6 +116,7 @@ private enum HomeVisualTheme {
 
 struct HomeView: View {
     @ObservedObject var nav: AppNavModel
+    @ObservedObject private var demoPrivacy = DemoPrivacy.shared
 
     @EnvironmentObject
     private var auth: AuthViewModel
@@ -1421,11 +1309,17 @@ struct HomeView: View {
     }
     
     private var resolvedCoachBroadcastName: String {
-        let clean = latestCoachMessage?.coachName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !clean.isEmpty {
-            return clean
+        let clean = latestCoachMessage?.coachName
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        guard !clean.isEmpty, !demoPrivacy.isEnabled else {
+            return tr("המאמן", "Coach")
         }
-        return isEnglish ? "Coach" : "המאמן"
+
+        return TrainingCatalogIOS.displayCoach(
+            clean,
+            isEnglish: isEnglish
+        )
     }
     
     private var resolvedCoachBroadcastMessage: String {
@@ -1461,11 +1355,14 @@ struct HomeView: View {
     }
     
     private func formatCoachMessageTime(_ date: Date?) -> String {
-        guard let date else { return "" }
-        
+        guard let date else {
+            return ""
+        }
+
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "he_IL")
-        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = ShabbatHolidayCheckerIOS.calendar
+        formatter.timeZone = ShabbatHolidayCheckerIOS.timeZone
         formatter.dateFormat = "dd/MM/yyyy · HH:mm"
         return formatter.string(from: date)
     }
@@ -1590,6 +1487,7 @@ struct HomeView: View {
 
                                 HomeTrainingCardAndroidStyle(
                                     training: training,
+                                    branch: trainingSource(for: training).branch,
                                     group: trainingSource(for: training).group,
                                     isEnglish: isEnglish,
                                     isCoach: isCoachUser,
@@ -2240,8 +2138,7 @@ struct HomeView: View {
     private func isTrainingCancelledByHoliday(
         _ training: TrainingData
     ) -> Bool {
-        HomeHolidayCalendar
-            .isTrainingBlocked(on: training.date)
+        ShabbatHolidayCheckerIOS.isBlockedDate(training.date)
     }
 
     @MainActor
@@ -2605,11 +2502,24 @@ struct HomeView: View {
                 )
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
-                let coach = TrainingCatalogIOS.displayCoach(
-                    training.coach,
-                    isEnglish: isEnglish
-                )
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+                let rawCoach = training.coach
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                let coach: String = {
+                    guard !rawCoach.isEmpty else {
+                        return ""
+                    }
+
+                    if demoPrivacy.isEnabled {
+                        return tr("מאמן", "Coach")
+                    }
+
+                    return TrainingCatalogIOS.displayCoach(
+                        rawCoach,
+                        isEnglish: isEnglish
+                    )
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                }()
 
                 let measuredColumnWidth =
                     (pageRect.width - 48) / 2 - 44
@@ -3832,11 +3742,26 @@ private struct HomeTrainingCardAndroidStyle: View {
     @Environment(\.colorScheme)
     private var colorScheme
 
+    @ObservedObject private var demoPrivacy = DemoPrivacy.shared
+
     let training: TrainingData
+
+    let branch: String
 
     let group: String
 
     let isEnglish: Bool
+
+    @State private var attendanceMemberId: Int64?
+    @State private var attendanceChoice: AttendanceStatus?
+    @State private var attendanceForecast: TrainingAttendanceForecast?
+    @State private var attendanceListeners: [ListenerRegistration] = []
+    @State private var attendanceRequestID = UUID()
+    @State private var attendanceRetryID = UUID()
+    @State private var attendanceLoading = true
+    @State private var attendanceSaving = false
+    @State private var attendanceLoadFailed = false
+    @State private var attendanceSaveError = false
 
     let isCoach: Bool
 
@@ -4069,6 +3994,14 @@ private struct HomeTrainingCardAndroidStyle: View {
                 ]
             )
 
+        guard !rawValue.isEmpty else {
+            return ""
+        }
+
+        if demoPrivacy.isEnabled {
+            return isEnglish ? "Coach" : "מאמן"
+        }
+
         return TrainingCatalogIOS.displayCoach(
             rawValue,
             isEnglish: isEnglish
@@ -4093,32 +4026,72 @@ private struct HomeTrainingCardAndroidStyle: View {
             ? activeOverride?.effectiveEndDate
             : nil
 
+        let calendar = ShabbatHolidayCheckerIOS.calendar
+
         let dayFormatter = DateFormatter()
-        dayFormatter.locale = Locale(identifier: isEnglish ? "en_US_POSIX" : "he_IL")
-        dayFormatter.calendar = Calendar(identifier: .gregorian)
+        dayFormatter.locale = Locale(
+            identifier: isEnglish ? "en_US_POSIX" : "he_IL"
+        )
+        dayFormatter.calendar = calendar
+        dayFormatter.timeZone = calendar.timeZone
         dayFormatter.dateFormat = "EEEE"
 
         let dateFormatter = DateFormatter()
-        dateFormatter.locale = Locale(identifier: isEnglish ? "en_US_POSIX" : "he_IL")
-        dateFormatter.calendar = Calendar(identifier: .gregorian)
+        dateFormatter.locale = dayFormatter.locale
+        dateFormatter.calendar = calendar
+        dateFormatter.timeZone = calendar.timeZone
         dateFormatter.dateFormat = "dd/MM"
 
         let timeFormatter = DateFormatter()
         timeFormatter.locale = Locale(identifier: "en_US_POSIX")
-        timeFormatter.calendar = Calendar(identifier: .gregorian)
+        timeFormatter.calendar = calendar
+        timeFormatter.timeZone = calendar.timeZone
         timeFormatter.dateFormat = "HH:mm"
 
-        let durationMinutes =
-            reflectedDurationMinutes()
+        let endDate: Date = {
+            if let overriddenEndDate,
+               overriddenEndDate > date {
+                return overriddenEndDate
+            }
 
-        let endDate =
-            overriddenEndDate ??
-            Calendar.current.date(
+            let parts = training.endText
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(separator: ":")
+
+            if parts.count == 2,
+               let hour = Int(parts[0]),
+               let minute = Int(parts[1]),
+               (0...23).contains(hour),
+               (0...59).contains(minute) {
+                var components = calendar.dateComponents(
+                    [.year, .month, .day],
+                    from: date
+                )
+                components.hour = hour
+                components.minute = minute
+                components.second = 0
+
+                if let resolvedEnd = calendar.date(from: components) {
+                    if resolvedEnd > date {
+                        return resolvedEnd
+                    }
+
+                    if let nextDayEnd = calendar.date(
+                        byAdding: .day,
+                        value: 1,
+                        to: resolvedEnd
+                    ) {
+                        return nextDayEnd
+                    }
+                }
+            }
+
+            return calendar.date(
                 byAdding: .minute,
-                value: durationMinutes,
+                value: reflectedDurationMinutes(),
                 to: date
-            ) ??
-            date
+            ) ?? date
+        }()
 
         let dayText =
             dayFormatter.string(from: date)
@@ -4143,8 +4116,7 @@ private struct HomeTrainingCardAndroidStyle: View {
             return false
         }
 
-        return HomeHolidayCalendar
-            .isTrainingBlocked(on: date)
+        return ShabbatHolidayCheckerIOS.isBlockedDate(date)
     }
 
     private var isCancelledByCoach: Bool {
@@ -4180,11 +4152,19 @@ private struct HomeTrainingCardAndroidStyle: View {
         }
 
         if !coachName.isEmpty {
-            parts.append(
-                isEnglish
-                ? "Updated by \(coachName)"
-                : "עודכן על ידי \(coachName)"
-            )
+            if demoPrivacy.isEnabled {
+                parts.append(
+                    isEnglish
+                        ? "Updated by coach"
+                        : "עודכן על ידי המאמן"
+                )
+            } else {
+                parts.append(
+                    isEnglish
+                        ? "Updated by \(coachName)"
+                        : "עודכן על ידי \(coachName)"
+                )
+            }
         }
 
         return parts.joined(separator: " · ")
@@ -4766,6 +4746,7 @@ private struct HomeTrainingCardAndroidStyle: View {
                 addressText.isEmpty ? 0.72 : 1
             )
 
+            attendanceContent
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -4867,6 +4848,454 @@ private struct HomeTrainingCardAndroidStyle: View {
             \.layoutDirection,
             rowDirection
         )
+        .task(id: attendanceContextKey) {
+            await loadAttendance()
+        }
+        .onDisappear {
+            stopAttendanceListening()
+        }
+        .alert(
+            attendanceText(
+                "לא ניתן לשמור",
+                "Unable to save"
+            ),
+            isPresented: $attendanceSaveError
+        ) {
+            Button(
+                attendanceText("אישור", "OK"),
+                role: .cancel
+            ) {}
+        } message: {
+            Text(
+                attendanceText(
+                    "לא ניתן לשמור את הבחירה. בדוק את החיבור וודא שהאימון עדיין לא התחיל.",
+                    "Unable to save your choice. Check your connection and make sure training has not started."
+                )
+            )
+        }
+    }
+
+    private var attendanceStartDate: Date {
+        activeOverride?.hasChangedTime == true
+            ? activeOverride?.effectiveStartDate ?? training.date
+            : training.date
+    }
+
+    private var attendanceContextKey: String {
+        [
+            branch,
+            group,
+            String(training.startMillis),
+            String(
+                Int64(
+                    attendanceStartDate.timeIntervalSince1970 * 1_000
+                )
+            ),
+            Auth.auth().currentUser?.uid ?? "",
+            String(isCoach),
+            String(isCancelledByCoach || isCancelledByHoliday),
+            attendanceRetryID.uuidString
+        ]
+        .joined(separator: "|")
+    }
+
+    private func attendanceText(
+        _ hebrew: String,
+        _ english: String
+    ) -> String {
+        isEnglish ? english : hebrew
+    }
+
+    @ViewBuilder
+    private var attendanceContent: some View {
+        if !isCancelledByCoach && !isCancelledByHoliday {
+            VStack(spacing: 6) {
+                Rectangle()
+                    .fill(
+                        KmiAppTheme.outlineVariant(
+                            for: colorScheme
+                        )
+                    )
+                    .frame(height: 1)
+
+                if attendanceLoading {
+                    KmiLoadingOverlay()
+                        .frame(height: 64)
+                } else if attendanceLoadFailed {
+                    Text(
+                        attendanceText(
+                            "לא ניתן לטעון את נתוני ההגעה.",
+                            "Unable to load attendance."
+                        )
+                    )
+                    .kmiFont(size: 12, weight: .semibold)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(
+                        KmiAppTheme.onSurfaceVariant(
+                            for: colorScheme
+                        )
+                    )
+
+                    Button {
+                        attendanceRetryID = UUID()
+                    } label: {
+                        Text(
+                            attendanceText(
+                                "נסה שוב",
+                                "Try again"
+                            )
+                        )
+                        .kmiFont(size: 12, weight: .bold)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(
+                        KmiAppTheme.primary(for: colorScheme)
+                    )
+                } else if isCoach {
+                    if let forecast = attendanceForecast {
+                        Text(
+                            attendanceText(
+                                "צפי הגעה לאימון",
+                                "Expected attendance"
+                            )
+                        )
+                        .kmiFont(size: 12, weight: .bold)
+                        .foregroundStyle(
+                            KmiAppTheme.onSurface(for: colorScheme)
+                        )
+
+                        HStack(spacing: 6) {
+                            attendanceForecastCell(
+                                count: forecast.comingCount,
+                                title: attendanceText(
+                                    "מגיעים",
+                                    "Coming"
+                                )
+                            )
+                            attendanceForecastCell(
+                                count: forecast.notComingCount,
+                                title: attendanceText(
+                                    "לא מגיעים",
+                                    "Not coming"
+                                )
+                            )
+                            attendanceForecastCell(
+                                count: forecast.noResponseCount,
+                                title: attendanceText(
+                                    "טרם השיבו",
+                                    "No response"
+                                )
+                            )
+                        }
+                    }
+                } else if attendanceMemberId != nil {
+                    TimelineView(
+                        .periodic(from: .now, by: 1)
+                    ) { timeline in
+                        let canEdit =
+                            timeline.date < attendanceStartDate
+                            && !attendanceSaving
+
+                        VStack(spacing: 5) {
+                            HStack(spacing: 7) {
+                                attendanceChoiceButton(
+                                    .present,
+                                    title: attendanceText(
+                                        "מגיע",
+                                        "Coming"
+                                    ),
+                                    systemImage: "checkmark.circle",
+                                    enabled: canEdit
+                                )
+                                attendanceChoiceButton(
+                                    .absent,
+                                    title: attendanceText(
+                                        "לא מגיע",
+                                        "Not coming"
+                                    ),
+                                    systemImage: "xmark.circle",
+                                    enabled: canEdit
+                                )
+                            }
+
+                            if attendanceSaving {
+                                Text(
+                                    attendanceText(
+                                        "שומר בחירה…",
+                                        "Saving choice…"
+                                    )
+                                )
+                                .kmiFont(size: 11, weight: .semibold)
+                            } else if timeline.date >= attendanceStartDate {
+                                Text(
+                                    attendanceText(
+                                        "שינוי הבחירה אפשרי עד תחילת האימון.",
+                                        "Choices can be changed until training starts."
+                                    )
+                                )
+                                .kmiFont(size: 11, weight: .semibold)
+                            }
+                        }
+                        .foregroundStyle(
+                            KmiAppTheme.onSurfaceVariant(
+                                for: colorScheme
+                            )
+                        )
+                    }
+                } else {
+                    Text(
+                        attendanceText(
+                            "לא נמצא שיוך מתאמן לקבוצה זו.",
+                            "Trainee membership could not be resolved."
+                        )
+                    )
+                    .kmiFont(size: 12, weight: .semibold)
+                    .foregroundStyle(
+                        KmiAppTheme.onSurfaceVariant(for: colorScheme)
+                    )
+                }
+            }
+            .multilineTextAlignment(.center)
+            .padding(.top, 4)
+        }
+    }
+
+    private func attendanceForecastCell(
+        count: Int,
+        title: String
+    ) -> some View {
+        VStack(spacing: 2) {
+            Text("\(count)")
+                .kmiFont(size: 16, weight: .black)
+
+            Text(title)
+                .kmiFont(size: 10, weight: .bold)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(
+            KmiAppTheme.onSurface(for: colorScheme)
+        )
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(
+                    KmiAppTheme.surfaceVariant(for: colorScheme)
+                )
+        )
+    }
+
+    private func attendanceChoiceButton(
+        _ status: AttendanceStatus,
+        title: String,
+        systemImage: String,
+        enabled: Bool
+    ) -> some View {
+        let selected = attendanceChoice == status
+
+        return Button {
+            saveAttendanceChoice(status)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: systemImage)
+                    .kmiIconSize(15)
+
+                Text(title)
+                    .kmiFont(size: 13, weight: .bold)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(
+                selected
+                    ? KmiAppTheme.onPrimaryContainer(for: colorScheme)
+                    : KmiAppTheme.onSurface(for: colorScheme)
+            )
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 9)
+            .background(
+                RoundedRectangle(cornerRadius: 13)
+                    .fill(
+                        selected
+                            ? KmiAppTheme.primaryContainer(for: colorScheme)
+                            : KmiAppTheme.surfaceVariant(for: colorScheme)
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 13)
+                    .stroke(
+                        selected
+                            ? KmiAppTheme.primary(for: colorScheme)
+                            : KmiAppTheme.outlineVariant(for: colorScheme),
+                        lineWidth: selected ? 1.5 : 1
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled || selected ? 1 : 0.65)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    @MainActor
+    private func loadAttendance() async {
+        stopAttendanceListening()
+
+        let token = attendanceRequestID
+        attendanceMemberId = nil
+        attendanceChoice = nil
+        attendanceForecast = nil
+        attendanceLoading = true
+        attendanceSaving = false
+        attendanceLoadFailed = false
+        attendanceSaveError = false
+
+        guard !isCancelledByCoach && !isCancelledByHoliday else {
+            attendanceLoading = false
+            return
+        }
+
+        let repository = AttendanceRepository.shared
+
+        if isCoach {
+            attendanceListeners = repository.listenForAttendanceForecast(
+                branchName: branch,
+                groupKey: group,
+                date: attendanceStartDate,
+                onChanged: { forecast in
+                    guard attendanceRequestID == token else {
+                        return
+                    }
+
+                    attendanceForecast = forecast
+                    attendanceLoadFailed = false
+                    attendanceLoading = false
+                },
+                onError: { _ in
+                    guard attendanceRequestID == token else {
+                        return
+                    }
+
+                    attendanceLoadFailed = true
+                    attendanceLoading = false
+                }
+            )
+            return
+        }
+
+        guard let uid = Auth.auth().currentUser?.uid else {
+            attendanceLoading = false
+            attendanceLoadFailed = true
+            return
+        }
+
+        do {
+            let memberId = try await repository.findMemberIdByAuthUid(
+                branchName: branch,
+                groupKey: group,
+                authUid: uid
+            )
+
+            guard !Task.isCancelled,
+                  attendanceRequestID == token else {
+                return
+            }
+
+            guard let memberId else {
+                attendanceLoading = false
+                return
+            }
+
+            let choice = try await repository.getTraineeOwnAttendance(
+                branchName: branch,
+                groupKey: group,
+                date: attendanceStartDate,
+                authUid: uid
+            )
+
+            guard !Task.isCancelled,
+                  attendanceRequestID == token else {
+                return
+            }
+
+            attendanceMemberId = memberId
+            attendanceChoice = choice
+            attendanceLoading = false
+        } catch {
+            guard !Task.isCancelled,
+                  attendanceRequestID == token else {
+                return
+            }
+
+            attendanceLoadFailed = true
+            attendanceLoading = false
+        }
+    }
+
+    private func stopAttendanceListening() {
+        attendanceRequestID = UUID()
+
+        for registration in attendanceListeners {
+            registration.remove()
+        }
+
+        attendanceListeners = []
+    }
+
+    @MainActor
+    private func saveAttendanceChoice(
+        _ status: AttendanceStatus
+    ) {
+        guard !isCoach,
+              !attendanceSaving,
+              !isCancelledByCoach,
+              !isCancelledByHoliday,
+              Date() < attendanceStartDate,
+              let memberId = attendanceMemberId,
+              let uid = Auth.auth().currentUser?.uid else {
+            return
+        }
+
+        let token = attendanceRequestID
+        let startDate = attendanceStartDate
+        let occurrenceKey =
+            TrainingOverrideRepository.buildOccurrenceKey(
+                training: training,
+                branch: branch,
+                group: group
+            )
+
+        attendanceSaving = true
+
+        Task { @MainActor in
+            do {
+                try await AttendanceRepository.shared
+                    .markTraineeOwnAttendance(
+                        branchName: branch,
+                        groupKey: group,
+                        date: startDate,
+                        memberId: memberId,
+                        authUid: uid,
+                        status: status,
+                        trainingStartMillis: Int64(
+                            startDate.timeIntervalSince1970 * 1_000
+                        ),
+                        occurrenceKey: occurrenceKey
+                    )
+
+                guard attendanceRequestID == token else {
+                    return
+                }
+
+                attendanceChoice = status
+                attendanceSaving = false
+            } catch {
+                guard attendanceRequestID == token else {
+                    return
+                }
+
+                attendanceSaving = false
+                attendanceSaveError = true
+            }
+        }
     }
 
     private var navigationIcon: some View {
@@ -5125,8 +5554,8 @@ private struct WeekHeaderPill: View {
 
     private var minimumHeaderHeight: CGFloat {
         max(
-            52,
-            52 * displayScale
+            68,
+            68 * displayScale
         )
     }
 
@@ -5136,13 +5565,15 @@ private struct WeekHeaderPill: View {
                 KmiAppTheme.sectionHeaderBrush
 
                 VStack(
-                    spacing: 2 * displayScale
+                    spacing: 6 * displayScale
                 ) {
                     Text(title)
                         .kmiFont(
-                            size: 16,
+                            size: 24,
                             weight: .heavy
                         )
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
                         .foregroundStyle(
                             KmiAppTheme.sectionHeaderContentColor
                         )
@@ -5154,47 +5585,32 @@ private struct WeekHeaderPill: View {
 
                     Text(subtitle)
                         .kmiFont(
-                            size: 12.6,
+                            size: 15,
                             weight: .semibold
                         )
                         .foregroundStyle(
                             KmiAppTheme.sectionHeaderContentColor
-                                .opacity(0.92)
+                                .opacity(0.90)
                         )
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
                         .fixedSize(
                             horizontal: false,
                             vertical: true
                         )
                         .multilineTextAlignment(.center)
                 }
-                .padding(.horizontal, 16)
-                .padding(
-                    .top,
-                    2 * displayScale
-                )
-                .padding(
-                    .bottom,
-                    5 * displayScale
+                .padding(.horizontal, 20)
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: .infinity,
+                    alignment: .center
                 )
             }
             .frame(maxWidth: .infinity)
             .frame(
-                minHeight: minimumHeaderHeight
+                height: minimumHeaderHeight
             )
-
-            LinearGradient(
-                colors: [
-                    KmiAppTheme.outlineVariant(for: colorScheme)
-                        .opacity(0.86),
-                    KmiAppTheme.outlineVariant(for: colorScheme)
-                        .opacity(0.38),
-                    KmiAppTheme.outlineVariant(for: colorScheme)
-                        .opacity(0.00)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: 4)
         }
         .frame(maxWidth: .infinity)
     }
@@ -5715,6 +6131,8 @@ private struct CoachMessageHistoryCard: View {
     @Environment(\.colorScheme)
     private var colorScheme
 
+    @ObservedObject private var demoPrivacy = DemoPrivacy.shared
+
     let message: CoachHomeMessage
     let timeText: String
     let isEnglish: Bool
@@ -5780,7 +6198,17 @@ private struct CoachMessageHistoryCard: View {
                 HStack(alignment: .top, spacing: 8) {
                     coachIcon
 
-                    Text(message.coachName.isEmpty ? (isEnglish ? "Coach" : "המאמן") : message.coachName)
+                    Text(
+                        demoPrivacy.isEnabled ||
+                        message.coachName.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ).isEmpty
+                            ? (isEnglish ? "Coach" : "המאמן")
+                            : TrainingCatalogIOS.displayCoach(
+                                message.coachName,
+                                isEnglish: isEnglish
+                            )
+                    )
                         .kmiFont(size: 17, weight: .heavy)
                         .foregroundStyle(
                             KmiAppTheme.onSurface(for: colorScheme)

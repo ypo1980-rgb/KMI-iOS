@@ -39,7 +39,6 @@ struct MaterialsView: View {
     let topicTitle: String
     let subTopicTitle: String?
 
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme)
     private var colorScheme
     
@@ -101,14 +100,6 @@ struct MaterialsView: View {
 
     private var screenLayoutDirection: LayoutDirection {
         isEnglish ? .leftToRight : .rightToLeft
-    }
-
-    private var primaryTextAlignment: TextAlignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    private var horizontalTextAlignment: Alignment {
-        isEnglish ? .leading : .trailing
     }
 
     private func tr(_ he: String, _ en: String) -> String {
@@ -221,6 +212,7 @@ struct MaterialsView: View {
 
     fileprivate enum RowMark: String {
         case mastered
+        case partiallyKnown
         case unknown
     }
 
@@ -339,6 +331,15 @@ struct MaterialsView: View {
     @State private var marks: [String: RowMark?] = [:]
 
     /*
+     * זמן העדכון האחרון של סטטוס המתאמן.
+     *
+     * זהה למבנה Android:
+     * trainee_material_updated_at_<belt>_<topicKey>_<statusId>
+     */
+    @State private var traineeUpdatedAtStates:
+        [String: Int64] = [:]
+
+    /*
      * מפת סטטוסים נפרדת למצב מאמן.
      *
      * המפתח הוא statusId הקנוני של התרגיל.
@@ -423,29 +424,6 @@ struct MaterialsView: View {
         }
 
         return nil
-    }
-
-    private var nestedSubTopicTitles: [String] {
-        guard let materialParentSubTopic else {
-            return []
-        }
-
-        return ContentRepo.shared.getNestedSubTopicTitles(
-            belt: belt,
-            topicTitle: materialRootTopic.trimmingCharacters(in: .whitespacesAndNewlines),
-            subTopicTitle: materialParentSubTopic.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-        .map {
-            $0.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        .filter {
-            !$0.isEmpty
-        }
-        .removingDuplicatesKeepingOrder()
-    }
-
-    private var isShowingNestedSubTopicPicker: Bool {
-        false
     }
 
     private var effectiveSubTopicUi: String? {
@@ -720,14 +698,42 @@ struct MaterialsView: View {
 
     private var masteredCount: Int {
         rows.filter {
-            currentMark(for: $0.statusId) == .mastered
-        }.count
+            currentMark(
+                for:
+                    $0.statusId
+            ) == .mastered
+        }
+        .count
+    }
+
+    private var partiallyKnownCount: Int {
+        rows.filter {
+            currentMark(
+                for:
+                    $0.statusId
+            ) == .partiallyKnown
+        }
+        .count
     }
 
     private var unknownCount: Int {
         rows.filter {
-            currentMark(for: $0.statusId) == .unknown
-        }.count
+            currentMark(
+                for:
+                    $0.statusId
+            ) == .unknown
+        }
+        .count
+    }
+
+    private var unmarkedCount: Int {
+        rows.filter {
+            currentMark(
+                for:
+                    $0.statusId
+            ) == nil
+        }
+        .count
     }
 
     /*
@@ -801,25 +807,9 @@ struct MaterialsView: View {
         .count
     }
 
-    private var favoritesCount: Int {
-        rows.filter {
-            favorites.contains($0.canonicalId)
-        }.count
-    }
-
-    private var excludedCount: Int {
-        rows.filter { excluded.contains($0.canonicalId) }.count
-    }
-
-    private var notesCount: Int {
-        rows.filter {
-            !(notes[$0.canonicalId]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        }.count
-    }
-    
     var body: some View {
         ZStack {
-            MaterialsScreenSoftBackground(belt: belt)
+            KmiAppBackground()
 
             VStack(spacing: 0) {
                 /*
@@ -947,29 +937,57 @@ struct MaterialsView: View {
                         screenLayoutDirection
                     )
                     .background(
-                        MaterialsBeltLightBackground(
-                            belt:
-                                belt
-                        )
+                        KmiAppBackground()
                     )
                 }
 
+                MaterialsBeltHeader(
+                    belt:
+                        belt,
+                    count:
+                        rows.count,
+                    isEnglish:
+                        isEnglish
+                )
+
                 MaterialsStatsHeader(
-                    belt: belt,
-                    count: rows.count,
-                    masteredCount: masteredCount,
-                    unknownCount: unknownCount,
-                    coachNotTaughtCount: coachNotTaughtCount,
-                    coachTaughtCount: coachTaughtCount,
-                    coachPracticedCount: coachPracticedCount,
+                    masteredCount:
+                        masteredCount,
+                    partiallyKnownCount:
+                        partiallyKnownCount,
+                    unknownCount:
+                        unknownCount,
+                    unmarkedCount:
+                        unmarkedCount,
+                    coachNotTaughtCount:
+                        coachNotTaughtCount,
+                    coachTaughtCount:
+                        coachTaughtCount,
+                    coachPracticedCount:
+                        coachPracticedCount,
                     coachNeedsReinforcementCount:
                         coachNeedsReinforcementCount,
-                    favoritesCount: favoritesCount,
-                    excludedCount: excludedCount,
-                    notesCount: notesCount,
-                    isCoach: effectiveIsCoach,
-                    isEnglish: isEnglish
+                    isCoach:
+                        effectiveIsCoach,
+                    isEnglish:
+                        isEnglish
                 )
+
+                Rectangle()
+                    .fill(
+                        BeltPaletteByMaterials
+                            .color(
+                                for:
+                                    belt
+                            )
+                            .opacity(
+                                0.75
+                            )
+                    )
+                    .frame(
+                        height:
+                            2
+                    )
 
                 ScrollView {
                     VStack(spacing: 0) {
@@ -985,7 +1003,6 @@ struct MaterialsView: View {
                         } else {
                             ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
                                 MaterialsExerciseRow(
-                                    rowNumber: idx + 1,
                                     title: row.displayName,
                                     beltColor:
                                         BeltPaletteByMaterials.color(
@@ -1002,6 +1019,11 @@ struct MaterialsView: View {
                                     mark:
                                         currentMark(
                                             for: row.statusId
+                                        ),
+                                    traineeUpdatedAt:
+                                        currentTraineeUpdatedAt(
+                                            for:
+                                                row.statusId
                                         ),
                                     coachProgress:
                                         currentCoachProgress(
@@ -1036,8 +1058,14 @@ struct MaterialsView: View {
 
                                         selectedNoteRow = row
                                     },
-                                    onCycleMark: {
-                                        cycleMark(for: row)
+                                    onSelectTraineeStatus: {
+                                        selectedStatus in
+
+                                        saveTraineeMark(
+                                            selectedStatus,
+                                            for:
+                                                row
+                                        )
                                     },
                                     onSelectCoachStatus: {
                                         selectedStatus in
@@ -1075,7 +1103,9 @@ struct MaterialsView: View {
                     .padding(.bottom, 12)
                     .id(refreshToken)
                 }
-                .background(MaterialsBeltLightBackground(belt: belt))
+                .background(
+                    KmiAppBackground()
+                )
 
                 MaterialsBottomBar(
                     belt: belt,
@@ -1511,10 +1541,6 @@ struct MaterialsView: View {
     
     // MARK: - Helpers
 
-    private func canonicalId(for rawItem: String) -> String {
-        canonicalIdForStorage(rawItem: rawItem)
-    }
-
     private func displayName(for rawItem: String) -> String {
         var text = rawItem.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -1715,6 +1741,46 @@ struct MaterialsView: View {
 
     private func noteKey(for id: String) -> String {
         "note.\(id)"
+    }
+
+    private func traineeUpdatedAtKey(
+        for statusId: String
+    ) -> String {
+
+        [
+            "trainee_material_updated_at",
+            belt.id,
+            topicKey,
+            statusId
+        ]
+        .joined(
+            separator:
+                "_"
+        )
+    }
+
+    private func loadTraineeUpdatedAt(
+        for statusId: String
+    ) -> Int64 {
+
+        Int64(
+            UserDefaults.standard.double(
+                forKey:
+                    traineeUpdatedAtKey(
+                        for:
+                            statusId
+                    )
+            )
+        )
+    }
+
+    private func currentTraineeUpdatedAt(
+        for statusId: String
+    ) -> Int64 {
+
+        traineeUpdatedAtStates[
+            statusId
+        ] ?? 0
     }
 
     // MARK: - Random Practice Status Bridge
@@ -2144,8 +2210,14 @@ struct MaterialsView: View {
             .lowercased()
 
         switch raw {
+
         case "known":
             return .mastered
+
+        case "partial",
+             "partially_known",
+             "partiallyknown":
+            return .partiallyKnown
 
         case "unknown":
             return .unknown
@@ -2173,25 +2245,53 @@ struct MaterialsView: View {
         )
 
         switch mark {
+
         case .mastered:
             defaults.set(
                 "known",
-                forKey: statusKey
+                forKey:
+                    statusKey
             )
-            wrongItems.remove(row.rawItem)
+
+            wrongItems.remove(
+                row.rawItem
+            )
+
+        case .partiallyKnown:
+            defaults.set(
+                "partial",
+                forKey:
+                    statusKey
+            )
+
+            /*
+             * חלקית עדיין צריך להישאר
+             * ברשימת התרגילים לחזרה.
+             */
+            wrongItems.insert(
+                row.rawItem
+            )
 
         case .unknown:
             defaults.set(
                 "unknown",
-                forKey: statusKey
+                forKey:
+                    statusKey
             )
-            wrongItems.insert(row.rawItem)
+
+            wrongItems.insert(
+                row.rawItem
+            )
 
         case nil:
             defaults.removeObject(
-                forKey: statusKey
+                forKey:
+                    statusKey
             )
-            wrongItems.remove(row.rawItem)
+
+            wrongItems.remove(
+                row.rawItem
+            )
         }
 
         defaults.set(
@@ -2209,6 +2309,9 @@ struct MaterialsView: View {
 
         var loadedMarks:
             [String: RowMark?] = [:]
+
+        var loadedTraineeUpdatedAt:
+            [String: Int64] = [:]
 
         var loadedCoachProgress:
             [String: CoachMaterialProgress] = [:]
@@ -2325,6 +2428,20 @@ struct MaterialsView: View {
                 loadedMarks[row.statusId] = nil
             }
 
+            let traineeUpdatedAt =
+                loadTraineeUpdatedAt(
+                    for:
+                        row.statusId
+                )
+
+            if traineeUpdatedAt > 0 {
+
+                loadedTraineeUpdatedAt[
+                    row.statusId
+                ] = traineeUpdatedAt
+            }
+
+            
             loadedCoachProgress[row.statusId] =
                 loadCoachProgress(
                     for: row.statusId
@@ -2341,6 +2458,7 @@ struct MaterialsView: View {
         favorites = loadedFavorites
         excluded = loadedExcluded
         marks = loadedMarks
+        traineeUpdatedAtStates = loadedTraineeUpdatedAt
         coachProgressStates = loadedCoachProgress
         notes = loadedNotes
     }
@@ -2435,42 +2553,62 @@ struct MaterialsView: View {
         return nil
     }
 
-    private func cycleMark(
+    private func saveTraineeMark(
+        _ selectedMark: RowMark?,
         for row: ExerciseRow
     ) {
-        let next: RowMark?
 
-        switch currentMark(
-            for: row.statusId
-        ) {
-        case nil:
-            next = .mastered
+        let materialsKey =
+            markKey(
+                for:
+                    row.statusId
+            )
 
-        case .mastered:
-            next = .unknown
+        marks[
+            row.statusId
+        ] = selectedMark
 
-        case .unknown:
-            next = nil
-        }
+        let updatedAtKey =
+            traineeUpdatedAtKey(
+                for:
+                    row.statusId
+            )
 
-        marks[row.statusId] = next
+        if let selectedMark {
 
-        let materialsKey = markKey(
-            for: row.statusId
-        )
+            let updatedAt =
+                Int64(
+                    Date()
+                        .timeIntervalSince1970
+                    * 1000
+                )
 
-        if let next {
+            traineeUpdatedAtStates[
+                row.statusId
+            ] = updatedAt
+
             UserDefaults.standard.set(
-                next.rawValue,
-                forKey: materialsKey
+                Double(
+                    updatedAt
+                ),
+                forKey:
+                    updatedAtKey
+            )
+
+            UserDefaults.standard.set(
+                selectedMark.rawValue,
+                forKey:
+                    materialsKey
             )
 
             savePracticeMark(
-                next,
-                for: row
+                selectedMark,
+                for:
+                    row
             )
 
-            switch next {
+            switch selectedMark {
+
             case .mastered:
                 showToast(
                     tr(
@@ -2479,22 +2617,44 @@ struct MaterialsView: View {
                     )
                 )
 
+            case .partiallyKnown:
+                showToast(
+                    tr(
+                        "סומן כיודע חלקית.",
+                        "Marked as partially known."
+                    )
+                )
+
             case .unknown:
                 showToast(
                     tr(
-                        "סומן לחזרה.",
-                        "Marked for review."
+                        "סומן כלא יודע.",
+                        "Marked as unknown."
                     )
                 )
             }
+
         } else {
+
+            traineeUpdatedAtStates.removeValue(
+                forKey:
+                    row.statusId
+            )
+
             UserDefaults.standard.removeObject(
-                forKey: materialsKey
+                forKey:
+                    updatedAtKey
+            )
+
+            UserDefaults.standard.removeObject(
+                forKey:
+                    materialsKey
             )
 
             savePracticeMark(
                 nil,
-                for: row
+                for:
+                    row
             )
 
             showToast(
@@ -2505,7 +2665,8 @@ struct MaterialsView: View {
             )
         }
 
-        refreshToken = UUID()
+        refreshToken =
+            UUID()
     }
 
     private func saveNote(_ text: String, for id: String) {
@@ -2605,6 +2766,13 @@ struct MaterialsView: View {
                 "Known"
             )
 
+        case .partiallyKnown:
+
+            return tr(
+                "יודע חלקית",
+                "Partially known"
+            )
+
         case .unknown:
 
             return tr(
@@ -2698,6 +2866,14 @@ struct MaterialsView: View {
                         for:
                             row.statusId
                     ),
+                    traineeUpdatedAtKey(
+                        for:
+                            row.statusId
+                    ),
+                    practiceStatusKey(
+                        for:
+                            row.rawItem
+                    ),
                     noteKey(
                         for:
                             row.canonicalId
@@ -2727,6 +2903,7 @@ struct MaterialsView: View {
             favorites.removeAll()
             excluded.removeAll()
             marks.removeAll()
+            traineeUpdatedAtStates.removeAll()
             coachProgressStates.removeAll()
             notes.removeAll()
 
@@ -2752,14 +2929,50 @@ struct MaterialsView: View {
         DispatchQueue.global(
             qos: .utility
         ).async {
+
             let defaults =
                 UserDefaults.standard
 
-            keysToRemove.forEach { key in
+            keysToRemove.forEach {
+                key in
+
                 defaults.removeObject(
-                    forKey: key
+                    forKey:
+                        key
                 )
             }
+
+            /*
+             * מסירים מרשימת החזרה של Random Practice
+             * רק את התרגילים ששייכים לנושא הנוכחי.
+             */
+            let currentRawItems =
+                Set(
+                    rows.map(
+                        \.rawItem
+                    )
+                )
+
+            var wrongItems =
+                Set(
+                    defaults.stringArray(
+                        forKey:
+                            practiceWrongStorageKey
+                    ) ?? []
+                )
+
+            wrongItems.subtract(
+                currentRawItems
+            )
+
+            defaults.set(
+                Array(
+                    wrongItems
+                )
+                .sorted(),
+                forKey:
+                    practiceWrongStorageKey
+            )
         }
     }
 
@@ -2795,49 +3008,6 @@ struct MaterialsView: View {
     }
 }
 
-private struct MaterialsScreenSoftBackground: View {
-    @Environment(\.colorScheme)
-    private var colorScheme
-
-    let belt: Belt
-
-    var body: some View {
-        ZStack {
-            if colorScheme == .dark {
-                Color(hex: 0xFF111827)
-            } else {
-                Color.white
-
-                BeltPaletteByMaterials
-                    .color(for: belt)
-                    .opacity(0.12)
-            }
-        }
-        .ignoresSafeArea()
-    }
-}
-
-private struct MaterialsBeltLightBackground: View {
-    @Environment(\.colorScheme)
-    private var colorScheme
-
-    let belt: Belt
-
-    var body: some View {
-        ZStack {
-            if colorScheme == .dark {
-                Color(hex: 0xFF111827)
-            } else {
-                Color.white
-
-                BeltPaletteByMaterials
-                    .color(for: belt)
-                    .opacity(0.12)
-            }
-        }
-    }
-}
-
 private struct MaterialsToastView: View {
     let message: String
 
@@ -2861,361 +3031,111 @@ private struct MaterialsToastView: View {
     }
 }
 
-private struct MaterialsNestedSubTopicPicker: View {
-    let titles: [String]
-    let beltColor: Color
-    let isEnglish: Bool
-    let onSelect: (String) -> Void
-
-    private var textAlignment: TextAlignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    private var frameAlignment: Alignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    var body: some View {
-        VStack(spacing: 10) {
-            Text(isEnglish ? "Choose a sub-topic" : "בחר תת־נושא")
-                .kmiFont(size: 18, weight: .black)
-                .foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.24))
-                .multilineTextAlignment(textAlignment)
-                .frame(maxWidth: .infinity, alignment: frameAlignment)
-                .padding(.horizontal, 4)
-
-            ForEach(titles, id: \.self) { title in
-                Button {
-                    onSelect(title)
-                } label: {
-                    HStack(spacing: 10) {
-                        if isEnglish {
-                            Text(KmiEnglishTitleResolver.title(for: title, isEnglish: true))
-                                .kmiFont(size: 15.5, weight: .bold)
-                                .foregroundStyle(Color(red: 0.08, green: 0.10, blue: 0.16))
-                                .multilineTextAlignment(.leading)
-                                .lineLimit(2)
-                                .minimumScaleFactor(0.84)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 13, weight: .black))
-                                .foregroundStyle(beltColor.opacity(0.90))
-                        } else {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 13, weight: .black))
-                                .foregroundStyle(beltColor.opacity(0.90))
-
-                            Text(KmiEnglishTitleResolver.title(for: title, isEnglish: false))
-                                .kmiFont(size: 15.5, weight: .bold)
-                                .foregroundStyle(Color(red: 0.08, green: 0.10, blue: 0.16))
-                                .multilineTextAlignment(.trailing)
-                                .lineLimit(2)
-                                .minimumScaleFactor(0.84)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                        }
-                    }
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 58)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(Color.white.opacity(0.94))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(beltColor.opacity(0.22), lineWidth: 1)
-                    )
-                    .shadow(color: Color.black.opacity(0.07), radius: 8, x: 0, y: 4)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
-    }
-}
-
-private func materialsBeltImageName(for belt: Belt) -> String {
-    switch belt {
-    case .white:
-        return "belt_white"
-    case .yellow:
-        return "belt_yellow"
-    case .orange:
-        return "belt_orange"
-    case .green:
-        return "belt_green"
-    case .blue:
-        return "belt_blue"
-    case .brown:
-        return "belt_brown"
-    case .black:
-        return "belt_black"
-    default:
-        return "belt_orange"
-    }
-}
-
 // MARK: - Header
 
-private struct MaterialsStatsHeader:
+private struct MaterialsBeltHeader:
     View {
-
-    @Environment(\.colorScheme)
-    private var colorScheme
 
     let belt: Belt
     let count: Int
-
-    let masteredCount: Int
-    let unknownCount: Int
-
-    let coachNotTaughtCount: Int
-    let coachTaughtCount: Int
-    let coachPracticedCount: Int
-    let coachNeedsReinforcementCount: Int
-
-    let favoritesCount: Int
-    let excludedCount: Int
-    let notesCount: Int
-
-    let isCoach: Bool
     let isEnglish: Bool
 
-    var body: some View {
+    private var beltTitle:
+        String {
 
-        VStack(
-            spacing:
-                4
-        ) {
+        if isEnglish {
 
-            Text(
-                isEnglish
-                    ? "← Swipe sideways to see more stats →"
-                    : "→ הזז לצד כדי לראות עוד נתונים ←"
-            )
-            .kmiTypography(
-                .caption
-            )
-            .foregroundStyle(
-                KmiAppTheme
-                    .onSurfaceVariant(
-                        for:
-                            colorScheme
-                    )
-            )
-            .multilineTextAlignment(
-                .center
-            )
-            .frame(
-                maxWidth:
-                    .infinity
-            )
-            .padding(
-                .horizontal,
-                14
-            )
-            .padding(
-                .top,
-                4
-            )
-            .padding(
-                .bottom,
-                2
-            )
+            switch belt {
 
-            ScrollView(
-                .horizontal,
-                showsIndicators:
-                    false
-            ) {
+            case .yellow:
+                return "Yellow Belt"
 
-                HStack(
-                    spacing:
-                        6
-                ) {
+            case .orange:
+                return "Orange Belt"
 
-                    if isCoach {
+            case .green:
+                return "Green Belt"
 
-                        statChip(
-                            title:
-                                isEnglish
-                                    ? "Not taught"
-                                    : "לא נלמד",
-                            value:
-                                coachNotTaughtCount,
-                            color:
-                                KmiAppTheme
-                                    .onSurfaceVariant(
-                                        for:
-                                            colorScheme
-                                    )
-                        )
+            case .blue:
+                return "Blue Belt"
 
-                        statChip(
-                            title:
-                                isEnglish
-                                    ? "Taught"
-                                    : "נלמד",
-                            value:
-                                coachTaughtCount,
-                            color:
-                                KmiAppTheme
-                                    .success(
-                                        for:
-                                            colorScheme
-                                    )
-                        )
+            case .brown:
+                return "Brown Belt"
 
-                        statChip(
-                            title:
-                                isEnglish
-                                    ? "Practiced"
-                                    : "תורגל",
-                            value:
-                                coachPracticedCount,
-                            color:
-                                KmiAppTheme
-                                    .secondary(
-                                        for:
-                                            colorScheme
-                                    )
-                        )
+            case .black:
+                return "Black Belt"
 
-                        statChip(
-                            title:
-                                isEnglish
-                                    ? "Reinforce"
-                                    : "חיזוק",
-                            value:
-                                coachNeedsReinforcementCount,
-                            color:
-                                KmiAppTheme
-                                    .warning(
-                                        for:
-                                            colorScheme
-                                    )
-                        )
+            case .white:
+                return "White Belt"
 
-                    } else {
-
-                        statChip(
-                            title:
-                                isEnglish
-                                    ? "Known"
-                                    : "יודע",
-                            value:
-                                masteredCount,
-                            color:
-                                KmiAppTheme
-                                    .success(
-                                        for:
-                                            colorScheme
-                                    )
-                        )
-
-                        statChip(
-                            title:
-                                isEnglish
-                                    ? "Unknown"
-                                    : "לא יודע",
-                            value:
-                                unknownCount,
-                            color:
-                                KmiAppTheme
-                                    .error(
-                                        for:
-                                            colorScheme
-                                    )
-                        )
-                    }
-
-                    statChip(
-                        title:
-                            isEnglish
-                                ? "Favorites"
-                                : "מועדפים",
-                        value:
-                            favoritesCount,
-                        color:
-                            KmiAppTheme
-                                .warning(
-                                    for:
-                                        colorScheme
-                                )
-                    )
-
-                    statChip(
-                        title:
-                            isEnglish
-                                ? "Excluded"
-                                : "מוחרגים",
-                        value:
-                            excludedCount,
-                        color:
-                            KmiAppTheme
-                                .error(
-                                    for:
-                                        colorScheme
-                                )
-                    )
-
-                    statChip(
-                        title:
-                            isEnglish
-                                ? "Notes"
-                                : "הערות",
-                        value:
-                            notesCount,
-                        color:
-                            KmiAppTheme
-                                .secondary(
-                                    for:
-                                        colorScheme
-                                )
-                    )
-
-                    statChip(
-                        title:
-                            isEnglish
-                                ? "Total"
-                                : "סה״כ",
-                        value:
-                            count,
-                        color:
-                            BeltPaletteByMaterials
-                                .color(
-                                    for:
-                                        belt
-                                )
-                    )
-                }
-                .padding(
-                    .horizontal,
-                    12
-                )
+            default:
+                return belt.en
             }
-            .environment(
-                \.layoutDirection,
-                .leftToRight
-            )
+
+        } else {
+
+            switch belt {
+
+            case .yellow:
+                return "חגורה צהובה"
+
+            case .orange:
+                return "חגורה כתומה"
+
+            case .green:
+                return "חגורה ירוקה"
+
+            case .blue:
+                return "חגורה כחולה"
+
+            case .brown:
+                return "חגורה חומה"
+
+            case .black:
+                return "חגורה שחורה"
+
+            case .white:
+                return "חגורה לבנה"
+
+            default:
+                return belt.heb
+            }
         }
-        .padding(
-            .vertical,
-            5
-        )
-        .background(
-            MaterialsBeltLightBackground(
-                belt:
-                    belt
-            )
-        )
     }
 
-    private func statChip(
-        title: String,
-        value: Int,
-        color: Color
-    ) -> some View {
+    private var beltTitleColor:
+        Color {
+
+        if belt == .white {
+
+            return KmiAppTheme
+                .sectionHeaderContentColor
+        }
+
+        return BeltPaletteByMaterials
+            .color(
+                for:
+                    belt
+            )
+    }
+
+    private var countText:
+        String {
+
+        if isEnglish {
+
+            return count == 1
+                ? "1 exercise"
+                : "\(count) exercises"
+        }
+
+        /*
+         * זהה כרגע למקור האמת באנדרואיד.
+         */
+        return "\(count) תרגילים"
+    }
+
+    var body: some View {
 
         VStack(
             spacing:
@@ -3223,20 +3143,32 @@ private struct MaterialsStatsHeader:
         ) {
 
             Text(
-                "\(value)"
+                beltTitle
             )
             .kmiTypography(
-                .metric
+                .sectionTitle
+            )
+            .fontWeight(
+                .black
             )
             .foregroundStyle(
-                color
+                beltTitleColor
+            )
+            .frame(
+                maxWidth:
+                    .infinity,
+                alignment:
+                    .center
+            )
+            .multilineTextAlignment(
+                .center
             )
             .lineLimit(
                 1
             )
 
             Text(
-                title
+                countText
             )
             .kmiTypography(
                 .caption
@@ -3246,57 +3178,368 @@ private struct MaterialsStatsHeader:
             )
             .foregroundStyle(
                 KmiAppTheme
-                    .onSurfaceVariant(
-                        for:
-                            colorScheme
+                    .sectionHeaderContentColor
+                    .opacity(
+                        0.92
                     )
+            )
+            .frame(
+                maxWidth:
+                    .infinity,
+                alignment:
+                    .center
+            )
+            .multilineTextAlignment(
+                .center
             )
             .lineLimit(
                 1
             )
-            .minimumScaleFactor(
-                0.70
-            )
         }
         .frame(
-            minWidth:
-                64
+            maxWidth:
+                .infinity
+        )
+        .frame(
+            minHeight:
+                50
         )
         .padding(
             .horizontal,
-            8
+            16
         )
         .padding(
             .vertical,
             6
         )
-        .background {
+        .background(
+            KmiAppTheme
+                .sectionHeaderBrush
+        )
+        .environment(
+            \.layoutDirection,
+            isEnglish
+                ? .leftToRight
+                : .rightToLeft
+        )
+    }
+}
 
+private struct MaterialsStatsHeader:
+    View {
+
+    @Environment(\.colorScheme)
+    private var colorScheme
+
+    let masteredCount: Int
+    let partiallyKnownCount: Int
+    let unknownCount: Int
+    let unmarkedCount: Int
+
+    let coachNotTaughtCount: Int
+    let coachTaughtCount: Int
+    let coachPracticedCount: Int
+    let coachNeedsReinforcementCount: Int
+
+    let isCoach: Bool
+    let isEnglish: Bool
+
+    var body: some View {
+
+        HStack(
+            spacing:
+                7
+        ) {
+
+            if isCoach {
+
+                statCard(
+                    title:
+                        isEnglish
+                            ? "Unmarked"
+                            : "לא סומן",
+                    value:
+                        coachNotTaughtCount,
+                    accent:
+                        KmiAppTheme
+                            .onSurfaceVariant(
+                                for:
+                                    colorScheme
+                            )
+                )
+
+                statCard(
+                    title:
+                        isEnglish
+                            ? "Taught"
+                            : "נלמד",
+                    value:
+                        coachTaughtCount,
+                    accent:
+                        KmiAppTheme
+                            .success(
+                                for:
+                                    colorScheme
+                            )
+                )
+
+                statCard(
+                    title:
+                        isEnglish
+                            ? "Practiced"
+                            : "תורגל",
+                    value:
+                        coachPracticedCount,
+                    accent:
+                        KmiAppTheme
+                            .primary(
+                                for:
+                                    colorScheme
+                            )
+                )
+
+                statCard(
+                    title:
+                        isEnglish
+                            ? "Reinforce"
+                            : "לחיזוק",
+                    value:
+                        coachNeedsReinforcementCount,
+                    accent:
+                        KmiAppTheme
+                            .warning(
+                                for:
+                                    colorScheme
+                            )
+                )
+
+            } else {
+
+                statCard(
+                    title:
+                        isEnglish
+                            ? "Unmarked"
+                            : "לא סומן",
+                    value:
+                        unmarkedCount,
+                    accent:
+                        KmiAppTheme
+                            .onSurfaceVariant(
+                                for:
+                                    colorScheme
+                            )
+                )
+
+                statCard(
+                    title:
+                        isEnglish
+                            ? "Known"
+                            : "יודע",
+                    value:
+                        masteredCount,
+                    accent:
+                        KmiAppTheme
+                            .success(
+                                for:
+                                    colorScheme
+                            )
+                )
+
+                statCard(
+                    title:
+                        isEnglish
+                            ? "Partial"
+                            : "חלקית",
+                    value:
+                        partiallyKnownCount,
+                    accent:
+                        KmiAppTheme
+                            .warning(
+                                for:
+                                    colorScheme
+                            )
+                )
+
+                statCard(
+                    title:
+                        isEnglish
+                            ? "Unknown"
+                            : "לא יודע",
+                    value:
+                        unknownCount,
+                    accent:
+                        KmiAppTheme
+                            .error(
+                                for:
+                                    colorScheme
+                            )
+                )
+            }
+        }
+        .environment(
+            \.layoutDirection,
+            isEnglish
+                ? .leftToRight
+                : .rightToLeft
+        )
+        .padding(
+            .leading,
+            6
+        )
+        .padding(
+            .trailing,
+            6
+        )
+        .padding(
+            .top,
+            3
+        )
+        .padding(
+            .bottom,
+            6
+        )
+        .background(
+            KmiAppTheme
+                .surfaceVariant(
+                    for:
+                        colorScheme
+                )
+                .opacity(
+                    0.55
+                )
+        )
+    }
+
+    private func statCard(
+        title: String,
+        value: Int,
+        accent: Color
+    ) -> some View {
+
+        VStack(
+            spacing:
+                0
+        ) {
+
+            Rectangle()
+                .fill(
+                    accent
+                )
+                .frame(
+                    height:
+                        3
+                )
+
+            VStack(
+                spacing:
+                    1
+            ) {
+
+                Spacer(
+                    minLength:
+                        2
+                )
+
+                Text(
+                    "\(value)"
+                )
+                .kmiTypography(
+                    .action
+                )
+                .fontWeight(
+                    .heavy
+                )
+                .foregroundStyle(
+                    KmiAppTheme
+                        .onSurface(
+                            for:
+                                colorScheme
+                        )
+                )
+                .lineLimit(
+                    1
+                )
+
+                Text(
+                    title
+                )
+                .kmiTypography(
+                    .caption
+                )
+                .fontWeight(
+                    .bold
+                )
+                .foregroundStyle(
+                    colorScheme == .dark
+                        ? KmiAppTheme
+                            .onSurface(
+                                for:
+                                    colorScheme
+                            )
+                        : accent
+                )
+                .lineLimit(
+                    1
+                )
+                .minimumScaleFactor(
+                    0.70
+                )
+
+                Spacer(
+                    minLength:
+                        2
+                )
+            }
+            .frame(
+                maxWidth:
+                    .infinity,
+                maxHeight:
+                    .infinity
+            )
+            .background(
+                accent.opacity(
+                    colorScheme == .dark
+                        ? 0.10
+                        : 0.08
+                )
+            )
+        }
+        .frame(
+            maxWidth:
+                .infinity
+        )
+        .frame(
+            height:
+                58
+        )
+        .background(
+            KmiAppTheme
+                .surface(
+                    for:
+                        colorScheme
+                )
+        )
+        .clipShape(
             RoundedRectangle(
                 cornerRadius:
-                    14,
+                    10,
                 style:
                     .continuous
             )
-            .fill(
-                KmiAppTheme
-                    .surface(
-                        for:
-                            colorScheme
-                    )
-            )
-        }
+        )
         .overlay {
 
             RoundedRectangle(
                 cornerRadius:
-                    14,
+                    10,
                 style:
                     .continuous
             )
             .stroke(
-                color.opacity(
-                    0.26
+                accent.opacity(
+                    colorScheme == .dark
+                        ? 0.55
+                        : 0.24
                 ),
                 lineWidth:
                     1
@@ -3305,35 +3548,41 @@ private struct MaterialsStatsHeader:
     }
 }
 
+
 // MARK: - Row
 
 private struct MaterialsExerciseRow: View {
     @Environment(\.colorScheme)
     private var colorScheme
-
-    let rowNumber: Int
+    
     let title: String
     let beltColor: Color
     let isFavorite: Bool
     let isExcluded: Bool
-
+    
     let mark: MaterialsView.RowMark?
+    
+    let traineeUpdatedAt:
+    Int64
+    
     let coachProgress:
-        MaterialsView.CoachMaterialProgress
-
+    MaterialsView.CoachMaterialProgress
+    
     let hasNote: Bool
     let isCoach: Bool
     let isEnglish: Bool
-
+    
     let onToggleFavorite: () -> Void
     let onToggleExcluded: () -> Void
     let onShowInfo: () -> Void
     let onEditNote: () -> Void
-    let onCycleMark: () -> Void
-
+    
+    let onSelectTraineeStatus:
+    (MaterialsView.RowMark?) -> Void
+    
     let onSelectCoachStatus:
-        (MaterialsView.CoachMaterialStatus) -> Void
-
+    (MaterialsView.CoachMaterialStatus) -> Void
+    
     private var textAlignment: TextAlignment {
         isEnglish ? .leading : .trailing
     }
@@ -3341,20 +3590,20 @@ private struct MaterialsExerciseRow: View {
     private var frameAlignment: Alignment {
         isEnglish ? .leading : .trailing
     }
-
+    
     private var rowOpacity:
-        Double {
-
+    Double {
+        
         isExcluded
-            ? 0.56
-            : 1.0
+        ? 0.56
+        : 1.0
     }
-
+    
     private var rowBorderColor:
-        Color {
-
+    Color {
+        
         if isExcluded {
-
+            
             return KmiAppTheme
                 .outline(
                     for:
@@ -3364,11 +3613,11 @@ private struct MaterialsExerciseRow: View {
                     0.34
                 )
         }
-
+        
         if !isCoach {
-
+            
             if mark == .mastered {
-
+                
                 return KmiAppTheme
                     .success(
                         for:
@@ -3378,9 +3627,21 @@ private struct MaterialsExerciseRow: View {
                         0.34
                     )
             }
-
+            
+            if mark == .partiallyKnown {
+                
+                return KmiAppTheme
+                    .warning(
+                        for:
+                            colorScheme
+                    )
+                    .opacity(
+                        0.34
+                    )
+            }
+            
             if mark == .unknown {
-
+                
                 return KmiAppTheme
                     .error(
                         for:
@@ -3391,15 +3652,15 @@ private struct MaterialsExerciseRow: View {
                     )
             }
         }
-
+        
         if isFavorite || hasNote {
-
+            
             return beltColor
                 .opacity(
                     0.30
                 )
         }
-
+        
         return KmiAppTheme
             .outlineVariant(
                 for:
@@ -3408,50 +3669,170 @@ private struct MaterialsExerciseRow: View {
     }
     
     var body: some View {
-
-        HStack(
-            alignment:
-                .center,
+        
+        VStack(
             spacing:
-                9
+                3
         ) {
-
-            if isEnglish {
-
-                titleBlock
-                markButtons
-
+            
+            titleBlock
+            
+            if isCoach {
+                
+                GeometryReader {
+                    geometry in
+                    
+                    let buttonWidth =
+                    max(
+                        0,
+                        (
+                            geometry.size.width
+                            - 12
+                        ) / 4
+                    )
+                    
+                    HStack(
+                        spacing:
+                            4
+                    ) {
+                        
+                        if isEnglish {
+                            
+                            MaterialsCoachStatusSelector(
+                                progress:
+                                    coachProgress,
+                                buttonWidth:
+                                    buttonWidth,
+                                isEnglish:
+                                    isEnglish,
+                                onSelect:
+                                    onSelectCoachStatus
+                            )
+                            
+                            menuButton(
+                                width:
+                                    buttonWidth
+                            )
+                            
+                        } else {
+                            
+                            menuButton(
+                                width:
+                                    buttonWidth
+                            )
+                            
+                            MaterialsCoachStatusSelector(
+                                progress:
+                                    coachProgress,
+                                buttonWidth:
+                                    buttonWidth,
+                                isEnglish:
+                                    isEnglish,
+                                onSelect:
+                                    onSelectCoachStatus
+                            )
+                        }
+                    }
+                    .environment(
+                        \.layoutDirection,
+                         .leftToRight
+                    )
+                }
+                .frame(
+                    height:
+                        40
+                )
+                
             } else {
-
-                markButtons
-                titleBlock
+                
+                GeometryReader {
+                    geometry in
+                    
+                    let buttonWidth =
+                    max(
+                        0,
+                        (
+                            geometry.size.width
+                            - 12
+                        ) / 4
+                    )
+                    
+                    HStack(
+                        spacing:
+                            4
+                    ) {
+                        
+                        if isEnglish {
+                            
+                            MaterialsTraineeStatusSelector(
+                                mark:
+                                    mark,
+                                updatedAt:
+                                    traineeUpdatedAt,
+                                buttonWidth:
+                                    buttonWidth,
+                                isEnglish:
+                                    isEnglish,
+                                onSelect:
+                                    onSelectTraineeStatus
+                            )
+                            
+                            menuButton(
+                                width:
+                                    buttonWidth
+                            )
+                            
+                        } else {
+                            
+                            menuButton(
+                                width:
+                                    buttonWidth
+                            )
+                            
+                            MaterialsTraineeStatusSelector(
+                                mark:
+                                    mark,
+                                updatedAt:
+                                    traineeUpdatedAt,
+                                buttonWidth:
+                                    buttonWidth,
+                                isEnglish:
+                                    isEnglish,
+                                onSelect:
+                                    onSelectTraineeStatus
+                            )
+                        }
+                    }
+                    .environment(
+                        \.layoutDirection,
+                         .leftToRight
+                    )
+                }
+                .frame(
+                    height:
+                        40
+                )
             }
         }
-        .environment(
-            \.layoutDirection,
-            .leftToRight
-        )
         .padding(
             .horizontal,
-            8
+            4
         )
         .padding(
             .vertical,
-            6
+            5
         )
         .frame(
-            minHeight:
-                isCoach
-                    ? 82
-                    : 72
+            maxWidth:
+                    .infinity
         )
         .background {
-
+            
             RoundedRectangle(
                 cornerRadius:
-                    16,
+                    15,
                 style:
-                    .continuous
+                        .continuous
             )
             .fill(
                 KmiAppTheme
@@ -3459,15 +3840,18 @@ private struct MaterialsExerciseRow: View {
                         for:
                             colorScheme
                     )
+                    .opacity(
+                        0.94
+                    )
             )
         }
         .overlay {
-
+            
             RoundedRectangle(
                 cornerRadius:
-                    16,
+                    15,
                 style:
-                    .continuous
+                        .continuous
             )
             .stroke(
                 rowBorderColor,
@@ -3482,386 +3866,363 @@ private struct MaterialsExerciseRow: View {
             Rectangle()
         )
     }
-
+    
     private var titleBlock: some View {
-        VStack(
-            alignment: isEnglish ? .leading : .trailing,
-            spacing: 5
+        
+        HStack(
+            spacing:
+                6
         ) {
-            HStack(spacing: 6) {
-                if isEnglish {
-                    numberBadge
-                    menuButton
-
-                    if isFavorite {
-                        statusMiniLabel(
-                            text: "Favorite",
-                            systemName: "star.fill",
-                            color: Color.orange.opacity(0.90)
-                        )
-                    }
-
-                    if hasNote {
-                        statusMiniLabel(
-                            text: "Note",
-                            systemName: "note.text",
-                            color: Color.blue.opacity(0.84)
-                        )
-                    }
-
-                    if isExcluded {
-                        statusMiniLabel(
-                            text: "Excluded",
-                            systemName: "minus.circle.fill",
-                            color: Color.gray.opacity(0.82)
-                        )
-                    }
-
-                    Spacer(minLength: 0)
-                } else {
-                    Spacer(minLength: 0)
-
-                    if isExcluded {
-                        statusMiniLabel(
-                            text: "מוחרג",
-                            systemName: "minus.circle.fill",
-                            color: Color.gray.opacity(0.82)
-                        )
-                    }
-
-                    if hasNote {
-                        statusMiniLabel(
-                            text: "הערה",
-                            systemName: "note.text",
-                            color: Color.blue.opacity(0.84)
-                        )
-                    }
-
-                    if isFavorite {
-                        statusMiniLabel(
-                            text: "מועדף",
-                            systemName: "star.fill",
-                            color: Color.orange.opacity(0.90)
-                        )
-                    }
-
-                    menuButton
-                    numberBadge
+            
+            if isEnglish {
+                
+                titleButton
+                
+                if isFavorite {
+                    statusMiniLabel(
+                        text:
+                            "Favorite",
+                        systemName:
+                            "star.fill",
+                        color:
+                            Color.orange.opacity(
+                                0.90
+                            )
+                    )
                 }
+                
+                if hasNote {
+                    statusMiniLabel(
+                        text:
+                            "Note",
+                        systemName:
+                            "note.text",
+                        color:
+                            Color.blue.opacity(
+                                0.84
+                            )
+                    )
+                }
+                
+                if isExcluded {
+                    statusMiniLabel(
+                        text:
+                            "Excluded",
+                        systemName:
+                            "minus.circle.fill",
+                        color:
+                            Color.gray.opacity(
+                                0.82
+                            )
+                    )
+                }
+                
+            } else {
+                
+                if isExcluded {
+                    statusMiniLabel(
+                        text:
+                            "מוחרג",
+                        systemName:
+                            "minus.circle.fill",
+                        color:
+                            Color.gray.opacity(
+                                0.82
+                            )
+                    )
+                }
+                
+                if hasNote {
+                    statusMiniLabel(
+                        text:
+                            "הערה",
+                        systemName:
+                            "note.text",
+                        color:
+                            Color.blue.opacity(
+                                0.84
+                            )
+                    )
+                }
+                
+                if isFavorite {
+                    statusMiniLabel(
+                        text:
+                            "מועדף",
+                        systemName:
+                            "star.fill",
+                        color:
+                            Color.orange.opacity(
+                                0.90
+                            )
+                    )
+                }
+                
+                titleButton
             }
-            .frame(
-                maxWidth: .infinity,
-                alignment: frameAlignment
-            )
-            .environment(
-                \.layoutDirection,
-                .leftToRight
-            )
-
-            Button {
-                onShowInfo()
-            } label: {
-
-                Text(
-                    title
-                )
-                .kmiTypography(
-                    .body
-                )
-                .fontWeight(
-                    .semibold
-                )
-                .foregroundStyle(
-                    isExcluded
-                        ? KmiAppTheme
-                            .onSurfaceVariant(
-                                for:
-                                    colorScheme
-                            )
-                            .opacity(
-                                0.58
-                            )
-                        : KmiAppTheme
-                            .onSurface(
-                                for:
-                                    colorScheme
-                            )
-                )
-                .multilineTextAlignment(
-                    textAlignment
-                )
-                .lineLimit(
-                    3
-                )
-                .minimumScaleFactor(
-                    0.82
-                )
-                .frame(
-                    maxWidth:
-                        .infinity,
-                    alignment:
-                        frameAlignment
-                )
-                .contentShape(
-                    Rectangle()
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(
-                isEnglish
-                    ? "Open explanation for \(title)"
-                    : "פתח הסבר עבור \(title)"
-            )
         }
-    }
-
-private func statusMiniLabel(
-    text: String,
-    systemName: String,
-    color: Color
-) -> some View {
-
-    HStack(
-        spacing:
-            3
-    ) {
-
-        Image(
-            systemName:
-                systemName
+        .environment(
+            \.layoutDirection,
+             .leftToRight
         )
-        .kmiIconSize(
-            10
+        .padding(
+            .horizontal,
+            6
         )
-
-        Text(
-            text
+        .padding(
+            .top,
+            2
         )
-        .kmiTypography(
-            .caption
-        )
-        .fontWeight(
-            .heavy
-        )
-        .lineLimit(
-            1
+        .frame(
+            maxWidth:
+                    .infinity
         )
     }
-    .foregroundStyle(
-        Color.white
-    )
-    .padding(
-        .horizontal,
-        7
-    )
-    .padding(
-        .vertical,
-        4
-    )
-    .background {
-
-        Capsule()
-            .fill(
-                color
-            )
-    }
-}
-
-private var numberBadge:
+    
+    private var titleButton:
     some View {
-
-    Text(
-        isEnglish
-            ? "No. \(rowNumber)"
-            : "מס׳ \(rowNumber)"
-    )
-    .kmiTypography(
-        .caption
-    )
-    .fontWeight(
-        .heavy
-    )
-    .foregroundStyle(
-        KmiAppTheme
-            .onSurface(
-                for:
-                    colorScheme
+        
+        Button {
+            
+            onShowInfo()
+            
+        } label: {
+            
+            Text(
+                title
             )
-    )
-    .padding(
-        .horizontal,
-        9
-    )
-    .frame(
-        height:
-            27
-    )
-    .background {
-
-        Capsule()
-            .fill(
-                KmiAppTheme
-                    .surfaceVariant(
+            .kmiTypography(
+                .body
+            )
+            .fontWeight(
+                .semibold
+            )
+            .foregroundStyle(
+                isExcluded
+                ? KmiAppTheme
+                    .onSurfaceVariant(
+                        for:
+                            colorScheme
+                    )
+                    .opacity(
+                        0.55
+                    )
+                : KmiAppTheme
+                    .onSurface(
                         for:
                             colorScheme
                     )
             )
-    }
-    .overlay {
-
-        Capsule()
-            .stroke(
-                beltColor
-                    .opacity(
-                        0.24
-                    ),
-                lineWidth:
-                    1
+            .multilineTextAlignment(
+                textAlignment
             )
+            .lineLimit(
+                3
+            )
+            .minimumScaleFactor(
+                0.82
+            )
+            .frame(
+                maxWidth:
+                        .infinity,
+                alignment:
+                    frameAlignment
+            )
+            .contentShape(
+                Rectangle()
+            )
+        }
+        .buttonStyle(
+            .plain
+        )
+        .accessibilityLabel(
+            isEnglish
+            ? "Open explanation for \(title)"
+            : "פתח הסבר עבור \(title)"
+        )
     }
-}
     
-private var menuButton:
-    some View {
-
-    Menu {
-
-        Button {
-
-            onShowInfo()
-
-        } label: {
-
-            Label(
-                isEnglish
-                    ? "Detailed explanation"
-                    : "הסבר מפורט",
-                systemImage:
-                    "info.circle.fill"
-            )
-        }
-
-        Button {
-
-            onToggleFavorite()
-
-        } label: {
-
-            Label(
-                isFavorite
-                    ? (
-                        isEnglish
-                            ? "Remove from favorites"
-                            : "הסר ממועדפים"
-                    )
-                    : (
-                        isEnglish
-                            ? "Add to favorites"
-                            : "הוסף למועדפים"
-                    ),
-                systemImage:
-                    isFavorite
-                        ? "star.slash.fill"
-                        : "star.fill"
-            )
-        }
-
-        Button {
-
-            onEditNote()
-
-        } label: {
-
-            Label(
-                hasNote
-                    ? (
-                        isEnglish
-                            ? "Edit note"
-                            : "ערוך הערה"
-                    )
-                    : (
-                        isEnglish
-                            ? "Add note"
-                            : "הוסף הערה"
-                    ),
-                systemImage:
-                    hasNote
-                        ? "note.text"
-                        : "square.and.pencil"
-            )
-        }
-
-        Button {
-
-            onToggleExcluded()
-
-        } label: {
-
-            Label(
-                isExcluded
-                    ? (
-                        isEnglish
-                            ? "Include exercise"
-                            : "החזר תרגיל"
-                    )
-                    : (
-                        isEnglish
-                            ? "Exclude exercise"
-                            : "החרג תרגיל"
-                    ),
-                systemImage:
-                    isExcluded
-                        ? "arrow.uturn.backward.circle.fill"
-                        : "nosign"
-            )
-        }
-
-    } label: {
-
-        ZStack {
-
-            Circle()
-                .fill(
-                    KmiAppTheme
-                        .primary(
-                            for:
-                                colorScheme
-                        )
-                )
-                .frame(
-                    width:
-                        31,
-                    height:
-                        31
-                )
-
-            Circle()
-                .stroke(
-                    KmiAppTheme
-                        .onPrimary(
-                            for:
-                                colorScheme
-                        )
-                        .opacity(
-                            0.24
-                        ),
-                    lineWidth:
-                        1
-                )
-                .frame(
-                    width:
-                        31,
-                    height:
-                        31
-                )
-
+    private func statusMiniLabel(
+        text: String,
+        systemName: String,
+        color: Color
+    ) -> some View {
+        
+        HStack(
+            spacing:
+                3
+        ) {
+            
             Image(
                 systemName:
-                    "ellipsis"
+                    systemName
             )
             .kmiIconSize(
-                15
+                10
             )
+            
+            Text(
+                text
+            )
+            .kmiTypography(
+                .caption
+            )
+            .fontWeight(
+                .heavy
+            )
+            .lineLimit(
+                1
+            )
+        }
+        .foregroundStyle(
+            Color.white
+        )
+        .padding(
+            .horizontal,
+            7
+        )
+        .padding(
+            .vertical,
+            4
+        )
+        .background {
+            
+            Capsule()
+                .fill(
+                    color
+                )
+        }
+    }
+    
+    private func menuButton(
+        width: CGFloat
+    ) -> some View {
+        
+        Menu {
+            
+            Button {
+                
+                onShowInfo()
+                
+            } label: {
+                
+                Label(
+                    isEnglish
+                    ? "Detailed explanation"
+                    : "הסבר מפורט",
+                    systemImage:
+                        "info.circle.fill"
+                )
+            }
+            
+            Button {
+                
+                onToggleFavorite()
+                
+            } label: {
+                
+                Label(
+                    isFavorite
+                    ? (
+                        isEnglish
+                        ? "Remove from favorites"
+                        : "הסר ממועדפים"
+                    )
+                    : (
+                        isEnglish
+                        ? "Add to favorites"
+                        : "הוסף למועדפים"
+                    ),
+                    systemImage:
+                        isFavorite
+                    ? "star.slash.fill"
+                    : "star.fill"
+                )
+            }
+            
+            Button {
+                
+                onEditNote()
+                
+            } label: {
+                
+                Label(
+                    hasNote
+                    ? (
+                        isEnglish
+                        ? "Edit note"
+                        : "ערוך הערה"
+                    )
+                    : (
+                        isEnglish
+                        ? "Add note"
+                        : "הוסף הערה"
+                    ),
+                    systemImage:
+                        hasNote
+                    ? "note.text"
+                    : "square.and.pencil"
+                )
+            }
+            
+            Button {
+                
+                onToggleExcluded()
+                
+            } label: {
+                
+                Label(
+                    isExcluded
+                    ? (
+                        isEnglish
+                        ? "Include exercise"
+                        : "החזר תרגיל"
+                    )
+                    : (
+                        isEnglish
+                        ? "Exclude exercise"
+                        : "החרג תרגיל"
+                    ),
+                    systemImage:
+                        isExcluded
+                    ? "arrow.uturn.backward.circle.fill"
+                    : "nosign"
+                )
+            }
+            
+        } label: {
+            
+            VStack(
+                spacing:
+                    1
+            ) {
+                
+                Image(
+                    systemName:
+                        "info.circle.fill"
+                )
+                .kmiIconSize(
+                    12
+                )
+                
+                Text(
+                    isEnglish
+                    ? "Info"
+                    : "מידע"
+                )
+                .kmiTypography(
+                    .caption
+                )
+                .fontWeight(
+                    .heavy
+                )
+                .lineLimit(
+                    1
+                )
+                .minimumScaleFactor(
+                    0.75
+                )
+            }
             .foregroundStyle(
                 KmiAppTheme
                     .onPrimary(
@@ -3869,119 +4230,133 @@ private var menuButton:
                             colorScheme
                     )
             )
-        }
-        .frame(
-            width:
-                31,
-            height:
-                31
-        )
-        .overlay(
-            alignment:
-                .topTrailing
-        ) {
-
-            if
-                isFavorite ||
-                isExcluded ||
-                hasNote {
-
-                Circle()
-                    .fill(
-                        statusDotColor
-                    )
-                    .frame(
-                        width:
-                            8,
-                        height:
-                            8
-                    )
-                    .overlay {
-
-                        Circle()
-                            .stroke(
-                                KmiAppTheme
-                                    .surface(
-                                        for:
-                                            colorScheme
-                                    ),
-                                lineWidth:
-                                    1
-                            )
-                    }
-                    .offset(
-                        x:
-                            2,
-                        y:
-                            -2
-                    )
+            .frame(
+                width:
+                    width,
+                height:
+                    40
+            )
+            .background {
+                
+                RoundedRectangle(
+                    cornerRadius:
+                        7,
+                    style:
+                            .continuous
+                )
+                .fill(
+                    KmiAppTheme
+                        .primary(
+                            for:
+                                colorScheme
+                        )
+                )
+            }
+            .overlay {
+                
+                RoundedRectangle(
+                    cornerRadius:
+                        7,
+                    style:
+                            .continuous
+                )
+                .stroke(
+                    KmiAppTheme
+                        .onPrimary(
+                            for:
+                                colorScheme
+                        )
+                        .opacity(
+                            0.16
+                        ),
+                    lineWidth:
+                        0.7
+                )
+            }
+            .overlay(
+                alignment:
+                        .topTrailing
+            ) {
+                
+                if
+                    isFavorite ||
+                        isExcluded ||
+                        hasNote {
+                    
+                    Circle()
+                        .fill(
+                            statusDotColor
+                        )
+                        .frame(
+                            width:
+                                8,
+                            height:
+                                8
+                        )
+                        .overlay {
+                            
+                            Circle()
+                                .stroke(
+                                    KmiAppTheme
+                                        .surface(
+                                            for:
+                                                colorScheme
+                                        ),
+                                    lineWidth:
+                                        1
+                                )
+                        }
+                        .offset(
+                            x:
+                                2,
+                            y:
+                                -2
+                        )
+                }
             }
         }
+        .buttonStyle(
+            .plain
+        )
+        .frame(
+            width:
+                width,
+            height:
+                40
+        )
     }
-    .buttonStyle(
-        .plain
-    )
-    .frame(
-        width:
-            33
-    )
-}
     
-private var statusDotColor:
+    private var statusDotColor:
     Color {
-
-    if isExcluded {
-
-        return KmiAppTheme
-            .error(
-                for:
-                    colorScheme
-            )
-    }
-
-    if hasNote {
-
-        return KmiAppTheme
-            .secondary(
-                for:
-                    colorScheme
-            )
-    }
-
-    if isFavorite {
-
-        return KmiAppTheme
-            .warning(
-                for:
-                    colorScheme
-            )
-    }
-
-    return Color.clear
-}
-    
-    @ViewBuilder
-    private var markButtons: some View {
-        if isCoach {
-            MaterialsCoachStatusSelector(
-                progress:
-                    coachProgress,
-                isEnglish:
-                    isEnglish,
-                onSelect:
-                    onSelectCoachStatus
-            )
-            .frame(
-                minWidth:
-                    210
-            )
-        } else {
-            MaterialsSingleMarkCircleButton(
-                mark: mark,
-                onTap: onCycleMark
-            )
-            .frame(width: 38)
+        
+        if isExcluded {
+            
+            return KmiAppTheme
+                .error(
+                    for:
+                        colorScheme
+                )
         }
+        
+        if hasNote {
+            
+            return KmiAppTheme
+                .secondary(
+                    for:
+                        colorScheme
+                )
+        }
+        
+        if isFavorite {
+            
+            return KmiAppTheme
+                .warning(
+                    for:
+                        colorScheme
+                )
+        }
+        
+        return Color.clear
     }
 }
 
@@ -3994,6 +4369,9 @@ private struct MaterialsCoachStatusSelector:
     let progress:
         MaterialsView.CoachMaterialProgress
 
+    let buttonWidth:
+        CGFloat
+
     let isEnglish: Bool
 
     let onSelect:
@@ -4001,7 +4379,6 @@ private struct MaterialsCoachStatusSelector:
 
     private let statuses:
         [MaterialsView.CoachMaterialStatus] = [
-
             .taught,
             .practiced,
             .needsReinforcement
@@ -4011,15 +4388,14 @@ private struct MaterialsCoachStatusSelector:
 
         HStack(
             spacing:
-                7
+                4
         ) {
 
             ForEach(
                 statuses,
                 id:
                     \.rawValue
-            ) {
-                status in
+            ) { status in
 
                 statusButton(
                     status
@@ -4044,23 +4420,7 @@ private struct MaterialsCoachStatusSelector:
 
         let canSelect =
             selected ||
-            progress
-                .selectedStatuses
-                .count < 2
-
-        let dateValue =
-            progress.updatedAt(
-                for:
-                    status
-            )
-
-        let dateText =
-            selected &&
-            dateValue > 0
-            ? formattedDate(
-                dateValue
-            )
-            : ""
+            progress.selectedStatuses.count < 2
 
         let activeColor =
             color(
@@ -4071,6 +4431,7 @@ private struct MaterialsCoachStatusSelector:
         return Button {
 
             if canSelect {
+
                 onSelect(
                     status
                 )
@@ -4080,75 +4441,8 @@ private struct MaterialsCoachStatusSelector:
 
             VStack(
                 spacing:
-                    2
+                    1
             ) {
-
-                ZStack {
-
-                    Circle()
-                        .fill(
-                            selected
-                                ? activeColor
-                                : KmiAppTheme
-                                    .surfaceVariant(
-                                        for:
-                                            colorScheme
-                                    )
-                        )
-                        .frame(
-                            width:
-                                32,
-                            height:
-                                32
-                        )
-
-                    Circle()
-                        .stroke(
-                            selected
-                                ? Color.white
-                                    .opacity(
-                                        0.38
-                                    )
-                                : KmiAppTheme
-                                    .outline(
-                                        for:
-                                            colorScheme
-                                    )
-                                    .opacity(
-                                        0.20
-                                    ),
-                            lineWidth:
-                                1
-                        )
-                        .frame(
-                            width:
-                                32,
-                            height:
-                                32
-                        )
-
-                    Text(
-                        symbol(
-                            for:
-                                status
-                        )
-                    )
-                    .kmiTypography(
-                        .metric
-                    )
-                    .foregroundStyle(
-                        selected
-                            ? Color.white
-                            : KmiAppTheme
-                                .onSurfaceVariant(
-                                    for:
-                                        colorScheme
-                                )
-                                .opacity(
-                                    0.62
-                                )
-                    )
-                }
 
                 Text(
                     label(
@@ -4162,7 +4456,7 @@ private struct MaterialsCoachStatusSelector:
                 .fontWeight(
                     selected
                         ? .heavy
-                        : .semibold
+                        : .bold
                 )
                 .foregroundStyle(
                     selected
@@ -4172,43 +4466,96 @@ private struct MaterialsCoachStatusSelector:
                                 for:
                                     colorScheme
                             )
-                            .opacity(
-                                0.65
-                            )
                 )
-                .lineLimit(1)
+                .lineLimit(
+                    1
+                )
                 .minimumScaleFactor(
                     0.70
                 )
 
-                Text(
-                    dateText
-                )
-                .kmiTypography(
-                    .caption
-                )
-                .foregroundStyle(
-                    KmiAppTheme
-                        .onSurfaceVariant(
+                if selected {
+
+                    let dateValue =
+                        progress.updatedAt(
                             for:
-                                colorScheme
+                                status
                         )
-                )
-                .lineLimit(1)
-                .frame(
-                    minHeight:
-                        12
-                )
+
+                    if dateValue > 0 {
+
+                        Text(
+                            formattedDate(
+                                dateValue
+                            )
+                        )
+                        .kmiTypography(
+                            .caption
+                        )
+                        .foregroundStyle(
+                            activeColor.opacity(
+                                0.88
+                            )
+                        )
+                        .lineLimit(
+                            1
+                        )
+                        .minimumScaleFactor(
+                            0.72
+                        )
+                    }
+                }
             }
             .frame(
-                minWidth:
-                    70,
                 maxWidth:
-                    86
+                    .infinity,
+                maxHeight:
+                    .infinity
             )
-            .contentShape(
-                Rectangle()
-            )
+            .background {
+
+                RoundedRectangle(
+                    cornerRadius:
+                        7,
+                    style:
+                        .continuous
+                )
+                .fill(
+                    activeColor.opacity(
+                        selected
+                            ? (
+                                colorScheme == .dark
+                                    ? 0.18
+                                    : 0.10
+                            )
+                            : (
+                                colorScheme == .dark
+                                    ? 0.08
+                                    : 0.05
+                            )
+                    )
+                )
+            }
+            .overlay {
+
+                RoundedRectangle(
+                    cornerRadius:
+                        7,
+                    style:
+                        .continuous
+                )
+                .stroke(
+                    activeColor.opacity(
+                        selected
+                            ? 0.46
+                            : 0.16
+                    ),
+                    lineWidth:
+                        selected
+                            ? 0.9
+                            : 0.7
+                )
+            }
         }
         .buttonStyle(
             .plain
@@ -4221,33 +4568,18 @@ private struct MaterialsCoachStatusSelector:
                 ? 1.0
                 : 0.55
         )
+        .frame(
+            width:
+                buttonWidth,
+            height:
+                40
+        )
         .accessibilityLabel(
             label(
                 for:
                     status
             )
         )
-    }
-
-    private func symbol(
-        for status:
-            MaterialsView.CoachMaterialStatus
-    ) -> String {
-
-        switch status {
-
-        case .taught:
-            return "✓"
-
-        case .practiced:
-            return "↻"
-
-        case .needsReinforcement:
-            return "!"
-
-        case .notTaught:
-            return "—"
-        }
     }
 
     private func label(
@@ -4292,23 +4624,32 @@ private struct MaterialsCoachStatusSelector:
 
         case .taught:
 
-            return KmiAppTheme.success(
-                for:
-                    colorScheme
+            return Color(
+                red:
+                    47 / 255,
+                green:
+                    155 / 255,
+                blue:
+                    78 / 255
             )
 
         case .practiced:
 
-            return KmiAppTheme.secondary(
-                for:
-                    colorScheme
-            )
+            return KmiAppTheme
+                .primary(
+                    for:
+                        colorScheme
+                )
 
         case .needsReinforcement:
 
-            return KmiAppTheme.warning(
-                for:
-                    colorScheme
+            return Color(
+                red:
+                    185 / 255,
+                green:
+                    107 / 255,
+                blue:
+                    18 / 255
             )
 
         case .notTaught:
@@ -4346,7 +4687,7 @@ private struct MaterialsCoachStatusSelector:
     }
 }
 
-private struct MaterialsSingleMarkCircleButton:
+private struct MaterialsTraineeStatusSelector:
     View {
 
     @Environment(\.colorScheme)
@@ -4355,223 +4696,289 @@ private struct MaterialsSingleMarkCircleButton:
     let mark:
         MaterialsView.RowMark?
 
-    let onTap:
-        () -> Void
+    let updatedAt:
+        Int64
 
-    @State private var pressed:
-        Bool = false
+    let buttonWidth:
+        CGFloat
 
-    private var fillColor:
-        Color {
+    let isEnglish: Bool
 
-        switch mark {
+    let onSelect:
+        (MaterialsView.RowMark?) -> Void
 
-        case .mastered:
-
-            return KmiAppTheme
-                .success(
-                    for:
-                        colorScheme
-                )
-
-        case .unknown:
-
-            return KmiAppTheme
-                .error(
-                    for:
-                        colorScheme
-                )
-
-        case nil:
-
-            return KmiAppTheme
-                .surface(
-                    for:
-                        colorScheme
-                )
-        }
-    }
-
-    private var strokeColor:
-        Color {
-
-        switch mark {
-
-        case .mastered:
-
-            return KmiAppTheme
-                .success(
-                    for:
-                        colorScheme
-                )
-                .opacity(
-                    0.34
-                )
-
-        case .unknown:
-
-            return KmiAppTheme
-                .error(
-                    for:
-                        colorScheme
-                )
-                .opacity(
-                    0.34
-                )
-
-        case nil:
-
-            return KmiAppTheme
-                .outline(
-                    for:
-                        colorScheme
-                )
-                .opacity(
-                    0.28
-                )
-        }
-    }
-
-    private var iconName:
-        String? {
-
-        switch mark {
-
-        case .mastered:
-            return "checkmark"
-
-        case .unknown:
-            return "xmark"
-
-        case nil:
-            return nil
-        }
-    }
-
-    private var iconColor:
-        Color {
-
-        switch mark {
-
-        case .mastered,
-             .unknown:
-
-            return Color.white
-
-        case nil:
-
-            return KmiAppTheme
-                .onSurfaceVariant(
-                    for:
-                        colorScheme
-                )
-        }
-    }
-
-    private var accessibilityTitle:
-        String {
-
-        switch mark {
-
-        case .mastered:
-            return "Known"
-
-        case .unknown:
-            return "Unknown"
-
-        case nil:
-            return "Not marked"
-        }
-    }
+    private let statuses:
+        [MaterialsView.RowMark] = [
+            .mastered,
+            .partiallyKnown,
+            .unknown
+        ]
 
     var body: some View {
 
-        Button {
+        HStack(
+            spacing:
+                4
+        ) {
 
-            withAnimation(
-                .easeOut(
-                    duration:
-                        0.10
+            ForEach(
+                statuses,
+                id:
+                    \.rawValue
+            ) { status in
+
+                statusButton(
+                    status
                 )
-            ) {
-
-                pressed =
-                    true
             }
+        }
+        .frame(
+            maxWidth:
+                .infinity
+        )
+    }
 
-            onTap()
+    private func statusButton(
+        _ status:
+            MaterialsView.RowMark
+    ) -> some View {
 
-            DispatchQueue.main
-                .asyncAfter(
-                    deadline:
-                        .now() + 0.12
-                ) {
+        let selected =
+            mark == status
 
-                    withAnimation(
-                        .easeOut(
-                            duration:
-                                0.12
-                        )
-                    ) {
+        let activeColor =
+            color(
+                for:
+                    status
+            )
 
-                        pressed =
-                            false
-                    }
-                }
+        return Button {
+
+            onSelect(
+                selected
+                    ? nil
+                    : status
+            )
 
         } label: {
 
-            ZStack {
+            VStack(
+                spacing:
+                    1
+            ) {
 
-                Circle()
-                    .fill(
-                        fillColor
+                Text(
+                    label(
+                        for:
+                            status
                     )
-                    .frame(
-                        width:
-                            36,
-                        height:
-                            36
-                    )
+                )
+                .kmiTypography(
+                    .caption
+                )
+                .fontWeight(
+                    selected
+                        ? .heavy
+                        : .bold
+                )
+                .foregroundStyle(
+                    selected
+                        ? activeColor
+                        : KmiAppTheme
+                            .onSurfaceVariant(
+                                for:
+                                    colorScheme
+                            )
+                )
+                .lineLimit(
+                    1
+                )
+                .minimumScaleFactor(
+                    0.70
+                )
 
-                Circle()
-                    .stroke(
-                        strokeColor,
-                        lineWidth:
-                            1.2
-                    )
-                    .frame(
-                        width:
-                            36,
-                        height:
-                            36
-                    )
+                if selected &&
+                    updatedAt > 0 {
 
-                if let iconName {
-
-                    Image(
-                        systemName:
-                            iconName
+                    Text(
+                        formattedDate(
+                            updatedAt
+                        )
                     )
-                    .kmiIconSize(
-                        15
+                    .kmiTypography(
+                        .caption
                     )
                     .foregroundStyle(
-                        iconColor
+                        activeColor.opacity(
+                            0.88
+                        )
+                    )
+                    .lineLimit(
+                        1
+                    )
+                    .minimumScaleFactor(
+                        0.72
                     )
                 }
             }
-            .scaleEffect(
-                pressed
-                    ? 0.92
-                    : 1.0
+            .frame(
+                maxWidth:
+                    .infinity,
+                maxHeight:
+                    .infinity
             )
+            .background {
+
+                RoundedRectangle(
+                    cornerRadius:
+                        7,
+                    style:
+                        .continuous
+                )
+                .fill(
+                    activeColor.opacity(
+                        selected
+                            ? (
+                                colorScheme == .dark
+                                    ? 0.18
+                                    : 0.10
+                            )
+                            : (
+                                colorScheme == .dark
+                                    ? 0.08
+                                    : 0.05
+                            )
+                    )
+                )
+            }
+            .overlay {
+
+                RoundedRectangle(
+                    cornerRadius:
+                        7,
+                    style:
+                        .continuous
+                )
+                .stroke(
+                    activeColor.opacity(
+                        selected
+                            ? 0.46
+                            : 0.16
+                    ),
+                    lineWidth:
+                        selected
+                            ? 0.9
+                            : 0.7
+                )
+            }
         }
         .buttonStyle(
             .plain
         )
+        .frame(
+            width:
+                buttonWidth,
+            height:
+                40
+        )
         .accessibilityLabel(
-            accessibilityTitle
+            label(
+                for:
+                    status
+            )
+        )
+    }
+
+    private func label(
+        for status:
+            MaterialsView.RowMark
+    ) -> String {
+
+        switch status {
+
+        case .mastered:
+
+            return isEnglish
+                ? "Known"
+                : "יודע"
+
+        case .partiallyKnown:
+
+            return isEnglish
+                ? "Partly"
+                : "חלקית"
+
+        case .unknown:
+
+            return isEnglish
+                ? "Unknown"
+                : "לא יודע"
+        }
+    }
+
+    private func color(
+        for status:
+            MaterialsView.RowMark
+    ) -> Color {
+
+        switch status {
+
+        case .mastered:
+
+            return Color(
+                red:
+                    47 / 255,
+                green:
+                    155 / 255,
+                blue:
+                    78 / 255
+            )
+
+        case .partiallyKnown:
+
+            return Color(
+                red:
+                    185 / 255,
+                green:
+                    107 / 255,
+                blue:
+                    18 / 255
+            )
+
+        case .unknown:
+
+            return Color(
+                red:
+                    198 / 255,
+                green:
+                    79 / 255,
+                blue:
+                    85 / 255
+            )
+        }
+    }
+
+    private func formattedDate(
+        _ millis: Int64
+    ) -> String {
+
+        let date =
+            Date(
+                timeIntervalSince1970:
+                    TimeInterval(
+                        millis
+                    ) / 1000
+            )
+
+        let formatter =
+            DateFormatter()
+
+        formatter.dateFormat =
+            "dd/MM/yy"
+
+        return formatter.string(
+            from:
+                date
         )
     }
 }
@@ -6554,6 +6961,11 @@ enum MaterialsPdfGeneratorIOS {
         let knownTitle =
             isEnglish ? "Known" : "יודע"
 
+        let partiallyKnownTitle =
+            isEnglish
+            ? "Partially known"
+            : "יודע חלקית"
+
         let unknownTitle =
             isEnglish ? "Unknown" : "לא יודע"
 
@@ -6598,6 +7010,11 @@ enum MaterialsPdfGeneratorIOS {
         let knownCount =
             items.filter { item in
                 item.status == knownTitle
+            }.count
+
+        let partiallyKnownCount =
+            items.filter { item in
+                item.status == partiallyKnownTitle
             }.count
 
         let unknownCount =
@@ -6688,14 +7105,14 @@ enum MaterialsPdfGeneratorIOS {
                     knownTitle
                 ),
                 (
-                    String(unknownCount),
-                    unknownTitle
+                    String(partiallyKnownCount),
+                    isEnglish
+                        ? "Partial"
+                        : "חלקית"
                 ),
                 (
-                    String(excludedCount),
-                    isEnglish
-                        ? "Excluded"
-                        : "מוחרגים"
+                    String(unknownCount),
+                    unknownTitle
                 ),
                 (
                     String(favoritesCount),
@@ -6874,6 +7291,19 @@ enum MaterialsPdfGeneratorIOS {
                     red: 52 / 255,
                     green: 120 / 255,
                     blue: 212 / 255,
+                    alpha: 1
+                )
+            }
+
+            if item.status == (
+                isEnglish
+                    ? "Partially known"
+                    : "יודע חלקית"
+            ) {
+                return UIColor(
+                    red: 185 / 255,
+                    green: 107 / 255,
+                    blue: 18 / 255,
                     alpha: 1
                 )
             }

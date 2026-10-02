@@ -66,9 +66,11 @@ enum MonthlyTrainingBoardBuilder {
             let effectiveTrainings: [MonthlyBoardTrainingItem]
 
             if archiveTrainings != nil {
+                // נתוני הארכיון כבר כוללים חישוב סטטוס.
                 effectiveTrainings = trainingsByKey[key] ?? []
             } else {
-                effectiveTrainings = (isBlocked || !existingHolidays.isEmpty)
+                // רק ביטול שנקבע במקור הגלובלי מסתיר אימונים.
+                effectiveTrainings = isBlocked
                     ? []
                     : (trainingsByKey[key] ?? [])
             }

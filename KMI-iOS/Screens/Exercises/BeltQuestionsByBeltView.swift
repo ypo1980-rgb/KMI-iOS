@@ -195,7 +195,10 @@ struct BeltQuestionsByBeltView: View {
     // ✅ subject-based flow כמו באנדרואיד:
     @State private var selectedSubjectForSubTopics: SubjectTopic? = nil
     @State private var selectedSubjectSectionRoute: SubjectSectionExerciseRoute? = nil
-    
+    // נשמר ריק בכוונה - המיקום מחושב דרך topicFrames
+    @State private var topicsScrollOffset: CGFloat = 0
+    @State private var topicFrames:
+        [String: CGFloat] = [:]
     // ✅ NEW: nav גלובאלי (כדי לנווט למסכים עטופים ב-KmiRootLayout)
     @EnvironmentObject private var nav: AppNavModel
 
@@ -391,22 +394,22 @@ struct BeltQuestionsByBeltView: View {
         let cleanTopicTitle =
             topicTitle
                 .trimmingCharacters(
-                    in: .whitespacesAndNewlines
+                    in:
+                        .whitespacesAndNewlines
                 )
 
-        /*
-         * קריאה אחת בלבד ל-ContentRepo.
-         */
-        let topLevelSubTopics =
+        let stats =
+            KmiExerciseCountProvider.topicStats(
+                belt: belt,
+                topicTitle: cleanTopicTitle
+            )
+
+        let subTitles =
             ContentRepo.shared
                 .getSubTopicsFor(
                     belt: belt,
-                    topicTitle:
-                        cleanTopicTitle
+                    topicTitle: cleanTopicTitle
                 )
-
-        let cleanSubTitles =
-            topLevelSubTopics
                 .map {
                     $0.title
                         .trimmingCharacters(
@@ -421,53 +424,16 @@ struct BeltQuestionsByBeltView: View {
                 .reduce(
                     into: [String]()
                 ) { result, title in
-
-                    if !result.contains(
-                        title
-                    ) {
-                        result.append(
-                            title
-                        )
+                    if !result.contains(title) {
+                        result.append(title)
                     }
                 }
 
-        /*
-         * סריקת BFS ללא removeFirst().
-         *
-         * removeFirst() מזיז את כל המערך
-         * בכל איטרציה.
-         */
-        var pendingSubTopics =
-            topLevelSubTopics
-
-        var cursor = 0
-
-        var totalCount = 0
-
-        while cursor <
-            pendingSubTopics.count {
-
-            let current =
-                pendingSubTopics[
-                    cursor
-                ]
-
-            totalCount +=
-                current.items.count
-
-            pendingSubTopics.append(
-                contentsOf:
-                    current.subTopics
-            )
-
-            cursor += 1
-        }
-
         return TopicDetailsUi(
             itemCount:
-                totalCount,
+                stats.exerciseCount,
             subTitles:
-                cleanSubTitles
+                subTitles
         )
     }
 
@@ -478,10 +444,13 @@ struct BeltQuestionsByBeltView: View {
         topicTitle: String,
         subTitles _: [String]
     ) -> Int {
-        deepExerciseCount(
-            belt: belt,
-            topicTitle: topicTitle
-        )
+
+        KmiExerciseCountProvider
+            .topicStats(
+                belt: belt,
+                topicTitle: topicTitle
+            )
+            .exerciseCount
     }
     
     private func hasRealSubTopicsForUi(title: String, details: TopicDetailsUi) -> Bool {
@@ -1467,6 +1436,12 @@ struct BeltQuestionsByBeltView: View {
                     isExpanded
                         ? nil
                         : cleanTopicTitle
+
+                if isExpanded {
+                    topicFrames.removeValue(
+                        forKey: cleanTopicTitle
+                    )
+                }
             }
 
             return
@@ -2106,6 +2081,8 @@ struct BeltQuestionsByBeltView: View {
 
             KmiAppBackground()
 
+            stickyHeaderOverlay
+
             VStack(spacing: 0) {
 
                 beltModeTabs
@@ -2278,6 +2255,8 @@ struct BeltQuestionsByBeltView: View {
             expandedTopic =
                 nil
 
+            topicFrames.removeAll()
+
             /*
              * אם החגורה כבר נפתחה בעבר:
              * O(1), אין טעינת ContentRepo.
@@ -2338,10 +2317,9 @@ struct BeltQuestionsByBeltView: View {
                 effectiveLanguageCode
         ) { _, _ in
 
-            /*
-             * טקסטי subtitle משתנים
-             * בין עברית לאנגלית.
-             */
+            topicFrames.removeAll()
+            expandedTopic = nil
+
             ensureBeltTopicsCache(
                 for:
                     selectedBelt,
@@ -3378,81 +3356,13 @@ struct BeltQuestionsByBeltView: View {
         subTopicTitle: String
     ) -> Int {
 
-        let cleanTopicTitle =
-            topicTitle
-                .trimmingCharacters(
-                    in:
-                        .whitespacesAndNewlines
-                )
-
-        let cleanSubTopicTitle =
-            subTopicTitle
-                .trimmingCharacters(
-                    in:
-                        .whitespacesAndNewlines
-                )
-
-        let topLevelSubTopics =
-            ContentRepo.shared
-                .getSubTopicsFor(
-                    belt:
-                        belt,
-                    topicTitle:
-                        cleanTopicTitle
-                )
-
-        guard
-            let matchingSubTopic =
-                topLevelSubTopics
-                    .first(
-                        where: {
-                            $0.title
-                                .trimmingCharacters(
-                                    in:
-                                        .whitespacesAndNewlines
-                                )
-                            ==
-                            cleanSubTopicTitle
-                        }
-                    )
-        else {
-
-            return 0
-        }
-
-        /*
-         * BFS עם cursor.
-         *
-         * אין removeFirst(),
-         * ולכן אין הזזת מערך בכל איטרציה.
-         */
-        var pendingSubTopics = [
-            matchingSubTopic
-        ]
-
-        var cursor = 0
-        var totalCount = 0
-
-        while cursor <
-            pendingSubTopics.count {
-
-            let current =
-                pendingSubTopics[
-                    cursor
-                ]
-
-            totalCount +=
-                current.items.count
-
-            pendingSubTopics.append(
-                contentsOf:
-                    current.subTopics
+        KmiExerciseCountProvider
+            .subTopicStats(
+                belt: belt,
+                topicTitle: topicTitle,
+                subTopicTitle: subTopicTitle
             )
-
-            cursor += 1
-        }
-
-        return totalCount
+            .exerciseCount
     }
 
     @ViewBuilder
@@ -4207,6 +4117,18 @@ struct BeltQuestionsByBeltView: View {
 
                             VStack(spacing: 0) {
 
+                                GeometryReader { geo in
+                                    Color.clear
+                                        .preference(
+                                            key: BeltTopicsScrollOffsetKey.self,
+                                            value:
+                                                geo.frame(
+                                                    in: .named("beltTopicsScroll")
+                                                ).minY
+                                        )
+                                }
+                                .frame(height: 0)
+
                                 Color.clear
                                     .frame(height: 0)
                                     .id(
@@ -4265,6 +4187,21 @@ struct BeltQuestionsByBeltView: View {
                                         rowMinHeight:
                                             rowMinHeight
                                     )
+                                    .background(
+                                        GeometryReader { geo in
+                                            Color.clear.preference(
+                                                key: BeltTopicFrameKey.self,
+                                                value: [
+                                                    topicTitle:
+                                                        geo.frame(
+                                                            in: .named(
+                                                                "beltTopicsScroll"
+                                                            )
+                                                        ).minY
+                                                ]
+                                            )
+                                        }
+                                    )
 
                                     if index !=
                                         beltTopicsUi.count - 1 {
@@ -4285,6 +4222,9 @@ struct BeltQuestionsByBeltView: View {
                             height:
                                 listHeight
                         )
+                        .coordinateSpace(
+                            name: "beltTopicsScroll"
+                        )
                         .onChange(
                             of: selectedBelt
                         ) { _, _ in
@@ -4293,6 +4233,16 @@ struct BeltQuestionsByBeltView: View {
                                 "topics_top_anchor",
                                 anchor: .top
                             )
+                        }
+                        .onPreferenceChange(
+                            BeltTopicsScrollOffsetKey.self
+                        ) { value in
+                            topicsScrollOffset = value
+                        }
+                        .onPreferenceChange(
+                            BeltTopicFrameKey.self
+                        ) { value in
+                            topicFrames = value
                         }
                     }
                 }
@@ -4345,6 +4295,87 @@ struct BeltQuestionsByBeltView: View {
         .allowsHitTesting(
             !quickMenuOpen
         )
+    }
+   
+    private var stickyHeaderOverlay: some View {
+
+        expandedTopicStickyHeader
+            .padding(.top, 52)
+            .zIndex(200)
+    }
+
+    private var expandedTopicStickyHeader: some View {
+
+        Group {
+            if let expandedTopic,
+               let topicOffset = topicFrames[expandedTopic],
+               topicOffset < 0 {
+
+                HStack(spacing: 8) {
+
+                    RoundedRectangle(
+                        cornerRadius: 999,
+                        style: .continuous
+                    )
+                    .fill(
+                        readableBeltAccent
+                    )
+                    .frame(
+                        width: 4,
+                        height: 24
+                    )
+
+                    Text(
+                        uiTopicTitle(expandedTopic)
+                    )
+                    .kmiTypography(
+                        .cardTitle
+                    )
+                    .foregroundStyle(
+                        byBeltTitleColor
+                    )
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment:
+                            isEnglish
+                                ? .leading
+                                : .trailing
+                    )
+
+                    Image(
+                        systemName:
+                            "chevron.up"
+                    )
+                    .kmiIconSize(13)
+                    .foregroundStyle(
+                        readableBeltAccent
+                    )
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 38)
+                .background(
+                    KmiAppTheme.surface(
+                        for: colorScheme
+                    )
+                )
+                .overlay(
+                    Rectangle()
+                        .fill(
+                            readableBeltAccent.opacity(0.35)
+                        )
+                        .frame(height: 2),
+                    alignment: .bottom
+                )
+                .transition(
+                    .move(edge: .top)
+                    .combined(
+                        with: .opacity
+                    )
+                )
+            }
+        }
     }
     
     // MARK: - Belt Palette + Wheel4
@@ -4986,6 +5017,35 @@ struct BeltQuestionsByBeltView: View {
                 topicTitle: parts[1],
                 item: parts[2]
             )
+        }
+    }
+}
+
+private struct BeltTopicsScrollOffsetKey: PreferenceKey {
+
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(
+        value: inout CGFloat,
+        nextValue: () -> CGFloat
+    ) {
+        value = nextValue()
+    }
+}
+
+private struct BeltTopicFrameKey: PreferenceKey {
+
+    static var defaultValue:
+        [String: CGFloat] = [:]
+
+    static func reduce(
+        value: inout [String: CGFloat],
+        nextValue: () -> [String: CGFloat]
+    ) {
+        value.merge(
+            nextValue()
+        ) { _, new in
+            new
         }
     }
 }

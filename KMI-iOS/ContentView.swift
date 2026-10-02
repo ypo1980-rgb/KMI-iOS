@@ -415,6 +415,9 @@ struct ContentView: View {
     @State private var didEvaluateOnboarding =
         false
 
+    @AppStorage("user_role")
+    private var storedUserRole: String = ""
+
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
     @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
@@ -472,33 +475,17 @@ struct ContentView: View {
     }
 
     private var effectiveRole: String {
-        let defaults = UserDefaults.standard
+        let localRole = normalizeRole(
+            storedUserRole
+        )
 
-        let profileRole = normalizeRole(auth.userRole)
-
-        let storedCandidates = [
-            defaults.string(forKey: "user_role"),
-            defaults.string(forKey: "role"),
-            defaults.string(forKey: "userRole"),
-            defaults.string(forKey: "profile_role")
-        ]
-        .compactMap { $0 }
-        .map { normalizeRole($0) }
-        .filter { !$0.isEmpty }
-
-        if isCoachRole(profileRole) {
-            return profileRole
+        if !localRole.isEmpty {
+            return localRole
         }
 
-        if let coachStoredRole = storedCandidates.first(where: { isCoachRole($0) }) {
-            return coachStoredRole
-        }
-
-        if let firstStoredRole = storedCandidates.first {
-            return firstStoredRole
-        }
-
-        return profileRole
+        return normalizeRole(
+            auth.userRole
+        )
     }
 
     private var isCoachUser: Bool {
@@ -1368,32 +1355,36 @@ struct ContentView: View {
                                     nav.pop()
                                 },
                                 onSubmit: { formState in
-                                    let defaults = UserDefaults.standard
+                                    formState.persistToUserDefaults()
 
-                                    defaults.set(formState.fullName, forKey: "fullName")
-                                    defaults.set(formState.phone, forKey: "phone")
-                                    defaults.set(formState.email, forKey: "email")
-                                    defaults.set(formState.region, forKey: "region")
-                                    defaults.set(Array(formState.branches), forKey: "branches")
-                                    defaults.set(Array(formState.groups), forKey: "groups")
-                                    defaults.set(formState.activeBranch, forKey: "active_branch")
-                                    defaults.set(formState.activeGroup, forKey: "active_group")
-                                    defaults.set(formState.username, forKey: "username")
-                                    defaults.set(formState.gender, forKey: "gender")
-                                    defaults.set(formState.birthDay, forKey: "birthDay")
-                                    defaults.set(formState.birthMonth, forKey: "birthMonth")
-                                    defaults.set(formState.birthYear, forKey: "birthYear")
-                                    defaults.set(formState.belt, forKey: "current_belt")
-                                    defaults.set(formState.wantsSms, forKey: "wantsSms")
-                                    defaults.set(formState.acceptsTerms, forKey: "acceptsTerms")
+                                    let defaults =
+                                        UserDefaults.standard
 
-                                    let resolvedRole: String = {
-                                        if formState.role == .coach {
-                                            return "coach"
-                                        }
+                                    /*
+                                     * subscribeSms הוא המפתח התואם
+                                     * ל־Android.
+                                     * wantsSms נשמר לתאימות לאחור.
+                                     */
+                                    defaults.set(
+                                        formState.wantsSms,
+                                        forKey:
+                                            "subscribeSms"
+                                    )
 
-                                        return "trainee"
-                                    }()
+                                    defaults.set(
+                                        formState.wantsSms,
+                                        forKey:
+                                            "wantsSms"
+                                    )
+
+                                    defaults.set(
+                                        formState.acceptsTerms,
+                                        forKey:
+                                            "acceptsTerms"
+                                    )
+
+                                    let resolvedRole =
+                                        formState.roleKey
 
                                     /*
                                      * מקור אמת יחיד לתפקיד הפעיל.
@@ -1405,12 +1396,6 @@ struct ContentView: View {
                                     auth.setActiveUserRole(
                                         resolvedRole
                                     )
-
-                                    /*
-                                     * טעינה חוזרת מהשרת מתבצעת לאחר
-                                     * שהבחירה המקומית כבר הוצגה בכותרת.
-                                     */
-                                    auth.reloadProfileIfSignedIn()
 
                                     nav.pop()
                                 },
@@ -1541,6 +1526,10 @@ struct ContentView: View {
                             TrainingArchiveView(
                                 sources: sources,
                                 isEnglish: isEnglish,
+                                summaryOwnerUid:
+                                    Auth.auth().currentUser?.uid ?? "",
+                                summaryOwnerRole:
+                                    isCoachUser ? .coach : .trainee,
                                 coachDisplayName: { realName in
                                     let cleanName = realName
                                         .trimmingCharacters(

@@ -5,10 +5,12 @@ struct TrainingSummaryView: View {
     @EnvironmentObject private var nav: AppNavModel
 
     @StateObject private var vm: TrainingSummaryViewModel
+    @ObservedObject private var demoPrivacy = DemoPrivacy.shared
     @State private var showAddExercisesSheet = false
     @State private var toastMessage: String?
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
+    @State private var shareErrorMessage: String?
 
     @State private var exerciseNotesVisibility:
         [String: Bool] = [:]
@@ -19,84 +21,40 @@ struct TrainingSummaryView: View {
     @Environment(\.colorScheme)
     private var colorScheme
 
-    private var summaryBgTop: Color {
-        colorScheme == .dark
-            ? Color(hex: 0xFF050913)
-            : Color(hex: 0xFFF8FBFF)
-    }
-
-    private var summaryBgMid1: Color {
-        colorScheme == .dark
-            ? Color(hex: 0xFF0A1728)
-            : Color(hex: 0xFFEAF4FF)
-    }
-
-    private var summaryBgMid2: Color {
-        colorScheme == .dark
-            ? Color(hex: 0xFF0B2942)
-            : Color(hex: 0xFFB7DDF7)
-    }
-
-    private var summaryBgAccent: Color {
-        colorScheme == .dark
-            ? Color(hex: 0xFF0B3B62)
-            : Color(hex: 0xFF1F78B4)
-    }
-
-    private var summaryBgBottom: Color {
-        colorScheme == .dark
-            ? Color(hex: 0xFF020B16)
-            : Color(hex: 0xFF062B4A)
-    }
-
     private var summaryCard: Color {
-        colorScheme == .dark
-            ? Color(hex: 0xFF111D2E)
-            : Color(hex: 0xFFEAF2FF)
+        KmiAppTheme.surface(for: colorScheme)
     }
 
     private var summaryCardInner: Color {
-        colorScheme == .dark
-            ? Color(hex: 0xFF18283D)
-            : Color(hex: 0xFFDDEAFF)
+        KmiAppTheme.surfaceVariant(for: colorScheme)
     }
 
     private var summaryEditorBackground: Color {
-        colorScheme == .dark
-            ? Color(hex: 0xFF0F1B2B)
-            : Color(hex: 0xFFF7FAFF)
+        KmiAppTheme.surface(for: colorScheme)
     }
 
     private var summaryBorder: Color {
-        colorScheme == .dark
-            ? Color(hex: 0xFF35506D)
-            : Color(hex: 0xFFD8E3F5)
+        KmiAppTheme.outlineVariant(for: colorScheme)
     }
 
     private var summaryDivider: Color {
-        colorScheme == .dark
-            ? Color(hex: 0xFF2C435D)
-            : Color(hex: 0xFFC7D7EE)
+        KmiAppTheme.outlineVariant(for: colorScheme)
     }
 
     private var summaryTextDark: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(0.94)
-            : Color(hex: 0xFF1E2A3D)
+        KmiAppTheme.onSurface(for: colorScheme)
     }
 
     private var summaryTextMuted: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(0.68)
-            : Color(hex: 0xFF5E6C80)
+        KmiAppTheme.onSurfaceVariant(for: colorScheme)
     }
 
     private var summaryPrimary: Color {
-        Color(hex: 0xFF0EA5E9)
+        KmiAppTheme.primary(for: colorScheme)
     }
 
     private var summaryPurple: Color {
-        Color(hex: 0xFF7B57D1)
+        KmiAppTheme.secondary(for: colorScheme)
     }
 
     private var isEnglish: Bool {
@@ -150,36 +108,12 @@ struct TrainingSummaryView: View {
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    summaryBgTop,
-                    summaryBgMid1,
-                    summaryBgMid2,
-                    summaryBgAccent,
-                    summaryBgBottom
-                ],
+                colors: KmiAppTheme.screenBackgroundColors(
+                    for: colorScheme
+                ),
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .overlay {
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(
-                            colorScheme == .dark
-                                ? 0.06
-                                : 0.16
-                        ),
-                        Color.clear,
-                        Color.white.opacity(
-                            colorScheme == .dark
-                                ? 0.03
-                                : 0.08
-                        ),
-                        Color.clear
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            }
             .ignoresSafeArea()
 
             ScrollView {
@@ -198,6 +132,7 @@ struct TrainingSummaryView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 20)
             }
+            .scrollDismissesKeyboard(.interactively)
 
             if let toastMessage {
                 VStack {
@@ -231,7 +166,26 @@ struct TrainingSummaryView: View {
                 items: shareItems
             )
         }
-        .onChange(of: vm.state.saveEventId) { _ in
+        .alert(
+            tr("לא ניתן לשתף", "Unable to Share"),
+            isPresented: Binding(
+                get: {
+                    shareErrorMessage != nil
+                },
+                set: { presented in
+                    if !presented {
+                        shareErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button(tr("אישור", "OK"), role: .cancel) {
+                shareErrorMessage = nil
+            }
+        } message: {
+            Text(shareErrorMessage ?? "")
+        }
+        .onChange(of: vm.state.saveEventId) { _, _ in
             guard let msg = vm.state.lastSaveMsg else { return }
             withAnimation {
                 toastMessage = msg
@@ -269,16 +223,66 @@ struct TrainingSummaryView: View {
                 return
             }
 
+            guard request["handled"] as? Bool != true else {
+                return
+            }
+
             request["handled"] = true
             shareSummary()
         }
     }
 
+    private var displayedCoachName: String {
+        let name = vm.state.coachName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !name.isEmpty else {
+            return tr("מאמן לא ידוע", "Unknown coach")
+        }
+
+        if demoPrivacy.isEnabled {
+            return tr("מאמן", "Coach")
+        }
+
+        return TrainingCatalogIOS.displayCoach(
+            name,
+            isEnglish: isEnglish
+        )
+    }
+
+    private func displayedExerciseName(_ name: String) -> String {
+        KmiEnglishTitleResolver.title(
+            for: name,
+            isEnglish: isEnglish
+        )
+    }
+
+    private func displayedExerciseTopic(_ topic: String) -> String {
+        topic
+            .components(separatedBy: " · ")
+            .map { part in
+                KmiEnglishTitleResolver.title(
+                    for: part.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    ),
+                    isEnglish: isEnglish
+                )
+            }
+            .joined(separator: " · ")
+    }
+
     private var selectedExercises: [SelectedExerciseUi] {
-        vm.state.selected.values.sorted {
-            $0.name.localizedCaseInsensitiveCompare(
-                $1.name
-            ) == .orderedAscending
+        vm.state.selected.values.sorted { lhs, rhs in
+            let comparison = displayedExerciseName(lhs.name)
+                .localizedCaseInsensitiveCompare(
+                    displayedExerciseName(rhs.name)
+                )
+
+            if comparison == .orderedSame {
+                return lhs.exerciseId < rhs.exerciseId
+            }
+
+            return comparison == .orderedAscending
         }
     }
 
@@ -301,7 +305,9 @@ struct TrainingSummaryView: View {
         formatter.locale =
             Locale(identifier: "en_US_POSIX")
         formatter.calendar =
-            Calendar(identifier: .gregorian)
+            ShabbatHolidayCheckerIOS.calendar
+        formatter.timeZone =
+            ShabbatHolidayCheckerIOS.timeZone
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.isLenient = false
 
@@ -364,34 +370,9 @@ struct TrainingSummaryView: View {
                     alignment: screenAlignment
                 )
 
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(
-                                    red: 0.55,
-                                    green: 0.36,
-                                    blue: 0.96
-                                ),
-                                Color(
-                                    red: 0.19,
-                                    green: 0.18,
-                                    blue: 0.51
-                                )
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(width: 38, height: 38)
-                    .overlay {
-                        Image(
-                            systemName:
-                                "figure.martial.arts"
-                        )
-                        .font(.system(size: 16))
-                        .foregroundStyle(.white)
-                    }
+                sectionHeaderIcon(
+                    systemImage: "figure.martial.arts"
+                )
             }
 
             Button {
@@ -484,24 +465,20 @@ struct TrainingSummaryView: View {
                                 "מאמן",
                                 "Coach"
                             ),
-                        value:
-                            vm.state.coachName.isEmpty
-                            ? tr(
-                                "מאמן לא ידוע",
-                                "Unknown coach"
-                            )
-                            : vm.state.coachName
+                        value: displayedCoachName
                     )
 
-                    if !vm.state.groupKey.isEmpty {
+                    if !vm.state.groupKey
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                        .isEmpty {
                         summaryInfoRow(
-                            label:
-                                tr(
-                                    "קבוצה",
-                                    "Group"
-                                ),
-                            value:
-                                vm.state.groupKey
+                            label: tr("קבוצה", "Group"),
+                            value: TrainingCatalogIOS.displayGroup(
+                                vm.state.groupKey,
+                                isEnglish: isEnglish
+                            )
                         )
                     }
                 }
@@ -521,24 +498,19 @@ struct TrainingSummaryView: View {
         label: String,
         value: String
     ) -> some View {
-        HStack(spacing: 8) {
-            Text(value)
-                .kmiFont(size: 14, weight: .semibold)
-                .foregroundStyle(summaryTextDark)
-
-            Spacer()
-
+        HStack(alignment: .top, spacing: 8) {
             Text(label)
                 .kmiFont(size: 12, weight: .bold)
                 .foregroundStyle(summaryTextMuted)
+
+            Text(value)
+                .kmiFont(size: 14, weight: .semibold)
+                .foregroundStyle(summaryTextDark)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity)
-        .environment(
-            \.layoutDirection,
-            isEnglish
-            ? .rightToLeft
-            : .leftToRight
-        )
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var addExercisesCard: some View {
@@ -657,47 +629,27 @@ struct TrainingSummaryView: View {
     private var notesCard: some View {
         card {
             sectionHeader(
-                tr(
-                    "סיכום כללי",
-                    "General summary"
-                ),
+                tr("סיכום כללי", "General summary"),
                 subtitle: tr(
                     "סיכום חופשי של האימון, תחושות, דגשים ומה לשפר",
                     "Free summary, feelings, highlights and improvements"
                 ),
-                systemImage:
-                    "note.text"
+                systemImage: "note.text"
             )
 
             summarySectionDivider
 
-            ZStack(
-                alignment:
-                    isEnglish
-                    ? .topLeading
-                    : .topTrailing
-            ) {
+            ZStack(alignment: .topLeading) {
                 TextEditor(
                     text: Binding(
-                        get: {
-                            vm.state.notes
-                        },
-                        set: {
-                            vm.setNotes($0)
-                        }
+                        get: { vm.state.notes },
+                        set: { vm.setNotes($0) }
                     )
                 )
                 .scrollContentBackground(.hidden)
-                .kmiFont(
-                    size: 16,
-                    weight: .regular
-                )
+                .kmiFont(size: 16, weight: .regular)
                 .foregroundStyle(summaryTextDark)
-                .multilineTextAlignment(
-                    isEnglish
-                        ? .leading
-                        : .trailing
-                )
+                .multilineTextAlignment(.leading)
                 .frame(minHeight: 160)
                 .padding(6)
 
@@ -708,44 +660,33 @@ struct TrainingSummaryView: View {
                     .isEmpty {
                     Text(
                         vm.state.isCoach
-                        ? tr(
-                            "דגשים מקצועיים, ביצוע, מה לשפר…",
-                            "Professional notes, performance, what to improve…"
-                        )
-                        : tr(
-                            "איך היה האימון? מה הרגשת? מה לשפר…",
-                            "How was the training? What did you feel? What should be improved…"
-                        )
+                            ? tr(
+                                "דגשים מקצועיים, ביצוע, מה לשפר…",
+                                "Professional notes, performance, what to improve…"
+                            )
+                            : tr(
+                                "איך היה האימון? מה הרגשת? מה לשפר…",
+                                "How was the training? What did you feel? What should be improved…"
+                            )
                     )
-                    .kmiFont(
-                        size: 14,
-                        weight: .medium
-                    )
-                    .foregroundStyle(
-                        summaryTextMuted.opacity(0.82)
-                    )
-                    .multilineTextAlignment(
-                        isEnglish
-                            ? .leading
-                            : .trailing
-                    )
+                    .kmiFont(size: 14, weight: .medium)
+                    .foregroundStyle(summaryTextMuted)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 15)
                     .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                 }
             }
-            .background(
-                summaryEditorBackground
-            )
+            .background(summaryEditorBackground)
             .overlay(
                 RoundedRectangle(
                     cornerRadius: 14,
                     style: .continuous
                 )
-                .stroke(
-                    summaryDivider,
-                    lineWidth: 1
-                )
+                .stroke(summaryDivider, lineWidth: 1)
             )
             .clipShape(
                 RoundedRectangle(
@@ -824,16 +765,14 @@ struct TrainingSummaryView: View {
                 .isEmpty
 
         return VStack(
-            alignment:
-                isEnglish ? .leading : .trailing,
+            alignment: .leading,
             spacing: 10
         ) {
-            Text(item.name)
+            Text(displayedExerciseName(item.name))
                 .kmiFont(size: 18, weight: .heavy)
                 .foregroundStyle(summaryTextDark)
-                .multilineTextAlignment(
-                    isEnglish ? .leading : .trailing
-                )
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(
                     maxWidth: .infinity,
                     alignment: screenAlignment
@@ -844,9 +783,11 @@ struct TrainingSummaryView: View {
                     in: .whitespacesAndNewlines
                 )
                 .isEmpty {
-                Text(item.topic)
+                Text(displayedExerciseTopic(item.topic))
                     .kmiFont(size: 11.5, weight: .semibold)
                     .foregroundStyle(summaryTextMuted)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(
                         maxWidth: .infinity,
                         alignment: screenAlignment
@@ -897,15 +838,24 @@ struct TrainingSummaryView: View {
                 } label: {
                     Image(systemName: "trash")
                         .kmiFont(size: 16, weight: .bold)
-                        .foregroundStyle(Color.red)
+                        .foregroundStyle(
+                            KmiAppTheme.onErrorContainer(
+                                for: colorScheme
+                            )
+                        )
                         .frame(width: 42, height: 42)
                         .background(
-                            Color.white.opacity(0.74)
+                            KmiAppTheme.errorContainer(
+                                for: colorScheme
+                            )
                         )
                         .overlay {
                             Circle()
                                 .stroke(
-                                    Color.red.opacity(0.55),
+                                    KmiAppTheme.onErrorContainer(
+                                        for: colorScheme
+                                    )
+                                    .opacity(0.35),
                                     lineWidth: 1
                                 )
                         }
@@ -939,11 +889,8 @@ struct TrainingSummaryView: View {
                 Text(item.highlight)
                     .kmiFont(size: 14, weight: .regular)
                     .foregroundStyle(summaryTextDark)
-                    .multilineTextAlignment(
-                        isEnglish
-                        ? .leading
-                        : .trailing
-                    )
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(
                         maxWidth: .infinity,
                         alignment: screenAlignment
@@ -962,10 +909,7 @@ struct TrainingSummaryView: View {
 
             if notesOpen {
                 VStack(
-                    alignment:
-                        isEnglish
-                        ? .leading
-                        : .trailing,
+                    alignment: .leading,
                     spacing: 6
                 ) {
                     Text(
@@ -976,6 +920,8 @@ struct TrainingSummaryView: View {
                     )
                     .kmiFont(size: 12, weight: .bold)
                     .foregroundStyle(summaryTextMuted)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(
                         maxWidth: .infinity,
                         alignment: screenAlignment
@@ -995,6 +941,8 @@ struct TrainingSummaryView: View {
                         )
                     )
                     .scrollContentBackground(.hidden)
+                    .kmiFont(size: 14, weight: .regular)
+                    .multilineTextAlignment(.leading)
                     .frame(minHeight: 90)
                     .padding(8)
                     .foregroundStyle(summaryTextDark)
@@ -1041,10 +989,39 @@ struct TrainingSummaryView: View {
         )
     }
 
+    @MainActor
     private func shareSummary() {
-        let text = vm.state.shareText
-        shareItems = [text]
-        showShareSheet = true
+        guard !showShareSheet else {
+            return
+        }
+
+        shareErrorMessage = nil
+        shareItems = []
+
+        do {
+            let url = try TrainingSummaryPdfExporter.export(
+                state: vm.state,
+                isEnglish: isEnglish
+            )
+
+            shareItems = [url]
+            showShareSheet = true
+        } catch TrainingSummaryPdfExportError.invalidDate {
+            shareErrorMessage = tr(
+                "יש לבחור תאריך אימון תקין לפני השיתוף.",
+                "Choose a valid training date before sharing."
+            )
+        } catch TrainingSummaryPdfExportError.unableToFitContent {
+            shareErrorMessage = tr(
+                "לא ניתן לסדר את תוכן הסיכום במסמך PDF.",
+                "Unable to arrange the summary content in the PDF."
+            )
+        } catch {
+            shareErrorMessage = tr(
+                "לא ניתן ליצור את קובץ ה־PDF. נסה שוב.",
+                "Unable to create the PDF file. Please try again."
+            )
+        }
     }
 
     private var summarySectionDivider: some View {
@@ -1058,12 +1035,11 @@ struct TrainingSummaryView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(
-            alignment:
-                isEnglish ? .leading : .trailing,
-            spacing: 12,
+            alignment: isEnglish ? .leading : .trailing,
+            spacing: 10,
             content: content
         )
-        .padding(16)
+        .padding(14)
         .frame(maxWidth: .infinity)
         .background(summaryCard)
         .overlay(
@@ -1082,12 +1058,6 @@ struct TrainingSummaryView: View {
                 style: .continuous
             )
         )
-        .shadow(
-            color: Color.black.opacity(0.08),
-            radius: 8,
-            x: 0,
-            y: 4
-        )
     }
 
     private func sectionHeader(
@@ -1095,34 +1065,14 @@ struct TrainingSummaryView: View {
         subtitle: String,
         systemImage: String
     ) -> some View {
-        HStack(
-            alignment: .center,
-            spacing: 10
-        ) {
-            if isEnglish {
-                headerTextBlock(
-                    title: title,
-                    subtitle: subtitle
-                )
+        HStack(alignment: .center, spacing: 10) {
+            sectionHeaderIcon(systemImage: systemImage)
 
-                sectionHeaderIcon(
-                    systemImage: systemImage
-                )
-            } else {
-                headerTextBlock(
-                    title: title,
-                    subtitle: subtitle
-                )
-
-                sectionHeaderIcon(
-                    systemImage: systemImage
-                )
-            }
+            headerTextBlock(
+                title: title,
+                subtitle: subtitle
+            )
         }
-        .environment(
-            \.layoutDirection,
-            .leftToRight
-        )
     }
 
     private func headerTextBlock(
@@ -1130,126 +1080,93 @@ struct TrainingSummaryView: View {
         subtitle: String
     ) -> some View {
         VStack(
-            alignment:
-                isEnglish
-                ? .leading
-                : .trailing,
+            alignment: isEnglish ? .leading : .trailing,
             spacing: 3
         ) {
             Text(title)
-                .kmiFont(
-                    size: 17,
-                    weight: .heavy
-                )
+                .kmiFont(size: 17, weight: .heavy)
                 .foregroundStyle(summaryTextDark)
-                .multilineTextAlignment(
-                    isEnglish
-                        ? .leading
-                        : .trailing
-                )
-                .frame(
-                    maxWidth: .infinity,
-                    alignment:
-                        isEnglish
-                        ? .leading
-                        : .trailing
-                )
 
             Text(subtitle)
-                .kmiFont(
-                    size: 12,
-                    weight: .semibold
-                )
+                .kmiFont(size: 12, weight: .semibold)
                 .foregroundStyle(summaryTextMuted)
-                .multilineTextAlignment(
-                    isEnglish
-                        ? .leading
-                        : .trailing
-                )
-                .frame(
-                    maxWidth: .infinity,
-                    alignment:
-                        isEnglish
-                        ? .leading
-                        : .trailing
-                )
         }
+        .multilineTextAlignment(
+            isEnglish ? .leading : .trailing
+        )
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(
+            maxWidth: .infinity,
+            alignment: screenAlignment
+        )
     }
 
     private func sectionHeaderIcon(
         systemImage: String
     ) -> some View {
-        ZStack {
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [
-                            Color(hex: 0xFF22D3EE),
-                            Color(hex: 0xFF0EA5E9),
-                            Color(hex: 0xFF1E3A8A)
-                        ],
-                        center: .topLeading,
-                        startRadius: 0,
-                        endRadius: 34
+        Image(systemName: systemImage)
+            .kmiIconSize(18)
+            .foregroundStyle(
+                KmiAppTheme.onPrimaryContainer(
+                    for: colorScheme
+                )
+            )
+            .padding(11)
+            .background(
+                Circle()
+                    .fill(
+                        KmiAppTheme.primaryContainer(
+                            for: colorScheme
+                        )
                     )
-                )
-                .frame(
-                    width: 42,
-                    height: 42
-                )
+            )
+            .accessibilityHidden(true)
+    }
 
-            Image(systemName: systemImage)
-                .kmiFont(
-                    size: 18,
-                    weight: .black
-                )
-                .foregroundStyle(.white)
-        }
-        .shadow(
-            color: summaryPrimary.opacity(0.20),
-            radius: 5,
-            x: 0,
-            y: 3
-        )
-        .accessibilityHidden(true)
+    private func summaryIsoFormatter() -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = ShabbatHolidayCheckerIOS.calendar
+        formatter.timeZone = ShabbatHolidayCheckerIOS.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        return formatter
     }
 
     private func formattedDate(
         _ iso: String
     ) -> String {
-        let input = DateFormatter()
-        input.locale =
-            Locale(identifier: "en_US_POSIX")
-        input.calendar =
-            Calendar(identifier: .gregorian)
-        input.dateFormat = "yyyy-MM-dd"
-        input.isLenient = false
+        let input = summaryIsoFormatter()
 
-        guard let date = input.date(from: iso) else {
+        guard let date = input.date(from: iso),
+              input.string(from: date) == iso else {
             return iso
         }
 
         let output = DateFormatter()
-        output.locale =
-            Locale(
-                identifier:
-                    isEnglish
-                    ? "en_US"
-                    : "he_IL"
-            )
-        output.calendar =
-            Calendar(identifier: .gregorian)
-        output.dateFormat =
-            "EEEE, d MMM yyyy"
+        output.locale = Locale(
+            identifier: isEnglish ? "en_US" : "he_IL"
+        )
+        output.calendar = ShabbatHolidayCheckerIOS.calendar
+        output.timeZone = ShabbatHolidayCheckerIOS.timeZone
+        output.dateFormat = "EEEE, d MMM yyyy"
 
         return output.string(from: date)
     }
 
-    private func dateComponents(from iso: String) -> DateComponents {
-        let input = DateFormatter()
-        input.locale = Locale(identifier: "en_US_POSIX")
-        input.dateFormat = "yyyy-MM-dd"
-        guard let date = input.date(from: iso) else { return DateComponents() }
-        return Calendar.current.dateComponents([.year, .month, .day], from: date)
+    private func dateComponents(
+        from iso: String
+    ) -> DateComponents {
+        let formatter = summaryIsoFormatter()
+
+        guard let date = formatter.date(from: iso),
+              formatter.string(from: date) == iso else {
+            return DateComponents()
+        }
+
+        return ShabbatHolidayCheckerIOS.calendar.dateComponents(
+            [.year, .month, .day],
+            from: date
+        )
     }
 }

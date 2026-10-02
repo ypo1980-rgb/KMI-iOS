@@ -2,6 +2,22 @@ import SwiftUI
 
 struct MonthlyTrainingBoardView: View {
     @EnvironmentObject private var nav: AppNavModel
+    @Environment(\.colorScheme) private var colorScheme
+
+    @AppStorage("kmi_app_language")
+    private var languageCode: String = "he"
+
+    private var isEnglish: Bool {
+        let clean = languageCode
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        return clean == "en" || clean == "english"
+    }
+
+    private func tr(_ he: String, _ en: String) -> String {
+        isEnglish ? en : he
+    }
 
     @State private var visibleMonth: Date = MonthlyTrainingBoardBuilder.startOfMonth(Date())
     @State private var selectedDate: Date? = Date()
@@ -9,9 +25,18 @@ struct MonthlyTrainingBoardView: View {
     private let calendar = MonthlyTrainingBoardBuilder.makeCalendar()
 
     var body: some View {
-        let monthData = MonthlyTrainingBoardBuilder.buildMonth(
+        let builtMonth = MonthlyTrainingBoardBuilder.buildMonth(
             for: visibleMonth,
             calendar: calendar
+        )
+
+        let monthData = MonthlyBoardMonthData(
+            monthDate: builtMonth.monthDate,
+            titleHeb: localizedMonthTitle,
+            weekdaySymbolsHeb: isEnglish
+                ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+                : builtMonth.weekdaySymbolsHeb,
+            dayItems: builtMonth.dayItems
         )
 
         let selectedDay = selectedDayItem(from: monthData)
@@ -21,12 +46,9 @@ struct MonthlyTrainingBoardView: View {
 
         ZStack {
             LinearGradient(
-                colors: [
-                    Color(red: 0.02, green: 0.03, blue: 0.10),
-                    Color(red: 0.05, green: 0.08, blue: 0.18),
-                    Color(red: 0.08, green: 0.21, blue: 0.42),
-                    Color(red: 0.10, green: 0.40, blue: 0.72)
-                ],
+                colors: KmiAppTheme.screenBackgroundColors(
+                    for: colorScheme
+                ),
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -59,7 +81,17 @@ struct MonthlyTrainingBoardView: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .onChange(of: visibleMonth) { newMonth in
+        .environment(
+            \.layoutDirection,
+            isEnglish ? .leftToRight : .rightToLeft
+        )
+        .environment(
+            \.locale,
+            Locale(identifier: isEnglish ? "en_US" : "he_IL")
+        )
+        .environment(\.calendar, calendar)
+        .environment(\.timeZone, calendar.timeZone)
+        .onChange(of: visibleMonth) { _, newMonth in
             if let firstDay = firstSelectableDay(in: newMonth) {
                 if let selectedDate {
                     if !calendar.isDate(selectedDate, equalTo: newMonth, toGranularity: .month) {
@@ -74,81 +106,156 @@ struct MonthlyTrainingBoardView: View {
         }
     }
 
-    private func headerCard(monthData: MonthlyBoardMonthData) -> some View {
-        HStack(spacing: 10) {
-            Button {
-                visibleMonth = MonthlyTrainingBoardBuilder.nextMonth(from: visibleMonth, calendar: calendar)
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 16, weight: .heavy))
-                    .foregroundStyle(.white)
-                    .frame(width: 42, height: 42)
-                    .background(Color.white.opacity(0.10))
-                    .clipShape(Circle())
-            }
+    private var localizedMonthTitle: String {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.locale = Locale(
+            identifier: isEnglish ? "en_US" : "he_IL"
+        )
+        formatter.dateFormat = "LLLL yyyy"
+        return formatter.string(from: visibleMonth)
+    }
 
-            Spacer()
+    private func headerCard(
+        monthData: MonthlyBoardMonthData
+    ) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                visibleMonth =
+                    MonthlyTrainingBoardBuilder.previousMonth(
+                        from: visibleMonth,
+                        calendar: calendar
+                    )
+            } label: {
+                Image(
+                    systemName: isEnglish
+                        ? "chevron.left"
+                        : "chevron.right"
+                )
+                .kmiIconSize(16)
+                .fontWeight(.heavy)
+                .frame(width: 44, height: 44)
+                .background(
+                    Circle().fill(
+                        KmiAppTheme.primaryContainer(for: colorScheme)
+                    )
+                )
+            }
+            .accessibilityLabel(
+                tr("החודש הקודם", "Previous month")
+            )
 
             Text(monthData.titleHeb)
-                .font(.title3.weight(.heavy))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.80)
-
-            Spacer()
+                .kmiFont(size: 18, weight: .heavy)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity)
 
             Button {
-                visibleMonth = MonthlyTrainingBoardBuilder.previousMonth(from: visibleMonth, calendar: calendar)
+                visibleMonth =
+                    MonthlyTrainingBoardBuilder.nextMonth(
+                        from: visibleMonth,
+                        calendar: calendar
+                    )
             } label: {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 16, weight: .heavy))
-                    .foregroundStyle(.white)
-                    .frame(width: 42, height: 42)
-                    .background(Color.white.opacity(0.10))
-                    .clipShape(Circle())
+                Image(
+                    systemName: isEnglish
+                        ? "chevron.right"
+                        : "chevron.left"
+                )
+                .kmiIconSize(16)
+                .fontWeight(.heavy)
+                .frame(width: 44, height: 44)
+                .background(
+                    Circle().fill(
+                        KmiAppTheme.primaryContainer(for: colorScheme)
+                    )
+                )
             }
+            .accessibilityLabel(
+                tr("החודש הבא", "Next month")
+            )
         }
-        .padding(14)
-        .background(Color.white.opacity(0.08))
+        .buttonStyle(.plain)
+        .foregroundStyle(
+            KmiAppTheme.onSurface(for: colorScheme)
+        )
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(KmiAppTheme.surface(for: colorScheme))
+        )
         .overlay(
             RoundedRectangle(cornerRadius: 18)
-                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                .stroke(
+                    KmiAppTheme.outlineVariant(for: colorScheme),
+                    lineWidth: 1
+                )
         )
-        .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 
     private var legendCard: some View {
-        VStack(alignment: .trailing, spacing: 10) {
-            Text("מקרא")
-                .font(.headline.weight(.heavy))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+        VStack(alignment: .leading, spacing: 10) {
+            Text(tr("מקרא", "Legend"))
+                .kmiFont(size: 16, weight: .heavy)
 
-            legendRow(color: .blue, text: "יום עם אימון")
-            legendRow(color: .red, text: "יום עם חג")
-            legendRow(color: .cyan, text: "יום שנבחר")
-            legendRow(color: .white, text: "היום")
+            legendRow(
+                color: KmiAppTheme.primary(for: colorScheme),
+                text: tr("יום עם אימון", "Day with training")
+            )
+
+            legendRow(
+                color: KmiAppTheme.onErrorContainer(for: colorScheme),
+                text: tr("יום עם חג", "Day with a holiday")
+            )
+
+            legendRow(
+                color: KmiAppTheme.primary(for: colorScheme),
+                text: tr(
+                    "יום שנבחר — מסגרת עבה",
+                    "Selected day — thick border"
+                )
+            )
+
+            legendRow(
+                color: KmiAppTheme.secondary(for: colorScheme),
+                text: tr("היום — מסגרת", "Today — border")
+            )
         }
+        .foregroundStyle(
+            KmiAppTheme.onSurface(for: colorScheme)
+        )
         .padding(14)
-        .background(Color.white.opacity(0.08))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(KmiAppTheme.surface(for: colorScheme))
+        )
         .overlay(
             RoundedRectangle(cornerRadius: 18)
-                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                .stroke(
+                    KmiAppTheme.outlineVariant(for: colorScheme),
+                    lineWidth: 1
+                )
         )
-        .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 
-    private func legendRow(color: Color, text: String) -> some View {
+    private func legendRow(
+        color: Color,
+        text: String
+    ) -> some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(color.opacity(0.95))
+                .fill(color)
                 .frame(width: 10, height: 10)
+                .accessibilityHidden(true)
 
             Text(text)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.92))
+                .kmiFont(size: 13, weight: .semibold)
+                .fixedSize(horizontal: false, vertical: true)
 
-            Spacer()
+            Spacer(minLength: 0)
         }
     }
 
@@ -168,14 +275,10 @@ struct MonthlyTrainingBoardView: View {
     private func isoDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
     }
 }
 
-private func isoDate(_ date: Date) -> String {
-    let formatter = DateFormatter()
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.dateFormat = "yyyy-MM-dd"
-    return formatter.string(from: date)
-}

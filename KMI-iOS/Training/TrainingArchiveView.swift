@@ -28,6 +28,11 @@ struct TrainingArchiveView: View {
     // שכבת התצוגה מקבלת מיפוי פרטיות מהרכיב הגלובלי.
     let coachDisplayName: (String) -> String
 
+    let summaryOwnerUid: String
+    let summaryOwnerRole: SummaryAuthorRole
+
+    @State private var calendarSummaryDates: Set<Date> = []
+
     @State private var fromDate: Date
     @State private var toDate: Date
     @State private var filter: TrainingArchiveFilter = .all
@@ -58,10 +63,15 @@ struct TrainingArchiveView: View {
     init(
         sources: [TrainingArchiveSource],
         isEnglish: Bool,
+        summaryOwnerUid: String = "",
+        summaryOwnerRole: SummaryAuthorRole = .trainee,
         coachDisplayName: @escaping (String) -> String
     ) {
         self.sources = sources
         self.isEnglish = isEnglish
+        self.summaryOwnerUid = summaryOwnerUid
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.summaryOwnerRole = summaryOwnerRole
         self.coachDisplayName = coachDisplayName
 
         let calendar = ShabbatHolidayCheckerIOS.calendar
@@ -118,10 +128,13 @@ struct TrainingArchiveView: View {
                 .padding(.horizontal, 16)
                 .background(KmiAppTheme.sectionHeaderBrush)
 
+                filterPanel
+                    .padding(.horizontal, 14)
+                    .padding(.top, 10)
+                    .padding(.bottom, 6)
+
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 10) {
-                        filterPanel
-
                         if isLoading {
                             KmiLoadingOverlay()
                                 .frame(height: 180)
@@ -137,8 +150,9 @@ struct TrainingArchiveView: View {
                             }
                         }
                     }
+                    .frame(maxWidth: .infinity)
                     .padding(.horizontal, 14)
-                    .padding(.top, 10)
+                    .padding(.top, 4)
                     .padding(.bottom, 24)
                 }
             }
@@ -160,16 +174,11 @@ struct TrainingArchiveView: View {
             stopListening()
             stopCalendarListening()
         }
-        .onChange(of: fromDate) { _, newDate in
-            if newDate > toDate {
-                toDate = newDate
+        .onChange(of: [fromDate, toDate]) { _, newRange in
+            guard newRange[0] <= newRange[1] else {
+                return
             }
-            startListening()
-        }
-        .onChange(of: toDate) { _, newDate in
-            if newDate < fromDate {
-                fromDate = newDate
-            }
+
             startListening()
         }
         .onChange(of: sources) { _, _ in
@@ -463,7 +472,8 @@ struct TrainingArchiveView: View {
             for: visibleCalendarMonth,
             calendar: calendar,
             archiveTrainings: trainings,
-            cancelledDates: cancelledDates
+            cancelledDates: cancelledDates,
+            summaryDates: calendarSummaryDates
         )
 
         return MonthlyBoardMonthData(
@@ -633,8 +643,47 @@ struct TrainingArchiveView: View {
         calendarListener = nil
     }
 
+    private func loadCalendarSummaryDates() {
+        calendarSummaryDates = []
+
+        guard !summaryOwnerUid.isEmpty,
+              let monthInterval = calendar.dateInterval(
+                  of: .month,
+                  for: visibleCalendarMonth
+              ) else {
+            return
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+
+        let storedDates =
+            TrainingSummaryLocalStore.shared.listDatesForOwnerBetween(
+                ownerUid: summaryOwnerUid,
+                role: summaryOwnerRole,
+                startIso: formatter.string(from: monthInterval.start),
+                endIsoExclusive: formatter.string(from: monthInterval.end)
+            )
+
+        calendarSummaryDates = Set(
+            storedDates.compactMap { rawDate -> Date? in
+                guard let date = formatter.date(from: rawDate),
+                      formatter.string(from: date) == rawDate else {
+                    return nil
+                }
+
+                return calendar.startOfDay(for: date)
+            }
+        )
+    }
+
     private func startCalendarListening() {
         stopCalendarListening()
+        loadCalendarSummaryDates()
 
         let currentRequestID = calendarRequestID
 
@@ -817,11 +866,15 @@ struct TrainingArchiveView: View {
                         .foregroundStyle(
                             KmiAppTheme.onSurfaceVariant(for: colorScheme)
                         )
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            if !item.training.address.isEmpty {
+            if !item.training.address
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty {
                 Text(
                     TrainingCatalogIOS.displayAddress(
                         item.training.address,

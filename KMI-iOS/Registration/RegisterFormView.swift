@@ -487,18 +487,25 @@ struct RegisterFormView: View {
         )
     }
 
-    private var showUsernameError: Bool {
+    private var showUsernameError:
+        Bool {
+
         shouldRevealValidationErrors &&
+        !isEditingProfile &&
         !isGoogleAuth &&
         s.username
             .trimmingCharacters(
-                in: .whitespacesAndNewlines
+                in:
+                    .whitespacesAndNewlines
             )
             .count < 3
     }
 
-    private var showPasswordError: Bool {
+    private var showPasswordError:
+        Bool {
+
         shouldRevealValidationErrors &&
+        !isEditingProfile &&
         !isGoogleAuth &&
         s.password.count < 6
     }
@@ -584,22 +591,34 @@ struct RegisterFormView: View {
         colorScheme == .dark
     }
 
-    private var registrationFieldBackground: Color {
-        isDarkMode
-            ? Color(hex: 0xFF1E293B).opacity(0.96)
-            : Color.white
+    private var registrationFieldBackground:
+        Color {
+
+        KmiAppTheme
+            .surface(
+                for:
+                    colorScheme
+            )
     }
 
-    private var registrationFieldTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.94)
-            : Color(hex: 0xFF111827)
+    private var registrationFieldTextColor:
+        Color {
+
+        KmiAppTheme
+            .onSurface(
+                for:
+                    colorScheme
+            )
     }
 
-    private var registrationFieldBorder: Color {
-        isDarkMode
-            ? Color.white.opacity(0.18)
-            : Color(hex: 0xFFD2C4E3)
+    private var registrationFieldBorder:
+        Color {
+
+        KmiAppTheme
+            .outlineVariant(
+                for:
+                    colorScheme
+            )
     }
 
     private var registrationErrorBorder: Color {
@@ -614,14 +633,24 @@ struct RegisterFormView: View {
             : Color(hex: 0xFFFFE4E6)
     }
 
-    private var registrationPrimaryPurple: Color {
-        Color(hex: 0xFF7C4DFF)
+    private var registrationPrimaryPurple:
+        Color {
+
+        KmiAppTheme
+            .secondary(
+                for:
+                    colorScheme
+            )
     }
 
-    private var registrationLabelColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.72)
-            : Color(hex: 0xFF475569)
+    private var registrationLabelColor:
+        Color {
+
+        KmiAppTheme
+            .onSurfaceVariant(
+                for:
+                    colorScheme
+            )
     }
 
     private var displayedBranchesText: String {
@@ -780,21 +809,20 @@ struct RegisterFormView: View {
         }
     }
 
-    private var registrationBackground: some View {
+    private var registrationBackground:
+        some View {
+
         LinearGradient(
-            colors: s.role == .coach
-            ? [
-                Color(red: 0.078, green: 0.118, blue: 0.188), // #141E30
-                Color(red: 0.141, green: 0.231, blue: 0.333), // #243B55
-                Color(red: 0.055, green: 0.647, blue: 0.914)  // #0EA5E9
-            ]
-            : [
-                Color(red: 0.498, green: 0.000, blue: 1.000), // #7F00FF
-                Color(red: 0.247, green: 0.318, blue: 0.710), // #3F51B5
-                Color(red: 0.012, green: 0.663, blue: 0.957)  // #03A9F4
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
+            colors:
+                KmiAppTheme
+                    .screenBackgroundColors(
+                        for:
+                            colorScheme
+                    ),
+            startPoint:
+                .top,
+            endPoint:
+                .bottom
         )
         .ignoresSafeArea()
     }
@@ -899,22 +927,36 @@ struct RegisterFormView: View {
     }
 
     @ViewBuilder
-    private var accountSection: some View {
-        if !isGoogleAuth {
+    private var accountSection:
+        some View {
+
+        /*
+         * כמו Android:
+         * שם משתמש וסיסמה שייכים לרישום חדש.
+         * בעריכת פרופיל לא דורשים אותם מחדש.
+         */
+        if !isEditingProfile &&
+            !isGoogleAuth {
+
             sectionCard(
-                title: tr(
-                    "חשבון משתמש",
-                    "User account"
-                )
+                title:
+                    tr(
+                        "חשבון משתמש",
+                        "User account"
+                    )
             ) {
                 field(
-                    title: tr(
-                        "שם משתמש",
-                        "Username"
-                    ),
-                    text: $s.username,
-                    keyboard: .default,
-                    showError: showUsernameError
+                    title:
+                        tr(
+                            "שם משתמש",
+                            "Username"
+                        ),
+                    text:
+                        $s.username,
+                    keyboard:
+                        .default,
+                    showError:
+                        showUsernameError
                 )
 
                 passwordField
@@ -1350,6 +1392,29 @@ struct RegisterFormView: View {
 
     private func handleInitialAppear() {
         didFinishInitialLoad = false
+
+        /*
+         * ניקוי שאריות מגרסאות ישנות.
+         * אין לשמור סיסמת משתמש ב־UserDefaults.
+         */
+        let defaults =
+            UserDefaults.standard
+
+        defaults.removeObject(
+            forKey:
+                "password"
+        )
+
+        defaults.removeObject(
+            forKey:
+                "user_password"
+        )
+
+        defaults.removeObject(
+            forKey:
+                "remember_password"
+        )
+
         loadSavedProfileIfNeeded()
 
         if isGoogleAuth {
@@ -1360,16 +1425,21 @@ struct RegisterFormView: View {
             }
 
             if s.username
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(
+                    in:
+                        .whitespacesAndNewlines
+                )
                 .isEmpty {
-                s.username = prefillEmail
+
+                s.username =
+                    prefillEmail
             }
 
-            if s.password
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .isEmpty {
-                s.password = "GOOGLE_AUTH"
-            }
+            /*
+             * Google Authentication אינו משתמש
+             * בסיסמה מקומית.
+             */
+            s.password = ""
         }
 
         if s.branchType == "abroad" ||
@@ -1385,8 +1455,6 @@ struct RegisterFormView: View {
             isAbroadSelection = false
             s.branchType = "israel"
         }
-
-        let defaults = UserDefaults.standard
 
         let savedBranch = (
             defaults.string(forKey: "active_branch") ??
@@ -1488,14 +1556,26 @@ struct RegisterFormView: View {
             s.region = regions.first ?? ""
         }
 
-        s.role = initialRole
+        s.role =
+            initialRole
+
+        /*
+         * כמו Android:
+         * משתמש שכבר נמצא בעריכת פרופיל
+         * כבר עבר את שלב אישור התנאים.
+         */
+        if isEditingProfile {
+            s.acceptsTerms =
+                true
+        }
 
         applyRoleGate()
 
         initializeBranchAssignments()
 
         DispatchQueue.main.async {
-            didFinishInitialLoad = true
+            didFinishInitialLoad =
+                true
         }
     }
     
@@ -1509,11 +1589,13 @@ struct RegisterFormView: View {
         }
 
         /*
-         * אצל משתמש רגיל, בעריכת פרופיל שומרים
-         * על התפקיד שהועבר מהפרופיל הפעיל.
+         * בעריכת פרופיל:
+         * מעבר למתאמן תמיד מותר.
+         *
+         * מעבר למאמן נבדק בנפרד בזמן
+         * בחירת טאב המאמן.
          */
         if isEditingProfile {
-            s.role = initialRole
             return
         }
 
@@ -1563,38 +1645,58 @@ struct RegisterFormView: View {
         .padding(.bottom, 6)
     }
 
-    private var roleTabs: some View {
-        HStack(spacing: 0) {
-            tabButton(.trainee)
+    private var roleTabs:
+        some View {
+
+        HStack(
+            spacing:
+                0
+        ) {
+            tabButton(
+                .trainee
+            )
 
             Rectangle()
-                .fill(Color.white.opacity(0.45))
-                .frame(width: 1, height: 28)
+                .fill(
+                    Color.white.opacity(
+                        0.65
+                    )
+                )
+                .frame(
+                    width:
+                        1,
+                    height:
+                        30
+                )
 
-            tabButton(.coach)
+            tabButton(
+                .coach
+            )
         }
-        .frame(height: 46)
+        .padding(
+            .horizontal,
+            34
+        )
+        .frame(
+            maxWidth:
+                .infinity
+        )
+        .frame(
+            height:
+                56
+        )
         .background(
-            Color(
-                red: 0.427,
-                green: 0.310,
-                blue: 0.910
-            )
-            .opacity(0.96)
+            KmiAppTheme
+                .sectionHeaderBrush
         )
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: 0,
-                style: .continuous
-            )
+        /*
+         * סדר הטאבים נשאר פיזי וקבוע,
+         * כמו Android.
+         */
+        .environment(
+            \.layoutDirection,
+            .leftToRight
         )
-        .shadow(
-            color: Color.black.opacity(0.16),
-            radius: 4,
-            x: 0,
-            y: 2
-        )
-        .padding(.horizontal, 10)
     }
 
     private func tabButton(
@@ -1607,67 +1709,94 @@ struct RegisterFormView: View {
             : tr("מאמן", "Coach")
 
         return Button {
+
             /*
-             * בעריכת פרופיל משתמש רגיל אינו רשאי
-             * לשנות את סוג החשבון.
-             * מנהל האפליקציה מוחרג מהנעילה.
+             * בעריכת פרופיל מעבר למתאמן
+             * תמיד מותר, כמו Android.
              */
-            if isEditingProfile && !isSuperTester {
-                s.role = initialRole
+            if isEditingProfile &&
+                role == .trainee {
+
+                s.role = .trainee
                 return
             }
 
             /*
-             * מגבלת רשימת המאמנים אינה חלה
-             * על מנהל האפליקציה.
+             * מעבר למאמן מותר רק למשתמש
+             * בעל הרשאת מאמן, או למנהל.
              */
-            if !isSuperTester {
-                if role == .coach &&
-                    !isWhitelistedCoach {
-                    s.role = .trainee
-                    return
-                }
+            if role == .coach &&
+                !isSuperTester &&
+                !isWhitelistedCoach {
 
-                if role == .trainee &&
-                    isWhitelistedCoach {
-                    s.role = .coach
-                    return
-                }
+                s.role = .trainee
+                return
             }
 
             s.role = role
         } label: {
             ZStack(alignment: .bottom) {
-                Text(title)
-                    .font(
-                        .system(
-                            size: 15,
-                            weight: .heavy
-                        )
+                Text(
+                    title
+                )
+                .kmiFont(
+                    size:
+                        15,
+                    weight:
+                        isSelected
+                            ? .heavy
+                            : .bold
+                )
+                .foregroundStyle(
+                    Color.white.opacity(
+                        isSelected
+                            ? 1.0
+                            : 0.90
                     )
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .frame(
-                        maxWidth: .infinity,
-                        maxHeight: .infinity
-                    )
+                )
+                .lineLimit(
+                    1
+                )
+                .minimumScaleFactor(
+                    0.82
+                )
+                .frame(
+                    maxWidth:
+                        .infinity,
+                    maxHeight:
+                        .infinity
+                )
+                .offset(
+                    y:
+                        -5
+                )
 
                 if isSelected {
                     RoundedRectangle(
-                        cornerRadius: 4,
-                        style: .continuous
+                        cornerRadius:
+                            4,
+                        style:
+                            .continuous
                     )
-                    .fill(Color.white)
-                    .frame(width: 82, height: 3)
+                    .fill(
+                        Color.white
+                    )
+                    .frame(
+                        width:
+                            76,
+                        height:
+                            3
+                    )
+                    .offset(
+                        y:
+                            -11
+                    )
                 }
             }
-            .background(
-                isSelected
-                    ? Color.white.opacity(0.14)
-                    : Color.clear
-            )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(
+            .plain
+        )
     }
 
     private func sectionCard(
@@ -1705,32 +1834,38 @@ struct RegisterFormView: View {
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(
-                cornerRadius: 18,
-                style: .continuous
+                cornerRadius:
+                    18,
+                style:
+                    .continuous
             )
             .fill(
-                isDarkMode
-                    ? Color(hex: 0xFF172033).opacity(0.97)
-                    : Color(hex: 0xFFF5EDF7).opacity(0.96)
+                KmiAppTheme
+                    .surface(
+                        for:
+                            colorScheme
+                    )
+                    .opacity(
+                        0.96
+                    )
             )
         )
         .overlay(
             RoundedRectangle(
-                cornerRadius: 18,
-                style: .continuous
+                cornerRadius:
+                    18,
+                style:
+                    .continuous
             )
             .stroke(
-                isDarkMode
-                    ? Color.white.opacity(0.14)
-                    : Color(hex: 0xFFD9CCE8),
-                lineWidth: 1
+                KmiAppTheme
+                    .outlineVariant(
+                        for:
+                            colorScheme
+                    ),
+                lineWidth:
+                    1
             )
-        )
-        .shadow(
-            color: Color.black.opacity(isDarkMode ? 0.24 : 0.10),
-            radius: 4,
-            x: 0,
-            y: 2
         )
     }
 
@@ -2963,17 +3098,37 @@ struct RegisterFormView: View {
             return tr("חובה לבחור מין", "Gender is required")
         }
 
-        if !isGoogleAuth {
-            if s.username.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 {
-                return tr("שם משתמש קצר מדי", "Username is too short")
+        if !isEditingProfile &&
+            !isGoogleAuth {
+
+            if s.username
+                .trimmingCharacters(
+                    in:
+                        .whitespacesAndNewlines
+                )
+                .count < 3 {
+
+                return tr(
+                    "שם משתמש קצר מדי",
+                    "Username is too short"
+                )
             }
 
             if s.password.count < 6 {
-                return tr("סיסמה חייבת להכיל לפחות 6 תווים", "Password must contain at least 6 characters")
+
+                return tr(
+                    "סיסמה חייבת להכיל לפחות 6 תווים",
+                    "Password must contain at least 6 characters"
+                )
             }
         }
 
-        if s.belt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if s.belt
+            .trimmingCharacters(
+                in:
+                    .whitespacesAndNewlines
+            )
+            .isEmpty {
             return tr("חובה לבחור דרגת חגורה", "Belt rank is required")
         }
 
@@ -3099,13 +3254,27 @@ struct RegisterFormView: View {
             s.birthYear = defaults.string(forKey: "birthYear") ?? defaults.string(forKey: "birth_year") ?? ""
         }
 
-        if s.gender.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            s.gender = defaults.string(forKey: "gender") ?? ""
+        if s.gender
+            .trimmingCharacters(
+                in:
+                    .whitespacesAndNewlines
+            )
+            .isEmpty {
+
+            s.gender =
+                defaults.string(
+                    forKey:
+                        "gender"
+                )
+                ?? ""
         }
 
-        if s.password.isEmpty {
-            s.password = defaults.string(forKey: "password") ?? ""
-        }
+        /*
+         * סיסמה אינה נטענת מאחסון מקומי.
+         * ברישום חדש המשתמש מזין אותה מחדש,
+         * ובעריכת פרופיל השדה כלל אינו נדרש.
+         */
+        s.password = ""
 
         // במסך רישום לא טוענים role מהכניסה האחרונה.
         // מקור האמת כאן הוא initialRole שמוגדר בזרימת האימות.
@@ -3214,10 +3383,42 @@ struct RegisterFormView: View {
             }
         }
 
-        s.wantsSms = defaults.object(forKey: "wantsSms") as? Bool ?? s.wantsSms
-        s.acceptsTerms = defaults.object(forKey: "acceptsTerms") as? Bool ?? s.acceptsTerms
+        s.wantsSms =
+            defaults.object(
+                forKey:
+                    "subscribeSms"
+            ) as? Bool
+            ?? (
+                defaults.object(
+                    forKey:
+                        "wantsSms"
+                ) as? Bool
+                ?? s.wantsSms
+            )
 
-        if s.coachCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        /*
+         * בעריכת פרופיל תנאי השימוש כבר אושרו.
+         * ברישום חדש ממשיכים לכבד את הערך
+         * של תהליך הרישום.
+         */
+        if isEditingProfile {
+            s.acceptsTerms =
+                true
+        } else {
+            s.acceptsTerms =
+                defaults.object(
+                    forKey:
+                        "acceptsTerms"
+                ) as? Bool
+                ?? s.acceptsTerms
+        }
+
+        if s.coachCode
+            .trimmingCharacters(
+                in:
+                    .whitespacesAndNewlines
+            )
+            .isEmpty {
             s.coachCode =
                 defaults.string(forKey: "coachCode") ??
                 defaults.string(forKey: "coach_code") ??

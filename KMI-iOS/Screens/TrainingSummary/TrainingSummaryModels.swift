@@ -90,55 +90,159 @@ struct ExercisePickItem: Identifiable, Hashable {
 }
 
 extension TrainingSummaryUiState {
+    @MainActor
     var shareText: String {
-        let sortedExercises = selected.values.sorted { $0.name < $1.name }
+        let language = UserDefaults.standard
+            .string(forKey: "kmi_app_language")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
 
-        var lines: [String] = []
-        lines.append("סיכום אימון")
-        lines.append("סוג משתמש: \(ownerRole.heb)")
-        lines.append("תאריך: \(dateIso)")
+        return makeShareText(
+            isEnglish: language == "en" || language == "english",
+            privacyEnabled: DemoPrivacy.shared.isEnabled
+        )
+    }
 
-        if !branchName.trimmed().isEmpty {
-            lines.append("סניף: \(branchName.trimmed())")
+    func makeShareText(
+        isEnglish: Bool,
+        privacyEnabled: Bool
+    ) -> String {
+        func tr(_ hebrew: String, _ english: String) -> String {
+            isEnglish ? english : hebrew
         }
 
-        if !coachName.trimmed().isEmpty {
-            lines.append("מאמן: \(coachName.trimmed())")
+        let sortedExercises = selected.values.sorted {
+            $0.name.localizedCaseInsensitiveCompare(
+                $1.name
+            ) == .orderedAscending
         }
 
-        if !groupKey.trimmed().isEmpty {
-            lines.append("קבוצה: \(groupKey.trimmed())")
+        let role = ownerRole == .coach
+            ? tr("מאמן", "Coach")
+            : tr("מתאמן", "Trainee")
+
+        var lines: [String] = [
+            tr("סיכום אימון", "Training summary"),
+            tr("סוג משתמש: \(role)", "Author role: \(role)"),
+            tr("תאריך: \(dateIso)", "Date: \(dateIso)")
+        ]
+
+        let cleanBranch = branchName.trimmed()
+
+        if !cleanBranch.isEmpty {
+            lines.append(
+                tr(
+                    "סניף: \(cleanBranch)",
+                    "Branch: \(cleanBranch)"
+                )
+            )
+        }
+
+        let cleanCoach = coachName.trimmed()
+
+        if !cleanCoach.isEmpty {
+            let displayedCoach = privacyEnabled
+                ? tr("מאמן", "Coach")
+                : TrainingCatalogIOS.displayCoach(
+                    cleanCoach,
+                    isEnglish: isEnglish
+                )
+
+            lines.append(
+                tr(
+                    "מאמן: \(displayedCoach)",
+                    "Coach: \(displayedCoach)"
+                )
+            )
+        }
+
+        let cleanGroup = groupKey.trimmed()
+
+        if !cleanGroup.isEmpty {
+            let displayedGroup = TrainingCatalogIOS.displayGroup(
+                cleanGroup,
+                isEnglish: isEnglish
+            )
+
+            lines.append(
+                tr(
+                    "קבוצה: \(displayedGroup)",
+                    "Group: \(displayedGroup)"
+                )
+            )
         }
 
         lines.append("")
 
         if sortedExercises.isEmpty {
-            lines.append("תרגילים: לא נוספו תרגילים")
+            lines.append(
+                tr(
+                    "תרגילים: לא נוספו תרגילים",
+                    "Exercises: No exercises added"
+                )
+            )
         } else {
-            lines.append("תרגילים:")
+            lines.append(tr("תרגילים:", "Exercises:"))
+
             for item in sortedExercises {
                 lines.append("- \(item.name)")
 
-                if !item.topic.trimmed().isEmpty {
-                    lines.append("  נושא: \(item.topic)")
+                let topic = item.topic.trimmed()
+
+                if !topic.isEmpty {
+                    lines.append(
+                        tr(
+                            "  נושא: \(topic)",
+                            "  Topic: \(topic)"
+                        )
+                    )
                 }
 
                 if let difficulty = item.difficulty {
-                    lines.append("  רמת קושי: \(difficulty)")
+                    lines.append(
+                        tr(
+                            "  רמת קושי: \(difficulty)",
+                            "  Difficulty: \(difficulty)"
+                        )
+                    )
                 }
 
-                if !item.highlight.trimmed().isEmpty {
-                    lines.append("  דגשים: \(item.highlight.trimmed())")
+                let highlight = item.highlight.trimmed()
+
+                if !highlight.isEmpty {
+                    lines.append(
+                        tr(
+                            "  דגשים: \(highlight)",
+                            "  Highlights: \(highlight)"
+                        )
+                    )
                 }
 
-                lines.append("  עבודה בבית: \(item.homePractice ? "כן" : "לא")")
+                let homePractice = item.homePractice
+                    ? tr("כן", "Yes")
+                    : tr("לא", "No")
+
+                lines.append(
+                    tr(
+                        "  עבודה בבית: \(homePractice)",
+                        "  Home practice: \(homePractice)"
+                    )
+                )
                 lines.append("")
             }
         }
 
         let cleanNotes = notes.trimmed()
-        lines.append("סיכום כללי:")
-        lines.append(cleanNotes.isEmpty ? "לא נכתב סיכום כללי" : cleanNotes)
+
+        lines.append(tr("סיכום כללי:", "General summary:"))
+        lines.append(
+            cleanNotes.isEmpty
+                ? tr(
+                    "לא נכתב סיכום כללי",
+                    "No general summary provided"
+                )
+                : cleanNotes
+        )
 
         return lines.joined(separator: "\n")
     }

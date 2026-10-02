@@ -10,8 +10,6 @@ enum ShabbatHolidayCheckerIOS {
         return cal
     }()
 
-    private static let entries = HolidayCalendarStore.loadEntries()
-
     static func isBlockedDate(_ date: Date) -> Bool {
         isSaturday(date) || isHolidayBlocked(date)
     }
@@ -20,10 +18,14 @@ enum ShabbatHolidayCheckerIOS {
         isFriday(date) || isErevHoliday(date)
     }
 
-    static func holidayNamesForDisplay(on date: Date) -> [String] {
-        entries
-            .filter { calendar.isDate($0.date, inSameDayAs: date) }
-            .map(\.name)
+    static func holidayNamesForDisplay(
+        on date: Date,
+        isEnglish: Bool = false
+    ) -> [String] {
+        HolidayCalendarStore.holidayNamesForDisplay(
+            on: date,
+            isEnglish: isEnglish
+        )
     }
 
     static func nextAllowedTriggerDate(
@@ -74,7 +76,7 @@ enum ShabbatHolidayCheckerIOS {
     }
 
     private static func isHolidayBlocked(_ date: Date) -> Bool {
-        holidayNames(on: date).contains(where: isBlockingHolidayName)
+        HolidayCalendarStore.isTrainingCancelled(on: date)
     }
 
     private static func isErevHoliday(_ date: Date) -> Bool {
@@ -83,26 +85,6 @@ enum ShabbatHolidayCheckerIOS {
 
     private static func holidayNames(on date: Date) -> [String] {
         holidayNamesForDisplay(on: date)
-    }
-
-    private static func isBlockingHolidayName(_ name: String) -> Bool {
-        let normalized = normalize(name)
-
-        let blockedTokens = [
-            "ראש השנה",
-            "יום כיפור",
-            "פסח",
-            "חול המועד פסח",
-            "שביעי של פסח",
-            "שבועות",
-            "סוכות",
-            "חול המועד סוכות",
-            "הושענא רבה",
-            "שמיני עצרת",
-            "שמחת תורה"
-        ]
-
-        return blockedTokens.contains { normalized.contains(normalize($0)) }
     }
 
     private static func isBlockingErevHolidayName(_ name: String) -> Bool {

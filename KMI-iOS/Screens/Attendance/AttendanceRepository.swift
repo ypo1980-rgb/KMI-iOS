@@ -1,4 +1,5 @@
 import Foundation
+import FirebaseAuth
 import FirebaseFirestore
 import CryptoKit
 
@@ -35,6 +36,83 @@ struct AttendanceAndroidSavedReport:
     let absentCount: Int
     let percentPresent: Int
     let createdAtMillis: Int64
+}
+
+struct TrainingAttendanceForecast: Equatable, Sendable {
+    let comingCount: Int
+    let notComingCount: Int
+    let noResponseCount: Int
+}
+
+@MainActor
+private final class AttendanceForecastListenerState {
+    private var memberIds: Set<Int64> = []
+    private var choices: [Int64: String] = [:]
+
+    private var membersLoaded = false
+    private var recordsLoaded = false
+
+    private let onChanged: (TrainingAttendanceForecast) -> Void
+    private let onError: (Error) -> Void
+
+    init(
+        onChanged: @escaping (TrainingAttendanceForecast) -> Void,
+        onError: @escaping (Error) -> Void
+    ) {
+        self.onChanged = onChanged
+        self.onError = onError
+    }
+
+    func updateMembers(_ value: Set<Int64>) {
+        memberIds = value
+        membersLoaded = true
+        publishIfReady()
+    }
+
+    func updateChoices(_ value: [Int64: String]) {
+        choices = value
+        recordsLoaded = true
+        publishIfReady()
+    }
+
+    func failMembers(_ error: Error) {
+        membersLoaded = false
+        onError(error)
+    }
+
+    func failRecords(_ error: Error) {
+        recordsLoaded = false
+        onError(error)
+    }
+
+    private func publishIfReady() {
+        guard membersLoaded, recordsLoaded else {
+            return
+        }
+
+        let validChoices = choices.filter {
+            memberIds.contains($0.key)
+        }
+
+        let coming = validChoices.values.filter {
+            $0 == "PRESENT"
+        }.count
+
+        let notComing = validChoices.values.filter {
+            $0 == "ABSENT"
+        }.count
+
+        onChanged(
+            TrainingAttendanceForecast(
+                comingCount: coming,
+                notComingCount: notComing,
+                noResponseCount: max(
+                    0,
+                    memberIds.count - validChoices.count
+                )
+            )
+        )
+    }
 }
 
 final class AttendanceRepository {
@@ -663,32 +741,489 @@ final class AttendanceRepository {
         branchName: String,
         groupKey: String
     ) -> String {
-        let rawValue =
-            "\(branchName.trimmingCharacters(in: .whitespacesAndNewlines))|\(groupKey.trimmingCharacters(in: .whitespacesAndNewlines))"
-                .lowercased()
+        let branch = normalizedAttendanceIdentity(branchName)
+        let group = normalizedAttendanceIdentity(groupKey)
 
-        let digest =
-            SHA256.hash(
-                data: Data(rawValue.utf8)
+        return "g_\(stableAttendanceId("\(branch)|\(group)"))"
+    }
+
+    private func normalizedAttendanceIdentity(
+        _ value: String
+    ) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "־", with: "-")
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: "—", with: "-")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .replacingOccurrences(
+                of: "\\s+",
+                with: " ",
+                options: .regularExpression
             )
+            .lowercased()
+    }
 
-        var value: UInt64 = 0
+    private func stableAttendanceId(
+        _ value: String
+    ) -> Int64 {
+        let clean = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        let digest = SHA256.hash(data: Data(clean.utf8))
+        var result: UInt64 = 0
 
         for byte in digest.prefix(8) {
-            value =
-                (value << 8) |
-                UInt64(byte)
+            result = (result << 8) | UInt64(byte)
         }
 
-        let positiveValue =
-            value &
-            UInt64(Int64.max)
+        let positive = result & UInt64(Int64.max)
+        return Int64(positive == 0 ? 1 : positive)
+    }
 
-        return String(
-            positiveValue == 0
-                ? 1
-                : positiveValue
+    private func attendanceNameKey(
+        _ value: String
+    ) -> String {
+        normalizedAttendanceIdentity(value)
+            .replacingOccurrences(
+                of: "[\\.\"'׳״,;:()\\[\\]{}]",
+                with: "",
+                options: .regularExpression
+            )
+    }
+
+    private func attendanceSessionDateIso(
+        _ date: Date
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = ShabbatHolidayCheckerIOS.calendar
+        formatter.timeZone = ShabbatHolidayCheckerIOS.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    private func attendanceGroupReference(
+        branchName: String,
+        groupKey: String
+    ) -> DocumentReference {
+        Firestore.firestore()
+            .collection("attendanceGroups")
+            .document(
+                androidAttendanceGroupDocumentId(
+                    branchName: branchName,
+                    groupKey: groupKey
+                )
+            )
+    }
+
+    private enum OwnAttendanceError: Error {
+        case invalidContext
+        case trainingAlreadyStarted
+        case memberNotResolved
+        case memberMismatch
+        case invalidStatus
+    }
+
+    // MARK: - Coach attendance forecast
+
+    @MainActor
+    func listenForAttendanceForecast(
+        branchName: String,
+        groupKey: String,
+        date: Date,
+        onChanged: @escaping (TrainingAttendanceForecast) -> Void,
+        onError: @escaping (Error) -> Void
+    ) -> [ListenerRegistration] {
+        let branch = branchName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let group = groupKey
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !branch.isEmpty, !group.isEmpty else {
+            onError(OwnAttendanceError.invalidContext)
+            return []
+        }
+
+        let groupReference = attendanceGroupReference(
+            branchName: branch,
+            groupKey: group
         )
+
+        let state = AttendanceForecastListenerState(
+            onChanged: onChanged,
+            onError: onError
+        )
+
+        let membersListener = groupReference
+            .collection("members")
+            .addSnapshotListener { snapshot, error in
+                if let error {
+                    DispatchQueue.main.async {
+                        state.failMembers(error)
+                    }
+                    return
+                }
+
+                guard let snapshot else {
+                    return
+                }
+
+                let ids = Set(
+                    snapshot.documents.compactMap { document -> Int64? in
+                        if let value =
+                            document.data()["id"] as? NSNumber {
+                            return value.int64Value
+                        }
+
+                        return Int64(document.documentID)
+                    }
+                )
+
+                DispatchQueue.main.async {
+                    state.updateMembers(ids)
+                }
+            }
+
+        let recordsListener = groupReference
+            .collection("sessions")
+            .document(attendanceSessionDateIso(date))
+            .collection("records")
+            .addSnapshotListener { snapshot, error in
+                if let error {
+                    DispatchQueue.main.async {
+                        state.failRecords(error)
+                    }
+                    return
+                }
+
+                guard let snapshot else {
+                    return
+                }
+
+                var choices: [Int64: String] = [:]
+
+                for document in snapshot.documents {
+                    let data = document.data()
+
+                    let markedBy = (data["markedBy"] as? String)?
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+
+                    guard markedBy == "trainee" else {
+                        continue
+                    }
+
+                    let memberId =
+                        (data["memberId"] as? NSNumber)?.int64Value
+                        ?? Int64(document.documentID)
+
+                    guard let memberId else {
+                        continue
+                    }
+
+                    let status = (
+                        (data["traineeStatus"] as? String)
+                            ?? (data["status"] as? String)
+                    )?
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+                    guard let status,
+                          status == "PRESENT" ||
+                          status == "ABSENT" else {
+                        continue
+                    }
+
+                    choices[memberId] = status
+                }
+
+                let capturedChoices = choices
+
+                DispatchQueue.main.async {
+                    state.updateChoices(capturedChoices)
+                }
+            }
+
+        return [
+            membersListener,
+            recordsListener
+        ]
+    }
+
+    // MARK: - Trainee attendance
+
+    func findMemberIdByAuthUid(
+        branchName: String,
+        groupKey: String,
+        authUid: String
+    ) async throws -> Int64? {
+        let branch = branchName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let group = groupKey
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let uid = authUid
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !branch.isEmpty,
+              !group.isEmpty,
+              !uid.isEmpty,
+              Auth.auth().currentUser?.uid == uid else {
+            return nil
+        }
+
+        let members = attendanceGroupReference(
+            branchName: branch,
+            groupKey: group
+        )
+        .collection("members")
+
+        let existing = try await members
+            .whereField("authUid", isEqualTo: uid)
+            .limit(to: 1)
+            .getDocuments()
+
+        if let document = existing.documents.first {
+            let storedId = int64Value(document.data()["id"])
+
+            if storedId != 0 {
+                return storedId
+            }
+
+            return Int64(document.documentID)
+                ?? stableAttendanceId(document.documentID)
+        }
+
+        let userDocument = try await Firestore.firestore()
+            .collection("users")
+            .document(uid)
+            .getDocument()
+
+        guard userDocument.exists,
+              let user = userDocument.data() else {
+            return nil
+        }
+
+        func clean(_ value: String?) -> String {
+            value?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ) ?? ""
+        }
+
+        var fullName = clean(
+            (user["fullName"] as? String)
+                ?? (user["name"] as? String)
+                ?? (user["displayName"] as? String)
+        )
+
+        if fullName.isEmpty {
+            fullName = [
+                clean(user["firstName"] as? String),
+                clean(user["lastName"] as? String)
+            ]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        }
+
+        let nameKey = attendanceNameKey(fullName)
+
+        guard !fullName.isEmpty, !nameKey.isEmpty else {
+            return nil
+        }
+
+        let memberId = stableAttendanceId(
+            "\(branch)|\(group)|\(nameKey)"
+        )
+
+        let phone = (
+            (user["phone"] as? String)
+                ?? (user["phoneNumber"] as? String)
+                ?? (user["phone_number"] as? String)
+                ?? (user["mobile"] as? String)
+                ?? ""
+        )
+        .filter(\.isNumber)
+
+        let now = Int64(Date().timeIntervalSince1970 * 1_000)
+
+        var data: [String: Any] = [
+            "id": memberId,
+            "branch": branch,
+            "groupKey": group,
+            "displayName": fullName,
+            "displayNameKey": nameKey,
+            "authUid": uid,
+            "updatedAtMillis": now,
+            "updatedAt": FieldValue.serverTimestamp()
+        ]
+
+        if !phone.isEmpty {
+            data["phone"] = phone
+        }
+
+        guard Auth.auth().currentUser?.uid == uid else {
+            throw OwnAttendanceError.invalidContext
+        }
+
+        try await members
+            .document(String(memberId))
+            .setData(data, merge: true)
+
+        return memberId
+    }
+
+    func getTraineeOwnAttendance(
+        branchName: String,
+        groupKey: String,
+        date: Date,
+        authUid: String
+    ) async throws -> AttendanceStatus? {
+        guard let memberId = try await findMemberIdByAuthUid(
+            branchName: branchName,
+            groupKey: groupKey,
+            authUid: authUid
+        ) else {
+            return nil
+        }
+
+        let document = try await attendanceGroupReference(
+            branchName: branchName,
+            groupKey: groupKey
+        )
+        .collection("sessions")
+        .document(attendanceSessionDateIso(date))
+        .collection("records")
+        .document(String(memberId))
+        .getDocument()
+
+        guard let data = document.data() else {
+            return nil
+        }
+
+        let raw = (
+            (data["traineeStatus"] as? String)
+                ?? (data["status"] as? String)
+        )?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch raw {
+        case "PRESENT":
+            return .present
+        case "ABSENT":
+            return .absent
+        default:
+            return nil
+        }
+    }
+
+    func markTraineeOwnAttendance(
+        branchName: String,
+        groupKey: String,
+        date: Date,
+        memberId: Int64,
+        authUid: String,
+        status: AttendanceStatus,
+        trainingStartMillis: Int64,
+        occurrenceKey: String = ""
+    ) async throws {
+        let branch = branchName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let group = groupKey
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let uid = authUid
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = occurrenceKey
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !branch.isEmpty,
+              !group.isEmpty,
+              !uid.isEmpty,
+              memberId > 0,
+              Auth.auth().currentUser?.uid == uid else {
+            throw OwnAttendanceError.invalidContext
+        }
+
+        let statusName: String
+
+        switch status {
+        case .present:
+            statusName = "PRESENT"
+        case .absent:
+            statusName = "ABSENT"
+        default:
+            throw OwnAttendanceError.invalidStatus
+        }
+
+        guard Int64(Date().timeIntervalSince1970 * 1_000)
+                < trainingStartMillis else {
+            throw OwnAttendanceError.trainingAlreadyStarted
+        }
+
+        guard let resolvedMemberId =
+                try await findMemberIdByAuthUid(
+                    branchName: branch,
+                    groupKey: group,
+                    authUid: uid
+                ) else {
+            throw OwnAttendanceError.memberNotResolved
+        }
+
+        guard resolvedMemberId == memberId else {
+            throw OwnAttendanceError.memberMismatch
+        }
+
+        // האימות עשוי להימשך עד אחרי תחילת האימון.
+        let now = Int64(Date().timeIntervalSince1970 * 1_000)
+
+        guard now < trainingStartMillis else {
+            throw OwnAttendanceError.trainingAlreadyStarted
+        }
+
+        guard Auth.auth().currentUser?.uid == uid else {
+            throw OwnAttendanceError.invalidContext
+        }
+
+        let dateIso = attendanceSessionDateIso(date)
+        let sessionId = stableAttendanceId(
+            "\(branch)|\(group)|\(dateIso)"
+        )
+        let recordId = stableAttendanceId(
+            "\(sessionId)|\(memberId)"
+        )
+
+        var data: [String: Any] = [
+            "id": recordId,
+            "sessionId": sessionId,
+            "memberId": memberId,
+            "traineeStatus": statusName,
+            "status": statusName,
+            "traineeUid": uid,
+            "markedBy": "trainee",
+            "trainingStartMillis": trainingStartMillis,
+            "markedAtMillis": now,
+            "updatedAtMillis": now,
+            "updatedAt": FieldValue.serverTimestamp()
+        ]
+
+        if !key.isEmpty {
+            data["occurrenceKey"] = key
+            data["occurrenceId"] =
+                TrainingOverrideRepository
+                    .documentIdForOccurrenceKey(key)
+        }
+
+        try await attendanceGroupReference(
+            branchName: branch,
+            groupKey: group
+        )
+        .collection("sessions")
+        .document(dateIso)
+        .collection("records")
+        .document(String(memberId))
+        .setData(data, merge: true)
     }
 
     private func attendanceStatus(

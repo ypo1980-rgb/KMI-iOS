@@ -26,7 +26,14 @@ struct RegistrationFormState: Equatable {
     var password: String = ""
     var showPassword: Bool = false
 
+    /*
+     * מקור האמת החדש לאזורים.
+     * region נשאר לתאימות לאחור ולמסכים
+     * שטרם הוסבו למבנה הרשימתי.
+     */
     var region: String = ""
+    var regions: Set<String> = []
+
     var branches: Set<String> = []
 
     var groups: Set<String> = []
@@ -228,7 +235,68 @@ extension RegistrationFormState {
         return "\(y)-\(m.count == 1 ? "0\(m)" : m)-\(d.count == 1 ? "0\(d)" : d)"
     }
 
+    var regionsArray: [String] {
+
+        let selectedRegions =
+            Array(
+                Set(
+                    regions
+                        .map {
+                            $0.trimmed
+                        }
+                        .filter {
+                            !$0.isEmpty
+                        }
+                )
+            )
+            .sorted()
+
+        if !selectedRegions.isEmpty {
+            return selectedRegions
+        }
+
+        /*
+         * fallback למשתמשים קיימים:
+         * כל עוד אין regions רשימתי,
+         * region הישן נשאר תקף.
+         */
+        let legacyRegion =
+            region.trimmed
+
+        if !legacyRegion.isEmpty {
+            return [
+                legacyRegion
+            ]
+        }
+
+        return []
+    }
+
+
+
+    var primaryRegion: String {
+
+        let legacyRegion =
+            region.trimmed
+
+        /*
+         * אם region הישן עדיין נמצא
+         * בין האזורים שנבחרו, נשמור עליו
+         * כאזור הפעיל לצורך תאימות.
+         */
+        if regionsArray.contains(
+            legacyRegion
+        ) {
+            return legacyRegion
+        }
+
+        return regionsArray.first ?? ""
+    }
+
+
+
     var branchesArray: [String] {
+
         Array(
             Set(
                 branches
@@ -238,6 +306,8 @@ extension RegistrationFormState {
         )
         .sorted()
     }
+
+
 
     var groupsArray: [String] {
         if !branchAssignments.isEmpty {
@@ -371,43 +441,89 @@ extension RegistrationFormState {
     }
 
     var canSubmit: Bool {
-        acceptsTerms
-        && !fullNameTrimmed.isEmpty
+
+        let hasRequiredGroups =
+            branchType.trimmed == "abroad"
+            || (
+                hasCompleteBranchAssignments
+                && normalizedBranchAssignments.allSatisfy {
+                    !$0.groups.isEmpty
+                }
+            )
+
+        return acceptsTerms
+            && !fullNameTrimmed.isEmpty
         && !emailLower.isEmpty
-        && !phoneNormalized.isEmpty
+        && (9...12).contains(
+            phone.filter { $0.isNumber }.count
+        )
         && !gender.trimmed.isEmpty
-        && !birthDateString.isEmpty
-        && !region.trimmed.isEmpty
-        && !branchesArray.isEmpty
-        && !currentBeltId.isEmpty
+            && !birthDateString.isEmpty
+            && !regionsArray.isEmpty
+            && !branchesArray.isEmpty
+            && hasRequiredGroups
+            && !currentBeltId.isEmpty
     }
 
     func toFirestoreDictionary(uid: String) -> [String: Any] {
         var dict: [String: Any] = [
             "uid": uid,
             "role": roleKey,
+            "user_role": roleKey,
             "fullName": fullNameTrimmed,
             "phone": phoneNormalized,
+            "phoneNumber": phoneNormalized,
+            "phoneRaw": phone,
             "email": emailTrimmed,
             "emailLower": emailLower,
             "birthDate": birthDateString,
             "gender": gender.trimmed,
             "username": usernameTrimmed,
             "usernameLower": usernameLower,
-            "region": region.trimmed,
-            "branchType": branchType.trimmed.isEmpty ? "israel" : branchType.trimmed,
-            "branch_type": branchType.trimmed.isEmpty ? "israel" : branchType.trimmed,
+
+            /*
+             * region נשאר לתאימות למסכים ישנים.
+             * regions הוא מקור האמת הרשימתי.
+             */
+            "region": primaryRegion,
+            "regions": regionsArray,
+            "regionsCsv": regionsArray.joined(
+                separator:
+                    ", "
+            ),
+
+            "branchType":
+                branchType.trimmed.isEmpty
+                    ? "israel"
+                    : branchType.trimmed,
+
+            "branch_type":
+                branchType.trimmed.isEmpty
+                    ? "israel"
+                    : branchType.trimmed,
+
             "branches": branchesArray,
             "branchesCsv": branchesArray.joined(separator: ", "),
             "activeBranch": activeBranchFinal,
+            "branch": activeBranchFinal,
             "groups": groupsArray,
+            "groupsCsv": groupsArray.joined(separator: ", "),
             "primaryGroup": primaryGroup,
             "activeGroup": activeGroupFinal,
+            "group": activeGroupFinal,
+            "age_group": activeGroupFinal,
             "belt": currentBeltId,
             "currentBelt": currentBeltId,
             "current_belt": currentBeltId,
             "wantsSms": wantsSms,
+            "subscribeSms": wantsSms,
             "acceptsTerms": acceptsTerms,
+            "profileCompleted": true,
+            "registrationComplete": true,
+            "registrationFormCompleted": true,
+            "registrationSchemaVersion": 3,
+            "registrationCompletedBy":
+                "registration_form_v3_branch_assignments",
             "createdAt": Date().timeIntervalSince1970,
             "updatedAt": Date().timeIntervalSince1970
         ]
@@ -452,13 +568,58 @@ extension RegistrationFormState {
         ud.set(fullNameTrimmed, forKey: "full_name")
 
         ud.set(phone.trimmed, forKey: "phone")
+        ud.set(phone.trimmed, forKey: "phone_number")
         ud.set(emailTrimmed, forKey: "email")
 
-        ud.set(region.trimmed, forKey: "region")
-        ud.set(region.trimmed, forKey: "active_region")
-        ud.set(region.trimmed, forKey: "kmi.user.region")
+        /*
+         * תאימות למסכים שעדיין קוראים אזור יחיד.
+         */
+        ud.set(
+            primaryRegion,
+            forKey:
+                "region"
+        )
 
-        let normalizedBranchType = branchType.trimmed.isEmpty ? "israel" : branchType.trimmed
+        ud.set(
+            primaryRegion,
+            forKey:
+                "active_region"
+        )
+
+        ud.set(
+            primaryRegion,
+            forKey:
+                "kmi.user.region"
+        )
+
+        /*
+         * מקור האמת הרשימתי לאזורים.
+         */
+        ud.set(
+            regionsArray,
+            forKey:
+                "regions"
+        )
+
+        ud.set(
+            regionsArray,
+            forKey:
+                "selected_regions"
+        )
+
+        ud.set(
+            regionsArray.joined(
+                separator:
+                    ", "
+            ),
+            forKey:
+                "regions_csv"
+        )
+
+        let normalizedBranchType =
+            branchType.trimmed.isEmpty
+                ? "israel"
+                : branchType.trimmed
         ud.set(normalizedBranchType, forKey: "branch_type")
 
         // ✅ branches
@@ -476,14 +637,53 @@ extension RegistrationFormState {
         ud.set(activeGroupFinal, forKey: "active_group")
         ud.set(activeGroupFinal, forKey: "kmi.user.group")
 
-        ud.set(usernameTrimmed, forKey: "username")
-        ud.set(password, forKey: "password")
+        ud.set(
+            usernameTrimmed,
+            forKey:
+                "username"
+        )
 
-        ud.set(wantsSms, forKey: "wantsSms")
-        ud.set(wantsSms, forKey: "subscribeSms")
-        ud.set(acceptsTerms, forKey: "acceptsTerms")
+        /*
+         * אין לשמור סיסמה מקומית.
+         * מנקים גם מפתחות ישנים לצורך
+         * תאימות לגרסאות קודמות.
+         */
+        ud.removeObject(
+            forKey:
+                "password"
+        )
+
+        ud.removeObject(
+            forKey:
+                "user_password"
+        )
+
+        ud.removeObject(
+            forKey:
+                "remember_password"
+        )
+
+        ud.set(
+            wantsSms,
+            forKey:
+                "wantsSms"
+        )
+
+        ud.set(
+            wantsSms,
+            forKey:
+                "subscribeSms"
+        )
+
+        ud.set(
+            acceptsTerms,
+            forKey:
+                "acceptsTerms"
+        )
 
         ud.set(roleKey, forKey: "user_role")
+        ud.set(roleKey, forKey: "active_user_mode")
+        ud.set(roleKey, forKey: "last_active_app_role")
         ud.set(gender.trimmed, forKey: "gender")
 
         ud.set(birthDay.trimmed, forKey: "birthDay")
@@ -508,6 +708,12 @@ extension RegistrationFormState {
             ud.removeObject(forKey: "coach_code")
         }
 
+        ud.set(true, forKey: "profile_completed")
+        ud.set(true, forKey: "registration_complete")
+        ud.set(true, forKey: "registration_form_completed")
+        ud.set(3, forKey: "registration_schema_version")
+
         ud.set(true, forKey: "is_logged_in")
+
     }
 }

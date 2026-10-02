@@ -3,6 +3,7 @@ import SwiftUI
 struct MonthlyBoardDayCell: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.kmiFontScale) private var displayScale
 
     let item: MonthlyBoardDayItem
     let isSelected: Bool
@@ -12,22 +13,33 @@ struct MonthlyBoardDayCell: View {
         layoutDirection == .leftToRight
     }
 
+    private var cellHeight: CGFloat {
+        88 * max(1, displayScale)
+    }
+
+    private var cancellationColor: Color {
+        KmiAppTheme.onErrorContainer(for: colorScheme)
+    }
+
     var body: some View {
         Group {
             if item.kind == .empty {
                 RoundedRectangle(cornerRadius: 14)
-                    .fill(Color.white.opacity(0.04))
-                    .frame(height: 74)
+                    .fill(
+                        KmiAppTheme.surface(for: colorScheme)
+                            .opacity(0.45)
+                    )
+                    .frame(height: cellHeight)
             } else {
                 Button(action: onTap) {
-                    VStack(alignment: .trailing, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 if item.hasHolidays ||
                                     fallbackHolidayTitle != nil ||
                                     item.hasCancelledTraining {
                                     Circle()
-                                        .fill(Color.red.opacity(0.95))
+                                        .fill(cancellationColor)
                                         .frame(width: 8, height: 8)
                                         .accessibilityLabel(
                                             item.hasCancelledTraining
@@ -60,37 +72,55 @@ struct MonthlyBoardDayCell: View {
                             Spacer()
 
                             Text(item.dayNumberText)
-                                .font(.system(size: 16, weight: item.isToday ? .heavy : .bold))
+                                .kmiFont(
+                                    size: 16,
+                                    weight: item.isToday ? .heavy : .bold
+                                )
                                 .foregroundStyle(textColor)
                         }
 
                         Spacer()
 
-                        VStack(alignment: .trailing, spacing: 2) {
+                        VStack(alignment: .leading, spacing: 2) {
                             if let holidayTitle = displayHolidayTitle {
                                 Text(holidayTitle)
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(Color.red.opacity(0.95))
-                                    .lineLimit(1)
-                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                                    .kmiFont(size: 10, weight: .semibold)
+                                    .foregroundStyle(cancellationColor)
+                                    .multilineTextAlignment(.leading)
+                                    .lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(
+                                        maxWidth: .infinity,
+                                        alignment: .leading
+                                    )
                             }
 
                             if let training = item.trainings.first {
-                                Text(training.title)
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(
-                                        KmiAppTheme.onSurface(for: colorScheme)
+                                Text(
+                                    TrainingCatalogIOS.displayGroup(
+                                        training.title,
+                                        isEnglish: isEnglish
                                     )
-                                    .lineLimit(1)
-                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                                )
+                                .kmiFont(size: 10, weight: .semibold)
+                                .foregroundStyle(
+                                    KmiAppTheme.onSurface(for: colorScheme)
+                                )
+                                .multilineTextAlignment(.leading)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(
+                                    maxWidth: .infinity,
+                                    alignment: .leading
+                                )
                             } else if shouldShowNoTrainingText {
                                 Text(isEnglish ? "No training" : "אין אימונים")
-                                    .font(.system(size: 10, weight: .semibold))
+                                    .kmiFont(size: 10, weight: .semibold)
                                     .foregroundStyle(
                                         KmiAppTheme.onSurfaceVariant(for: colorScheme)
                                     )
                                     .lineLimit(1)
-                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
                     }
@@ -136,26 +166,7 @@ struct MonthlyBoardDayCell: View {
     }
 
     private var trainingColor: Color {
-
-        guard let training = item.trainings.first else {
-            return Color.blue.opacity(0.95)
-        }
-
-        let title = training.title
-
-        if title.contains("ילד") {
-            return Color.blue.opacity(0.95)
-        }
-
-        if title.contains("נוער") {
-            return Color.green.opacity(0.95)
-        }
-
-        if title.contains("בוגר") {
-            return Color.purple.opacity(0.95)
-        }
-
-        return Color.blue.opacity(0.95)
+        KmiAppTheme.primary(for: colorScheme)
     }
     private var fallbackHolidayTitle: String? {
         guard let date = item.date else { return nil }
@@ -175,10 +186,26 @@ struct MonthlyBoardDayCell: View {
     }
 
     private var displayHolidayTitle: String? {
-        if let holiday = item.holidays.first {
-            return holiday.title
+        guard let date = item.date else {
+            return nil
         }
-        return fallbackHolidayTitle
+
+        if let holidayName =
+            HolidayCalendarStore.holidayNamesForDisplay(
+                on: date,
+                isEnglish: isEnglish
+            ).first {
+            return holidayName
+        }
+
+        if ShabbatHolidayCheckerIOS.calendar.component(
+            .weekday,
+            from: date
+        ) == 7 {
+            return isEnglish ? "Saturday" : "שבת"
+        }
+
+        return item.holidays.first?.title
     }
 
     private var shouldShowNoTrainingText: Bool {

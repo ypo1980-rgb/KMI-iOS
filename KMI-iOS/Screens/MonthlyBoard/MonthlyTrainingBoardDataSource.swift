@@ -63,20 +63,18 @@ enum MonthlyTrainingBoardDataSource {
                         TimeInterval(slot.durationMinutes * 60)
                     )
 
-                    let startFormatter = DateFormatter()
-                    startFormatter.locale = Locale(identifier: "he_IL")
-                    startFormatter.dateFormat = "HH:mm"
-
-                    let endFormatter = DateFormatter()
-                    endFormatter.locale = Locale(identifier: "he_IL")
-                    endFormatter.dateFormat = "HH:mm"
+                    let timeFormatter = DateFormatter()
+                    timeFormatter.locale = Locale(identifier: "en_US_POSIX")
+                    timeFormatter.calendar = calendar
+                    timeFormatter.timeZone = calendar.timeZone
+                    timeFormatter.dateFormat = "HH:mm"
 
                     items.append(
                         MonthlyBoardTrainingItem(
                             id: slot.id + "_\(compactDateKey(cursor, calendar: calendar))",
                             date: startDate,
                             title: slot.groups.first ?? "אימון",
-                            timeText: "\(startFormatter.string(from: startDate))–\(endFormatter.string(from: endDate))",
+                            timeText: "\(timeFormatter.string(from: startDate))–\(timeFormatter.string(from: endDate))",
                             location: slot.place,
                             notes: slot.coach
                         )

@@ -59,7 +59,6 @@ struct MyProfileView: View {
     @AppStorage("current_belt") private var currentBelt: String = ""
     @AppStorage("belt_current") private var beltCurrent: String = ""
     @AppStorage("belt") private var belt: String = ""
-    @AppStorage("password") private var savedPassword: String = ""
 
     @AppStorage("coach") private var coach: String = ""
     @AppStorage("coachName") private var coachName: String = ""
@@ -75,11 +74,17 @@ struct MyProfileView: View {
     @ObservedObject
     private var demoPrivacy = DemoPrivacy.shared
 
-    @State private var firestoreInfo = MyProfileFirestoreInfo()
+    @State private var firestoreInfo =
+        MyProfileFirestoreInfo()
+
+    /*
+     * מקור האמת החדש לקשר המדויק:
+     * סניף -> קבוצות.
+     */
+    @State private var firestoreBranchAssignments:
+        [RegistrationFormState.BranchAssignment] = []
 
     @State private var isLoadingFirestoreProfile: Bool = false
-
-    @State private var passwordVisible: Bool = false
 
     @State private var showProfileShareSheet = false
 
@@ -151,22 +156,21 @@ struct MyProfileView: View {
         isEnglish ? .leftToRight : .rightToLeft
     }
 
+    /*
+     * leading הוא יישור לוגי:
+     * בעברית (RTL) = ימין פיזי.
+     * באנגלית (LTR) = שמאל פיזי.
+     */
     private var profileTextAlignment: TextAlignment {
-        isEnglish
-            ? .leading
-            : .trailing
+        .leading
     }
 
     private var profileFrameAlignment: Alignment {
-        isEnglish
-            ? .leading
-            : .trailing
+        .leading
     }
 
     private var profileStackAlignment: HorizontalAlignment {
-        isEnglish
-            ? .leading
-            : .trailing
+        .leading
     }
 
     private func tr(_ he: String, _ en: String) -> String {
@@ -260,10 +264,6 @@ struct MyProfileView: View {
         )
     }
 
-    private var resolvedPassword: String {
-        firstNonEmpty(savedPassword, "••••••••")
-    }
-
     private var displayedUserName: String {
         _ = demoPrivacy.isEnabled
 
@@ -295,38 +295,189 @@ struct MyProfileView: View {
         return branches.joined(separator: "\n")
     }
 
-    private var branchAddressEntries: [MyProfileBranchEntry] {
-        let branches = profileBranchList(from: resolvedBranch)
+    private var branchAddressEntries:
+        [MyProfileBranchEntry] {
+
+        let savedAssignments =
+            firestoreBranchAssignments
+                .isEmpty
+                ? RegistrationFormState
+                    .BranchAssignmentsCodec
+                    .decode(
+                        UserDefaults.standard.string(
+                            forKey:
+                                RegistrationFormState
+                                    .BranchAssignmentsCodec
+                                    .preferenceKey
+                        )
+                    )
+                : firestoreBranchAssignments
+
+        let cleanAssignments =
+            RegistrationFormState
+                .BranchAssignmentsCodec
+                .sanitized(
+                    savedAssignments
+                )
+
+        /*
+         * המבנה החדש הוא מקור האמת:
+         * כל סניף מקבל רק את הקבוצות
+         * שמשויכות אליו.
+         */
+        if !cleanAssignments.isEmpty {
+
+            return cleanAssignments.map {
+                assignment in
+
+                let branchValue =
+                    assignment.branch
+
+                let groupsForBranch =
+                    assignment.groups
+                        .map {
+                            $0.trimmingCharacters(
+                                in:
+                                    .whitespacesAndNewlines
+                            )
+                        }
+                        .filter {
+                            !$0.isEmpty
+                        }
+                        .joined(
+                            separator:
+                                "\n"
+                        )
+                        .ifBlankDash()
+
+                let branchCoach =
+                    coachForProfileBranch(
+                        branch:
+                            branchValue,
+                        groups:
+                            assignment.groups
+                    )
+
+                return MyProfileBranchEntry(
+                    branch:
+                        branchValue,
+                    address:
+                        branchAddressFallback(
+                            for:
+                                branchValue
+                        )
+                        .ifBlankDash(),
+                    group:
+                        groupsForBranch,
+                    coach:
+                        branchCoach
+                            .ifBlankDash()
+                )
+            }
+        }
+
+        /*
+         * fallback למשתמשים ישנים בלבד,
+         * שאין אצלם עדיין BranchAssignment.
+         */
+        let branches =
+            profileBranchList(
+                from:
+                    resolvedBranch
+            )
 
         guard !branches.isEmpty else {
             return []
         }
 
-        let explicitAddress = firstNonEmpty(
-            firestoreInfo.branchAddress,
-            branchAddress,
-            branchAddressSnake,
-            address
-        )
-
-        let explicitAddresses = profileBranchList(from: explicitAddress)
-
-        return branches.enumerated().map { index, branchValue in
-            let explicitForBranch = explicitAddresses.indices.contains(index) ? explicitAddresses[index] : ""
-
-            let resolvedAddress = firstNonEmpty(
-                explicitForBranch,
-                branchAddressFallback(for: branchValue)
+        let explicitAddress =
+            firstNonEmpty(
+                firestoreInfo.branchAddress,
+                branchAddress,
+                branchAddressSnake,
+                address
             )
-            .ifBlankDash()
+
+        let explicitAddresses =
+            profileBranchList(
+                from:
+                    explicitAddress
+            )
+
+        return branches.enumerated().map {
+            index,
+            branchValue in
+
+            let explicitForBranch =
+                explicitAddresses.indices
+                    .contains(index)
+                    ? explicitAddresses[index]
+                    : ""
+
+            let resolvedAddress =
+                firstNonEmpty(
+                    explicitForBranch,
+                    branchAddressFallback(
+                        for:
+                            branchValue
+                    )
+                )
+                .ifBlankDash()
 
             return MyProfileBranchEntry(
-                branch: branchValue,
-                address: resolvedAddress,
-                group: displayedGroup,
-                coach: displayedCoach
+                branch:
+                    branchValue,
+                address:
+                    resolvedAddress,
+                group:
+                    displayedGroup,
+                coach:
+                    displayedCoach
             )
         }
+    }
+
+    private func coachForProfileBranch(
+        branch: String,
+        groups: [String]
+    ) -> String {
+
+        let trainings =
+            groups
+                .flatMap { groupName in
+
+                    TrainingCatalogIOS
+                        .upcomingFor(
+                            region:
+                                resolvedRegion,
+                            branch:
+                                branch,
+                            group:
+                                groupName,
+                            count:
+                                1
+                        )
+                }
+                .sorted {
+                    $0.date < $1.date
+                }
+
+        guard let training =
+            trainings.first
+        else {
+            return ""
+        }
+
+        return TrainingCatalogIOS
+            .displayCoach(
+                training.coach,
+                isEnglish:
+                    isEnglish
+            )
+            .trimmingCharacters(
+                in:
+                    .whitespacesAndNewlines
+            )
     }
 
     private var displayedGroup: String {
@@ -381,22 +532,41 @@ struct MyProfileView: View {
             ZStack {
                 profileBackground
 
-                ScrollView(
-                    .vertical,
-                    showsIndicators: false
+                VStack(
+                    spacing:
+                        0
                 ) {
-                    VStack(spacing: 14) {
-                        profileGlassCard
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 20)
-                    .padding(
-                        .bottom,
-                        max(
-                            34,
-                            geo.safeAreaInsets.bottom + 24
+
+                    profileIdentityHeader
+
+                    ScrollView(
+                        .vertical,
+                        showsIndicators:
+                            false
+                    ) {
+                        VStack(
+                            spacing:
+                                14
+                        ) {
+                            profileGlassCard
+                        }
+                        .padding(
+                            .horizontal,
+                            20
                         )
-                    )
+                        .padding(
+                            .top,
+                            14
+                        )
+                        .padding(
+                            .bottom,
+                            max(
+                                34,
+                                geo.safeAreaInsets.bottom
+                                    + 24
+                            )
+                        )
+                    }
                 }
 
                 if isLoadingFirestoreProfile {
@@ -497,14 +667,19 @@ struct MyProfileView: View {
     // MARK: - Main card
 
     private var profileGlassCard: some View {
-        VStack(alignment: profileStackAlignment, spacing: 0) {
-            headerSection
-
-            Spacer().frame(height: 12)
-
+        VStack(
+            alignment:
+                profileStackAlignment,
+            spacing:
+                0
+        ) {
             editProfileButton
 
-            Spacer().frame(height: 14)
+            Spacer()
+                .frame(
+                    height:
+                        14
+                )
 
             profileInfoSections
 
@@ -520,40 +695,89 @@ struct MyProfileView: View {
                 .fill(profileCardColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(
-                    profileCardBorderColor,
-                    lineWidth: 1
-                )
+            RoundedRectangle(
+                cornerRadius:
+                    28,
+                style:
+                    .continuous
+            )
+            .stroke(
+                profileCardBorderColor,
+                lineWidth:
+                    1
+            )
+        )
+        .environment(
+            \.layoutDirection,
+            isEnglish
+                ? .leftToRight
+                : .rightToLeft
         )
     }
 
-    private var headerSection: some View {
-        HStack(alignment: .top, spacing: 8) {
-            if isEnglish {
-                profileBeltImage
-                    .frame(width: 118, height: 76)
-                    .padding(.top, -12)
+    private var profileIdentityHeader:
+        some View {
 
-                headerTextBlock(
-                    alignment: .leading,
-                    frameAlignment: .leading,
-                    textAlignment: .leading
-                )
-            } else {
-                headerTextBlock(
-                    alignment: .trailing,
-                    frameAlignment: .trailing,
-                    textAlignment: .trailing
+        HStack(
+            alignment:
+                .center,
+            spacing:
+                24
+        ) {
+
+            /*
+             * תמונת החגורה בצד שמאל הפיזי,
+             * אבל קרובה למרכז כמו Android.
+             */
+            profileBeltImage
+                .frame(
+                    width:
+                        82,
+                    height:
+                        56
                 )
 
-                profileBeltImage
-                    .frame(width: 104, height: 82)
-                    .padding(.top, -10)
-            }
+            /*
+             * שם + חגורה בצד ימין הפיזי.
+             */
+            headerTextBlock(
+                alignment:
+                    .trailing,
+                frameAlignment:
+                    .trailing,
+                textAlignment:
+                    .trailing
+            )
+            .frame(
+                width:
+                    170,
+                alignment:
+                    .trailing
+            )
         }
-        .frame(maxWidth: .infinity)
-        .environment(\.layoutDirection, .leftToRight)
+        .frame(
+            maxWidth:
+                .infinity,
+            alignment:
+                .center
+        )
+        .frame(
+            height:
+                68
+        )
+        .background(
+            KmiAppTheme
+                .sectionHeaderBrush
+        )
+        /*
+         * כאן LTR מכוון:
+         * חגורה פיזית משמאל,
+         * טקסט פיזית מימין.
+         */
+        .environment(
+            \.layoutDirection,
+            .leftToRight
+        )
     }
 
     private func headerTextBlock(
@@ -562,18 +786,51 @@ struct MyProfileView: View {
         textAlignment: TextAlignment
     ) -> some View {
         VStack(alignment: alignment, spacing: 6) {
-            Text(displayedUserName)
-                .kmiFont(size: 24, weight: .heavy)
-                .foregroundStyle(profilePrimaryTextColor)
-                .lineLimit(2)
-                .minimumScaleFactor(0.72)
-                .frame(maxWidth: .infinity, alignment: frameAlignment)
-                .multilineTextAlignment(textAlignment)
+            Text(
+                displayedUserName
+            )
+            .kmiFont(
+                size:
+                    24,
+                weight:
+                    .heavy
+            )
+            .foregroundStyle(
+                Color.white
+            )
+            .lineLimit(
+                1
+            )
+            .minimumScaleFactor(
+                0.72
+            )
+            .frame(
+                maxWidth:
+                    .infinity,
+                alignment:
+                    frameAlignment
+            )
+            .multilineTextAlignment(
+                textAlignment
+            )
 
-            Text(displayedBelt)
-                .kmiFont(size: 15, weight: .semibold)
-                .foregroundStyle(profileAccentTextColor)
-                .lineLimit(2)
+            Text(
+                displayedBelt
+            )
+            .kmiFont(
+                size:
+                    15,
+                weight:
+                    .semibold
+            )
+            .foregroundStyle(
+                Color.white.opacity(
+                    0.90
+                )
+            )
+            .lineLimit(
+                1
+            )
                 .minimumScaleFactor(0.78)
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
                 .multilineTextAlignment(textAlignment)
@@ -631,8 +888,15 @@ struct MyProfileView: View {
         )
     }
 
-    private var profileInfoSections: some View {
-        VStack(spacing: 0) {
+    private var profileInfoSections:
+        some View {
+
+        VStack(
+            alignment:
+                profileStackAlignment,
+            spacing:
+                0
+        ) {
             branchAddressListBlock(
                 label: tr("סניפים וכתובות:", "Branches and addresses:"),
                 entries: branchAddressEntries
@@ -654,15 +918,29 @@ struct MyProfileView: View {
             )
 
             labeledValueBlock(
-                label: tr("שם משתמש:", "Username:"),
-                value: displayedUsername
+                label:
+                    tr(
+                        "שם משתמש:",
+                        "Username:"
+                    ),
+                value:
+                    displayedUsername
             )
 
-            passwordRow(
-                label: tr("סיסמה", "Password"),
-                password: resolvedPassword
-            )
+            passwordRecoveryRow
         }
+        .frame(
+            maxWidth:
+                .infinity,
+            alignment:
+                .leading
+        )
+        .environment(
+            \.layoutDirection,
+            isEnglish
+                ? .leftToRight
+                : .rightToLeft
+        )
     }
 
     private func labeledValueBlock(
@@ -716,10 +994,21 @@ struct MyProfileView: View {
                 .frame(height: 1)
         }
         .frame(
-            maxWidth: .infinity,
-            alignment: profileFrameAlignment
+            maxWidth:
+                .infinity,
+            alignment:
+                .leading
         )
-        .padding(.vertical, 5)
+        .environment(
+            \.layoutDirection,
+            isEnglish
+                ? .leftToRight
+                : .rightToLeft
+        )
+        .padding(
+            .vertical,
+            5
+        )
     }
 
     private func branchAddressListBlock(
@@ -740,22 +1029,57 @@ struct MyProfileView: View {
                     .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                     .multilineTextAlignment(profileTextAlignment)
             } else {
-                ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                    VStack(alignment: profileStackAlignment, spacing: 4) {
-                        Text(entry.branch.ifBlankDash())
-                            .kmiFont(size: 15, weight: .heavy)
-                            .foregroundStyle(profileAccentTextColor)
+                ForEach(
+                    Array(
+                        entries.enumerated()
+                    ),
+                    id:
+                        \.element.id
+                ) { index, entry in
+
+                    VStack(
+                        alignment:
+                            .leading,
+                        spacing:
+                            4
+                    ) {
+                        Text(
+                            TrainingCatalogIOS
+                                .displayBranch(
+                                    entry.branch,
+                                    isEnglish:
+                                        isEnglish
+                                )
+                                .ifBlankDash()
+                        )
+                        .kmiFont(
+                            size:
+                                15,
+                            weight:
+                                .heavy
+                        )
+                        .foregroundStyle(
+                            profileAccentTextColor
+                        )
                             .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                             .multilineTextAlignment(profileTextAlignment)
                             .lineLimit(2)
                             .minimumScaleFactor(0.78)
 
                         Text(
-                            entry.address.ifBlankDash()
+                            TrainingCatalogIOS
+                                .displayAddress(
+                                    entry.address,
+                                    isEnglish:
+                                        isEnglish
+                                )
+                                .ifBlankDash()
                         )
                         .kmiFont(
-                            size: 14,
-                            weight: .semibold
+                            size:
+                                14,
+                            weight:
+                                .semibold
                         )
                         .foregroundStyle(
                             profileSecondaryTextColor
@@ -777,9 +1101,35 @@ struct MyProfileView: View {
                             .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                             .multilineTextAlignment(profileTextAlignment)
 
-                        Text(entry.group.ifBlankDash())
-                            .kmiFont(size: 14, weight: .heavy)
-                            .foregroundStyle(profilePrimaryTextColor)
+                        Text(
+                            entry.group
+                                .components(
+                                    separatedBy:
+                                        "\n"
+                                )
+                                .map {
+                                    TrainingCatalogIOS
+                                        .displayGroup(
+                                            $0,
+                                            isEnglish:
+                                                isEnglish
+                                        )
+                                }
+                                .joined(
+                                    separator:
+                                        "\n"
+                                )
+                                .ifBlankDash()
+                        )
+                        .kmiFont(
+                            size:
+                                14,
+                            weight:
+                                .heavy
+                        )
+                        .foregroundStyle(
+                            profilePrimaryTextColor
+                        )
                             .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                             .multilineTextAlignment(profileTextAlignment)
 
@@ -798,8 +1148,26 @@ struct MyProfileView: View {
                             .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                             .multilineTextAlignment(profileTextAlignment)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
+                    .frame(
+                        maxWidth:
+                            .infinity,
+                        alignment:
+                            profileFrameAlignment
+                    )
+                    .environment(
+                        \.layoutDirection,
+                        isEnglish
+                            ? .leftToRight
+                            : .rightToLeft
+                    )
+                    .padding(
+                        .horizontal,
+                        12
+                    )
+                    .padding(
+                        .vertical,
+                        10
+                    )
                     .background(
                         RoundedRectangle(
                             cornerRadius: 16,
@@ -833,145 +1201,102 @@ struct MyProfileView: View {
             }
 
             Rectangle()
-                .fill(profileCardBorderColor)
-                .frame(height: 1)
-        }
-        .padding(.vertical, 6)
-    }
-
-    private func passwordRow(
-        label: String,
-        password: String
-    ) -> some View {
-        VStack(
-            alignment: profileStackAlignment,
-            spacing: 5
-        ) {
-            Text(label)
-                .kmiFont(size: 13, weight: .medium)
-                .foregroundStyle(profileSecondaryTextColor)
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: profileFrameAlignment
+                .fill(
+                    profileCardBorderColor
                 )
-                .multilineTextAlignment(profileTextAlignment)
-
-            HStack(spacing: 8) {
-                if isEnglish {
-                    Button {
-                        passwordVisible.toggle()
-                    } label: {
-                        passwordVisibilityIcon
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(
-                        passwordVisible
-                            ? tr(
-                                "הסתרת סיסמה",
-                                "Hide password"
-                            )
-                            : tr(
-                                "הצגת סיסמה",
-                                "Show password"
-                            )
-                    )
-
-                    Text(
-                        passwordVisible
-                            ? password
-                            : "••••••••"
-                    )
-                        .kmiFont(size: 15, weight: .heavy)
-                        .foregroundStyle(profilePrimaryTextColor)
-
-                    Spacer(minLength: 0)
-                } else {
-                    Spacer(minLength: 0)
-
-                    Text(
-                        passwordVisible
-                            ? password
-                            : "••••••••"
-                    )
-                    .kmiFont(
-                        size: 15,
-                        weight: .heavy
-                    )
-                    .foregroundStyle(
-                        profilePrimaryTextColor
-                    )
-
-                    Button {
-                        passwordVisible.toggle()
-                    } label: {
-                        passwordVisibilityIcon
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(
-                        passwordVisible
-                            ? tr(
-                                "הסתרת סיסמה",
-                                "Hide password"
-                            )
-                            : tr(
-                                "הצגת סיסמה",
-                                "Show password"
-                            )
-                    )
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .environment(
-                \.layoutDirection,
-                .leftToRight
-            )
-            .accessibilityElement(
-                children: .combine
-            )
-            .accessibilityValue(
-                passwordVisible
-                    ? password
-                    : tr(
-                        "הסיסמה מוסתרת",
-                        "Password hidden"
-                    )
-            )
-
-            Rectangle()
-                .fill(profileCardBorderColor)
-                .frame(height: 1)
+                .frame(
+                    height:
+                        1
+                )
         }
         .frame(
-            maxWidth: .infinity,
-            alignment: profileFrameAlignment
+            maxWidth:
+                .infinity,
+            alignment:
+                profileFrameAlignment
         )
-        .padding(.vertical, 5)
+        .environment(
+            \.layoutDirection,
+            isEnglish
+                ? .leftToRight
+                : .rightToLeft
+        )
+        .padding(
+            .vertical,
+            6
+        )
     }
 
-    private var passwordVisibilityIcon: some View {
-        Image(
-            systemName:
-                passwordVisible
-                    ? "eye.slash"
-                    : "eye"
+    private var passwordRecoveryRow:
+        some View {
+
+        Button {
+            NotificationCenter.default.post(
+                name:
+                    Notification.Name(
+                        "KMI_OPEN_ACCOUNT_RECOVERY"
+                    ),
+                object:
+                    nil
+            )
+        } label: {
+
+            Text(
+                tr(
+                    "שחזור סיסמה",
+                    "Password recovery"
+                )
+            )
+            .kmiFont(
+                size:
+                    15,
+                weight:
+                    .heavy
+            )
+            .foregroundStyle(
+                profileAccentTextColor
+            )
+            .frame(
+                maxWidth:
+                    .infinity,
+                alignment:
+                    profileFrameAlignment
+            )
+            .multilineTextAlignment(
+                profileTextAlignment
+            )
+            .padding(
+                .vertical,
+                8
+            )
+        }
+        .buttonStyle(
+            .plain
         )
-        .kmiFont(
-            size: 18,
-            weight: .bold
+        .frame(
+            maxWidth:
+                .infinity,
+            alignment:
+                profileFrameAlignment
         )
-        .foregroundStyle(profileAccentTextColor)
-        .frame(width: 28, height: 28)
-        .contentShape(Rectangle())
+        .overlay(
+            alignment:
+                .bottom
+        ) {
+            Rectangle()
+                .fill(
+                    profileCardBorderColor
+                )
+                .frame(
+                    height:
+                        1
+                )
+        }
         .accessibilityLabel(
-            passwordVisible
-                ? tr(
-                    "הסתרת סיסמה",
-                    "Hide password"
-                )
-                : tr(
-                    "הצגת סיסמה",
-                    "Show password"
-                )
+            tr(
+                "שחזור סיסמה",
+                "Password recovery"
+            )
         )
     }
 
@@ -1139,38 +1464,77 @@ struct MyProfileView: View {
         let branchDetails =
             branchAddressEntries
                 .map { entry in
-                    [
-                        entry.branch.ifBlankDash(),
-                        entry.address.ifBlankDash()
+
+                    let groups =
+                        entry.group
+                            .components(
+                                separatedBy:
+                                    CharacterSet(
+                                        charactersIn:
+                                            "\n,;|"
+                                    )
+                            )
+                            .map {
+                                $0.trimmingCharacters(
+                                    in:
+                                        .whitespacesAndNewlines
+                                )
+                            }
+                            .filter {
+                                !$0.isEmpty
+                            }
+                            .joined(
+                                separator:
+                                    ", "
+                            )
+                            .ifBlankDash()
+
+                    return [
+                        entry.branch
+                            .ifBlankDash(),
+                        entry.address
+                            .ifBlankDash(),
+                        "\(tr("קבוצה", "Group")): \(groups)",
+                        "\(tr("מאמן", "Coach")): \(entry.coach.ifBlankDash())"
                     ]
-                    .joined(separator: " — ")
+                    .joined(
+                        separator:
+                            "\n"
+                    )
                 }
-                .joined(separator: "\n")
+                .joined(
+                    separator:
+                        "\n\n"
+                )
                 .ifBlankDash()
 
         let profileRows: [(String, String)] = [
             (
-                tr("שם", "Name"),
+                tr(
+                    "שם",
+                    "Name"
+                ),
                 displayedUserName
             ),
             (
-                tr("חגורה נוכחית", "Current belt"),
+                tr(
+                    "חגורה נוכחית",
+                    "Current belt"
+                ),
                 displayedBelt
             ),
             (
-                tr("סניפים וכתובות", "Branches and addresses"),
+                tr(
+                    "סניפים, קבוצות ומאמנים",
+                    "Branches, Groups and Coaches"
+                ),
                 branchDetails
             ),
             (
-                tr("קבוצה", "Group"),
-                displayedGroup
-            ),
-            (
-                tr("מאמן", "Coach"),
-                displayedCoach
-            ),
-            (
-                tr("אימון הבא", "Next training"),
+                tr(
+                    "האימון הבא",
+                    "Next training"
+                ),
                 displayedNextTraining
             ),
             (
@@ -1186,12 +1550,11 @@ struct MyProfileView: View {
                 displayedPhone
             ),
             (
-                tr("שם משתמש", "Username"),
+                tr(
+                    "שם משתמש",
+                    "Username"
+                ),
                 displayedUsername
-            ),
-            (
-                tr("סיסמה", "Password"),
-                resolvedPassword
             )
         ]
 
@@ -1620,8 +1983,32 @@ struct MyProfileView: View {
                         )
                     )
 
-                    firestoreInfo = loaded
-                    syncLoadedProfileToDefaults(loaded)
+                    let rawAssignments =
+                        data[
+                            RegistrationFormState
+                                .BranchAssignmentsCodec
+                                .firestoreKey
+                        ] as? [Any]
+                        ?? []
+
+                    let loadedAssignments =
+                        RegistrationFormState
+                            .BranchAssignmentsCodec
+                            .fromFirestoreList(
+                                rawAssignments
+                            )
+
+                    firestoreInfo =
+                        loaded
+
+                    firestoreBranchAssignments =
+                        loadedAssignments
+
+                    syncLoadedProfileToDefaults(
+                        loaded,
+                        branchAssignments:
+                            loadedAssignments
+                    )
                 }
             }
     }
@@ -1655,8 +2042,115 @@ struct MyProfileView: View {
         return ""
     }
 
-    private func syncLoadedProfileToDefaults(_ info: MyProfileFirestoreInfo) {
-        let defaults = UserDefaults.standard
+    private func syncLoadedProfileToDefaults(
+        _ info: MyProfileFirestoreInfo,
+        branchAssignments:
+            [RegistrationFormState.BranchAssignment]
+    ) {
+        let defaults =
+            UserDefaults.standard
+
+        if !branchAssignments.isEmpty {
+
+            let cleanAssignments =
+                RegistrationFormState
+                    .BranchAssignmentsCodec
+                    .sanitized(
+                        branchAssignments
+                    )
+
+            defaults.set(
+                RegistrationFormState
+                    .BranchAssignmentsCodec
+                    .encode(
+                        cleanAssignments
+                    ),
+                forKey:
+                    RegistrationFormState
+                        .BranchAssignmentsCodec
+                        .preferenceKey
+            )
+
+            let branches =
+                RegistrationFormState
+                    .BranchAssignmentsCodec
+                    .flattenBranches(
+                        cleanAssignments
+                    )
+
+            let groups =
+                RegistrationFormState
+                    .BranchAssignmentsCodec
+                    .flattenGroups(
+                        cleanAssignments
+                    )
+
+            if !branches.isEmpty {
+
+                let branchesCsv =
+                    branches.joined(
+                        separator:
+                            ", "
+                    )
+
+                defaults.set(
+                    branchesCsv,
+                    forKey:
+                        "branch"
+                )
+
+                defaults.set(
+                    branches.first ?? "",
+                    forKey:
+                        "activeBranch"
+                )
+
+                defaults.set(
+                    branches.first ?? "",
+                    forKey:
+                        "active_branch"
+                )
+            }
+
+            if !groups.isEmpty {
+
+                let groupsCsv =
+                    groups.joined(
+                        separator:
+                            ", "
+                    )
+
+                defaults.set(
+                    groupsCsv,
+                    forKey:
+                        "group"
+                )
+
+                defaults.set(
+                    groups.first ?? "",
+                    forKey:
+                        "activeGroup"
+                )
+
+                defaults.set(
+                    groups.first ?? "",
+                    forKey:
+                        "active_group"
+                )
+
+                defaults.set(
+                    groups.first ?? "",
+                    forKey:
+                        "groupKey"
+                )
+
+                defaults.set(
+                    groupsCsv,
+                    forKey:
+                        "age_group"
+                )
+            }
+        }
 
         if !info.fullName.isEmpty {
             defaults.set(info.fullName, forKey: "fullName")
@@ -1720,46 +2214,80 @@ struct MyProfileView: View {
 
     // MARK: - Belt helpers
 
-    private func profileBeltImageName(for raw: String) -> String {
-        let clean = raw
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+    private func profileBeltImageName(
+        for raw: String
+    ) -> String {
+
+        let clean =
+            raw
+                .trimmingCharacters(
+                    in:
+                        .whitespacesAndNewlines
+                )
+                .lowercased()
 
         switch clean {
-        case "white", "לבנה":
+
+        case "white",
+             "לבנה":
             return "belt_white"
-        case "yellow", "צהובה":
+
+        case "yellow",
+             "צהובה":
             return "belt_yellow"
-        case "orange", "כתומה":
+
+        case "orange",
+             "כתומה":
             return "belt_orange"
-        case "green", "ירוקה":
+
+        case "green",
+             "ירוקה":
             return "belt_green"
-        case "blue", "כחולה":
+
+        case "blue",
+             "כחולה":
             return "belt_blue"
-        case "brown", "חומה":
+
+        case "brown",
+             "חומה":
             return "belt_brown"
+
         case "black",
+             "black_dan_1",
              "שחורה",
-             "שחורה דאן 1",
-             "שחורה דאן 2",
-             "שחורה דאן 3",
-             "שחורה דאן 4",
-             "שחורה דאן 5",
-             "שחורה דאן 6",
-             "שחורה דאן 7",
-             "שחורה דאן 8",
-             "שחורה דאן 9",
-             "שחורה דאן 10",
-             "black_dan_2",
-             "black_dan_3",
-             "black_dan_4",
-             "black_dan_5",
-             "black_dan_6",
+             "שחורה דאן 1":
+            return "belt_black"
+
+        case "black_dan_2",
+             "שחורה דאן 2":
+            return "intro_belt_black_dan_2"
+
+        case "black_dan_3",
+             "שחורה דאן 3":
+            return "intro_belt_black_dan_3"
+
+        case "black_dan_4",
+             "שחורה דאן 4":
+            return "intro_belt_black_dan_4"
+
+        case "black_dan_5",
+             "שחורה דאן 5":
+            return "intro_belt_black_dan_5"
+
+        case "black_dan_6",
              "black_dan_7",
              "black_dan_8",
-             "black_dan_9",
-             "black_dan_10":
-            return "belt_black"
+             "שחורה דאן 6",
+             "שחורה דאן 7",
+             "שחורה דאן 8":
+            return "intro_belt_red_white_dan_6_7_8"
+
+        case "black_dan_9",
+             "black_dan_10",
+             "שחורה דאן 9",
+             "שחורה דאן 10":
+            return "intro_belt_red_dan_9_10"
+
         default:
             return "belt_orange"
         }
@@ -2014,50 +2542,171 @@ struct MyProfileView: View {
         }
     }
 
-    private func nextTrainingTextFromCatalog() -> String {
-        let branchValue = displayedBranch
-            .components(separatedBy: CharacterSet(charactersIn: "\n|;,"))
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty && $0 != "—" } ?? ""
+    private func nextProfileTrainingFromCatalog()
+        -> TrainingData? {
+
+        let savedAssignments =
+            firestoreBranchAssignments
+                .isEmpty
+                ? RegistrationFormState
+                    .BranchAssignmentsCodec
+                    .decode(
+                        UserDefaults.standard.string(
+                            forKey:
+                                RegistrationFormState
+                                    .BranchAssignmentsCodec
+                                    .preferenceKey
+                        )
+                    )
+                : firestoreBranchAssignments
+
+        let cleanAssignments =
+            RegistrationFormState
+                .BranchAssignmentsCodec
+                .sanitized(
+                    savedAssignments
+                )
+
+        /*
+         * כל זוג סניף-קבוצה נבדק בנפרד.
+         * כך לא מערבבים קבוצה מסניף אחד
+         * עם סניף אחר.
+         */
+        let assignedTrainings =
+            cleanAssignments
+                .flatMap { assignment in
+
+                    assignment.groups
+                        .flatMap { groupName in
+
+                            TrainingCatalogIOS
+                                .upcomingFor(
+                                    region:
+                                        resolvedRegion,
+                                    branch:
+                                        assignment.branch,
+                                    group:
+                                        groupName,
+                                    count:
+                                        1
+                                )
+                        }
+                }
+                .sorted {
+                    $0.date < $1.date
+                }
+
+        if let first =
+            assignedTrainings.first {
+
+            return first
+        }
+
+        /*
+         * fallback למשתמש ישן שאין לו עדיין
+         * BranchAssignment.
+         */
+        let branchValue =
+            displayedBranch
+                .components(
+                    separatedBy:
+                        CharacterSet(
+                            charactersIn:
+                                "\n|;,"
+                        )
+                )
+                .map {
+                    $0.trimmingCharacters(
+                        in:
+                            .whitespacesAndNewlines
+                    )
+                }
+                .first {
+                    !$0.isEmpty &&
+                    $0 != "—"
+                }
+                ?? ""
 
         guard !branchValue.isEmpty else {
+            return nil
+        }
+
+        return TrainingCatalogIOS
+            .upcomingFor(
+                region:
+                    resolvedRegion,
+                branch:
+                    branchValue,
+                group:
+                    normalizedProfileGroup(
+                        displayedGroup
+                    ),
+                count:
+                    1
+            )
+            .first
+    }
+
+    private func nextTrainingTextFromCatalog() -> String {
+
+        guard let upcoming =
+            nextProfileTrainingFromCatalog()
+        else {
             return ""
         }
 
-        let groupValue = normalizedProfileGroup(displayedGroup)
+        let locale =
+            isEnglish
+                ? Locale(
+                    identifier:
+                        "en_US"
+                )
+                : Locale(
+                    identifier:
+                        "he_IL"
+                )
 
-        let regionValue = firstNonEmpty(
-            resolvedRegion,
-            "השרון"
-        )
+        let dayFormatter =
+            DateFormatter()
 
-        let upcoming = TrainingCatalogIOS.upcomingFor(
-            region: regionValue,
-            branch: branchValue,
-            group: groupValue,
-            count: 1
-        )
-        .first
+        dayFormatter.locale =
+            locale
 
-        guard let upcoming else {
-            return ""
-        }
+        dayFormatter.dateFormat =
+            "EEEE"
 
-        let locale = isEnglish ? Locale(identifier: "en_US") : Locale(identifier: "he_IL")
+        let timeFormatter =
+            DateFormatter()
 
-        let dayFormatter = DateFormatter()
-        dayFormatter.locale = locale
-        dayFormatter.dateFormat = "EEEE"
+        timeFormatter.locale =
+            locale
 
-        let timeFormatter = DateFormatter()
-        timeFormatter.locale = locale
-        timeFormatter.dateFormat = "HH:mm"
+        timeFormatter.dateFormat =
+            "HH:mm"
 
-        let day = dayFormatter.string(from: upcoming.date)
-        let time = timeFormatter.string(from: upcoming.date)
+        let day =
+            dayFormatter.string(
+                from:
+                    upcoming.date
+            )
 
-        let place = upcoming.place
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let time =
+            timeFormatter.string(
+                from:
+                    upcoming.date
+            )
+
+        let place =
+            TrainingCatalogIOS
+                .displayPlace(
+                    upcoming.place,
+                    isEnglish:
+                        isEnglish
+                )
+                .trimmingCharacters(
+                    in:
+                        .whitespacesAndNewlines
+                )
 
         if place.isEmpty {
             return "\(day) • \(time)"
@@ -2067,36 +2716,22 @@ struct MyProfileView: View {
     }
 
     private func nextTrainingCoachFromCatalog() -> String {
-        let branchValue = displayedBranch
-            .components(separatedBy: CharacterSet(charactersIn: "\n|;,"))
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty && $0 != "—" } ?? ""
 
-        guard !branchValue.isEmpty else {
+        guard let upcoming =
+            nextProfileTrainingFromCatalog()
+        else {
             return ""
         }
 
-        let groupValue = normalizedProfileGroup(displayedGroup)
-
-        let regionValue = firstNonEmpty(
-            resolvedRegion,
-            "השרון"
-        )
-
-        let upcoming = TrainingCatalogIOS.upcomingFor(
-            region: regionValue,
-            branch: branchValue,
-            group: groupValue,
-            count: 1
-        )
-        .first
-
-        guard let upcoming else {
-            return ""
-        }
-
-        return upcoming.coach
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return TrainingCatalogIOS
+            .displayCoach(
+                upcoming.coach,
+                isEnglish:
+                    isEnglish
+            )
+            .trimmingCharacters(
+                in:
+                    .whitespacesAndNewlines
+            )
     }
 }
-

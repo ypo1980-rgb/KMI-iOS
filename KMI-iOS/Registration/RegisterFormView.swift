@@ -10,14 +10,22 @@ struct RegisterFormView: View {
     let screenTitle: String
     let submitTitle: String
     let submittingTitle: String
+    let isSavingProfile: Bool
     let onBack: () -> Void
     let onSubmit: (RegistrationFormState) -> Void
     let onReadMoreTerms: () -> Void
 
     @State private var s: RegistrationFormState
-    @State private var isSubmitting: Bool = false
+    @EnvironmentObject private var auth: AuthViewModel
+
+    private var isSubmitting: Bool {
+        auth.isLoading || isSavingProfile
+    }
+
     @State private var didFinishInitialLoad: Bool = false
     @State private var hasAttemptedSubmit: Bool = false
+    @State private var missingFieldScrollRequest: Int = 0
+    @FocusState private var focusedField: String?
     @State private var displayedBranchValue: String = ""
     @State private var displayedGroupValue: String = ""
 
@@ -108,9 +116,9 @@ struct RegisterFormView: View {
      * עבור אחד הסניפים שנבחרו.
      */
     private var shouldShowGroupsPicker: Bool {
-        s.branchesArray.contains { branch in
-            !availableGroups(for: branch).isEmpty
-        }
+        !isAbroadSelection &&
+        !isCurrentRegionAbroad &&
+        !s.branches.isEmpty
     }
 
     private let belts = [
@@ -133,8 +141,8 @@ struct RegisterFormView: View {
     ]
 
     @State private var isAbroadSelection: Bool = false
-    @State private var showBranchesSheet = false
-    @State private var showGroupsSheet = false
+    @State private var showBeltSheet = false
+    @State private var branchGroupsExpansion: [String: Bool] = [:]
 
     @AppStorage("kmi_app_language")
     private var kmiAppLanguageCode: String = "he"
@@ -476,7 +484,9 @@ struct RegisterFormView: View {
 
     private var showPhoneError: Bool {
         shouldRevealValidationErrors &&
-        s.phone.filter { $0.isNumber }.count < 9
+        !(9...12).contains(
+            s.phone.filter { $0.isNumber }.count
+        )
     }
 
     private var showEmailError: Bool {
@@ -573,9 +583,25 @@ struct RegisterFormView: View {
     }
 
     private var showGroupsError: Bool {
-        shouldRevealValidationErrors &&
-        shouldShowGroupsPicker &&
-        s.groups.isEmpty
+        guard shouldRevealValidationErrors,
+              shouldShowGroupsPicker else {
+            return false
+        }
+
+        return s.branchesArray.contains { branch in
+            let selectedGroups = s.branchAssignments
+                .first { $0.branch == branch }?
+                .groups ?? []
+
+            let available = Set(
+                availableGroups(for: branch)
+            )
+
+            return selectedGroups.isEmpty ||
+                selectedGroups.contains {
+                    !available.contains($0)
+                }
+        }
     }
 
     private var showBeltError: Bool {
@@ -747,6 +773,7 @@ struct RegisterFormView: View {
         screenTitle: String = "טופס רישום",
         submitTitle: String = "סיום רישום",
         submittingTitle: String = "שומר...",
+        isSavingProfile: Bool = false,
         onBack: @escaping () -> Void,
         onSubmit: @escaping (RegistrationFormState) -> Void,
         onReadMoreTerms: @escaping () -> Void = {}
@@ -757,6 +784,7 @@ struct RegisterFormView: View {
         self.screenTitle = screenTitle
         self.submitTitle = submitTitle
         self.submittingTitle = submittingTitle
+        self.isSavingProfile = isSavingProfile
         self.onBack = onBack
         self.onSubmit = onSubmit
         self.onReadMoreTerms = onReadMoreTerms
@@ -770,17 +798,28 @@ struct RegisterFormView: View {
     
     var body: some View {
         registerRootView
+            .disabled(isSubmitting)
             .environment(\.layoutDirection, screenLayoutDirection)
-            .sheet(isPresented: $showBranchesSheet) {
-                branchesSheet
-                    .environment(\.layoutDirection, screenLayoutDirection)
-            }
-            .sheet(isPresented: $showGroupsSheet) {
-                groupsSheet
-                    .environment(\.layoutDirection, screenLayoutDirection)
+            .sheet(isPresented: $showBeltSheet) {
+                beltSelectionSheet
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 submitBottomBar
+            }
+            .overlay {
+                if isSubmitting {
+                    KmiLoadingOverlay()
+                }
+            }
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+
+                    Button(tr("סיום", "Done")) {
+                        requestMissingFieldScroll()
+                    }
+                    .kmiFont(size: 14, weight: .semibold)
+                }
             }
             .onChange(of: s.region) { oldRegion, newRegion in
                 handleRegionChange(oldRegion: oldRegion, newRegion: newRegion)
@@ -803,10 +842,132 @@ struct RegisterFormView: View {
         ZStack {
             registrationBackground
 
-            ScrollView {
-                registerScrollContent
+            VStack(spacing: 0) {
+                roleTabs
+
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        registerScrollContent
+                    }
+                    .scrollDismissesKeyboard(.interactively)
+                    .onChange(
+                        of: missingFieldScrollRequest
+                    ) { _, _ in
+                        guard let target = firstMissingField else {
+                            return
+                        }
+
+                        DispatchQueue.main.async {
+                            withAnimation(
+                                .easeInOut(duration: 0.25)
+                            ) {
+                                proxy.scrollTo(
+                                    target,
+                                    anchor: .top
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
+    }
+
+    private func requestMissingFieldScroll() {
+        focusedField = nil
+        hasAttemptedSubmit = true
+
+        if showGroupsError {
+            for branch in s.branchesArray {
+                let selected = groupsBinding(
+                    for: branch
+                ).wrappedValue
+
+                let available = Set(
+                    availableGroups(for: branch)
+                )
+
+                if selected.isEmpty ||
+                    selected.contains(
+                        where: { !available.contains($0) }
+                    ) {
+                    branchGroupsExpansion[branch] = true
+                }
+            }
+        }
+
+        missingFieldScrollRequest += 1
+    }
+
+    private var firstMissingField: String? {
+        if showFullNameError {
+            return "fullName"
+        }
+
+        if showPhoneError {
+            return "phone"
+        }
+
+        if showEmailError {
+            return "email"
+        }
+
+        if showGenderError {
+            return "gender"
+        }
+
+        if showBirthDayError ||
+            showBirthMonthError ||
+            showBirthYearError {
+            return "birthDate"
+        }
+
+        if showUsernameError {
+            return "username"
+        }
+
+        if showPasswordError {
+            return "password"
+        }
+
+        if showRegionError {
+            return "region"
+        }
+
+        if showBranchesError {
+            return "branches"
+        }
+
+        if showGroupsError {
+            for branch in s.branchesArray {
+                let selected = groupsBinding(
+                    for: branch
+                ).wrappedValue
+
+                let available = Set(
+                    availableGroups(for: branch)
+                )
+
+                if selected.isEmpty ||
+                    selected.contains(
+                        where: { !available.contains($0) }
+                    ) {
+                    return "group:\(branch)"
+                }
+            }
+
+            return "groups"
+        }
+
+        if showBeltError {
+            return "belt"
+        }
+
+        if !s.acceptsTerms {
+            return "terms"
+        }
+
+        return nil
     }
 
     private var registrationBackground:
@@ -829,11 +990,9 @@ struct RegisterFormView: View {
 
     private var registerScrollContent: some View {
         VStack(spacing: 14) {
-            roleTabs
-
             /*
-             * המסך מתחיל ישירות בכרטיס הפרטים האישיים.
-             * קוד המאמן עדיין נוצר ומוצג לאחר הרשמה מוצלחת.
+             * הטאבים קבועים מעל הגלילה.
+             * התוכן מתחיל בכרטיס הפרטים האישיים.
              */
             personalDetailsSection
 
@@ -842,11 +1001,9 @@ struct RegisterFormView: View {
             branchSection
 
             preferencesSection
-
-            Spacer(minLength: 110)
         }
         .padding(.horizontal, 14)
-        .padding(.top, 10)
+        .padding(.vertical, 10)
     }
 
     private var personalDetailsSection: some View {
@@ -861,6 +1018,7 @@ struct RegisterFormView: View {
                 text: $s.fullName,
                 showError: showFullNameError
             )
+            .id("fullName")
 
             field(
                 title: tr("טלפון", "Phone"),
@@ -868,6 +1026,7 @@ struct RegisterFormView: View {
                 keyboard: .phonePad,
                 showError: showPhoneError
             )
+            .id("phone")
 
             field(
                 title: tr("מייל", "Email"),
@@ -875,6 +1034,7 @@ struct RegisterFormView: View {
                 keyboard: .emailAddress,
                 showError: showEmailError
             )
+            .id("email")
 
             Text(tr("מין המשתמש", "Gender"))
                 .kmiFont(size: 14, weight: .semibold)
@@ -890,6 +1050,7 @@ struct RegisterFormView: View {
                 .multilineTextAlignment(formTextAlignment)
 
             genderPicker
+                .id("gender")
 
             if showGenderError {
                 Text(
@@ -908,7 +1069,7 @@ struct RegisterFormView: View {
             }
 
             Text(tr("תאריך לידה", "Date of birth"))
-                .font(.system(size: 14, weight: .semibold))
+                .kmiFont(size: 14, weight: .semibold)
                 .foregroundStyle(
                     showBirthDayError ||
                     showBirthMonthError ||
@@ -923,6 +1084,7 @@ struct RegisterFormView: View {
                 .multilineTextAlignment(formTextAlignment)
 
             dobRow
+                .id("birthDate")
         }
     }
 
@@ -958,8 +1120,10 @@ struct RegisterFormView: View {
                     showError:
                         showUsernameError
                 )
+                .id("username")
 
                 passwordField
+                    .id("password")
             }
         }
     }
@@ -974,52 +1138,71 @@ struct RegisterFormView: View {
             branchScopePicker
 
             regionPicker
+                .id("region")
 
-            multiSelectRow(
-                title: isAbroadSelection
-                    ? tr(
-                        "סניפים בחו״ל",
-                        "Branches abroad"
-                    )
-                    : tr(
-                        "סניפים בארץ",
-                        "Branches in Israel"
-                    ),
-                valueText: displayedBranchesText,
-                showError: showBranchesError,
-                errorMessage: isAbroadSelection
-                    ? tr(
-                        "חובה לבחור לפחות סניף אחד בחו״ל",
-                        "Please select at least one abroad branch"
-                    )
-                    : tr(
-                        "חובה לבחור לפחות סניף אחד",
-                        "Please select at least one branch"
-                    ),
-                onTap: {
-                    showBranchesSheet = true
+            VStack(spacing: 6) {
+                KmiPremiumMultiSelectDropdown(
+                    title: isAbroadSelection
+                        ? tr("סניפים בחו״ל", "Branches abroad")
+                        : tr("סניפים בארץ", "Branches in Israel"),
+                    options: branchesOptions,
+                    selectedValues: $s.branches,
+                    placeholder: tr("בחר סניפים", "Choose branches"),
+                    isEnglish: isEnglish,
+                    isEnabled: !s.region
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .isEmpty && !isSubmitting,
+                    maxSelected: 10
+                )
+                .padding(4)
+                .background(
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(
+                            showBranchesError
+                                ? registrationMissingBackground
+                                : Color.clear
+                        )
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(
+                            showBranchesError
+                                ? registrationErrorBorder
+                                : Color.clear,
+                            lineWidth: 2
+                        )
                 }
-            )
+
+                if showBranchesError {
+                    Text(
+                        isAbroadSelection
+                            ? tr(
+                                "חובה לבחור לפחות סניף אחד בחו״ל",
+                                "Please select at least one abroad branch"
+                            )
+                            : tr(
+                                "חובה לבחור לפחות סניף אחד",
+                                "Please select at least one branch"
+                            )
+                    )
+                    .kmiFont(size: 12, weight: .semibold)
+                    .foregroundStyle(registrationErrorBorder)
+                    .multilineTextAlignment(formTextAlignment)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: formFrameAlignment
+                    )
+                }
+            }
+            .id("branches")
 
             if shouldShowGroupsPicker {
-                multiSelectRow(
-                    title: tr(
-                        "קבוצות",
-                        "Groups"
-                    ),
-                    valueText: displayedGroupsText,
-                    showError: showGroupsError,
-                    errorMessage: tr(
-                        "חובה לבחור לפחות קבוצה אחת",
-                        "Please select at least one group"
-                    ),
-                    onTap: {
-                        showGroupsSheet = true
-                    }
-                )
+                branchGroupsCards
+                    .id("groups")
             }
 
             beltPicker
+                .id("belt")
         }
     }
 
@@ -1039,6 +1222,7 @@ struct RegisterFormView: View {
                 .frame(height: 1)
 
             termsRow
+                .id("terms")
         }
     }
 
@@ -1101,7 +1285,7 @@ struct RegisterFormView: View {
                 "I would like to receive SMS updates\nabout upcoming trainings"
             )
         )
-        .font(.system(size: 13, weight: .regular))
+        .kmiFont(size: 13, weight: .regular)
         .foregroundStyle(.primary)
         .frame(
             maxWidth: .infinity,
@@ -1114,87 +1298,243 @@ struct RegisterFormView: View {
         )
     }
 
-    private var branchesSheet: some View {
-        MultiSelectSheet(
-            title: isAbroadSelection
-                ? tr("בחר סניפים בחו״ל", "Choose branches abroad")
-                : tr("בחר סניפים בארץ", "Choose branches in Israel"),
-            options: branchesOptions,
-            maxSelected: Int.max,
-            selected: $s.branches
-        )
-        .presentationDetents([.medium, .large])
-    }
-
-    private var groupsSheet: some View {
-        VStack(spacing: 12) {
+    private var branchGroupsCards: some View {
+        VStack(
+            alignment: formHorizontalAlignment,
+            spacing: 8
+        ) {
             Text(
                 tr(
-                    "בחר סניף ואז את הקבוצות שלו",
-                    "Choose a branch, then its groups"
+                    "בחירת קבוצות לפי סניף",
+                    "Select groups by branch"
                 )
             )
             .kmiTypography(.cardTitle)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(s.branchesArray, id: \.self) { branch in
-                        Button {
-                            s.activeBranch = branch
-                            synchronizeBranchAssignments()
-                        } label: {
-                            Text(branch)
-                                .kmiTypography(.action)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 10)
-                                .background(
-                                    Capsule()
-                                        .fill(
-                                            Color.accentColor.opacity(
-                                                s.activeBranch == branch
-                                                    ? 0.20
-                                                    : 0.08
-                                            )
-                                        )
-                                )
-                                .overlay(
-                                    Capsule()
-                                        .strokeBorder(
-                                            s.activeBranch == branch
-                                                ? Color.accentColor
-                                                : Color.clear,
-                                            lineWidth: 1
-                                        )
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityValue(
-                            s.activeBranch == branch
-                                ? tr("נבחר", "Selected")
-                                : ""
-                        )
-                    }
-                }
-                .padding(.horizontal, 16)
-            }
-
-            MultiSelectSheet(
-                title: tr(
-                    "קבוצות — \(s.activeBranch)",
-                    "Groups — \(s.activeBranch)"
-                ),
-                options: groupsOptions,
-                maxSelected: Int.max,
-                selected: groupsBinding(for: s.activeBranch)
+            .foregroundStyle(registrationFieldTextColor)
+            .frame(
+                maxWidth: .infinity,
+                alignment: formFrameAlignment
             )
-            .id(s.activeBranch)
+            .multilineTextAlignment(formTextAlignment)
+
+            Text(
+                tr(
+                    "פתח כל סניף ובחר את הקבוצות שלך",
+                    "Open each branch and select your groups"
+                )
+            )
+            .kmiFont(size: 12, weight: .regular)
+            .foregroundStyle(registrationLabelColor)
+            .frame(
+                maxWidth: .infinity,
+                alignment: formFrameAlignment
+            )
+            .multilineTextAlignment(formTextAlignment)
+
+            ForEach(s.branchesArray, id: \.self) { branch in
+                branchGroupsCard(for: branch)
+            }
         }
-        .presentationDetents([.medium, .large])
     }
-    
+
+    private func branchGroupsCard(
+        for branch: String
+    ) -> some View {
+        let selection = groupsBinding(for: branch)
+        let selected = selection.wrappedValue
+        let options = availableGroups(for: branch)
+
+        let expanded =
+            branchGroupsExpansion[branch] ?? true
+
+        let missing =
+            shouldRevealValidationErrors &&
+            selected.isEmpty
+
+        let borderColor =
+            missing
+                ? registrationErrorBorder
+                : expanded
+                    ? registrationPrimaryPurple
+                    : registrationFieldBorder
+
+        return VStack(spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    branchGroupsExpansion[branch] = !expanded
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    VStack(
+                        alignment: formHorizontalAlignment,
+                        spacing: 4
+                    ) {
+                        Text(displayJoinedValues([branch]))
+                            .kmiFont(size: 15, weight: .bold)
+                            .foregroundStyle(
+                                registrationFieldTextColor
+                            )
+
+                        Text(
+                            selected.isEmpty
+                                ? tr(
+                                    "יש לבחור לפחות קבוצה אחת",
+                                    "Select at least one group"
+                                )
+                                : tr(
+                                    "נבחרו \(selected.count) קבוצות",
+                                    "\(selected.count) groups selected"
+                                )
+                        )
+                        .kmiFont(size: 12, weight: .semibold)
+                        .foregroundStyle(
+                            missing
+                                ? registrationErrorBorder
+                                : registrationLabelColor
+                        )
+
+                        if !selected.isEmpty {
+                            Text(
+                                displayJoinedValues(
+                                    Array(selected),
+                                    translateGroupNames: true
+                                )
+                            )
+                            .kmiFont(size: 12, weight: .regular)
+                            .foregroundStyle(
+                                registrationLabelColor
+                            )
+                        }
+                    }
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: formFrameAlignment
+                    )
+                    .multilineTextAlignment(formTextAlignment)
+
+                    Image(
+                        systemName: expanded
+                            ? "chevron.up"
+                            : "chevron.down"
+                    )
+                    .kmiFont(size: 14, weight: .bold)
+                    .foregroundStyle(borderColor)
+                    .accessibilityHidden(true)
+                }
+                .padding(14)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(
+                expanded
+                    ? tr("פתוח", "Expanded")
+                    : tr("סגור", "Collapsed")
+            )
+
+            if expanded {
+                Rectangle()
+                    .fill(registrationFieldBorder)
+                    .frame(height: 1)
+
+                if options.isEmpty {
+                    Text(
+                        tr(
+                            "לא נמצאו קבוצות בסניף זה",
+                            "No groups were found for this branch"
+                        )
+                    )
+                    .kmiFont(size: 12, weight: .regular)
+                    .foregroundStyle(registrationLabelColor)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: formFrameAlignment
+                    )
+                    .multilineTextAlignment(formTextAlignment)
+                    .padding(14)
+                } else {
+                    VStack(spacing: 6) {
+                        ForEach(options, id: \.self) { group in
+                            let checked = selected.contains(group)
+
+                            Button {
+                                branchGroupsExpansion[branch] = true
+
+                                var updated = selection.wrappedValue
+
+                                if updated.contains(group) {
+                                    updated.remove(group)
+                                } else {
+                                    updated.insert(group)
+                                }
+
+                                selection.wrappedValue = updated
+                            } label: {
+                                HStack(spacing: 10) {
+                                    consentCheckbox(
+                                        isChecked: checked
+                                    )
+                                    .accessibilityHidden(true)
+
+                                    Text(
+                                        groupDisplayNameForRegistration(
+                                            group
+                                        )
+                                    )
+                                    .kmiFont(
+                                        size: 14,
+                                        weight: checked
+                                            ? .semibold
+                                            : .regular
+                                    )
+                                    .foregroundStyle(
+                                        registrationFieldTextColor
+                                    )
+                                    .frame(
+                                        maxWidth: .infinity,
+                                        alignment: formFrameAlignment
+                                    )
+                                    .multilineTextAlignment(
+                                        formTextAlignment
+                                    )
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 8)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityValue(
+                                checked
+                                    ? tr("נבחר", "Selected")
+                                    : tr("לא נבחר", "Not selected")
+                            )
+                        }
+                    }
+                    .padding(8)
+                }
+            }
+        }
+        .background(
+            missing
+                ? registrationMissingBackground
+                : registrationFieldBackground
+        )
+        .clipShape(
+            RoundedRectangle(cornerRadius: 18)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .strokeBorder(
+                    borderColor,
+                    lineWidth: missing ? 1.5 : 1
+                )
+        )
+        .environment(
+            \.layoutDirection,
+            screenLayoutDirection
+        )
+        .id("group:\(branch)")
+    }
+
     private func handleRegionChange(oldRegion: String, newRegion: String) {
         guard didFinishInitialLoad else {
             return
@@ -1217,10 +1557,14 @@ struct RegisterFormView: View {
             s.branchType = "israel"
         }
 
+        branchGroupsExpansion.removeAll()
+
         s.branches.removeAll()
         s.groups.removeAll()
+        s.branchAssignments.removeAll()
         s.activeBranch = ""
         s.activeGroup = ""
+
         displayedBranchValue = ""
         displayedGroupValue = ""
         storedActiveBranch = ""
@@ -1359,6 +1703,10 @@ struct RegisterFormView: View {
     ) {
         guard didFinishInitialLoad else {
             return
+        }
+
+        branchGroupsExpansion = branchGroupsExpansion.filter {
+            newBranches.contains($0.key)
         }
 
         if newBranches.contains(
@@ -1581,33 +1929,18 @@ struct RegisterFormView: View {
     
     private func applyRoleGate() {
         /*
-         * מנהל האפליקציה רשאי לבחור באופן חופשי
-         * בין מצב מתאמן למצב מאמן, גם בעריכת פרופיל.
+         * בעריכת פרופיל בחירת התפקיד
+         * נבדקת בזמן לחיצה על הטאב.
          */
-        if isSuperTester {
+        guard !isEditingProfile else {
             return
         }
 
         /*
-         * בעריכת פרופיל:
-         * מעבר למתאמן תמיד מותר.
-         *
-         * מעבר למאמן נבדק בנפרד בזמן
-         * בחירת טאב המאמן.
+         * כמו Android:
+         * רישום חדש מתבצע במצב מתאמן.
          */
-        if isEditingProfile {
-            return
-        }
-
-        /*
-         * ברישום חדש משתמש רגיל מקבל תפקיד
-         * בהתאם לרשימת המאמנים המורשים.
-         */
-        if isWhitelistedCoach {
-            s.role = .coach
-        } else {
-            s.role = .trainee
-        }
+        s.role = .trainee
     }
             
     private var headerBar: some View {
@@ -1689,18 +2022,19 @@ struct RegisterFormView: View {
             KmiAppTheme
                 .sectionHeaderBrush
         )
-        /*
-         * סדר הטאבים נשאר פיזי וקבוע,
-         * כמו Android.
-         */
-        .environment(
-            \.layoutDirection,
-            .leftToRight
-        )
-    }
+            /*
+             * כמו Android:
+             * מתאמן מימין ומאמן משמאל,
+             * בעברית ובאנגלית.
+             */
+            .environment(
+                \.layoutDirection,
+                .rightToLeft
+            )
+        }
 
-    private func tabButton(
-        _ role: UserRole
+        private func tabButton(
+            _ role: UserRole
     ) -> some View {
         let isSelected = s.role == role
 
@@ -1709,14 +2043,20 @@ struct RegisterFormView: View {
             : tr("מאמן", "Coach")
 
         return Button {
+            /*
+             * כמו Android:
+             * ברישום חדש לא ניתן לבחור מצב מאמן.
+             */
+            guard isEditingProfile else {
+                s.role = .trainee
+                return
+            }
 
             /*
              * בעריכת פרופיל מעבר למתאמן
              * תמיד מותר, כמו Android.
              */
-            if isEditingProfile &&
-                role == .trainee {
-
+            if role == .trainee {
                 s.role = .trainee
                 return
             }
@@ -1805,7 +2145,7 @@ struct RegisterFormView: View {
     ) -> some View {
         VStack(
             alignment: formHorizontalAlignment,
-            spacing: 10
+            spacing: 7
         ) {
             Text(title)
                 .kmiFont(size: 15, weight: .bold)
@@ -1840,14 +2180,7 @@ struct RegisterFormView: View {
                     .continuous
             )
             .fill(
-                KmiAppTheme
-                    .surface(
-                        for:
-                            colorScheme
-                    )
-                    .opacity(
-                        0.96
-                    )
+                KmiAppTheme.surface(for: colorScheme)
             )
         )
         .overlay(
@@ -1905,6 +2238,11 @@ struct RegisterFormView: View {
                 text: text
             )
             .keyboardType(keyboard)
+            .focused($focusedField, equals: "field:\(title)")
+            .submitLabel(.done)
+            .onSubmit {
+                requestMissingFieldScroll()
+            }
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .kmiFont(size: 15, weight: .semibold)
@@ -2001,16 +2339,14 @@ struct RegisterFormView: View {
     }
 
     private var submitBottomBar: some View {
-        let isSubmitEnabled =
-            s.acceptsTerms &&
-            !isSubmitting
+        let isSubmitEnabled = !isSubmitting
 
         return VStack(spacing: 10) {
             if shouldRevealValidationErrors,
                let err = validationError {
                 Text(err)
                     .foregroundStyle(registrationErrorBorder)
-                    .font(.system(size: 13, weight: .semibold))
+                    .kmiFont(size: 13, weight: .semibold)
                     .frame(
                         maxWidth: .infinity,
                         alignment: .center
@@ -2028,41 +2364,26 @@ struct RegisterFormView: View {
                 hasAttemptedSubmit = true
 
                 guard validationError == nil else {
+                    requestMissingFieldScroll()
                     return
                 }
 
-                isSubmitting = true
-
-                let submitted = s
-
-                DispatchQueue.main.async {
-                    onSubmit(submitted)
-                }
-
-                DispatchQueue.main.asyncAfter(
-                    deadline: .now() + 0.8
-                ) {
-                    isSubmitting = false
-                }
+                focusedField = nil
+                onSubmit(s)
             } label: {
                 HStack(spacing: 10) {
-                    if isSubmitting {
-                        ProgressView()
-                            .tint(.white)
-                    }
-
                     Text(
                         isSubmitting
                             ? localizedSubmitTitle(
                                 submittingTitle
                             )
-                            : localizedSubmitTitle(
-                                submitTitle
-                            )
-                    )
-                    .font(.system(size: 15, weight: .bold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
+                        : localizedSubmitTitle(
+                            submitTitle
+                        )
+                )
+                .kmiFont(size: 15, weight: .bold)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
                 }
                 .environment(
                     \.layoutDirection,
@@ -2075,7 +2396,7 @@ struct RegisterFormView: View {
             .foregroundStyle(
                 isSubmitEnabled
                     ? Color.white
-                    : Color.black
+                    : registrationLabelColor
             )
             .background(
                 RoundedRectangle(
@@ -2084,12 +2405,8 @@ struct RegisterFormView: View {
                 )
                 .fill(
                     isSubmitEnabled
-                        ? registrationPrimaryPurple
-                        : Color(
-                            red: 0.690,
-                            green: 0.745,
-                            blue: 0.773
-                        )
+                        ? KmiAppTheme.primary(for: colorScheme)
+                        : KmiAppTheme.surfaceVariant(for: colorScheme)
                 )
             )
             .disabled(!isSubmitEnabled)
@@ -2106,24 +2423,12 @@ struct RegisterFormView: View {
         .padding(.top, 10)
         .padding(.bottom, 10)
         .background(
-            ZStack {
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.78),
-                        Color.white.opacity(0.60)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
-            .ignoresSafeArea(edges: .bottom)
+            registrationFieldBackground
+                .ignoresSafeArea(edges: .bottom)
         )
         .overlay(alignment: .top) {
             Rectangle()
-                .fill(Color.black.opacity(0.06))
+                .fill(registrationFieldBorder)
                 .frame(height: 1)
         }
     }
@@ -2210,6 +2515,11 @@ struct RegisterFormView: View {
                 text: cleanBinding
             )
             .keyboardType(.numberPad)
+            .focused($focusedField, equals: "dob:\(title)")
+            .submitLabel(.done)
+            .onSubmit {
+                requestMissingFieldScroll()
+            }
             .textContentType(.none)
             .multilineTextAlignment(.center)
             .environment(
@@ -2358,12 +2668,18 @@ struct RegisterFormView: View {
                     tr("סיסמה", "Password"),
                     text: $s.password
                 )
+                .focused($focusedField, equals: "password")
             } else {
                 SecureField(
                     tr("סיסמה", "Password"),
                     text: $s.password
                 )
+                .focused($focusedField, equals: "password")
             }
+        }
+        .submitLabel(.done)
+        .onSubmit {
+            requestMissingFieldScroll()
         }
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
@@ -2385,7 +2701,8 @@ struct RegisterFormView: View {
                     ? "eye.slash.fill"
                     : "eye.fill"
         )
-        .font(.system(size: 16, weight: .semibold))
+        .kmiIconSize(16)
+        .fontWeight(.semibold)
         .foregroundStyle(
             isDarkMode
                 ? Color.white.opacity(0.68)
@@ -2399,76 +2716,39 @@ struct RegisterFormView: View {
             alignment: formHorizontalAlignment,
             spacing: 6
         ) {
-            Text(
-                isAbroadSelection
+            KmiPremiumDropdown(
+                title: isAbroadSelection
                     ? tr("מדינה", "Country")
-                    : tr("אזור", "Region")
-            )
-            .kmiFont(size: 14, weight: .semibold)
-            .foregroundStyle(
-                showRegionError
-                    ? Color.red
-                    : registrationLabelColor
-            )
-            .frame(
-                maxWidth: .infinity,
-                alignment: formFrameAlignment
-            )
-            .multilineTextAlignment(formTextAlignment)
-
-            Picker(
-                "",
-                selection: $s.region
-            ) {
-                Text(
-                    isAbroadSelection
-                        ? tr("בחר מדינה", "Choose country")
-                        : tr("בחר אזור", "Choose region")
-                )
-                .tag("")
-
-                ForEach(regions, id: \.self) { region in
-                    Text(
-                        regionDisplayName(region)
-                    )
-                    .tag(region)
+                    : tr("אזור", "Region"),
+                options: regions,
+                selectedValue: $s.region,
+                placeholder: isAbroadSelection
+                    ? tr("בחר מדינה", "Choose country")
+                    : tr("בחר אזור", "Choose region"),
+                isEnglish: isEnglish,
+                isEnabled: !isSubmitting,
+                labelForOption: { region in
+                    regionDisplayName(region)
                 }
-            }
-            .pickerStyle(.menu)
-            .tint(registrationFieldTextColor)
-            .frame(
-                maxWidth: .infinity,
-                alignment: formFrameAlignment
             )
-            .padding(.horizontal, 12)
-            .frame(height: 52)
+            .padding(4)
             .background(
-                showRegionError
-                    ? registrationMissingBackground
-                    : registrationFieldBackground
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(
+                        showRegionError
+                            ? registrationMissingBackground
+                            : Color.clear
+                    )
             )
-            .clipShape(
-                RoundedRectangle(
-                    cornerRadius: 14,
-                    style: .continuous
-                )
-            )
-            .overlay(
-                RoundedRectangle(
-                    cornerRadius: 14,
-                    style: .continuous
-                )
-                .stroke(
-                    showRegionError
-                        ? Color.red
-                        : registrationFieldBorder,
-                    lineWidth: showRegionError ? 2 : 1
-                )
-            )
-            .environment(
-                \.layoutDirection,
-                screenLayoutDirection
-            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(
+                        showRegionError
+                            ? registrationErrorBorder
+                            : Color.clear,
+                        lineWidth: 2
+                    )
+            }
 
             if showRegionError {
                 Text(
@@ -2483,7 +2763,7 @@ struct RegisterFormView: View {
                         )
                 )
                 .kmiFont(size: 12, weight: .semibold)
-                .foregroundStyle(Color.red)
+                .foregroundStyle(registrationErrorBorder)
                 .frame(
                     maxWidth: .infinity,
                     alignment: formFrameAlignment
@@ -2654,6 +2934,122 @@ struct RegisterFormView: View {
         .buttonStyle(.plain)
     }
 
+    private var beltSelectionSheet: some View {
+        VStack(spacing: 0) {
+            Text(tr("בחר דרגת חגורה", "Select belt rank"))
+                .kmiFont(size: 17, weight: .bold)
+                .foregroundStyle(registrationFieldTextColor)
+                .multilineTextAlignment(formTextAlignment)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: formFrameAlignment
+                )
+                .padding(16)
+                .background(
+                    KmiAppTheme.surfaceVariant(for: colorScheme)
+                )
+
+            Rectangle()
+                .fill(registrationFieldBorder)
+                .frame(height: 1)
+
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(belts, id: \.self) { belt in
+                        Button {
+                            s.belt = belt
+                            showBeltSheet = false
+                        } label: {
+                            HStack(spacing: 8) {
+                                if isEnglish {
+                                    beltSelectionDot(belt)
+                                }
+
+                                Text(
+                                    beltDisplayNameForRegistration(belt)
+                                )
+                                .kmiFont(size: 16, weight: .regular)
+                                .foregroundStyle(registrationFieldTextColor)
+                                .multilineTextAlignment(formTextAlignment)
+                                .fixedSize(
+                                    horizontal: false,
+                                    vertical: true
+                                )
+                                .frame(
+                                    maxWidth: .infinity,
+                                    alignment: formFrameAlignment
+                                )
+
+                                if !isEnglish {
+                                    beltSelectionDot(belt)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                            .frame(maxWidth: .infinity)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityValue(
+                            s.belt == belt
+                                ? tr("נבחר", "Selected")
+                                : tr("לא נבחר", "Not selected")
+                        )
+                    }
+                }
+            }
+
+            Rectangle()
+                .fill(registrationFieldBorder)
+                .frame(height: 1)
+
+            HStack {
+                if isEnglish {
+                    Spacer()
+                }
+
+                Button(tr("סגור", "Close")) {
+                    showBeltSheet = false
+                }
+                .kmiFont(size: 14, weight: .semibold)
+                .foregroundStyle(
+                    KmiAppTheme.primary(for: colorScheme)
+                )
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+
+                if !isEnglish {
+                    Spacer()
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                KmiAppTheme.surfaceVariant(for: colorScheme)
+            )
+        }
+        .background(registrationFieldBackground)
+        .environment(\.layoutDirection, .leftToRight)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func beltSelectionDot(_ belt: String) -> some View {
+        Circle()
+            .fill(beltColorForRegistration(belt))
+            .frame(width: 14, height: 14)
+            .overlay {
+                if beltNeedsDarkBorderForRegistration(belt) {
+                    Circle()
+                        .stroke(
+                            registrationFieldTextColor,
+                            lineWidth: 1.5
+                        )
+                }
+            }
+            .accessibilityHidden(true)
+    }
+
     private var beltPicker: some View {
         VStack(
             alignment: formHorizontalAlignment,
@@ -2677,45 +3073,48 @@ struct RegisterFormView: View {
             )
             .multilineTextAlignment(formTextAlignment)
 
-            Picker(
-                "",
-                selection: $s.belt
-            ) {
-                Text(
-                    tr(
-                        "בחר דרגת חגורה",
-                        "Choose belt rank"
-                    )
-                )
-                .tag("")
-
-                ForEach(belts, id: \.self) { belt in
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(
-                                beltColorForRegistration(belt)
-                            )
-                            .frame(width: 14, height: 14)
-                            .overlay {
-                                if beltNeedsDarkBorderForRegistration(
-                                    belt
-                                ) {
-                                    Circle()
-                                        .stroke(
-                                            Color.black,
-                                            lineWidth: 1.5
-                                        )
-                                }
-                            }
-
-                        Text(
-                            beltDisplayNameForRegistration(belt)
-                        )
+            Button {
+                focusedField = nil
+                showBeltSheet = true
+            } label: {
+                HStack(spacing: 10) {
+                    if !isEnglish {
+                        Image(systemName: "chevron.down")
+                            .kmiIconSize(13)
+                            .fontWeight(.bold)
+                            .accessibilityHidden(true)
                     }
-                    .tag(belt)
+
+                    Text(
+                        s.belt.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ).isEmpty
+                            ? tr("בחר דרגת חגורה", "Choose belt rank")
+                            : beltDisplayNameForRegistration(s.belt)
+                    )
+                    .kmiFont(size: 15, weight: .semibold)
+                    .foregroundStyle(
+                        s.belt.isEmpty
+                            ? registrationLabelColor
+                            : registrationFieldTextColor
+                    )
+                    .multilineTextAlignment(formTextAlignment)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: formFrameAlignment
+                    )
+
+                    if isEnglish {
+                        Image(systemName: "chevron.down")
+                            .kmiIconSize(13)
+                            .fontWeight(.bold)
+                            .accessibilityHidden(true)
+                    }
                 }
+                .environment(\.layoutDirection, .leftToRight)
+                .contentShape(Rectangle())
             }
-            .pickerStyle(.menu)
+            .buttonStyle(.plain)
             .tint(registrationFieldTextColor)
             .frame(
                 maxWidth: .infinity,
@@ -2769,140 +3168,6 @@ struct RegisterFormView: View {
         }
     }
 
-    private func multiSelectRow(
-        title: String,
-        valueText: String,
-        showError: Bool = false,
-        errorMessage: String = "",
-        onTap: @escaping () -> Void
-    ) -> some View {
-        let cleanValue = valueText
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let displayValue = cleanValue.isEmpty
-            ? tr("בחר…", "Choose…")
-            : cleanValue
-
-        return Button(action: onTap) {
-            VStack(
-                alignment: formHorizontalAlignment,
-                spacing: 6
-            ) {
-                Text(title)
-                    .kmiFont(size: 14, weight: .semibold)
-                    .foregroundStyle(
-                        showError
-                            ? registrationErrorBorder
-                            : registrationLabelColor
-                    )
-                    .frame(
-                        maxWidth: .infinity,
-                        alignment: formFrameAlignment
-                    )
-                    .multilineTextAlignment(formTextAlignment)
-                    .environment(
-                        \.layoutDirection,
-                        screenLayoutDirection
-                    )
-
-                HStack(alignment: .center, spacing: 10) {
-                    if isEnglish {
-                        Text(displayValue)
-                            .kmiFont(size: 15, weight: .semibold)
-                            .foregroundStyle(
-                                cleanValue.isEmpty
-                                    ? registrationLabelColor
-                                    : registrationFieldTextColor
-                            )
-                            .fixedSize(
-                                horizontal: false,
-                                vertical: true
-                            )
-                            .multilineTextAlignment(.leading)
-                            .frame(
-                                maxWidth: .infinity,
-                                alignment: .leading
-                            )
-
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(registrationLabelColor)
-                    } else {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(registrationLabelColor)
-
-                        Text(displayValue)
-                            .kmiFont(size: 15, weight: .semibold)
-                            .foregroundStyle(
-                                cleanValue.isEmpty
-                                    ? registrationLabelColor
-                                    : registrationFieldTextColor
-                            )
-                            .fixedSize(
-                                horizontal: false,
-                                vertical: true
-                            )
-                            .multilineTextAlignment(.trailing)
-                            .frame(
-                                maxWidth: .infinity,
-                                alignment: .trailing
-                            )
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 14)
-                .frame(
-                    maxWidth: .infinity,
-                    minHeight: 52
-                )
-                .background(
-                    showError
-                        ? registrationMissingBackground
-                        : registrationFieldBackground
-                )
-                .clipShape(
-                    RoundedRectangle(
-                        cornerRadius: 14,
-                        style: .continuous
-                    )
-                )
-                .overlay(
-                    RoundedRectangle(
-                        cornerRadius: 14,
-                        style: .continuous
-                    )
-                    .stroke(
-                        showError
-                            ? registrationErrorBorder
-                            : registrationFieldBorder,
-                        lineWidth: showError ? 2 : 1
-                    )
-                )
-                .environment(
-                    \.layoutDirection,
-                    .leftToRight
-                )
-
-                if showError && !errorMessage.isEmpty {
-                    Text(errorMessage)
-                        .kmiFont(size: 12, weight: .semibold)
-                        .foregroundStyle(registrationErrorBorder)
-                        .frame(
-                            maxWidth: .infinity,
-                            alignment: formFrameAlignment
-                        )
-                        .multilineTextAlignment(formTextAlignment)
-                        .environment(
-                            \.layoutDirection,
-                            screenLayoutDirection
-                        )
-                }
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
     private func consentCheckbox(
         isChecked: Bool,
         showError: Bool = false
@@ -2935,12 +3200,8 @@ struct RegisterFormView: View {
 
             if isChecked {
                 Image(systemName: "checkmark")
-                    .font(
-                        .system(
-                            size: 13,
-                            weight: .heavy
-                        )
-                    )
+                    .kmiIconSize(13)
+                    .fontWeight(.heavy)
                     .foregroundStyle(.white)
             }
         }
@@ -3018,7 +3279,7 @@ struct RegisterFormView: View {
                         "I approve the Terms of Use and Privacy Policy"
                     )
                 )
-                .font(.system(size: 13, weight: .regular))
+                .kmiFont(size: 13, weight: .regular)
                 .foregroundStyle(
                     shouldRevealValidationErrors &&
                     !s.acceptsTerms
@@ -3035,7 +3296,7 @@ struct RegisterFormView: View {
 
             Button(action: onReadMoreTerms) {
                 Text(tr("קרא עוד", "Read more"))
-                    .font(.system(size: 13, weight: .regular))
+                    .kmiFont(size: 13, weight: .regular)
                     .foregroundStyle(
                         registrationPrimaryPurple
                     )
@@ -3062,40 +3323,71 @@ struct RegisterFormView: View {
             return tr("נא להזין שם מלא תקין", "Please enter a valid full name")
         }
 
-        if s.phone.filter({ $0.isNumber }).count < 9 {
-            return tr("נא להזין מספר טלפון תקין", "Please enter a valid phone number")
+        if !(9...12).contains(
+            s.phone.filter { $0.isNumber }.count
+        ) {
+            return tr(
+                "נא להזין מספר טלפון תקין",
+                "Please enter a valid phone number"
+            )
         }
 
         if !s.email.contains("@") || !s.email.contains(".") {
             return tr("נא להזין מייל תקין", "Please enter a valid email")
         }
 
-        if let d = Int(s.birthDay), !(1...31).contains(d) {
-            return tr("יום לידה לא תקין", "Invalid birth day")
+        if s.gender
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty {
+            return tr(
+                "חובה לבחור מין",
+                "Gender is required"
+            )
         }
 
         if s.birthDay.isEmpty {
-            return tr("חובה להזין יום לידה", "Birth day is required")
+            return tr(
+                "חובה להזין יום לידה",
+                "Birth day is required"
+            )
         }
 
-        if let m = Int(s.birthMonth), !(1...12).contains(m) {
-            return tr("חודש לידה לא תקין", "Invalid birth month")
+        guard let day = Int(s.birthDay),
+              (1...31).contains(day) else {
+            return tr(
+                "יום לידה לא תקין",
+                "Invalid birth day"
+            )
         }
 
         if s.birthMonth.isEmpty {
-            return tr("חובה להזין חודש לידה", "Birth month is required")
+            return tr(
+                "חובה להזין חודש לידה",
+                "Birth month is required"
+            )
         }
 
-        if let y = Int(s.birthYear), !(1900...2100).contains(y) {
-            return tr("שנת לידה לא תקינה", "Invalid birth year")
+        guard let month = Int(s.birthMonth),
+              (1...12).contains(month) else {
+            return tr(
+                "חודש לידה לא תקין",
+                "Invalid birth month"
+            )
         }
 
         if s.birthYear.count != 4 {
-            return tr("חובה להזין שנת לידה (4 ספרות)", "Birth year is required (4 digits)")
+            return tr(
+                "חובה להזין שנת לידה (4 ספרות)",
+                "Birth year is required (4 digits)"
+            )
         }
 
-        if s.gender.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return tr("חובה לבחור מין", "Gender is required")
+        guard let year = Int(s.birthYear),
+              (1900...2100).contains(year) else {
+            return tr(
+                "שנת לידה לא תקינה",
+                "Invalid birth year"
+            )
         }
 
         if !isEditingProfile &&
@@ -3151,40 +3443,44 @@ struct RegisterFormView: View {
                 : tr("חובה לבחור לפחות סניף אחד בארץ", "Please choose at least one branch in Israel")
         }
 
-        for branch in s.branchesArray {
-            let available = Set(
-                availableGroups(for: branch)
-            )
+        if !isAbroadSelection &&
+            !isCurrentRegionAbroad {
+            for branch in s.branchesArray {
+                let selected = s.branchAssignments
+                    .first { $0.branch == branch }?
+                    .groups ?? []
 
-            guard !available.isEmpty else {
-                continue
-            }
-
-            let selected = s.branchAssignments
-                .first { $0.branch == branch }?
-                .groups ?? []
-
-            if selected.isEmpty {
-                return tr(
-                    "יש לבחור לפחות קבוצה אחת לסניף \(branch)",
-                    "Choose at least one group for branch \(branch)"
+                let displayBranch = displayJoinedValues(
+                    [branch]
                 )
-            }
 
-            if selected.contains(where: { !available.contains($0) }) {
-                return tr(
-                    "יש לעדכן את בחירת הקבוצות בסניף \(branch)",
-                    "Update the selected groups for branch \(branch)"
+                if selected.isEmpty {
+                    return tr(
+                        "יש לבחור לפחות קבוצה אחת לסניף \(displayBranch)",
+                        "Choose at least one group for branch \(displayBranch)"
+                    )
+                }
+
+                let available = Set(
+                    availableGroups(for: branch)
                 )
+
+                if selected.contains(
+                    where: { !available.contains($0) }
+                ) {
+                    return tr(
+                        "יש לעדכן את בחירת הקבוצות בסניף \(displayBranch)",
+                        "Update the selected groups for branch \(displayBranch)"
+                    )
+                }
             }
         }
 
         if !isEditingProfile,
-           s.role == .coach,
-           !isWhitelistedCoach {
+           s.role == .coach {
             return tr(
-                "הרישום כמאמן מותר רק למאמנים מורשים",
-                "Coach registration is allowed only for authorized coaches"
+                "הרשאת מאמן ניתנת לאחר אישור מהשרת",
+                "Coach access is granted after server authorization"
             )
         }
 
@@ -3192,6 +3488,8 @@ struct RegisterFormView: View {
     }
     
     private func resetBranchSelectionAfterScopeChange() {
+        branchGroupsExpansion.removeAll()
+
         s.region = ""
         s.branches.removeAll()
         s.groups.removeAll()

@@ -242,6 +242,336 @@ private enum KmiGlobalText {
 }
 
 // MARK: - Global TopBar (לא תלוי ב-HomeView)
+struct KmiQuickMenuAction: Identifiable {
+    let id: String
+    let titleHe: String
+    let titleEn: String
+    let systemImage: String
+    var requiresFullAccess: Bool = true
+    var iconTint: Color? = nil
+    let action: () -> Void
+}
+
+struct KmiFloatingQuickMenu: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    @AppStorage("quick_menu_side_rail_bottom_dp")
+    private var savedBottom: Double = 86
+
+    @State private var dragTranslation: CGFloat = 0
+
+    @Binding var isExpanded: Bool
+
+    let isEnglish: Bool
+    let accentColor: Color
+    let hasFullAccess: Bool
+    let actions: [KmiQuickMenuAction]
+    let onLockedItemClick: () -> Void
+
+    private var railShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: isEnglish ? 0 : 22,
+            bottomLeadingRadius: isEnglish ? 0 : 22,
+            bottomTrailingRadius: isEnglish ? 22 : 0,
+            topTrailingRadius: isEnglish ? 22 : 0
+        )
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            let maximumBottom = max(
+                CGFloat(24),
+                geometry.size.height - 420 - 20
+            )
+
+            let bottom = min(
+                max(
+                    CGFloat(savedBottom) - dragTranslation,
+                    24
+                ),
+                maximumBottom
+            )
+
+            let availableHeight = max(
+                CGFloat(58),
+                geometry.size.height - bottom - 20
+            )
+
+            let rowsHeight =
+                CGFloat(actions.count) * 78
+                + CGFloat(max(0, actions.count - 1)) * 9.4
+
+            let listHeight = min(
+                rowsHeight,
+                max(0, availableHeight - 78)
+            )
+
+            let panelHeight = listHeight + 77.4
+            let visibleHeight =
+                isExpanded ? panelHeight : CGFloat(58)
+
+            let centerX =
+                isEnglish
+                    ? CGFloat(23)
+                    : geometry.size.width - 23
+
+            let centerY =
+                geometry.size.height
+                - bottom
+                - visibleHeight / 2
+
+            ZStack {
+                if isExpanded {
+                    Color.clear
+                        .frame(
+                            width: geometry.size.width,
+                            height: geometry.size.height
+                        )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            closeMenu()
+                        }
+
+                    expandedPanel(
+                        availableHeight: availableHeight,
+                        maximumBottom: maximumBottom
+                    )
+                    .position(
+                        x: centerX,
+                        y: centerY
+                    )
+                } else {
+                    menuHandle(
+                        maximumBottom: maximumBottom
+                    )
+                    .frame(width: 46, height: 58)
+                    .background(
+                        accentColor.opacity(0.96)
+                    )
+                    .clipShape(railShape)
+                    .overlay {
+                        railShape
+                            .stroke(
+                                Color.white.opacity(0.70),
+                                lineWidth: 1.25
+                            )
+                            .allowsHitTesting(false)
+                    }
+                    .position(
+                        x: centerX,
+                        y: centerY
+                    )
+                }
+            }
+            .frame(
+                width: geometry.size.width,
+                height: geometry.size.height
+            )
+            .environment(
+                \.layoutDirection,
+                .leftToRight
+            )
+        }
+    }
+
+    private func expandedPanel(
+        availableHeight: CGFloat,
+        maximumBottom: CGFloat
+    ) -> some View {
+        let rowsHeight =
+            CGFloat(actions.count) * 78
+            + CGFloat(max(0, actions.count - 1)) * 9.4
+        let listHeight = min(
+            rowsHeight,
+            max(0, availableHeight - 78)
+        )
+
+        return VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(actions) { item in
+                        actionRow(item)
+
+                        if item.id != actions.last?.id {
+                            separator
+                        }
+                    }
+                }
+            }
+            .frame(height: listHeight)
+
+            separator
+
+            menuHandle(maximumBottom: maximumBottom)
+                .frame(height: 58)
+        }
+        .padding(.horizontal, 3)
+        .padding(.vertical, 5)
+        .frame(width: 46)
+        .background(accentColor.opacity(0.96))
+        .clipShape(railShape)
+        .overlay {
+            railShape
+                .stroke(
+                    Color.white.opacity(0.70),
+                    lineWidth: 1.4
+                )
+        }
+        .accessibilityLabel(
+            isEnglish ? "Quick menu" : "תפריט מהיר"
+        )
+    }
+
+    private func actionRow(
+        _ item: KmiQuickMenuAction
+    ) -> some View {
+        let locked = !hasFullAccess && item.requiresFullAccess
+        let title = isEnglish ? item.titleEn : item.titleHe
+        let tint =
+            item.systemImage == "plus"
+                ? KmiAppTheme.secondary(for: colorScheme)
+                : KmiAppTheme.primary(for: colorScheme)
+
+        return Button {
+            closeMenu()
+
+            if locked {
+                onLockedItemClick()
+            } else {
+                item.action()
+            }
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: item.systemImage)
+                    .kmiIconSize(13)
+                    .fontWeight(.bold)
+                    .foregroundStyle(tint)
+                    .frame(width: 27, height: 27)
+                    .background(
+                        Circle()
+                            .fill(
+                                KmiAppTheme.surface(for: colorScheme)
+                            )
+                    )
+                    .overlay {
+                        Circle()
+                            .stroke(
+                                tint.opacity(0.28),
+                                lineWidth: 1
+                            )
+                    }
+                    .accessibilityHidden(true)
+
+                Text(title)
+                    .kmiFont(size: 9, weight: .bold)
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.70)
+                    .fixedSize(
+                        horizontal: false,
+                        vertical: true
+                    )
+                    .frame(maxWidth: .infinity)
+
+                if locked {
+                    Image(systemName: "lock.fill")
+                        .kmiIconSize(10)
+                        .foregroundStyle(.white)
+                        .accessibilityHidden(true)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 72)
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title.replacingOccurrences(of: "\n", with: " "))
+        .accessibilityValue(
+            locked
+                ? (isEnglish ? "Premium feature" : "תכונת פרימיום")
+                : ""
+        )
+    }
+
+    private var separator: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.70))
+            .frame(height: 1.4)
+            .padding(.horizontal, 3)
+            .padding(.vertical, 4)
+            .accessibilityHidden(true)
+    }
+
+    private func menuHandle(
+        maximumBottom: CGFloat
+    ) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                isExpanded.toggle()
+            }
+        } label: {
+            Image(systemName: "line.3.horizontal")
+                .kmiIconSize(isExpanded ? 17 : 20)
+                .fontWeight(.bold)
+                .foregroundStyle(.white)
+                .frame(width: 25, height: 25)
+                .overlay {
+                    if isExpanded {
+                        Circle()
+                            .stroke(
+                                Color.white.opacity(0.74),
+                                lineWidth: 1.1
+                            )
+                    }
+                }
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: .infinity
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+            isExpanded
+                ? (isEnglish ? "Close quick menu" : "סגור תפריט מהיר")
+                : (isEnglish ? "Open quick menu" : "פתח תפריט מהיר")
+        )
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.4)
+                .sequenced(before: DragGesture())
+                .onChanged { value in
+                    if case .second(true, let drag?) = value {
+                        dragTranslation = drag.translation.height
+                    }
+                }
+                .onEnded { value in
+                    if case .second(true, let drag?) = value {
+                        savedBottom = Double(
+                            min(
+                                max(
+                                    CGFloat(savedBottom)
+                                        - drag.translation.height,
+                                    24
+                                ),
+                                maximumBottom
+                            )
+                        )
+                    }
+
+                    dragTranslation = 0
+                }
+        )
+    }
+
+    private func closeMenu() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            isExpanded = false
+        }
+    }
+}
+
 struct KmiTopBar: View {
     @Environment(\.colorScheme)
     private var colorScheme
@@ -413,7 +743,7 @@ struct KmiTopBar: View {
     
     var body: some View {
         let hasRole = !localizedRoleLabel.isEmpty
-        let barHeight: CGFloat = 68
+        let barHeight: CGFloat = hasRole ? 68 : 64
 
         return ZStack {
             Text(localizedTitle)
@@ -434,7 +764,8 @@ struct KmiTopBar: View {
                 )
 
             HStack(spacing: 0) {
-                if let onBack {
+                VStack(spacing: 2) {
+                    if let onBack {
                     Button(action: onBack) {
                         ZStack {
                             Circle()
@@ -456,7 +787,7 @@ struct KmiTopBar: View {
                                 systemName:
                                     "arrow.counterclockwise"
                             )
-                            .kmiIconSize(28)
+                            .kmiIconSize(22)
                             .fontWeight(.bold)
                             .foregroundStyle(
                                 KmiAppTheme.secondary(
@@ -464,8 +795,13 @@ struct KmiTopBar: View {
                                 )
                             )
                         }
-                        .frame(width: 42, height: 42)
-                        .contentShape(Circle())
+                        .frame(width: 32, height: 32)
+                        .frame(
+                            width: 44,
+                            height: 34,
+                            alignment: .top
+                        )
+                        .contentShape(Rectangle())
                         .environment(
                             \.layoutDirection,
                             .leftToRight
@@ -473,9 +809,39 @@ struct KmiTopBar: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(isEnglish ? "Back" : "חזור")
-                } else {
-                    Color.clear
-                        .frame(width: 42, height: 42)
+                    } else {
+                        Color.clear
+                            .frame(width: 44, height: 34)
+                    }
+
+                    if hasRole {
+                        Text(localizedRoleLabel)
+                            .kmiFont(size: 12, weight: .bold)
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(
+                                        isCoachRole
+                                            ? KmiAppTheme.primary(
+                                                for: colorScheme
+                                            )
+                                            : KmiAppTheme.secondary(
+                                                for: colorScheme
+                                            )
+                                    )
+                            )
+                            .overlay(
+                                Capsule()
+                                    .stroke(
+                                        Color.white.opacity(0.28),
+                                        lineWidth: 1
+                                    )
+                            )
+                    }
                 }
 
                 Spacer(minLength: 0)
@@ -545,39 +911,6 @@ struct KmiTopBar: View {
                     .accessibilityLabel(
                         isEnglish ? "Belt" : "חגורה"
                     )
-            }
-
-            if hasRole {
-                Text(localizedRoleLabel)
-                    .kmiTypography(.caption)
-                    .fontWeight(.bold)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(
-                        Capsule()
-                            .fill(
-                                isCoachRole
-                                    ? KmiAppTheme.primary(for: colorScheme)
-                                    : KmiAppTheme.secondary(for: colorScheme)
-                            )
-                    )
-                    .overlay(
-                        Capsule()
-                            .stroke(
-                                Color.white.opacity(0.28),
-                                lineWidth: 1
-                            )
-                    )
-                    .frame(
-                        maxWidth: .infinity,
-                        maxHeight: .infinity,
-                        alignment: .bottomLeading
-                    )
-                    .padding(.leading, 8)
-                    .padding(.bottom, 3)
             }
 
             if let rightText,
@@ -989,7 +1322,7 @@ struct KmiRootLayout<Content: View>: View {
     }
 
     private var globalTopBarHeight: CGFloat {
-        68
+        globalRoleBadgeText.isEmpty ? 64 : 68
     }
 
     private var topBarBackground: some View {

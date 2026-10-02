@@ -2,6 +2,7 @@ import SwiftUI
 import Shared
 import Combine
 import FirebaseAuth
+import FirebaseFirestore
 
 // MARK: - Theme (סטייל בסיסי דומה לאנדרואיד)
 private enum KmiTheme {
@@ -415,6 +416,11 @@ struct ContentView: View {
     @State private var didEvaluateOnboarding =
         false
 
+    @State private var showEditedProfileTerms = false
+
+    @State private var isSavingEditedProfile = false
+    @State private var editedProfileSaveError: String?
+
     @AppStorage("user_role")
     private var storedUserRole: String = ""
 
@@ -430,6 +436,75 @@ struct ContentView: View {
         ]
 
         return values.contains("en") || values.contains("english")
+    }
+
+    @MainActor
+    private func saveEditedProfile(
+        _ form: RegistrationFormState
+    ) async {
+        guard !isSavingEditedProfile else {
+            return
+        }
+
+        guard let uid = Auth.auth().currentUser?.uid else {
+            editedProfileSaveError = tr(
+                "יש להתחבר מחדש לפני שמירת הפרופיל",
+                "Please sign in again before saving your profile"
+            )
+            return
+        }
+
+        isSavingEditedProfile = true
+        editedProfileSaveError = nil
+        defer { isSavingEditedProfile = false }
+
+        let selectedRole =
+            form.role == .coach ? "coach" : "trainee"
+
+        var profileData = form.toFirestoreDictionary(
+            uid: uid
+        )
+
+        profileData["role"] = selectedRole
+        profileData["userRole"] = selectedRole
+
+        /*
+         * בחירת המצב הפעיל אינה משנה
+         * את אישור המאמן או את קוד המאמן.
+         */
+        profileData.removeValue(forKey: "coachApproved")
+        profileData.removeValue(forKey: "coachCode")
+
+        do {
+            try await Firestore.firestore()
+                .collection("users")
+                .document(uid)
+                .setData(profileData, merge: true)
+
+            form.persistToUserDefaults()
+
+            let defaults = UserDefaults.standard
+            defaults.set(
+                form.wantsSms,
+                forKey: "subscribeSms"
+            )
+            defaults.set(
+                form.wantsSms,
+                forKey: "wantsSms"
+            )
+            defaults.set(
+                form.acceptsTerms,
+                forKey: "acceptsTerms"
+            )
+
+            auth.setActiveUserRole(selectedRole)
+            nav.pop()
+        } catch {
+            editedProfileSaveError = tr(
+                "לא ניתן לשמור את הפרופיל כרגע. נסה שוב.",
+                "Unable to save your profile right now. Please try again."
+            )
+        }
     }
 
     private func beltTitleForUi(_ belt: Belt) -> String {
@@ -1351,58 +1426,51 @@ struct ContentView: View {
                                 screenTitle: "עריכת פרופיל",
                                 submitTitle: "שמירת שינויים",
                                 submittingTitle: "שומר שינויים...",
+                                isSavingProfile: isSavingEditedProfile,
                                 onBack: {
                                     nav.pop()
                                 },
                                 onSubmit: { formState in
-                                    formState.persistToUserDefaults()
-
-                                    let defaults =
-                                        UserDefaults.standard
-
-                                    /*
-                                     * subscribeSms הוא המפתח התואם
-                                     * ל־Android.
-                                     * wantsSms נשמר לתאימות לאחור.
-                                     */
-                                    defaults.set(
-                                        formState.wantsSms,
-                                        forKey:
-                                            "subscribeSms"
-                                    )
-
-                                    defaults.set(
-                                        formState.wantsSms,
-                                        forKey:
-                                            "wantsSms"
-                                    )
-
-                                    defaults.set(
-                                        formState.acceptsTerms,
-                                        forKey:
-                                            "acceptsTerms"
-                                    )
-
-                                    let resolvedRole =
-                                        formState.roleKey
-
-                                    /*
-                                     * מקור אמת יחיד לתפקיד הפעיל.
-                                     *
-                                     * הפעולה מעדכנת מיד את AuthViewModel,
-                                     * את הכותרת הגלובלית ואת כל מפתחות
-                                     * התאימות ב־UserDefaults.
-                                     */
-                                    auth.setActiveUserRole(
-                                        resolvedRole
-                                    )
-
-                                    nav.pop()
+                                    Task { @MainActor in
+                                        await saveEditedProfile(
+                                            formState
+                                        )
+                                    }
                                 },
                                 onReadMoreTerms: {
-                                    // אפשר לחבר בהמשך למסך תנאי שימוש / מדיניות פרטיות
+                                    showEditedProfileTerms = true
                                 }
                             )
+                            .disabled(isSavingEditedProfile)
+                            .navigationDestination(
+                                isPresented: $showEditedProfileTerms
+                            ) {
+                                LegalView()
+                            }
+                            .alert(
+                                tr(
+                                    "שמירת פרופיל",
+                                    "Save Profile"
+                                ),
+                                isPresented: Binding(
+                                    get: {
+                                        editedProfileSaveError != nil
+                                    },
+                                    set: { presented in
+                                        if !presented {
+                                            editedProfileSaveError = nil
+                                        }
+                                    }
+                                )
+                            ) {
+                                Button(tr("אישור", "OK")) {
+                                    editedProfileSaveError = nil
+                                }
+                            } message: {
+                                Text(
+                                    editedProfileSaveError ?? ""
+                                )
+                            }
                             .navigationBarBackButtonHidden(true)
                         }
 

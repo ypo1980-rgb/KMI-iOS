@@ -4919,8 +4919,20 @@ private struct HomeTrainingCardAndroidStyle: View {
                     .frame(height: 1)
 
                 if attendanceLoading {
-                    KmiLoadingOverlay()
-                        .frame(height: 64)
+                    Text(
+                        attendanceText(
+                            "טוען נתוני הגעה…",
+                            "Loading attendance…"
+                        )
+                    )
+                    .kmiFont(size: 12, weight: .semibold)
+                    .foregroundStyle(
+                        KmiAppTheme.onSurfaceVariant(
+                            for: colorScheme
+                        )
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
                 } else if attendanceLoadFailed {
                     Text(
                         attendanceText(
@@ -5092,6 +5104,10 @@ private struct HomeTrainingCardAndroidStyle: View {
         enabled: Bool
     ) -> some View {
         let selected = attendanceChoice == status
+        let statusColor =
+            status == .present
+                ? KmiAppTheme.successContainer(for: colorScheme)
+                : KmiAppTheme.errorContainer(for: colorScheme)
 
         return Button {
             saveAttendanceChoice(status)
@@ -5105,9 +5121,7 @@ private struct HomeTrainingCardAndroidStyle: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .foregroundStyle(
-                selected
-                    ? KmiAppTheme.onPrimaryContainer(for: colorScheme)
-                    : KmiAppTheme.onSurface(for: colorScheme)
+                KmiAppTheme.onSurface(for: colorScheme)
             )
             .frame(maxWidth: .infinity)
             .padding(.vertical, 9)
@@ -5115,7 +5129,7 @@ private struct HomeTrainingCardAndroidStyle: View {
                 RoundedRectangle(cornerRadius: 13)
                     .fill(
                         selected
-                            ? KmiAppTheme.primaryContainer(for: colorScheme)
+                            ? statusColor
                             : KmiAppTheme.surfaceVariant(for: colorScheme)
                     )
             )
@@ -5123,7 +5137,7 @@ private struct HomeTrainingCardAndroidStyle: View {
                 RoundedRectangle(cornerRadius: 13)
                     .stroke(
                         selected
-                            ? KmiAppTheme.primary(for: colorScheme)
+                            ? statusColor
                             : KmiAppTheme.outlineVariant(for: colorScheme),
                         lineWidth: selected ? 1.5 : 1
                     )

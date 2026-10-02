@@ -113,28 +113,7 @@ struct BeltQuestionsByTopicView: View {
     }
         
     private var activeBeltFill: Color {
-        beltColor(for: belt)
-    }
-    
-    private func beltColor(for belt: Belt) -> Color {
-        switch belt {
-        case .white:
-            return Color(red: 0.92, green: 0.92, blue: 0.92)
-        case .yellow:
-            return Color(red: 0.98, green: 0.85, blue: 0.18)
-        case .orange:
-            return Color(red: 0.98, green: 0.64, blue: 0.15)
-        case .green:
-            return Color(red: 0.18, green: 0.80, blue: 0.44)
-        case .blue:
-            return Color(red: 0.18, green: 0.52, blue: 0.95)
-        case .brown:
-            return Color(red: 0.55, green: 0.34, blue: 0.23)
-        case .black:
-            return Color(red: 0.10, green: 0.10, blue: 0.12)
-        default:
-            return Color(red: 0.98, green: 0.64, blue: 0.15)
-        }
+        KmiBeltPalette.color(for: belt)
     }
 
     @State private var expandedMainTopicId: String? = nil
@@ -786,11 +765,11 @@ struct BeltQuestionsByTopicView: View {
             )
             .padding(
                 .horizontal,
-                7
+                10
             )
             .padding(
                 .vertical,
-                4
+                8
             )
             .frame(
                 maxWidth:
@@ -799,57 +778,54 @@ struct BeltQuestionsByTopicView: View {
                     54
             )
             .background {
-
                 RoundedRectangle(
-                    cornerRadius:
-                        20,
-                    style:
-                        .continuous
+                    cornerRadius: 16,
+                    style: .continuous
                 )
-                .fill(
-                    cardColor
-                )
+                .fill(cardColor)
             }
             .overlay {
-
                 RoundedRectangle(
-                    cornerRadius:
-                        20,
-                    style:
-                        .continuous
+                    cornerRadius: 16,
+                    style: .continuous
                 )
                 .stroke(
                     borderColor,
-                    lineWidth:
-                        1
+                    lineWidth: 1
                 )
             }
         }
 
-        private var navigationIcon:
-            some View {
-
-            Image(
-                systemName:
-                    navigationIconName
-            )
-            .kmiIconSize(
-                hasSubTopics
-                    ? 16
-                    : 15
-            )
-            .foregroundStyle(
-                hasSubTopics
-                    ? accent
-                    : secondaryTextColor
-            )
-            .frame(
-                minWidth:
-                    20
-            )
-            .accessibilityHidden(
-                true
-            )
+        private var navigationIcon: some View {
+            Image(systemName: navigationIconName)
+                .kmiIconSize(21)
+                .fontWeight(.bold)
+                .foregroundStyle(accent)
+                .frame(width: 28, height: 28)
+                .background {
+                    RoundedRectangle(
+                        cornerRadius: 9,
+                        style: .continuous
+                    )
+                    .fill(
+                        colorScheme == .dark
+                            ? KmiAppTheme.surfaceVariant(
+                                for: colorScheme
+                            )
+                            : Color.white.opacity(0.92)
+                    )
+                }
+                .overlay {
+                    RoundedRectangle(
+                        cornerRadius: 9,
+                        style: .continuous
+                    )
+                    .stroke(
+                        accent.opacity(0.42),
+                        lineWidth: 1.5
+                    )
+                }
+                .accessibilityHidden(true)
         }
 
         private var textBlock:
@@ -879,8 +855,10 @@ struct BeltQuestionsByTopicView: View {
                         textAlignment
                     )
                     .lineLimit(2)
-                    .minimumScaleFactor(
-                        0.70
+                    .truncationMode(.tail)
+                    .fixedSize(
+                        horizontal: false,
+                        vertical: true
                     )
 
                 if
@@ -946,9 +924,9 @@ struct BeltQuestionsByTopicView: View {
                     .scaledToFill()
                     .frame(
                         width:
-                            38,
+                            52,
                         height:
-                            31
+                            38
                     )
                     .clipShape(
                         RoundedRectangle(
@@ -980,21 +958,18 @@ struct BeltQuestionsByTopicView: View {
             }
         }
 
-        private var accentBar:
-            some View {
-
+        private var accentBar: some View {
             RoundedRectangle(
-                cornerRadius:
-                    999,
-                style:
-                    .continuous
+                cornerRadius: 999,
+                style: .continuous
             )
             .fill(accent)
             .frame(
-                width:
-                    3,
+                width: isEnglish ? 5 : 4,
                 height:
-                    34
+                    isEnglish
+                        ? 48
+                        : (imageName != nil ? 44 : 34)
             )
         }
     }
@@ -2268,30 +2243,8 @@ struct BeltQuestionsByTopicView: View {
         }
 
         /*
-         * חשוב:
-         * ניווט גלובלי בלבד.
-         *
-         * כך path נהיה:
-         *
-         * By Belt
-         * -> By Topic
-         * -> Subject
-         *
-         * ולכן Back חוזר ל-By Topic.
-         */
-        nav.push(
-            .subjectAcrossBelts(
-                subjectId:
-                    subject.id,
-                subjectTitle:
-                    cleanSubjectTitle
-            )
-        )
-
-        /*
-         * אם צריך forced section,
-         * נשמור אותו זמנית כדי שהיעד
-         * יוכל לצרוך אותו.
+         * שומרים את תת־הנושא לפני הניווט,
+         * כדי שיהיה זמין כשהיעד נפתח.
          */
         if let forcedSectionTitle,
            !forcedSectionTitle.isEmpty {
@@ -2309,6 +2262,13 @@ struct BeltQuestionsByTopicView: View {
                     "kmi.subject.forcedSectionTitle"
             )
         }
+
+        nav.push(
+            .subjectAcrossBelts(
+                subjectId: subject.id,
+                subjectTitle: cleanSubjectTitle
+            )
+        )
     }
 
     @ViewBuilder
@@ -2383,14 +2343,8 @@ struct BeltQuestionsByTopicView: View {
                 }
             }
         }
-        .padding(
-            .horizontal,
-            14
-        )
-        .padding(
-            .vertical,
-            10
-        )
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
         .background {
 
             RoundedRectangle(
@@ -2400,16 +2354,7 @@ struct BeltQuestionsByTopicView: View {
                     .continuous
             )
             .fill(
-                KmiAppTheme
-                    .surfaceVariant(
-                        for:
-                            colorScheme
-                    )
-                    .opacity(
-                        colorScheme == .dark
-                            ? 0.55
-                            : 0.75
-                    )
+                KmiAppTheme.surfaceVariant(for: colorScheme)
             )
         }
         .overlay {
@@ -2430,18 +2375,9 @@ struct BeltQuestionsByTopicView: View {
                     1
             )
         }
-        .padding(
-            .horizontal,
-            18
-        )
-        .padding(
-            .top,
-            2
-        )
-        .padding(
-            .bottom,
-            6
-        )
+        .padding(.horizontal, 1)
+        .padding(.top, 0)
+        .padding(.bottom, 10)
         .transition(
             .move(
                 edge:
@@ -2473,32 +2409,28 @@ struct BeltQuestionsByTopicView: View {
 
                 if isLocked {
                     TopicPulsingLockBadge()
-                        .scaleEffect(0.72)
-                        .frame(width: 20, height: 20)
                 }
 
                 Image(systemName: "chevron.right")
-                    .kmiFont(
-                        size: 11,
-                        weight: .bold
-                    )
+                    .kmiIconSize(11)
+                    .fontWeight(.bold)
                     .foregroundStyle(
                         colorScheme == .dark
-                            ? Color.white.opacity(0.54)
+                            ? KmiAppTheme.onSurfaceVariant(for: colorScheme)
                             : accent.opacity(0.70)
                     )
+                    .accessibilityHidden(true)
 
             } else {
                 Image(systemName: "chevron.left")
-                    .kmiFont(
-                        size: 11,
-                        weight: .bold
-                    )
+                    .kmiIconSize(11)
+                    .fontWeight(.bold)
                     .foregroundStyle(
                         colorScheme == .dark
-                            ? Color.white.opacity(0.54)
+                            ? KmiAppTheme.onSurfaceVariant(for: colorScheme)
                             : accent.opacity(0.70)
                     )
+                    .accessibilityHidden(true)
 
                 if isLocked {
                     TopicPulsingLockBadge()
@@ -2540,26 +2472,24 @@ struct BeltQuestionsByTopicView: View {
                 )
 
                 Image(systemName: "chevron.right")
-                    .kmiFont(
-                        size: 11,
-                        weight: .bold
-                    )
+                    .kmiIconSize(11)
+                    .fontWeight(.bold)
                     .foregroundStyle(
                         colorScheme == .dark
-                            ? Color.white.opacity(0.54)
+                            ? KmiAppTheme.onSurfaceVariant(for: colorScheme)
                             : accent.opacity(0.70)
                     )
+                    .accessibilityHidden(true)
             } else {
                 Image(systemName: "chevron.left")
-                    .kmiFont(
-                        size: 11,
-                        weight: .bold
-                    )
+                    .kmiIconSize(11)
+                    .fontWeight(.bold)
                     .foregroundStyle(
                         colorScheme == .dark
-                            ? Color.white.opacity(0.54)
+                            ? KmiAppTheme.onSurfaceVariant(for: colorScheme)
                             : accent.opacity(0.70)
                     )
+                    .accessibilityHidden(true)
 
                 inlineSubTopicText(
                     subject: subject,
@@ -2653,10 +2583,9 @@ struct BeltQuestionsByTopicView: View {
                     ? .leading
                     : .trailing
             )
-            .lineLimit(1)
-            .minimumScaleFactor(
-                0.70
-            )
+            .lineLimit(2)
+            .truncationMode(.tail)
+            .fixedSize(horizontal: false, vertical: true)
 
             Text(
                 exercisesCountText(
@@ -2670,7 +2599,9 @@ struct BeltQuestionsByTopicView: View {
                 .heavy
             )
             .foregroundStyle(
-                subjectAccent
+                colorScheme == .dark
+                    ? KmiAppTheme.onSurfaceVariant(for: colorScheme)
+                    : subjectAccent
             )
             .frame(
                 maxWidth:
@@ -2876,81 +2807,65 @@ struct BeltQuestionsByTopicView: View {
         )
     }
     
-    private var quickViewSideRail:
-        some View {
-
-        Button {
-
-            triggerTapHaptic()
-
-            showQuickActionsDialog =
-                true
-
-        } label: {
-
-            ZStack {
-
-                UnevenRoundedRectangle(
-                    topLeadingRadius:
-                        isEnglish
-                            ? 0
-                            : 18,
-                    bottomLeadingRadius:
-                        isEnglish
-                            ? 0
-                            : 18,
-                    bottomTrailingRadius:
-                        isEnglish
-                            ? 18
-                            : 0,
-                    topTrailingRadius:
-                        isEnglish
-                            ? 18
-                            : 0,
-                    style:
-                        .continuous
-                )
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            activeBeltFill
-                                .opacity(
-                                    0.84
-                                ),
-                            activeBeltFill,
-                            activeBeltFill
-                                .opacity(
-                                    0.88
-                                )
-                        ],
-                        startPoint:
-                            .top,
-                        endPoint:
-                            .bottom
+    private var topicQuickMenuActions: [KmiQuickMenuAction] {
+        [
+            KmiQuickMenuAction(
+                id: "lists",
+                titleHe: "רשימות",
+                titleEn: "Lists",
+                systemImage: "list.bullet",
+                iconTint: Color(
+                    red: 109.0 / 255.0,
+                    green: 76.0 / 255.0,
+                    blue: 1
+                ),
+                action: {
+                    triggerTapHaptic()
+                    nav.push(.allLists(belt: belt))
+                }
+            ),
+            KmiQuickMenuAction(
+                id: "practice",
+                titleHe: "תרגול",
+                titleEn: "Practice",
+                systemImage: "figure.martial.arts",
+                iconTint: Color(
+                    red: 0,
+                    green: 137.0 / 255.0,
+                    blue: 123.0 / 255.0
+                ),
+                action: {
+                    triggerTapHaptic()
+                    nav.push(
+                        .practice(
+                            belt: belt,
+                            topicTitle: "__ALL__"
+                        )
                     )
-                )
-
-                Image(
-                    systemName:
-                        "line.3.horizontal"
-                )
-                .kmiIconSize(
-                    26
-                )
-                .foregroundStyle(
-                    .white
-                )
-            }
-            .frame(
-                width:
-                    38,
-                height:
-                    72
+                }
+            ),
+            KmiQuickMenuAction(
+                id: "summary",
+                titleHe: "מסך\nסיכום",
+                titleEn: "Summary",
+                systemImage: "doc.text",
+                iconTint: Color(
+                    red: 25.0 / 255.0,
+                    green: 118.0 / 255.0,
+                    blue: 210.0 / 255.0
+                ),
+                action: {
+                    triggerTapHaptic()
+                    nav.push(
+                        .summary(
+                            belt: belt,
+                            topic: nil,
+                            subTopic: nil
+                        )
+                    )
+                }
             )
-        }
-        .buttonStyle(
-            .plain
-        )
+        ]
     }
     
     private var isQuickActionLocked: Bool {
@@ -2961,184 +2876,6 @@ struct BeltQuestionsByTopicView: View {
         return LockedContentPolicy
             .currentAccessMode() ==
             .locked
-    }
-    
-    private var quickActionsDialog: some View {
-        ZStack {
-            Color.black.opacity(0.28)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    showQuickActionsDialog = false
-                }
-
-            VStack(spacing: 0) {
-                HStack {
-                    Button {
-                        showQuickActionsDialog = false
-                    } label: {
-                        Image(systemName: "xmark")
-                            .kmiFont(
-                                size: 17,
-                                weight: .black
-                            )
-                            .foregroundStyle(
-                                activeBeltFill.opacity(0.86)
-                            )
-                            .frame(width: 40, height: 40)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer()
-
-                    Text(
-                        tr(
-                            "תפריט מהיר",
-                            "Quick menu"
-                        )
-                    )
-                    .kmiFont(
-                                            size: 25,
-                                            weight: .black
-                                        )
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.66)
-                    .foregroundStyle(
-                        activeBeltFill.opacity(0.94)
-                    )
-                }
-                .padding(.horizontal, 14)
-                .padding(.top, 12)
-                .padding(.bottom, 4)
-
-                quickActionRow(
-                    title: tr("נקודות תורפה", "Weak points"),
-                    icon: "exclamationmark.triangle",
-                    locked: isQuickActionLocked
-                ) {
-                    nav.push(.weakPoints(belt: belt))
-                }
-
-                quickActionRow(
-                    title: tr("תרגול", "Practice"),
-                    icon: "figure.martial.arts",
-                    locked: isQuickActionLocked
-                ) {
-                    nav.push(.practice(belt: belt, topicTitle: "__ALL__"))
-                }
-
-                quickActionRow(
-                    title: tr("עוזר קולי", "Voice assistant"),
-                    icon: "mic",
-                    locked: isQuickActionLocked
-                ) {
-                    nav.push(.voiceAssistant)
-                }
-            }
-            .padding(.bottom, 12)
-            .frame(maxWidth: 330)
-            .padding(.horizontal, 20)
-            .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.98),
-                                activeBeltFill.opacity(0.08),
-                                Color.white.opacity(0.96)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(activeBeltFill.opacity(0.34), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.22), radius: 18, x: 0, y: 10)
-        }
-        .transition(.opacity.combined(with: .scale(scale: 0.96)))
-        .zIndex(50)
-    }
-
-    private func quickActionRow(
-        title: String,
-        icon: String,
-        locked: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button {
-            triggerTapHaptic()
-            showQuickActionsDialog = false
-
-            if locked {
-                nav.push(.subscriptionPlans)
-                return
-            }
-
-            action()
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .kmiFont(
-                        size: 17,
-                        weight: .black
-                    )
-                    .foregroundStyle(
-                        activeBeltFill.opacity(0.84)
-                    )
-                    .frame(width: 38, height: 38)
-                    .background(
-                        activeBeltFill.opacity(0.12)
-                    )
-                    .clipShape(Circle())
-
-                if locked {
-                    Image(systemName: "lock.fill")
-                        .kmiFont(
-                            size: 12,
-                            weight: .bold
-                        )
-                        .foregroundStyle(
-                            activeBeltFill.opacity(0.88)
-                        )
-                }
-
-                Text(title)
-                    .kmiFont(
-                        size: 19,
-                        weight: .heavy
-                    )
-                    .foregroundStyle(
-                        activeBeltFill.opacity(0.94)
-                    )
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.64)
-                    .frame(
-                        maxWidth: .infinity,
-                        alignment:
-                            isEnglish
-                            ? .leading
-                            : .trailing
-                    )
-                    .multilineTextAlignment(
-                        isEnglish
-                        ? .leading
-                        : .trailing
-                    )
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 13)
-            .background(Color.white.opacity(0.001))
-        }
-        .buttonStyle(.plain)
-        .overlay(
-            Rectangle()
-                .fill(activeBeltFill.opacity(0.12))
-                .frame(height: 1),
-            alignment: .bottom
-        )
     }
 
     private var topicQuestionsModeSwitcher:
@@ -3215,7 +2952,7 @@ struct BeltQuestionsByTopicView: View {
             maxWidth: .infinity
         )
         .frame(
-            height: 48
+            height: 56
         )
         .background(
             KmiAppTheme
@@ -3261,15 +2998,15 @@ struct BeltQuestionsByTopicView: View {
                         )
                 )
                 .lineLimit(1)
-                .minimumScaleFactor(
-                    0.70
-                )
+                .truncationMode(.tail)
                 .frame(
                     maxWidth:
                         .infinity,
                     maxHeight:
                         .infinity
                 )
+                .padding(.leading, isSelected ? 38 : 0)
+                .padding(.trailing, isSelected ? 0 : 38)
 
             if isSelected {
 
@@ -3289,6 +3026,7 @@ struct BeltQuestionsByTopicView: View {
                         .horizontal,
                         58
                     )
+                    .offset(x: 19)
                     .padding(
                         .bottom,
                         4
@@ -3307,67 +3045,22 @@ struct BeltQuestionsByTopicView: View {
     }
     
     private var topicsScreenContent: some View {
-        GeometryReader { geometry in
-            VStack(spacing: 0) {
-                if !embeddedMode {
-                    topicQuestionsModeSwitcher
-                }
+        VStack(spacing: 0) {
+            if !embeddedMode {
+                topicQuestionsModeSwitcher
 
-                topicsCardContent
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 8)
-                    .frame(maxHeight: .infinity)
-                    .background(
-                        RoundedRectangle(
-                            cornerRadius: 22,
-                            style: .continuous
-                        )
-                        .fill(
-                            colorScheme == .dark
-                                ? Color(
-                                    red: 0.055,
-                                    green: 0.075,
-                                    blue: 0.115
-                                )
-                                .opacity(0.97)
-                                : Color.white.opacity(0.96)
-                        )
-                    )
-                    .overlay(
-                        RoundedRectangle(
-                            cornerRadius: 22,
-                            style: .continuous
-                        )
-                        .stroke(
-                            colorScheme == .dark
-                                ? Color.white.opacity(0.14)
-                                : Color.black.opacity(0.06),
-                            lineWidth: 1
-                        )
-                    )
-                    .shadow(
-                        color: Color.black.opacity(
-                            colorScheme == .dark
-                                ? 0.32
-                                : 0.08
-                        ),
-                        radius: 9,
-                        x: 0,
-                        y: 4
-                    )
-                    .clipShape(
-                        RoundedRectangle(
-                            cornerRadius: 22,
-                            style: .continuous
-                        )
-                    )
-                    .padding(.horizontal, 18)
+                Spacer()
+                    .frame(height: 4)
             }
-            .frame(
-                width: geometry.size.width,
-                height: geometry.size.height
-            )
+
+            topicsCardContent
+                .padding(.horizontal, 2)
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: .infinity
+                )
         }
+        .padding(.bottom, 8)
     }
 
     private var topicsCardContent: some View {
@@ -3376,7 +3069,7 @@ struct BeltQuestionsByTopicView: View {
                 isEnglish
                 ? .leading
                 : .trailing,
-            spacing: 14
+            spacing: 0
         ) {
             Text(
                 tr(
@@ -3384,27 +3077,26 @@ struct BeltQuestionsByTopicView: View {
                     "Subjects (Categories)"
                 )
             )
-            .kmiFont(
-                size: 14,
-                weight: .heavy
-            )
+            .kmiTypography(.sectionTitle)
             .foregroundStyle(
-                colorScheme == .dark
-                    ? Color.white.opacity(0.94)
-                    : Color.black.opacity(0.84)
+                KmiAppTheme.onSurface(
+                    for: colorScheme
+                )
             )
             .frame(
                 maxWidth: .infinity,
                 alignment: .center
             )
             .multilineTextAlignment(.center)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
 
             topicsRowsContent
         }
     }
 
     private var topicsRowsContent: some View {
-        ScrollView(showsIndicators: false) {
+        ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 6) {
                 ForEach(
                     mainTopics,
@@ -3420,7 +3112,8 @@ struct BeltQuestionsByTopicView: View {
                     emptyTopicsMessage
                 }
             }
-            .padding(.bottom, 6)
+            .padding(.leading, 3)
+            .padding(.trailing, 10)
         }
     }
 
@@ -3488,9 +3181,7 @@ struct BeltQuestionsByTopicView: View {
             weight: .semibold
         )
         .foregroundStyle(
-            colorScheme == .dark
-                ? Color.white.opacity(0.62)
-                : Color.black.opacity(0.55)
+            KmiAppTheme.onSurfaceVariant(for: colorScheme)
         )
         .multilineTextAlignment(.center)
         .frame(
@@ -3502,62 +3193,37 @@ struct BeltQuestionsByTopicView: View {
     }
 
     @ViewBuilder
-    private var quickRailLayer:
-        some View {
-
+    private var quickRailLayer: some View {
         if !embeddedMode {
-
-            GeometryReader {
-                geometry in
-
-                quickViewSideRail
-                    .position(
-                        x:
-                            isEnglish
-                                ? 19
-                                : geometry
-                                    .size
-                                    .width
-                                    - 19,
-                        y:
-                            88 + 36
-                    )
-            }
-            .environment(
-                \.layoutDirection,
-                .leftToRight
+            KmiFloatingQuickMenu(
+                isExpanded: $showQuickActionsDialog,
+                isEnglish: isEnglish,
+                accentColor: activeBeltFill,
+                hasFullAccess: !isQuickActionLocked,
+                actions: topicQuickMenuActions,
+                onLockedItemClick: {
+                    triggerTapHaptic()
+                    nav.push(.subscriptionPlans)
+                }
             )
-            .frame(
-                maxWidth:
-                    .infinity,
-                maxHeight:
-                    .infinity
-            )
-            .zIndex(
-                40
-            )
+            .zIndex(40)
         }
     }
 
-    @ViewBuilder
-    private var quickDialogLayer: some View {
-        if !embeddedMode &&
-            showQuickActionsDialog {
-            quickActionsDialog
-        }
-    }
     var body: some View {
         ZStack {
             KmiAppBackground()
             topicsScreenContent
             quickRailLayer
-            quickDialogLayer
         }
         .environment(
             \.layoutDirection,
              screenLayoutDirection
         )
         .navigationBarTitleDisplayMode(.inline)
+        .onDisappear {
+            showQuickActionsDialog = false
+        }
         .onAppear {
             
             loadMainTopicsIfNeeded()
@@ -3578,10 +3244,10 @@ struct BeltQuestionsByTopicView: View {
         ) { _, newValue in
             
             clearTopicCountCaches()
-            
-            expandedMainTopicId =
-            nil
-            
+
+            expandedMainTopicId = nil
+            showQuickActionsDialog = false
+
             onActiveBeltChange?(
                 newValue
             )
@@ -3629,33 +3295,21 @@ struct BeltQuestionsByTopicView: View {
 }
 
 private struct TopicPulsingLockBadge: View {
-    @State private var pulse: Bool = false
-    
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var pulse = false
+
     var body: some View {
         Image(systemName: "lock.fill")
-            .kmiFont(
-                size: 13,
-                weight: .black
-            )
+            .kmiIconSize(20)
+            .fontWeight(.bold)
             .foregroundStyle(
-                Color.orange.opacity(0.92)
+                KmiAppTheme.warning(for: colorScheme)
             )
-            .frame(
-                minWidth: 28,
-                minHeight: 28
-            )
-            .background(
-                Circle()
-                    .fill(Color.orange.opacity(0.12))
-            )
-            .overlay(
-                Circle()
-                    .stroke(Color.orange.opacity(0.24), lineWidth: 1)
-            )
-            .scaleEffect(pulse ? 1.12 : 1.0)
+            .scaleEffect(pulse ? 1.0 : 0.90)
+            .accessibilityHidden(true)
             .onAppear {
                 withAnimation(
-                    .easeInOut(duration: 0.78)
+                    .linear(duration: 0.9)
                     .repeatForever(autoreverses: true)
                 ) {
                     pulse = true
@@ -4070,20 +3724,12 @@ private struct SubjectSectionsListView: View {
         @Environment(\.colorScheme)
         private var colorScheme
 
-        private var isDarkMode: Bool {
-            colorScheme == .dark
-        }
-
         private var titleColor: Color {
-            isDarkMode
-                ? Color.white.opacity(0.92)
-                : Color.black.opacity(0.84)
+            KmiAppTheme.onSurface(for: colorScheme)
         }
 
         private var secondaryTextColor: Color {
-            isDarkMode
-                ? Color.white.opacity(0.64)
-                : Color.black.opacity(0.56)
+            KmiAppTheme.onSurfaceVariant(for: colorScheme)
         }
 
         private var textAlignment: TextAlignment {
@@ -4099,90 +3745,63 @@ private struct SubjectSectionsListView: View {
         }
 
         var body: some View {
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 if isEnglish {
                     accentBar
                     visualBlock
                     textBlock
-
-                    Image(systemName: "chevron.right")
-                        .kmiFont(
-                            size: 13,
-                            weight: .bold
-                        )
-                        .foregroundStyle(
-                            isDarkMode
-                                ? Color.white.opacity(0.52)
-                                : Color.black.opacity(0.30)
-                        )
+                    navigationIcon
                 } else {
-                    Image(systemName: "chevron.left")
-                        .kmiFont(
-                            size: 13,
-                            weight: .bold
-                        )
-                        .foregroundStyle(
-                            isDarkMode
-                                ? Color.white.opacity(0.52)
-                                : Color.black.opacity(0.30)
-                        )
-
+                    navigationIcon
                     textBlock
                     visualBlock
                     accentBar
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity)
+            .environment(\.layoutDirection, .leftToRight)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: 54)
             .background(
                 RoundedRectangle(
-                    cornerRadius: 17,
+                    cornerRadius: 16,
                     style: .continuous
                 )
                 .fill(
-                    isDarkMode
-                        ? Color(
-                            red: 0.06,
-                            green: 0.08,
-                            blue: 0.12
-                        )
-                        : Color.white.opacity(0.94)
+                    KmiAppTheme.surface(for: colorScheme)
                 )
             )
             .overlay(
                 RoundedRectangle(
-                    cornerRadius: 17,
+                    cornerRadius: 16,
                     style: .continuous
                 )
                 .stroke(
-                    isDarkMode
-                        ? Color.white.opacity(0.12)
-                        : Color.black.opacity(0.05),
+                    KmiAppTheme.outlineVariant(for: colorScheme),
                     lineWidth: 1
                 )
             )
-            .shadow(
-                color:
-                    Color.black.opacity(
-                        isDarkMode ? 0.26 : 0.045
-                    ),
-                radius: 5,
-                x: 0,
-                y: 2
+        }
+
+        private var navigationIcon: some View {
+            Image(
+                systemName: isEnglish
+                    ? "chevron.right"
+                    : "chevron.left"
             )
+            .kmiIconSize(15)
+            .fontWeight(.bold)
+            .foregroundStyle(secondaryTextColor)
+            .accessibilityHidden(true)
         }
 
         private var textBlock: some View {
             VStack(
                 alignment: stackAlignment,
-                spacing: 7
+                spacing: 2
             ) {
                 Text(title)
-                    .kmiFont(
-                        size: 19,
-                        weight: .heavy
-                    )
+                    .kmiTypography(.cardTitle)
                     .foregroundStyle(titleColor)
                     .frame(
                         maxWidth: .infinity,
@@ -4190,13 +3809,15 @@ private struct SubjectSectionsListView: View {
                     )
                     .multilineTextAlignment(textAlignment)
                     .lineLimit(2)
-                    .minimumScaleFactor(0.66)
+                    .truncationMode(.tail)
+                    .fixedSize(
+                        horizontal: false,
+                        vertical: true
+                    )
 
                 Text(subtitleBottom)
-                    .kmiFont(
-                        size: 12,
-                        weight: .semibold
-                    )
+                    .kmiTypography(.caption)
+                    .fontWeight(.bold)
                     .foregroundStyle(secondaryTextColor)
                     .frame(
                         maxWidth: .infinity,
@@ -4204,45 +3825,25 @@ private struct SubjectSectionsListView: View {
                     )
                     .multilineTextAlignment(textAlignment)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.64)
             }
         }
 
         private var visualBlock: some View {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            accent.opacity(0.22),
-                            accent.opacity(0.08),
-                            Color.white.opacity(0.92)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(accent.opacity(0.26), lineWidth: 1)
-                )
-                .overlay(
-                    Image(systemName: symbolName)
-                        .kmiFont(
-                            size: 22,
-                            weight: .heavy
-                        )
-                        .foregroundStyle(accent)
-                )
-                .frame(
-                    minWidth: 62,
-                    minHeight: 52
-                )
+            Image(systemName: symbolName)
+                .kmiIconSize(16)
+                .fontWeight(.heavy)
+                .foregroundStyle(accent)
+                .frame(minWidth: 24, minHeight: 24)
+                .accessibilityHidden(true)
         }
 
         private var accentBar: some View {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(accent)
-                .frame(width: 6, height: 52)
+            RoundedRectangle(
+                cornerRadius: 999,
+                style: .continuous
+            )
+            .fill(accent)
+            .frame(width: 5, height: 48)
         }
     }
 
@@ -4262,9 +3863,7 @@ private struct SubjectSectionsListView: View {
                 weight: .heavy
             )
             .foregroundStyle(
-                colorScheme == .dark
-                    ? Color.white.opacity(0.94)
-                    : Color.black.opacity(0.84)
+                KmiAppTheme.onSurface(for: colorScheme)
             )
             .frame(
                 maxWidth: .infinity,
@@ -4279,7 +3878,8 @@ private struct SubjectSectionsListView: View {
                     : .trailing
             )
             .lineLimit(2)
-            .minimumScaleFactor(0.68)
+            .truncationMode(.tail)
+            .fixedSize(horizontal: false, vertical: true)
 
             Text(
                 tr(
@@ -4292,9 +3892,7 @@ private struct SubjectSectionsListView: View {
                 weight: .bold
             )
             .foregroundStyle(
-                colorScheme == .dark
-                    ? Color.white.opacity(0.62)
-                    : Color.black.opacity(0.50)
+                KmiAppTheme.onSurfaceVariant(for: colorScheme)
             )
             .frame(
                 maxWidth: .infinity,
@@ -4307,36 +3905,23 @@ private struct SubjectSectionsListView: View {
     }
 
     private var selectionHeaderIcon: some View {
-        Image(
-            systemName:
-                "square.grid.2x2.fill"
-        )
-        .kmiFont(
-            size: 18,
-            weight: .heavy
-        )
-        .foregroundStyle(
-            colorScheme == .dark
-                ? Color.purple.opacity(0.96)
-                : Color.purple.opacity(0.72)
-        )
-        .frame(
-            minWidth: 38,
-            minHeight: 38
-        )
-        .background(
-            Color.purple.opacity(
-                colorScheme == .dark
-                    ? 0.18
-                    : 0.10
+        Image(systemName: "square.grid.2x2.fill")
+            .kmiIconSize(18)
+            .fontWeight(.heavy)
+            .foregroundStyle(
+                KmiAppTheme.secondary(for: colorScheme)
             )
-        )
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: 13,
-                style: .continuous
+            .frame(minWidth: 38, minHeight: 38)
+            .background(
+                KmiAppTheme.surfaceVariant(for: colorScheme)
             )
-        )
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: 13,
+                    style: .continuous
+                )
+            )
+            .accessibilityHidden(true)
     }
 
     private var selectionHeader: some View {
@@ -4390,49 +3975,30 @@ private struct SubjectSectionsListView: View {
                             }
                         }
                 }
-                .padding(.vertical, 14)
-                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .padding(.horizontal, 10)
                 .background(
                     RoundedRectangle(
-                        cornerRadius: 22,
+                        cornerRadius: 18,
                         style: .continuous
                     )
                     .fill(
-                        colorScheme == .dark
-                            ? Color(
-                                red: 0.055,
-                                green: 0.075,
-                                blue: 0.115
-                            )
-                            .opacity(0.97)
-                            : Color.white.opacity(0.96)
+                        KmiAppTheme.surface(for: colorScheme)
                     )
                 )
                 .overlay(
                     RoundedRectangle(
-                        cornerRadius: 22,
+                        cornerRadius: 18,
                         style: .continuous
                     )
                     .stroke(
-                        colorScheme == .dark
-                            ? Color.white.opacity(0.14)
-                            : Color.black.opacity(0.06),
+                        KmiAppTheme.outlineVariant(for: colorScheme),
                         lineWidth: 1
                     )
                 )
-                .shadow(
-                    color:
-                        Color.black.opacity(
-                            colorScheme == .dark
-                                ? 0.32
-                                : 0.08
-                        ),
-                    radius: 9,
-                    x: 0,
-                    y: 4
-                )
-                .padding(.horizontal, 18)
-                .padding(.top, 12)
+                .padding(.horizontal, 14)
+                .padding(.top, 10)
+                .padding(.bottom, 14)
             }
         }
         .environment(\.layoutDirection, screenLayoutDirection)

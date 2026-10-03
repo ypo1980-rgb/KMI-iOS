@@ -246,6 +246,24 @@ final class AppNavModel: ObservableObject {
 
     @Published var path: [AppRoute] = []
 
+    private var subjectsForNavigation:
+        [String: KMI_iOS.SubjectTopic] = [:]
+
+    func registerSubjectForNavigation(
+        _ subject: KMI_iOS.SubjectTopic
+    ) {
+        subjectsForNavigation[subject.id] = subject
+    }
+
+    func subjectForNavigation(
+        id: String
+    ) -> KMI_iOS.SubjectTopic? {
+        subjectsForNavigation[id] ??
+            TopicsBySubjectRegistry
+                .allSubjects()
+                .first { $0.id == id }
+    }
+
     @Published
     private(set) var isTransitionLoading: Bool = false
 
@@ -262,6 +280,17 @@ final class AppNavModel: ObservableObject {
         presentationDelay: TimeInterval = 0.08
     ) {
         if path.last == route {
+            return
+        }
+
+        /*
+         * מעבר למסך החגורה אינו מפעיל
+         * טעינה אוטומטית עם זמן המתנה קבוע.
+         * טעינות מפורשות נשארות מנוהלות
+         * באמצעות beginLoading / endLoading.
+         */
+        if case .beltQuestionsByBelt = route {
+            path.append(route)
             return
         }
 
@@ -1509,22 +1538,24 @@ struct ContentView: View {
                             let subjectId,
                             let subjectTitle
                         ):
-                            if let subject =
-                                    TopicsBySubjectRegistry
-                                        .allSubjects()
-                                        .first(
-                                            where: {
-                                                $0.id == subjectId
-                                            }
-                                        ) {
-                                KmiRootLayout(
-                                    title: subjectTitle,
-                                    nav: nav,
-                                    selectedIcon: .home
-                                ) {
-                                    SubjectAcrossBeltsView(
-                                        subject: subject
-                                    )
+                        if let subject =
+                            nav.subjectForNavigation(
+                                id: subjectId
+                            ) {
+                            KmiRootLayout(
+                                title: subjectTitle,
+                                nav: nav,
+                                selectedIcon: .home
+                            ) {
+                                SubjectAcrossBeltsView(
+                                    subject: subject,
+                                    forcedSectionTitle:
+                                        UserDefaults.standard
+                                            .string(
+                                                forKey:
+                                                    "kmi.subject.forcedSectionTitle"
+                                            )
+                                )
                                     .navigationBarBackButtonHidden(
                                         true
                                     )

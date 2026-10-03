@@ -38,15 +38,28 @@ struct AttendanceAndroidSavedReport:
     let createdAtMillis: Int64
 }
 
+struct TrainingAttendanceForecastMember:
+    Identifiable,
+    Equatable,
+    Sendable {
+
+    let id: Int64
+    let name: String
+}
+
 struct TrainingAttendanceForecast: Equatable, Sendable {
     let comingCount: Int
     let notComingCount: Int
     let noResponseCount: Int
+
+    var comingMembers: [TrainingAttendanceForecastMember] = []
+    var notComingMembers: [TrainingAttendanceForecastMember] = []
+    var noResponseMembers: [TrainingAttendanceForecastMember] = []
 }
 
 @MainActor
 private final class AttendanceForecastListenerState {
-    private var memberIds: Set<Int64> = []
+    private var members: [Int64: TrainingAttendanceForecastMember] = [:]
     private var choices: [Int64: String] = [:]
 
     private var membersLoaded = false
@@ -63,8 +76,10 @@ private final class AttendanceForecastListenerState {
         self.onError = onError
     }
 
-    func updateMembers(_ value: Set<Int64>) {
-        memberIds = value
+    func updateMembers(
+        _ value: [Int64: TrainingAttendanceForecastMember]
+    ) {
+        members = value
         membersLoaded = true
         publishIfReady()
     }
@@ -90,26 +105,38 @@ private final class AttendanceForecastListenerState {
             return
         }
 
-        let validChoices = choices.filter {
-            memberIds.contains($0.key)
+        let sortedMembers = members.values.sorted {
+            let comparison =
+                $0.name.localizedCaseInsensitiveCompare($1.name)
+
+            if comparison == .orderedSame {
+                return $0.id < $1.id
+            }
+
+            return comparison == .orderedAscending
         }
 
-        let coming = validChoices.values.filter {
-            $0 == "PRESENT"
-        }.count
+        let coming = sortedMembers.filter {
+            choices[$0.id] == "PRESENT"
+        }
 
-        let notComing = validChoices.values.filter {
-            $0 == "ABSENT"
-        }.count
+        let notComing = sortedMembers.filter {
+            choices[$0.id] == "ABSENT"
+        }
+
+        let noResponse = sortedMembers.filter {
+            choices[$0.id] != "PRESENT"
+                && choices[$0.id] != "ABSENT"
+        }
 
         onChanged(
             TrainingAttendanceForecast(
-                comingCount: coming,
-                notComingCount: notComing,
-                noResponseCount: max(
-                    0,
-                    memberIds.count - validChoices.count
-                )
+                comingCount: coming.count,
+                notComingCount: notComing.count,
+                noResponseCount: noResponse.count,
+                comingMembers: coming,
+                notComingMembers: notComing,
+                noResponseMembers: noResponse
             )
         )
     }
@@ -818,6 +845,39 @@ final class AttendanceRepository {
             )
     }
 
+    func ensureGroupMetadata(
+        branchName: String,
+        groupKey: String
+    ) async throws {
+        let branch = branchName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let group = groupKey
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard Auth.auth().currentUser != nil,
+              !branch.isEmpty,
+              !group.isEmpty else {
+            throw OwnAttendanceError.invalidContext
+        }
+
+        let reference = attendanceGroupReference(
+            branchName: branch,
+            groupKey: group
+        )
+
+        let data: [String: Any] = [
+            "id": reference.documentID,
+            "branch": branch,
+            "groupKey": group,
+            "updatedAtMillis":
+                Int64(Date().timeIntervalSince1970 * 1_000),
+            "updatedAt": FieldValue.serverTimestamp()
+        ]
+
+        try await reference.setData(data, merge: true)
+    }
+
     private enum OwnAttendanceError: Error {
         case invalidContext
         case trainingAlreadyStarted
@@ -856,10 +916,30 @@ final class AttendanceRepository {
             onError: onError
         )
 
+        #if DEBUG
+        print(
+            "KMI_ATTENDANCE_CONTEXT",
+            "branch:", branch,
+            "group:", group,
+            "groupId:", groupReference.documentID
+        )
+        #endif
+
         let membersListener = groupReference
             .collection("members")
             .addSnapshotListener { snapshot, error in
                 if let error {
+                    #if DEBUG
+                    let details = error as NSError
+                    print(
+                        "KMI_ATTENDANCE_MEMBERS_FAILED",
+                        "path:", groupReference.path + "/members",
+                        "domain:", details.domain,
+                        "code:", details.code,
+                        "message:", details.localizedDescription
+                    )
+                    #endif
+
                     DispatchQueue.main.async {
                         state.failMembers(error)
                     }
@@ -870,28 +950,70 @@ final class AttendanceRepository {
                     return
                 }
 
-                let ids = Set(
-                    snapshot.documents.compactMap { document -> Int64? in
-                        if let value =
-                            document.data()["id"] as? NSNumber {
-                            return value.int64Value
-                        }
+                var members:
+                    [Int64: TrainingAttendanceForecastMember] = [:]
 
-                        return Int64(document.documentID)
+                for document in snapshot.documents {
+                    let data = document.data()
+                    let storedId = self.int64Value(data["id"])
+
+                    guard let memberId =
+                        storedId > 0
+                            ? storedId
+                            : Int64(document.documentID),
+                        memberId > 0 else {
+                        continue
                     }
-                )
+
+                    let name = [
+                        data["displayName"] as? String,
+                        data["fullName"] as? String,
+                        data["name"] as? String
+                    ]
+                    .compactMap { $0 }
+                    .map {
+                        $0.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                    }
+                    .first { !$0.isEmpty } ?? ""
+
+                    members[memberId] =
+                        TrainingAttendanceForecastMember(
+                            id: memberId,
+                            name: name
+                        )
+                }
+
+                let capturedMembers = members
 
                 DispatchQueue.main.async {
-                    state.updateMembers(ids)
+                    state.updateMembers(capturedMembers)
                 }
             }
 
+        let dateIso = attendanceSessionDateIso(date)
+
         let recordsListener = groupReference
             .collection("sessions")
-            .document(attendanceSessionDateIso(date))
+            .document(dateIso)
             .collection("records")
             .addSnapshotListener { snapshot, error in
                 if let error {
+                    #if DEBUG
+                    let details = error as NSError
+                    print(
+                        "KMI_ATTENDANCE_RECORDS_FAILED",
+                        "path:",
+                        groupReference.path
+                            + "/sessions/" + dateIso
+                            + "/records",
+                        "domain:", details.domain,
+                        "code:", details.code,
+                        "message:", details.localizedDescription
+                    )
+                    #endif
+
                     DispatchQueue.main.async {
                         state.failRecords(error)
                     }
@@ -916,11 +1038,14 @@ final class AttendanceRepository {
                         continue
                     }
 
-                    let memberId =
-                        (data["memberId"] as? NSNumber)?.int64Value
-                        ?? Int64(document.documentID)
+                    let storedMemberId =
+                        self.int64Value(data["memberId"])
 
-                    guard let memberId else {
+                    guard let memberId =
+                        storedMemberId > 0
+                            ? storedMemberId
+                            : Int64(document.documentID),
+                        memberId > 0 else {
                         continue
                     }
 

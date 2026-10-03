@@ -2,14 +2,116 @@ import Foundation
 import Shared
 
 struct KmiExerciseCountStats:
-    Hashable {
+    Hashable, Sendable {
     let subTopicCount: Int
     let exerciseCount: Int
 }
 
 enum KmiExerciseCountProvider {
 
-    static func topicStats(
+    private struct StatsKey: Hashable, Sendable {
+        let beltId: String
+        let topicTitle: String
+        let subTopicTitle: String?
+    }
+
+    private final class StatsCache: @unchecked Sendable {
+        private let lock = NSLock()
+
+        private var values:
+            [StatsKey: KmiExerciseCountStats] = [:]
+
+        func value(
+            for key: StatsKey
+        ) -> KmiExerciseCountStats? {
+            lock.lock()
+            defer { lock.unlock() }
+
+            return values[key]
+        }
+
+        func store(
+            _ value: KmiExerciseCountStats,
+            for key: StatsKey
+        ) {
+            lock.lock()
+            defer { lock.unlock() }
+
+            values[key] = value
+        }
+    }
+
+    private nonisolated static let statsCache = StatsCache()
+
+    nonisolated static func topicStatsInBackground(
+        beltId: String,
+        topicTitle: String
+    ) async -> KmiExerciseCountStats {
+        let worker = Task.detached(priority: .userInitiated) {
+            let belts: [Belt] = [
+                .yellow, .orange, .green,
+                .blue, .brown, .black
+            ]
+
+            guard
+                !Task.isCancelled,
+                let belt = belts.first(where: {
+                    $0.id == beltId
+                })
+            else {
+                return KmiExerciseCountStats(
+                    subTopicCount: 0,
+                    exerciseCount: 0
+                )
+            }
+
+            return topicStats(
+                belt: belt,
+                topicTitle: topicTitle
+            )
+        }
+
+        return await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+    }
+
+    nonisolated static func topicStats(
+        belt: Belt,
+        topicTitle: String
+    ) -> KmiExerciseCountStats {
+        let cleanTopic = normalize(topicTitle)
+
+        guard !cleanTopic.isEmpty else {
+            return KmiExerciseCountStats(
+                subTopicCount: 0,
+                exerciseCount: 0
+            )
+        }
+
+        let key = StatsKey(
+            beltId: belt.id,
+            topicTitle: cleanTopic,
+            subTopicTitle: nil
+        )
+
+        if let cached = statsCache.value(for: key) {
+            return cached
+        }
+
+        let result = calculateTopicStats(
+            belt: belt,
+            topicTitle: cleanTopic
+        )
+
+        statsCache.store(result, for: key)
+
+        return result
+    }
+
+    private nonisolated static func calculateTopicStats(
         belt: Belt,
         topicTitle: String
     ) -> KmiExerciseCountStats {
@@ -120,7 +222,44 @@ enum KmiExerciseCountProvider {
         )
     }
 
-    static func subTopicStats(
+    nonisolated static func subTopicStats(
+        belt: Belt,
+        topicTitle: String,
+        subTopicTitle: String
+    ) -> KmiExerciseCountStats {
+        let cleanTopic = normalize(topicTitle)
+        let cleanSubTopic = normalize(subTopicTitle)
+
+        guard !cleanTopic.isEmpty,
+              !cleanSubTopic.isEmpty else {
+            return KmiExerciseCountStats(
+                subTopicCount: 0,
+                exerciseCount: 0
+            )
+        }
+
+        let key = StatsKey(
+            beltId: belt.id,
+            topicTitle: cleanTopic,
+            subTopicTitle: cleanSubTopic
+        )
+
+        if let cached = statsCache.value(for: key) {
+            return cached
+        }
+
+        let result = calculateSubTopicStats(
+            belt: belt,
+            topicTitle: cleanTopic,
+            subTopicTitle: cleanSubTopic
+        )
+
+        statsCache.store(result, for: key)
+
+        return result
+    }
+
+    private nonisolated static func calculateSubTopicStats(
         belt: Belt,
         topicTitle: String,
         subTopicTitle: String
@@ -270,7 +409,7 @@ enum KmiExerciseCountProvider {
             )
     }
 
-    private static func hardSectionExerciseCount(
+    private nonisolated static func hardSectionExerciseCount(
         topicTitle: String
     ) -> Int {
         let candidates =
@@ -305,7 +444,7 @@ enum KmiExerciseCountProvider {
         return 0
     }
 
-    private static func hardSectionCandidates(
+    private nonisolated static func hardSectionCandidates(
         _ topicTitle: String
     ) -> [String] {
         let clean =
@@ -365,7 +504,7 @@ enum KmiExerciseCountProvider {
         return result
     }
 
-    private static func hardSectionDeepCount(
+    private nonisolated static func hardSectionDeepCount(
         _ section:
             HardSectionsCatalog.Section
     ) -> Int {
@@ -401,7 +540,7 @@ enum KmiExerciseCountProvider {
             childCount
     }
 
-    private static func uniqueNormalizedItems(
+    private nonisolated static func uniqueNormalizedItems(
         _ items: [String]
     ) -> Set<String> {
         var result =
@@ -421,14 +560,14 @@ enum KmiExerciseCountProvider {
         return result
     }
 
-    private static func normalizeItem(
+    private nonisolated static func normalizeItem(
         _ value: String
     ) -> String {
         normalize(value)
             .lowercased()
     }
 
-    private static func normalize(
+    private nonisolated static func normalize(
         _ value: String
     ) -> String {
         value

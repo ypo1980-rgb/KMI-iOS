@@ -8,6 +8,301 @@ private struct MainTopic: Identifiable, Hashable {
     let subjects: [SubjectTopic]
 }
 
+private struct ByTopicVisibilityInput: Sendable {
+    let cacheKey: String
+    let id: String
+    let titleHeb: String
+    let topicsByBeltId: [String: [String]]
+    let subTopicHint: String?
+    let includeItemKeywords: [String]
+    let requireAllItemKeywords: [String]
+    let excludeItemKeywords: [String]
+}
+
+private enum ByTopicVisibilityWorker {
+    nonisolated static func prepare(
+        _ inputs: [ByTopicVisibilityInput]
+    ) async -> [String: Bool] {
+        let worker = Task.detached(priority: .userInitiated) {
+            var results: [String: Bool] = [:]
+
+            let belts: [Belt] = [
+                .yellow, .orange, .green,
+                .blue, .brown, .black
+            ]
+
+            for input in inputs {
+                guard !Task.isCancelled else {
+                    return results
+                }
+
+                let originalTopics: [Belt: [String]] =
+                    Dictionary(
+                        uniqueKeysWithValues: belts.compactMap { belt in
+                            guard let titles =
+                                input.topicsByBeltId[belt.id] else {
+                                return nil
+                            }
+
+                            return (belt, titles)
+                        }
+                    )
+
+                let resolverTopics: [Belt: [String]]
+
+                if input.id == "punches" {
+                    resolverTopics = originalTopics.mapValues { titles in
+                        titles.map {
+                            $0 == "עבודת ידיים"
+                                ? "מכות ידיים"
+                                : $0
+                        }
+                    }
+                } else {
+                    resolverTopics = originalTopics
+                }
+
+                let sharedSubject = Shared.SubjectTopic(
+                    id: input.id,
+                    titleHeb: input.titleHeb,
+                    topicsByBelt: resolverTopics,
+                    subTopicHint: input.subTopicHint,
+                    includeItemKeywords: input.includeItemKeywords,
+                    requireAllItemKeywords: input.requireAllItemKeywords,
+                    excludeItemKeywords: input.excludeItemKeywords
+                )
+
+                var visible = false
+
+                for belt in belts {
+                    guard !Task.isCancelled else {
+                        return results
+                    }
+
+                    let sections =
+                        SubjectItemsResolver.shared.resolveBySubject(
+                            belt: belt,
+                            subject: sharedSubject
+                        )
+
+                    if sections.contains(where: {
+                        !$0.items.isEmpty
+                    }) {
+                        visible = true
+                        break
+                    }
+
+                    guard
+                        let beltContent = ContentRepo.shared.data[belt],
+                        let mappedTopics = originalTopics[belt],
+                        !mappedTopics.isEmpty
+                    else {
+                        continue
+                    }
+
+                    let mappedKeys = Set(
+                        mappedTopics.map(normalizedTopicKey)
+                    )
+
+                    for topic in beltContent.topics {
+                        if mappedKeys.contains(
+                            normalizedTopicKey(topic.title)
+                        ) {
+                            if !topic.items.isEmpty ||
+                                topic.subTopics.contains(where: {
+                                    !$0.items.isEmpty
+                                }) {
+                                visible = true
+                                break
+                            }
+                        }
+
+                        if topic.subTopics.contains(where: {
+                            mappedKeys.contains(
+                                normalizedTopicKey($0.title)
+                            ) && !$0.items.isEmpty
+                        }) {
+                            visible = true
+                            break
+                        }
+                    }
+
+                    if visible {
+                        break
+                    }
+                }
+
+                results[input.cacheKey] = visible
+            }
+
+            return results
+        }
+
+        return await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+    }
+
+    nonisolated static func prepareDefenseVisibility(
+        _ inputs: [ByTopicVisibilityInput]
+    ) async -> [String: Bool] {
+        let worker = Task.detached(priority: .userInitiated) {
+            var results: [String: Bool] = [:]
+
+            let belts: [Belt] = [
+                .yellow, .orange, .green,
+                .blue, .brown, .black
+            ]
+
+            for input in inputs {
+                guard !Task.isCancelled else {
+                    return results
+                }
+
+                let catalogId: String
+
+                switch input.id {
+                case "def_internal_punch":
+                    catalogId = "def_internal"
+                case "def_external_punch":
+                    catalogId = "def_external"
+                default:
+                    catalogId = input.id
+                }
+
+                if let sections =
+                    HardSectionsCatalog.shared.sectionsForSubject(
+                        subjectId: catalogId
+                    ),
+                   !sections.isEmpty {
+                    var pending = sections
+                    var visible = false
+
+                    while let section = pending.popLast() {
+                        guard !Task.isCancelled else {
+                            return results
+                        }
+
+                        for belt in belts {
+                            if !HardSectionsCatalog.shared.itemsFor(
+                                section,
+                                belt: belt
+                            ).isEmpty {
+                                visible = true
+                                break
+                            }
+                        }
+
+                        if visible {
+                            break
+                        }
+
+                        pending.append(
+                            contentsOf: section.subSections
+                        )
+                    }
+
+                    results[input.cacheKey] = visible
+                    continue
+                }
+
+                let topicsByBelt: [Belt: [String]] =
+                    Dictionary(
+                        uniqueKeysWithValues: belts.compactMap { belt in
+                            guard let titles =
+                                input.topicsByBeltId[belt.id] else {
+                                return nil
+                            }
+
+                            return (belt, titles)
+                        }
+                    )
+
+                let sharedSubject = Shared.SubjectTopic(
+                    id: input.id,
+                    titleHeb: input.titleHeb,
+                    topicsByBelt: topicsByBelt,
+                    subTopicHint: input.subTopicHint,
+                    includeItemKeywords: input.includeItemKeywords,
+                    requireAllItemKeywords: input.requireAllItemKeywords,
+                    excludeItemKeywords: input.excludeItemKeywords
+                )
+
+                var visible = false
+
+                for belt in belts {
+                    guard !Task.isCancelled else {
+                        return results
+                    }
+
+                    let sections =
+                        SubjectItemsResolver.shared.resolveBySubject(
+                            belt: belt,
+                            subject: sharedSubject
+                        )
+
+                    if sections.contains(where: {
+                        !$0.items.isEmpty
+                    }) {
+                        visible = true
+                        break
+                    }
+                }
+
+                results[input.cacheKey] = visible
+            }
+
+            return results
+        }
+
+        return await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+    }
+
+    nonisolated static func normalizedTopicKey(
+        _ raw: String
+    ) -> String {
+        raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: "—", with: "-")
+            .replacingOccurrences(of: "/", with: " / ")
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+}
+
+@MainActor
+private enum ByTopicScreenMemoryCache {
+    static var mainTopics: [MainTopic]?
+    static var subjectVisibility: [String: Bool] = [:]
+    static var defenseVisibility: [String: Bool] = [:]
+
+    static var subjectCounts: [String: Int] = [:]
+    static var topicSubtitles: [String: String] = [:]
+
+    static var sectionsBySubject:
+        [SubjectTopic: [HardSectionsCatalog.Section]] = [:]
+
+    static var subjectKeys: [SubjectTopic: String] = [:]
+
+    static func key(for subject: SubjectTopic) -> String {
+        if let existing = subjectKeys[subject] {
+            return existing
+        }
+
+        let key = UUID().uuidString
+        subjectKeys[subject] = key
+        return key
+    }
+}
+
 struct BeltQuestionsByTopicView: View {
 
     let belt: Belt
@@ -154,7 +449,95 @@ struct BeltQuestionsByTopicView: View {
     @State private var subjectCountCache:
         [String: Int] = [:]
     
-    private func buildMainTopics() -> [MainTopic] {
+    @MainActor
+    static func preloadTopics(for belt: Belt) async {
+        guard !Task.isCancelled else {
+            return
+        }
+
+        let builder = BeltQuestionsByTopicView(
+            belt: belt
+        )
+
+        // מאפשר למסך הנוכחי להמשיך לפני תחילת ההכנה.
+        await Task.yield()
+
+        guard !Task.isCancelled else {
+            return
+        }
+
+        let topics: [MainTopic]
+
+        if let cached = ByTopicScreenMemoryCache.mainTopics {
+            topics = cached
+        } else {
+            let prepared = await builder.buildMainTopics()
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            ByTopicScreenMemoryCache.mainTopics = prepared
+            topics = prepared
+        }
+
+        for topic in topics {
+            for subject in topic.subjects {
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                let sections = builder.resolvedSections(
+                    for: subject
+                )
+
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                // מכין את תרגילי הנושא בכל החגורות.
+                await SubjectAcrossBeltsView.preloadSections(
+                    subject: subject
+                )
+
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                // תואם לפתיחה שמגבילה נושא בעל סעיף יחיד.
+                if sections.count == 1,
+                   let section = sections.first {
+                    await SubjectAcrossBeltsView.preloadSections(
+                        subject: subject,
+                        forcedSectionTitle: section.title
+                    )
+                }
+
+                await Task.yield()
+
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                let key = builder.subjectCountCacheKey(
+                    for: subject
+                )
+
+                if ByTopicScreenMemoryCache.subjectCounts[key] == nil {
+                    ByTopicScreenMemoryCache.subjectCounts[key] =
+                        builder.displayedExerciseCount(
+                            for: subject
+                        )
+                }
+
+                // נותן לממשק הזדמנות להגיב בין נושאים.
+                await Task.yield()
+            }
+        }
+    }
+    
+    @MainActor
+    private func buildMainTopics() async -> [MainTopic] {
 
         let allRootSubjects =
             TopicsBySubjectRegistry
@@ -164,49 +547,101 @@ struct BeltQuestionsByTopicView: View {
             TopicsBySubjectRegistry
                 .all
 
-        /*
-         * חישוב visibility פעם אחת בלבד
-         * לכל subject בזמן בניית ה-cache.
-         */
-        var visibilityCache:
-            [String: Bool] = [:]
+        var inputs: [ByTopicVisibilityInput] = []
+        var queuedKeys = Set<String>()
+
+        for subject in allRootSubjects + allRegistrySubjects {
+            let key = ByTopicScreenMemoryCache.key(
+                for: subject
+            )
+
+            guard
+                ByTopicScreenMemoryCache.subjectVisibility[key] == nil,
+                queuedKeys.insert(key).inserted
+            else {
+                continue
+            }
+
+            let topicsByBeltId = Dictionary(
+                uniqueKeysWithValues:
+                    subject.topicsByBelt.map {
+                        ($0.key.id, $0.value)
+                    }
+            )
+
+            inputs.append(
+                ByTopicVisibilityInput(
+                    cacheKey: key,
+                    id: subject.id,
+                    titleHeb: subject.titleHeb,
+                    topicsByBeltId: topicsByBeltId,
+                    subTopicHint: subject.subTopicHint,
+                    includeItemKeywords: subject.includeItemKeywords,
+                    requireAllItemKeywords: subject.requireAllItemKeywords,
+                    excludeItemKeywords: subject.excludeItemKeywords
+                )
+            )
+        }
+
+        if !inputs.isEmpty {
+            let results = await ByTopicVisibilityWorker.prepare(
+                inputs
+            )
+
+            guard !Task.isCancelled else {
+                return []
+            }
+
+            ByTopicScreenMemoryCache.subjectVisibility.merge(
+                results,
+                uniquingKeysWith: { _, newValue in
+                    newValue
+                }
+            )
+        }
 
         func isVisible(
             _ subject: SubjectTopic
         ) -> Bool {
+            let key = ByTopicScreenMemoryCache.key(
+                for: subject
+            )
 
-            if let cached =
-                visibilityCache[
-                    subject.id
-                ] {
-
-                return cached
-            }
-
-            let value =
-                subjectHasVisibleContentInAnyBelt(
-                    subject
-                )
-
-            visibilityCache[
-                subject.id
-            ] = value
-
-            return value
+            return ByTopicScreenMemoryCache.subjectVisibility[key]
+                ?? false
         }
 
-        let visibleRootSubjects =
-            allRootSubjects.filter {
-                isVisible($0)
+        var visibleRootSubjects: [SubjectTopic] = []
+
+        for subject in allRootSubjects {
+            await Task.yield()
+
+            guard !Task.isCancelled else {
+                return []
             }
 
-        let visibleRegistryChildren =
-            allRegistrySubjects.filter {
-                subject in
-
-                subject.parentId != nil &&
-                isVisible(subject)
+            if isVisible(subject) {
+                visibleRootSubjects.append(subject)
             }
+        }
+
+        var visibleRegistryChildren: [SubjectTopic] = []
+
+        for subject in allRegistrySubjects {
+            guard subject.parentId != nil else {
+                continue
+            }
+
+            await Task.yield()
+
+            guard !Task.isCancelled else {
+                return []
+            }
+
+            if isVisible(subject) {
+                visibleRegistryChildren.append(subject)
+            }
+        }
 
         func normalizedSubjectId(
             _ value: String
@@ -275,7 +710,11 @@ struct BeltQuestionsByTopicView: View {
             [MainTopic] = []
 
         let defenseSubjects =
-            defenseRootSubjects
+            await buildDefenseRootSubjects()
+
+        guard !Task.isCancelled else {
+            return []
+        }
 
         let releaseSubjects =
             childSubjects(
@@ -622,22 +1061,45 @@ struct BeltQuestionsByTopicView: View {
         cachedMainTopics
     }
 
+    @MainActor
     private func loadMainTopicsIfNeeded(
         force: Bool = false
-    ) {
-
-        if
-            didLoadMainTopics,
-            !force {
-
+    ) async {
+        guard force || !didLoadMainTopics else {
             return
         }
 
-        cachedMainTopics =
-            buildMainTopics()
+        if force {
+            ByTopicScreenMemoryCache.mainTopics = nil
+            ByTopicScreenMemoryCache.subjectVisibility.removeAll()
+            ByTopicScreenMemoryCache.defenseVisibility.removeAll()
+            ByTopicScreenMemoryCache.subjectCounts.removeAll()
+            ByTopicScreenMemoryCache.topicSubtitles.removeAll()
+            ByTopicScreenMemoryCache.sectionsBySubject.removeAll()
+            ByTopicScreenMemoryCache.subjectKeys.removeAll()
+        }
 
-        didLoadMainTopics =
-            true
+        if let preparedTopics =
+            ByTopicScreenMemoryCache.mainTopics {
+            cachedMainTopics = preparedTopics
+        } else {
+            let preparedTopics = await buildMainTopics()
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            ByTopicScreenMemoryCache.mainTopics = preparedTopics
+            cachedMainTopics = preparedTopics
+        }
+
+        subjectCountCache =
+            ByTopicScreenMemoryCache.subjectCounts
+
+        topicSubtitleCache =
+            ByTopicScreenMemoryCache.topicSubtitles
+
+        didLoadMainTopics = true
     }
 
     private struct TopicRowCard: View {
@@ -1076,7 +1538,8 @@ struct BeltQuestionsByTopicView: View {
         )
     }
 
-    private var defenseRootSubjects: [SubjectTopic] {
+    @MainActor
+    private func buildDefenseRootSubjects() async -> [SubjectTopic] {
         let candidates: [SubjectTopic] = [
             syntheticSubject(
                 id: "def_internal_punch",
@@ -1181,10 +1644,61 @@ struct BeltQuestionsByTopicView: View {
             )
         ]
 
+        let inputs = candidates.compactMap {
+            subject -> ByTopicVisibilityInput? in
+
+            let key = ByTopicScreenMemoryCache.key(
+                for: subject
+            )
+
+            guard
+                ByTopicScreenMemoryCache.defenseVisibility[key] == nil
+            else {
+                return nil
+            }
+
+            return ByTopicVisibilityInput(
+                cacheKey: key,
+                id: subject.id,
+                titleHeb: subject.titleHeb,
+                topicsByBeltId: Dictionary(
+                    uniqueKeysWithValues:
+                        subject.topicsByBelt.map {
+                            ($0.key.id, $0.value)
+                        }
+                ),
+                subTopicHint: subject.subTopicHint,
+                includeItemKeywords: subject.includeItemKeywords,
+                requireAllItemKeywords: subject.requireAllItemKeywords,
+                excludeItemKeywords: subject.excludeItemKeywords
+            )
+        }
+
+        if !inputs.isEmpty {
+            let results =
+                await ByTopicVisibilityWorker.prepareDefenseVisibility(
+                    inputs
+                )
+
+            guard !Task.isCancelled else {
+                return []
+            }
+
+            ByTopicScreenMemoryCache.defenseVisibility.merge(
+                results,
+                uniquingKeysWith: { _, newValue in
+                    newValue
+                }
+            )
+        }
+
         return candidates.filter { subject in
-            SubjectAcrossBeltsView.resolvedExerciseCount(
-                subject: subject
-            ) > 0
+            let key = ByTopicScreenMemoryCache.key(
+                for: subject
+            )
+
+            return ByTopicScreenMemoryCache.defenseVisibility[key]
+                ?? false
         }
     }
     
@@ -1610,7 +2124,25 @@ struct BeltQuestionsByTopicView: View {
         return Set(keys).count
     }
 
-    private func resolvedSections(for subject: SubjectTopic) -> [HardSectionsCatalog.Section] {
+    private func resolvedSections(
+        for subject: SubjectTopic
+    ) -> [HardSectionsCatalog.Section] {
+        if let cached =
+            ByTopicScreenMemoryCache.sectionsBySubject[subject] {
+            return cached
+        }
+
+        let sections = buildResolvedSections(for: subject)
+
+        ByTopicScreenMemoryCache.sectionsBySubject[subject] =
+            sections
+
+        return sections
+    }
+
+    private func buildResolvedSections(
+        for subject: SubjectTopic
+    ) -> [HardSectionsCatalog.Section] {
 
         func clean(_ value: String) -> String {
             value
@@ -2042,34 +2574,27 @@ struct BeltQuestionsByTopicView: View {
     private func subjectCountCacheKey(
         for subject: SubjectTopic
     ) -> String {
+        let subjectKey =
+            ByTopicScreenMemoryCache.key(for: subject)
 
-        "\(belt.id)::\(subject.id)"
+        return "\(belt.id)::\(subjectKey)"
     }
 
     private func cachedDisplayedExerciseCount(
         for subject: SubjectTopic
     ) -> Int {
+        let key = subjectCountCacheKey(for: subject)
 
-        let key =
-            subjectCountCacheKey(
-                for: subject
-            )
-
-        if let cached =
-            subjectCountCache[key] {
-
+        if let cached = subjectCountCache[key] {
             return cached
         }
 
-        let count =
-            displayedExerciseCount(
-                for: subject
-            )
+        if let cached =
+            ByTopicScreenMemoryCache.subjectCounts[key] {
+            return cached
+        }
 
-        subjectCountCache[key] =
-            count
-
-        return count
+        return 0
     }
 
     private func buildSubtitleLineBottom(
@@ -2140,34 +2665,113 @@ struct BeltQuestionsByTopicView: View {
     private func subtitleLineBottom(
         for topic: MainTopic
     ) -> String {
+        let key = topicSubtitleCacheKey(
+            for: topic
+        )
 
-        let key =
-            topicSubtitleCacheKey(
+        return topicSubtitleCache[key]
+            ?? ByTopicScreenMemoryCache.topicSubtitles[key]
+            ?? tr(
+                "מחשב מספר תרגילים…",
+                "Counting exercises…"
+            )
+    }
+
+    @MainActor
+    private func rebuildTopicCountCaches() async {
+        let requestedBeltId = belt.id
+
+        for topic in cachedMainTopics {
+            for subject in topic.subjects {
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                let key = subjectCountCacheKey(
+                    for: subject
+                )
+
+                if let cached =
+                    ByTopicScreenMemoryCache.subjectCounts[key] {
+                    subjectCountCache[key] = cached
+                    continue
+                }
+
+                let stats =
+                    await KmiExerciseCountProvider.topicStatsInBackground(
+                        beltId: requestedBeltId,
+                        topicTitle: subject.titleHeb
+                    )
+
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                let count: Int
+
+                if stats.exerciseCount > 0 {
+                    count = stats.exerciseCount
+                } else {
+                    // שומר על מסלול הספירה הקיים
+                    // בנושאים שאין להם ספירה ישירה.
+                    await Task.yield()
+
+                    guard !Task.isCancelled else {
+                        return
+                    }
+
+                    count = displayedExerciseCount(
+                        for: subject
+                    )
+                }
+
+                ByTopicScreenMemoryCache.subjectCounts[key] = count
+                subjectCountCache[key] = count
+            }
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            let subtitleKey = topicSubtitleCacheKey(
                 for: topic
             )
 
-        if let cached =
-            topicSubtitleCache[key] {
+            if let cached =
+                ByTopicScreenMemoryCache.topicSubtitles[subtitleKey] {
+                topicSubtitleCache[subtitleKey] = cached
+                continue
+            }
 
-            return cached
+            // מכין ברקע את הספירה שמשמשת לכיתוב הכרטיס.
+            _ = await KmiExerciseCountProvider.topicStatsInBackground(
+                beltId: requestedBeltId,
+                topicTitle: topic.titleHeb
+            )
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            // הספירה הישירה כבר נמצאת במטמון הגלובלי,
+            // וספירות תתי־הנושאים כבר הוכנו למעלה.
+            let subtitle = buildSubtitleLineBottom(
+                for: topic
+            )
+
+            ByTopicScreenMemoryCache.topicSubtitles[subtitleKey] =
+                subtitle
+
+            topicSubtitleCache[subtitleKey] = subtitle
         }
-
-        return buildSubtitleLineBottom(
-            for: topic
-        )
     }
 
     private func clearTopicCountCaches() {
+        subjectCountCache =
+            ByTopicScreenMemoryCache.subjectCounts
 
-        topicSubtitleCache
-            .removeAll(
-                keepingCapacity: true
-            )
-
-        subjectCountCache
-            .removeAll(
-                keepingCapacity: true
-            )
+        topicSubtitleCache =
+            ByTopicScreenMemoryCache.topicSubtitles
     }
 
     private func triggerTapHaptic() {
@@ -2262,6 +2866,10 @@ struct BeltQuestionsByTopicView: View {
                     "kmi.subject.forcedSectionTitle"
             )
         }
+
+        nav.registerSubjectForNavigation(
+            subject
+        )
 
         nav.push(
             .subjectAcrossBelts(
@@ -2511,9 +3119,7 @@ struct BeltQuestionsByTopicView: View {
                 style: .continuous
             )
             .fill(
-                colorScheme == .dark
-                    ? Color.white.opacity(0.07)
-                    : Color.white.opacity(0.86)
+                KmiAppTheme.surface(for: colorScheme)
             )
         )
         .overlay(
@@ -2522,9 +3128,7 @@ struct BeltQuestionsByTopicView: View {
                 style: .continuous
             )
             .stroke(
-                colorScheme == .dark
-                    ? Color.white.opacity(0.12)
-                    : accent.opacity(0.11),
+                KmiAppTheme.outlineVariant(for: colorScheme),
                 lineWidth: 1
             )
         )
@@ -2540,11 +3144,26 @@ struct BeltQuestionsByTopicView: View {
                 subject
             )
 
-        let exerciseCount =
-            cachedDisplayedExerciseCount(
-                for:
-                    subject
+        let countKey = subjectCountCacheKey(
+            for: subject
+        )
+
+        let preparedCount =
+            subjectCountCache[countKey]
+            ?? ByTopicScreenMemoryCache.subjectCounts[countKey]
+
+        let countLabel: String
+
+        if let preparedCount {
+            countLabel = exercisesCountText(
+                preparedCount
             )
+        } else {
+            countLabel = tr(
+                "מחשב מספר תרגילים…",
+                "Counting exercises…"
+            )
+        }
 
         return VStack(
             alignment:
@@ -2587,11 +3206,7 @@ struct BeltQuestionsByTopicView: View {
             .truncationMode(.tail)
             .fixedSize(horizontal: false, vertical: true)
 
-            Text(
-                exercisesCountText(
-                    exerciseCount
-                )
-            )
+            Text(countLabel)
             .kmiTypography(
                 .caption
             )
@@ -3215,6 +3830,11 @@ struct BeltQuestionsByTopicView: View {
             KmiAppBackground()
             topicsScreenContent
             quickRailLayer
+
+            if !didLoadMainTopics {
+                KmiLoadingOverlay()
+                    .zIndex(100)
+            }
         }
         .environment(
             \.layoutDirection,
@@ -3224,10 +3844,22 @@ struct BeltQuestionsByTopicView: View {
         .onDisappear {
             showQuickActionsDialog = false
         }
+        .task(id: "\(belt.id)::\(effectiveLanguageCode)") {
+            await Task.yield()
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            await loadMainTopicsIfNeeded()
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            await rebuildTopicCountCaches()
+        }
         .onAppear {
-            
-            loadMainTopicsIfNeeded()
-            
             onActiveBeltChange?(
                 belt
             )
@@ -3263,6 +3895,13 @@ struct BeltQuestionsByTopicView: View {
                 
                 postTopicTopTitleOverride()
             }
+        }
+        .onChange(
+            of: effectiveLanguageCode
+        ) { _, _ in
+            clearTopicCountCaches()
+            showQuickActionsDialog = false
+            postTopicTopTitleOverride()
         }
         .onChange(
             of: scenePhase
@@ -3359,11 +3998,13 @@ private struct SubjectSectionsListView: View {
     }
 
     private func exercisesCountText(_ count: Int) -> String {
-        if isEnglish {
-            return "exercises \(count)"
-        } else {
-            return "\(count) תרגילים"
-        }
+        KmiExerciseCountProvider.countText(
+            stats: KmiExerciseCountStats(
+                subTopicCount: 0,
+                exerciseCount: count
+            ),
+            isEnglish: isEnglish
+        )
     }
 
     private func uiSubjectTitle(_ subject: SubjectTopic) -> String {

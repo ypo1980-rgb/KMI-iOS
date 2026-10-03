@@ -179,6 +179,37 @@ final class HomeTrainingsViewModel: ObservableObject {
 
         groups = uniqueValues(groups)
 
+        let assignedSources: [(branch: String, group: String)] =
+            (auth?.userBranchAssignments ?? []).flatMap { assignment in
+                let branch = clean(assignment.branch)
+
+                guard !branch.isEmpty else {
+                    return [(branch: String, group: String)]()
+                }
+
+                return uniqueValues(assignment.groups).map { group in
+                    (branch: branch, group: group)
+                }
+            }
+
+        let trainingSources: [(branch: String, group: String)]
+
+        if !assignedSources.isEmpty {
+            trainingSources = assignedSources
+            branches = uniqueValues(
+                assignedSources.map { $0.branch }
+            )
+            groups = uniqueValues(
+                assignedSources.map { $0.group }
+            )
+        } else {
+            trainingSources = branches.flatMap { branch in
+                groups.map { group in
+                    (branch: branch, group: group)
+                }
+            }
+        }
+
         guard !region.isEmpty else {
             statusMessage = isEnglish
                 ? "No region is configured for this user."
@@ -214,21 +245,19 @@ final class HomeTrainingsViewModel: ObservableObject {
         var collectedTrainings: [TrainingData] = []
 
         /*
-         * טוענים אימונים מכל הסניפים ומכל הקבוצות שנבחרו.
-         * שילוב שאינו קיים בקטלוג פשוט יחזיר רשימה ריקה.
+         * כאשר קיימים שיוכים, כל קבוצה נטענת
+         * רק עבור הסניף שאליו שויכה.
          */
-        for branch in branches {
-            for group in groups {
-                let matchingTrainings =
+        for source in trainingSources {
+            let matchingTrainings =
                 TrainingCatalogIOS.upcomingFor(
                     region: region,
-                    branch: branch,
-                    group: group,
+                    branch: source.branch,
+                    group: source.group,
                     count: 50
                 )
 
-                collectedTrainings += matchingTrainings
-            }
+            collectedTrainings += matchingTrainings
         }
 
         /*

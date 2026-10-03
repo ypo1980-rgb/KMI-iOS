@@ -893,62 +893,89 @@ struct HomeView: View {
          * HomeTrainingsViewModel מאחד אימונים מכמה סניפים,
          * ולכן אסור להשתמש תמיד בסניף ובקבוצה הפעילים בלבד.
          */
-        private func trainingSource(
-            for training: TrainingData
-        ) -> (
-            branch: String,
-            group: String
-        ) {
-            let targetKey =
-                physicalTrainingKey(
-                    for: training
-                )
+    private func trainingSource(
+        for training: TrainingData
+    ) -> (
+        branch: String,
+        group: String
+    ) {
+        let targetKey =
+            physicalTrainingKey(for: training)
 
-            let branches =
-                resolvedBranches.isEmpty
-                ? [resolvedBranch]
-                : resolvedBranches
+        let assignedSources: [(branch: String, group: String)] =
+            auth.userBranchAssignments.flatMap { assignment in
+                let branch = assignment.branch
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
 
-            let groups =
-                resolvedGroups.isEmpty
-                ? [resolvedGroup]
-                : resolvedGroups
+                guard !branch.isEmpty else {
+                    return [(branch: String, group: String)]()
+                }
 
-            for branch in branches {
-                for group in groups {
-                    let candidates =
-                        TrainingCatalogIOS.upcomingFor(
-                            region: resolvedRegion,
-                            branch: branch,
-                            group: group,
-                            count: 50
+                return assignment.groups.compactMap { rawGroup in
+                    let group = rawGroup
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
                         )
 
-                    let containsTraining =
-                        candidates.contains { candidate in
-                            physicalTrainingKey(
-                                for: candidate
-                            ) == targetKey
-                        }
-
-                    if containsTraining {
-                        return (
-                            branch: branch,
-                            group: group
-                        )
+                    guard !group.isEmpty else {
+                        return nil
                     }
+
+                    return (branch: branch, group: group)
                 }
             }
 
-            /*
-             * fallback למשתמשים ותיקים שנשמר אצלם
-             * רק סניף יחיד וקבוצה יחידה.
-             */
-            return (
-                branch: resolvedBranch,
-                group: resolvedGroup
-            )
+        let sources: [(branch: String, group: String)]
+
+        if !assignedSources.isEmpty {
+            sources = assignedSources
+        } else {
+            let branches = resolvedBranches.isEmpty
+                ? [resolvedBranch]
+                : resolvedBranches
+
+            let groups = resolvedGroups.isEmpty
+                ? [resolvedGroup]
+                : resolvedGroups
+
+            sources = branches.flatMap { branch in
+                groups.map { group in
+                    (branch: branch, group: group)
+                }
+            }
         }
+
+        for source in sources {
+            let candidates =
+                TrainingCatalogIOS.upcomingFor(
+                    region: resolvedRegion,
+                    branch: source.branch,
+                    group: source.group,
+                    count: 50
+                )
+
+            if candidates.contains(where: { candidate in
+                physicalTrainingKey(for: candidate) == targetKey
+            }) {
+                return source
+            }
+        }
+
+        /*
+         * כשקיימים שיוכים, אין לבחור קבוצה
+         * חלופית שאינה תואמת לאימון.
+         */
+        if !assignedSources.isEmpty {
+            return (branch: "", group: "")
+        }
+
+        return (
+            branch: resolvedBranch,
+            group: resolvedGroup
+        )
+    }
 
         private func trainingCompletenessScore(
             _ training: TrainingData
@@ -1588,12 +1615,17 @@ struct HomeView: View {
 
                             Spacer(minLength: 10)
                                 }
-                                .padding(.bottom, 28)
-                            }
-                            .frame(maxHeight: .infinity)
+                        .padding(.bottom, 28)
+                    }
+                    .frame(maxHeight: .infinity)
+                    .overlay {
+                        if isHomeTrainingsLoading {
+                            KmiLoadingOverlay()
                         }
                     }
-                .safeAreaInset(
+                }
+            }
+        .safeAreaInset(
             edge: .bottom,
             spacing: 0
         ) {
@@ -1618,25 +1650,6 @@ struct HomeView: View {
                     alignment: .topLeading
                 ) {
                     quickMenuOverlay
-                }
-                .overlay {
-                    if isHomeTrainingsLoading || isLoadingTrainingOverrides {
-                        ZStack {
-                            LinearGradient(
-                                colors: HomeVisualTheme.backgroundColors(
-                                    for: colorScheme
-                                ),
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                            .ignoresSafeArea()
-                            KmiLoadingOverlay()
-                        }
-                        .frame(
-                            maxWidth: .infinity,
-                            maxHeight: .infinity
-                        )
-                    }
                 }
 
                 )
@@ -3798,6 +3811,15 @@ private struct HomeTrainingCardAndroidStyle: View {
     @State private var attendanceSaving = false
     @State private var attendanceLoadFailed = false
     @State private var attendanceSaveError = false
+    @State private var selectedForecastList: ForecastList?
+
+    private enum ForecastList: Int, Identifiable {
+        case coming
+        case notComing
+        case noResponse
+
+        var id: Int { rawValue }
+    }
 
     let isCoach: Bool
 
@@ -4935,6 +4957,9 @@ private struct HomeTrainingCardAndroidStyle: View {
         .onDisappear {
             stopAttendanceListening()
         }
+        .sheet(item: $selectedForecastList) { category in
+            forecastMembersSheet(category)
+        }
         .alert(
             attendanceText(
                 "לא ניתן לשמור",
@@ -5064,21 +5089,26 @@ private struct HomeTrainingCardAndroidStyle: View {
                                 title: attendanceText(
                                     "מגיעים",
                                     "Coming"
-                                )
+                                ),
+                                category: .coming
                             )
+
                             attendanceForecastCell(
                                 count: forecast.notComingCount,
                                 title: attendanceText(
                                     "לא מגיעים",
                                     "Not coming"
-                                )
+                                ),
+                                category: .notComing
                             )
+
                             attendanceForecastCell(
                                 count: forecast.noResponseCount,
                                 title: attendanceText(
-                                    "טרם השיבו",
+                                    "לא סומן",
                                     "No response"
-                                )
+                                ),
+                                category: .noResponse
                             )
                         }
                     }
@@ -5158,27 +5188,139 @@ private struct HomeTrainingCardAndroidStyle: View {
 
     private func attendanceForecastCell(
         count: Int,
-        title: String
+        title: String,
+        category: ForecastList
     ) -> some View {
-        VStack(spacing: 2) {
-            Text("\(count)")
-                .kmiFont(size: 16, weight: .black)
+        Button {
+            selectedForecastList = category
+        } label: {
+            VStack(spacing: 2) {
+                Text("\(count)")
+                    .kmiFont(size: 16, weight: .black)
 
-            Text(title)
-                .kmiFont(size: 10, weight: .bold)
-                .fixedSize(horizontal: false, vertical: true)
+                Text(title)
+                    .kmiFont(size: 10, weight: .bold)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(
+                KmiAppTheme.onSurface(for: colorScheme)
+            )
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(
+                        KmiAppTheme.surfaceVariant(
+                            for: colorScheme
+                        )
+                    )
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title): \(count)")
+    }
+
+    private func forecastMembersSheet(
+        _ category: ForecastList
+    ) -> some View {
+        let title: String
+        let members: [TrainingAttendanceForecastMember]
+
+        switch category {
+        case .coming:
+            title = attendanceText("מגיעים", "Coming")
+            members = attendanceForecast?.comingMembers ?? []
+
+        case .notComing:
+            title = attendanceText("לא מגיעים", "Not coming")
+            members = attendanceForecast?.notComingMembers ?? []
+
+        case .noResponse:
+            title = attendanceText("לא סומן", "No response")
+            members = attendanceForecast?.noResponseMembers ?? []
+        }
+
+        return VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Text("\(title) · \(members.count)")
+                    .kmiFont(size: 18, weight: .bold)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .leading
+                    )
+
+                Button {
+                    selectedForecastList = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                }
+                .accessibilityLabel(
+                    attendanceText("סגור", "Close")
+                )
+            }
+            .padding(16)
+
+            Divider()
+
+            if members.isEmpty {
+                Text(
+                    attendanceText(
+                        "אין מתאמנים ברשימה זו",
+                        "No trainees in this list"
+                    )
+                )
+                .kmiFont(size: 14, weight: .regular)
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: .infinity
+                )
+                .padding(20)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(members) { member in
+                            Text(
+                                demoPrivacy.isEnabled
+                                    ? attendanceText(
+                                        "מתאמן",
+                                        "Trainee"
+                                    )
+                                    : (
+                                        member.name.isEmpty
+                                            ? attendanceText(
+                                                "מתאמן",
+                                                "Trainee"
+                                            )
+                                            : member.name
+                                    )
+                            )
+                            .kmiFont(size: 15, weight: .medium)
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: .leading
+                            )
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+
+                            Divider()
+                                .padding(.horizontal, 16)
+                        }
+                    }
+                }
+            }
         }
         .foregroundStyle(
             KmiAppTheme.onSurface(for: colorScheme)
         )
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 7)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(
-                    KmiAppTheme.surfaceVariant(for: colorScheme)
-                )
+            KmiAppTheme.surfaceVariant(for: colorScheme)
+                .ignoresSafeArea()
         )
+        .environment(\.layoutDirection, rowDirection)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     private func attendanceChoiceButton(
@@ -5268,6 +5410,36 @@ private struct HomeTrainingCardAndroidStyle: View {
         let repository = AttendanceRepository.shared
 
         if isCoach {
+            do {
+                try await repository.ensureGroupMetadata(
+                    branchName: branch,
+                    groupKey: group
+                )
+            } catch {
+                #if DEBUG
+                let details = error as NSError
+                print(
+                    "KMI_ATTENDANCE_GROUP_INIT_FAILED",
+                    "branch:", branch,
+                    "group:", group,
+                    "domain:", details.domain,
+                    "code:", details.code,
+                    "message:", details.localizedDescription
+                )
+                #endif
+
+                /*
+                 * ממשיכים לקריאה:
+                 * למאמן עשויה להיות הרשאת צפייה
+                 * בקבוצה קיימת ללא הרשאת כתיבה.
+                 */
+            }
+
+            guard !Task.isCancelled,
+                  attendanceRequestID == token else {
+                return
+            }
+
             attendanceListeners = repository.listenForAttendanceForecast(
                 branchName: branch,
                 groupKey: group,

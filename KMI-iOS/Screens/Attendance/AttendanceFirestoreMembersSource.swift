@@ -293,32 +293,47 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
         branchName: String,
         groupKey: String
     ) -> String {
-        let rawValue =
-            "\(branchName.trimmingCharacters(in: .whitespacesAndNewlines))|\(groupKey.trimmingCharacters(in: .whitespacesAndNewlines))"
+        func normalizedIdentity(_ value: String) -> String {
+            value
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .replacingOccurrences(of: "־", with: "-")
+                .replacingOccurrences(of: "–", with: "-")
+                .replacingOccurrences(of: "—", with: "-")
+                .replacingOccurrences(
+                    of: "\u{00A0}",
+                    with: " "
+                )
+                .replacingOccurrences(
+                    of: "\\s+",
+                    with: " ",
+                    options: .regularExpression
+                )
                 .lowercased()
+        }
 
-        let digest =
-            SHA256.hash(
-                data: Data(rawValue.utf8)
-            )
+        let branch = normalizedIdentity(branchName)
+        let group = normalizedIdentity(groupKey)
+        let rawValue = "\(branch)|\(group)"
+
+        let digest = SHA256.hash(
+            data: Data(rawValue.utf8)
+        )
 
         var value: UInt64 = 0
 
         for byte in digest.prefix(8) {
-            value =
-                (value << 8) |
-                UInt64(byte)
+            value = (value << 8) | UInt64(byte)
         }
 
         let positiveValue =
-            value &
-            UInt64(Int64.max)
+            value & UInt64(Int64.max)
 
-        return String(
-            positiveValue == 0
-            ? 1
-            : positiveValue
-        )
+        let identifier =
+            positiveValue == 0 ? 1 : positiveValue
+
+        return "g_\(identifier)"
     }
 
     private func readNotes(from data: [String: Any]) -> String {

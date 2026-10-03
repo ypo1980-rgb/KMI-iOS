@@ -1305,6 +1305,65 @@ final class AttendanceRepository {
 
     // MARK: - Records
 
+    func loadAttendanceRecordsFromFirestore(
+        branchName: String,
+        groupKey: String,
+        dateIso: String
+    ) async throws -> [AttendanceRecord] {
+        let snapshot = try await attendanceGroupReference(
+            branchName: branchName,
+            groupKey: groupKey
+        )
+        .collection("sessions")
+        .document(dateIso)
+        .collection("records")
+        .getDocuments()
+
+        return snapshot.documents.compactMap {
+            document -> AttendanceRecord? in
+
+            let data = document.data()
+
+            let memberId =
+                (data["memberId"] as? NSNumber)?.int64Value
+                ?? Int64(document.documentID)
+
+            guard let memberId, memberId > 0 else {
+                return nil
+            }
+
+            let rawStatus =
+                (data["coachStatus"] as? String)
+                ?? (data["status"] as? String)
+                ?? "UNKNOWN"
+
+            return AttendanceRecord(
+                id: "\(dateIso)_\(memberId)",
+                dateIso: dateIso,
+                memberId: String(memberId),
+                status: attendanceStatus(from: rawStatus),
+                note: data["note"] as? String ?? ""
+            )
+        }
+    }
+
+    func hasSavedAttendanceReport(
+        branchName: String,
+        groupKey: String,
+        dateIso: String
+    ) async throws -> Bool {
+        let snapshot = try await attendanceGroupReference(
+            branchName: branchName,
+            groupKey: groupKey
+        )
+        .collection("reports")
+        .whereField("date", isEqualTo: dateIso)
+        .limit(to: 1)
+        .getDocuments()
+
+        return !snapshot.documents.isEmpty
+    }
+
     func loadRecords(
         ownerUid: String,
         branchName: String,
@@ -1335,6 +1394,180 @@ final class AttendanceRepository {
         )
     }
 
+    func saveAttendanceReportToFirestore(
+        state: AttendanceUiState,
+        records: [AttendanceRecord]
+    ) async throws {
+        let branch = state.branchName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let group = state.groupKey
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let dateIso = state.dateIso
+
+        guard let user = Auth.auth().currentUser,
+              user.uid == state.ownerUid,
+              !branch.isEmpty,
+              !group.isEmpty,
+              !dateIso.isEmpty else {
+            throw NSError(
+                domain: "AttendanceRepository",
+                code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Invalid attendance report context."
+                ]
+            )
+        }
+
+        // קבוצה + אימון + דוח + רשומה לכל מתאמן.
+        guard records.count <= 497 else {
+            throw NSError(
+                domain: "AttendanceRepository",
+                code: 2,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Too many records for one attendance report."
+                ]
+            )
+        }
+
+        let now = Int64(
+            Date().timeIntervalSince1970 * 1_000
+        )
+        let sessionId = stableAttendanceId(
+            "\(branch)|\(group)|\(dateIso)"
+        )
+        let reportId = stableAttendanceId(
+            "\(branch)|\(group)|\(dateIso)|\(sessionId)"
+        )
+
+        let groupReference = attendanceGroupReference(
+            branchName: branch,
+            groupKey: group
+        )
+        let sessionReference = groupReference
+            .collection("sessions")
+            .document(dateIso)
+
+        let coachFields: [String: Any] = [
+            "coachUid": user.uid,
+            "coachEmail": user.email ?? "",
+            "updatedAtMillis": now,
+            "updatedAt": FieldValue.serverTimestamp()
+        ]
+
+        let batch = Firestore.firestore().batch()
+
+        var groupData = coachFields
+        groupData["id"] = groupReference.documentID
+        groupData["branch"] = branch
+        groupData["groupKey"] = group
+        groupData["source"] = "ios_firestore_attendance"
+        groupData["createdAtMillis"] = now
+
+        batch.setData(
+            groupData,
+            forDocument: groupReference,
+            merge: true
+        )
+
+        var sessionData = coachFields
+        sessionData["id"] = sessionId
+        sessionData["date"] = dateIso
+        sessionData["branch"] = branch
+        sessionData["groupKey"] = group
+        sessionData["status"] = "open"
+        sessionData["createdAtMillis"] = now
+
+        batch.setData(
+            sessionData,
+            forDocument: sessionReference,
+            merge: true
+        )
+
+        var presentCount = 0
+        var excusedCount = 0
+        var absentCount = 0
+
+        for record in records {
+            let statusName: String
+
+            switch record.status {
+            case .present:
+                statusName = "PRESENT"
+                presentCount += 1
+
+            case .excused:
+                statusName = "EXCUSED"
+                excusedCount += 1
+
+            case .absent:
+                statusName = "ABSENT"
+                absentCount += 1
+
+            default:
+                statusName = "UNKNOWN"
+                absentCount += 1
+            }
+
+            var recordData = coachFields
+            recordData["id"] = stableAttendanceId(
+                "\(sessionId)|\(record.memberId)"
+            )
+            recordData["sessionId"] = sessionId
+            recordData["memberId"] = record.memberId
+            recordData["coachStatus"] = statusName
+            recordData["status"] = statusName
+            recordData["note"] = record.note
+            recordData["markedAtMillis"] = now
+
+            batch.setData(
+                recordData,
+                forDocument: sessionReference
+                    .collection("records")
+                    .document(String(record.memberId)),
+                merge: true
+            )
+        }
+
+        let total = presentCount + excusedCount + absentCount
+        let percent = total > 0
+            ? Int(Double(presentCount) * 100 / Double(total))
+            : 0
+
+        var reportData = coachFields
+        reportData["id"] = reportId
+        reportData["branch"] = branch
+        reportData["groupKey"] = group
+        reportData["date"] = dateIso
+        reportData["sessionId"] = sessionId
+        reportData["totalMembers"] = total
+        reportData["presentCount"] = presentCount
+        reportData["excusedCount"] = excusedCount
+        reportData["absentCount"] = absentCount
+        reportData["percentPresent"] = percent
+        reportData["createdAtMillis"] = now
+
+        batch.setData(
+            reportData,
+            forDocument: groupReference
+                .collection("reports")
+                .document(String(reportId)),
+            merge: true
+        )
+
+        try await batch.commit()
+
+        // שומרים מקומית רק אחרי שהשמירה בענן הצליחה.
+        store.saveRecords(
+            ownerUid: state.ownerUid,
+            branchName: branch,
+            groupKey: group,
+            dateIso: dateIso,
+            records: records
+        )
+    }
+    
     func saveReport(
         state: AttendanceUiState,
         records: [AttendanceRecord]

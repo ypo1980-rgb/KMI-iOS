@@ -171,10 +171,15 @@ enum HolidayCalendarStore {
             )
         }
 
-        if clean.contains("שמחת תורה") {
+        if clean.contains("שמחת תורה") ||
+            clean.contains("שמיני עצרת") {
             return CancellationReason(
-                he: isEve ? "ערב שמחת תורה" : "שמחת תורה",
-                en: isEve ? "Simchat Torah Eve" : "Simchat Torah"
+                he: isEve
+                    ? "ערב שמחת תורה / שמיני עצרת"
+                    : "שמחת תורה / שמיני עצרת",
+                en: isEve
+                    ? "Simchat Torah / Shemini Atzeret Eve"
+                    : "Simchat Torah / Shemini Atzeret"
             )
         }
 
@@ -228,11 +233,18 @@ enum HolidayCalendarStore {
                 calendar.component(.year, from: $0.date)
             )
         }
+        let bundledDates = Set(
+            bundleEntries.map {
+                calendar.startOfDay(for: $0.date)
+            }
+        )
+
         let fallbackEntries = generateFallbackEntries().filter {
-            !assetYears.contains(
-                calendar.component(.year, from: $0.date)
+            !bundledDates.contains(
+                calendar.startOfDay(for: $0.date)
             )
         }
+
         return uniqueEntries(bundleEntries + fallbackEntries)
     }
 
@@ -374,8 +386,7 @@ enum HolidayCalendarStore {
 
         var result: [HolidayEntry] = []
         for year in (currentYear - 2)...(currentYear + 3) {
-            guard !(2024...2026).contains(year),
-                  let start = gregorian.date(
+            guard let start = gregorian.date(
                     from: DateComponents(year: year, month: 1, day: 1)
                   ),
                   let end = gregorian.date(

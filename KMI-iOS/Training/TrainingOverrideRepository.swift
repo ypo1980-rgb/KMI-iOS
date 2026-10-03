@@ -151,6 +151,129 @@ enum TrainingOverrideRepository {
         .joined()
     }
 
+    // MARK: - Training occurrences
+
+    static func syncTrainingOccurrence(
+        training: TrainingData,
+        branch: String,
+        group: String,
+        activeOverride: TrainingOverride? = nil,
+        completion: @escaping (Result<Void, Error>) -> Void = { _ in }
+    ) {
+        guard let currentUser = auth.currentUser else {
+            completion(
+                .failure(
+                    TrainingOverrideRepositoryError
+                        .missingSignedInUser
+                )
+            )
+            return
+        }
+
+        let cleanBranch = branch.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let cleanGroup = group.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        guard !cleanBranch.isEmpty else {
+            completion(
+                .failure(
+                    TrainingOverrideRepositoryError.missingBranch
+                )
+            )
+            return
+        }
+
+        guard !cleanGroup.isEmpty else {
+            completion(
+                .failure(
+                    TrainingOverrideRepositoryError.missingGroup
+                )
+            )
+            return
+        }
+
+        let originalStartMillis = millis(from: training.date)
+        let originalEndMillis = endMillis(
+            for: training,
+            originalStartMillis: originalStartMillis
+        )
+
+        let occurrenceKey = buildOccurrenceKey(
+            branch: cleanBranch,
+            group: cleanGroup,
+            place: training.place,
+            address: training.address,
+            coachName: training.coach,
+            originalStartMillis: originalStartMillis,
+            originalEndMillis: originalEndMillis
+        )
+
+        let occurrenceId = documentIdForOccurrenceKey(
+            occurrenceKey
+        )
+
+        let relevantOverride: TrainingOverride?
+
+        if let activeOverride,
+           activeOverride.isActive,
+           activeOverride.occurrenceKey == occurrenceKey {
+            relevantOverride = activeOverride
+        } else {
+            relevantOverride = nil
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone(
+            identifier: "Asia/Jerusalem"
+        )
+        formatter.dateFormat = "yyyy-MM-dd"
+
+        let data: [String: Any] = [
+            "occurrenceId": occurrenceId,
+            "occurrenceKey": occurrenceKey,
+            "branch": cleanBranch,
+            "group": cleanGroup,
+            "place": training.place.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ),
+            "address": training.address.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ),
+            "coachName": training.coach.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ),
+            "originalStartMillis": originalStartMillis,
+            "originalEndMillis": originalEndMillis,
+            "sessionDate": formatter.string(from: training.date),
+            "effectiveStartMillis":
+                relevantOverride?.effectiveStartMillis
+                ?? originalStartMillis,
+            "effectiveEndMillis":
+                relevantOverride?.effectiveEndMillis
+                ?? originalEndMillis,
+            "isCancelled":
+                relevantOverride?.isCancelled == true,
+            "updatedByUid": currentUser.uid,
+            "source": "android_training_occurrence",
+            "updatedAt": FieldValue.serverTimestamp()
+        ]
+
+        firestore
+            .collection("trainingOccurrences")
+            .document(occurrenceId)
+            .setData(data, merge: true) { error in
+                deliverResult(
+                    error: error,
+                    completion: completion
+                )
+            }
+    }
+
     // MARK: - Save changes
 
     static func cancelTraining(

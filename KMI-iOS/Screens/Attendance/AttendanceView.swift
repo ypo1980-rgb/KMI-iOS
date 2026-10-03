@@ -45,6 +45,7 @@ struct AttendanceView: View {
 
         let keys = [
             "kmi_app_language",
+            "selected_language_code",
             "app_language",
             "initial_language_code",
             "initial_language_selected_code",
@@ -60,7 +61,9 @@ struct AttendanceView: View {
                 return true
             }
 
-            if value == "he" || value == "hebrew" {
+            if value == "he" ||
+                value == "hebrew" ||
+                value == "עברית" {
                 return false
             }
         }
@@ -191,15 +194,7 @@ struct AttendanceView: View {
 
         ZStack {
 
-            LinearGradient(
-                colors:
-                    KmiAppTheme.screenBackgroundColors(
-                        for: colorScheme
-                    ),
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            KmiAppBackground()
 
             ScrollView {
                 VStack(spacing: 10) {
@@ -300,6 +295,23 @@ struct AttendanceView: View {
                 .transition(.opacity)
             }
         }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name(
+                    "KMI_GLOBAL_SHARE_REQUEST"
+                )
+            )
+        ) { notification in
+            guard let request =
+                notification.object as? NSMutableDictionary,
+                  request["handled"] as? Bool != true
+            else {
+                return
+            }
+
+            request["handled"] = true
+            shareReport()
+        }
         .sheet(isPresented: $showShareSheet) {
             AttendanceShareSheet(items: shareItems)
         }
@@ -320,7 +332,7 @@ struct AttendanceView: View {
                     showDatePickerSheet = false
                 }
             )
-            .presentationDetents([.medium])
+            .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
         .confirmationDialog(
@@ -387,73 +399,41 @@ struct AttendanceView: View {
         }
 
         .onAppear {
-            let storedBranch = UserDefaults.standard.string(forKey: "kmi.user.branch") ?? ""
-            let storedGroup = UserDefaults.standard.string(forKey: "kmi.user.group") ?? ""
-            let resolvedBranch =
-                auth.userBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? storedBranch
-                : auth.userBranch
-
-            let resolvedGroup =
-                auth.userGroup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? storedGroup
-                : auth.userGroup
+            refreshAssignedAttendanceBranches()
 
             let resolvedCoachName =
-                auth.userFullName.trimmingCharacters(in: .whitespacesAndNewlines)
+                auth.userFullName.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
 
-            if vm.state.branchName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               !resolvedBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                vm.setBranchName(resolvedBranch)
-            }
-
-            if vm.state.groupKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               !resolvedGroup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                vm.setGroupKey(resolvedGroup)
-            }
-
-            if vm.state.coachName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               !resolvedCoachName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if vm.state.coachName
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .isEmpty,
+               !resolvedCoachName.isEmpty {
                 vm.setCoachName(resolvedCoachName)
             }
 
-            let comps = dateComponents(from: vm.state.dateIso)
-            if let year = comps.year, let month = comps.month {
-                vm.loadSummaryDaysForMonth(year: year, month1to12: month)
+            let comps = dateComponents(
+                from: vm.state.dateIso
+            )
+
+            if let year = comps.year,
+               let month = comps.month {
+                vm.loadSummaryDaysForMonth(
+                    year: year,
+                    month1to12: month
+                )
             }
         }
-        .onChange(of: auth.userBranch) { _, newValue in
-            let clean = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            if vm.state.branchName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               !clean.isEmpty {
-                vm.setBranchName(clean)
-            }
+        .onChange(
+            of: auth.userBranchAssignments.map(\.branch)
+        ) { _, _ in
+            refreshAssignedAttendanceBranches()
         }
-        .onChange(of: vm.state.branchName) { _, newValue in
-            let cleanBranch = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            let cleanGroup = vm.state.groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            guard !cleanBranch.isEmpty, !cleanGroup.isEmpty else { return }
-            guard cleanBranch != auth.userBranch || cleanGroup != auth.userGroup else { return }
-
-            auth.saveTrainingAssignment(branch: cleanBranch, group: cleanGroup)
-        }
-        
-        .onChange(of: auth.userGroup) { _, newValue in
-            let clean = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            if vm.state.groupKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               !clean.isEmpty {
-                vm.setGroupKey(clean)
-            }
-        }
-        .onChange(of: vm.state.groupKey) { _, newValue in
-            let cleanGroup = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            let cleanBranch = vm.state.branchName.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            guard !cleanBranch.isEmpty, !cleanGroup.isEmpty else { return }
-            guard cleanBranch != auth.userBranch || cleanGroup != auth.userGroup else { return }
-
-            auth.saveTrainingAssignment(branch: cleanBranch, group: cleanGroup)
+        .onChange(of: auth.userBranch) { _, _ in
+            refreshAssignedAttendanceBranches()
         }
         
         .onChange(of: auth.userFullName) { _, newValue in
@@ -465,6 +445,26 @@ struct AttendanceView: View {
         }
     }
     
+    private func refreshAssignedAttendanceBranches() {
+        let assignedBranches =
+            auth.userBranchAssignments.map(\.branch)
+
+        let fallbackBranch =
+            auth.userBranch.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        vm.setAssignedBranches(
+            assignedBranches.isEmpty
+                ? (
+                    fallbackBranch.isEmpty
+                        ? []
+                        : [fallbackBranch]
+                )
+                : assignedBranches
+        )
+    }
+
     private var addMemberFloatingButton: some View {
 
         Button {
@@ -483,10 +483,9 @@ struct AttendanceView: View {
                         ? "xmark"
                         : "plus"
             )
-            .kmiFont(
-                size: 22,
-                weight: .black
-            )
+            .kmiIconSize(22)
+            .fontWeight(.black)
+            .accessibilityHidden(true)
             .foregroundStyle(
                 KmiAppTheme.onSecondary(
                     for: colorScheme
@@ -516,10 +515,15 @@ struct AttendanceView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(
-            tr(
-                "הוספת מתאמן",
-                "Add trainee"
-            )
+            isAddMemberExpanded
+                ? tr(
+                    "סגור טופס הוספת מתאמן",
+                    "Close add trainee form"
+                )
+                : tr(
+                    "הוספת מתאמן",
+                    "Add trainee"
+                )
         )
     }
 
@@ -581,30 +585,34 @@ struct AttendanceView: View {
             }
             .buttonStyle(.plain)
 
-            premiumSelectionField(
-                label: tr("סניף", "Branch"),
-                value:
-                    branch.isEmpty
-                    ? tr(
-                        "לא נבחר סניף",
-                        "No branch selected"
-                    )
-                    : branch,
-                icon: "mappin.and.ellipse",
-                trailingIcon: nil
+            KmiPremiumDropdown(
+                title: tr("סניף", "Branch"),
+                options: vm.availableBranches,
+                selectedValue: Binding(
+                    get: { vm.state.branchName },
+                    set: { vm.setBranchName($0) }
+                ),
+                placeholder: tr(
+                    "אין אימון בסניפים המשויכים בתאריך זה",
+                    "No training at assigned branches on this date"
+                ),
+                isEnglish: isEnglish,
+                isEnabled: !vm.availableBranches.isEmpty
             )
 
-            premiumSelectionField(
-                label: tr("קבוצה", "Group"),
-                value:
-                    group.isEmpty
-                    ? tr(
-                        "לא נבחרה קבוצה",
-                        "No group selected"
-                    )
-                    : group,
-                icon: "person.3.fill",
-                trailingIcon: nil
+            KmiPremiumDropdown(
+                title: tr("קבוצה", "Group"),
+                options: vm.availableGroups,
+                selectedValue: Binding(
+                    get: { vm.state.groupKey },
+                    set: { vm.setGroupKey($0) }
+                ),
+                placeholder: tr(
+                    "אין קבוצות עם אימון בתאריך זה",
+                    "No groups with training on this date"
+                ),
+                isEnglish: isEnglish,
+                isEnabled: !vm.availableGroups.isEmpty
             )
 
             Text(
@@ -674,30 +682,26 @@ struct AttendanceView: View {
                         )
                         .foregroundStyle(primaryTextColor)
                         .lineLimit(2)
-                        .minimumScaleFactor(0.78)
+                        .truncationMode(.tail)
+                        .fixedSize(
+                            horizontal: false,
+                            vertical: true
+                        )
                         .multilineTextAlignment(.leading)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 if let trailingIcon {
                     Image(systemName: trailingIcon)
-                        .font(
-                            .system(
-                                size: 13,
-                                weight: .black
-                            )
-                        )
+                        .kmiIconSize(13)
+                        .fontWeight(.black)
                         .foregroundStyle(fieldIconColor)
                 }
             } else {
                 if let trailingIcon {
                     Image(systemName: trailingIcon)
-                        .font(
-                            .system(
-                                size: 13,
-                                weight: .black
-                            )
-                        )
+                        .kmiIconSize(13)
+                        .fontWeight(.black)
                         .foregroundStyle(fieldIconColor)
                 }
 
@@ -716,7 +720,8 @@ struct AttendanceView: View {
                         )
                         .foregroundStyle(primaryTextColor)
                         .lineLimit(2)
-                        .minimumScaleFactor(0.74)
+                        .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
                         .multilineTextAlignment(.trailing)
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -724,6 +729,7 @@ struct AttendanceView: View {
                 fieldIcon(icon)
             }
         }
+        .environment(\.layoutDirection, .leftToRight)
         .padding(.horizontal, 13)
         .padding(.vertical, 10)
         .background(fieldSurfaceColor)
@@ -747,12 +753,8 @@ struct AttendanceView: View {
 
     private func fieldIcon(_ name: String) -> some View {
         Image(systemName: name)
-            .font(
-                .system(
-                    size: 14,
-                    weight: .heavy
-                )
-            )
+            .kmiIconSize(14)
+            .fontWeight(.heavy)
             .foregroundStyle(fieldIconColor)
             .frame(width: 32, height: 32)
             .background(fieldIconSurfaceColor)
@@ -806,10 +808,9 @@ struct AttendanceView: View {
                     Spacer()
 
                     Image(systemName: "chart.bar.fill")
-                        .kmiFont(
-                            size: 17,
-                            weight: .heavy
-                        )
+                        .kmiIconSize(17)
+                        .fontWeight(.heavy)
+                        .accessibilityHidden(true)
                         .foregroundStyle(
                             KmiAppTheme.secondary(
                                 for: colorScheme
@@ -860,6 +861,10 @@ struct AttendanceView: View {
                     }
                 }
             }
+            .environment(
+                \.layoutDirection,
+                .leftToRight
+            )
 
             VStack(alignment: screenHorizontalAlignment, spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
@@ -919,6 +924,10 @@ struct AttendanceView: View {
                         )
                     }
                 }
+                .environment(
+                    \.layoutDirection,
+                    .leftToRight
+                )
 
                 ProgressView(
                     value: pct,
@@ -1057,10 +1066,9 @@ struct AttendanceView: View {
                     Spacer()
 
                     Image(systemName: "person.badge.plus")
-                        .kmiFont(
-                            size: 18,
-                            weight: .heavy
-                        )
+                        .kmiIconSize(18)
+                        .fontWeight(.heavy)
+                        .accessibilityHidden(true)
                         .foregroundStyle(
                             KmiAppTheme.secondary(
                                 for: colorScheme
@@ -1068,10 +1076,9 @@ struct AttendanceView: View {
                         )
                 } else {
                     Image(systemName: "person.badge.plus")
-                        .kmiFont(
-                            size: 18,
-                            weight: .heavy
-                        )
+                        .kmiIconSize(18)
+                        .fontWeight(.heavy)
+                        .accessibilityHidden(true)
                         .foregroundStyle(
                             KmiAppTheme.secondary(
                                 for: colorScheme
@@ -1111,9 +1118,16 @@ struct AttendanceView: View {
                     }
                 }
             }
+            .environment(\.layoutDirection, .leftToRight)
 
             attendanceTextField(tr("שם מלא", "Full name"), text: $newMemberName)
+
             attendanceTextField(tr("טלפון", "Phone"), text: $newMemberPhone)
+                .keyboardType(.phonePad)
+                .textContentType(.telephoneNumber)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+
             attendanceTextField(tr("הערות", "Notes"), text: $newMemberNotes)
 
             Button {
@@ -1133,6 +1147,9 @@ struct AttendanceView: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "plus.circle.fill")
+                        .kmiIconSize(16)
+                        .fontWeight(.heavy)
+                        .accessibilityHidden(true)
 
                     Text(
                         tr(
@@ -1248,10 +1265,9 @@ struct AttendanceView: View {
                     Spacer()
 
                     Image(systemName: "person.3.fill")
-                        .kmiFont(
-                            size: 17,
-                            weight: .heavy
-                        )
+                        .kmiIconSize(17)
+                        .fontWeight(.heavy)
+                        .accessibilityHidden(true)
                         .foregroundStyle(
                             KmiAppTheme.secondary(
                                 for: colorScheme
@@ -1259,10 +1275,9 @@ struct AttendanceView: View {
                         )
                 } else {
                     Image(systemName: "person.3.fill")
-                        .kmiFont(
-                            size: 17,
-                            weight: .heavy
-                        )
+                        .kmiIconSize(17)
+                        .fontWeight(.heavy)
+                        .accessibilityHidden(true)
                         .foregroundStyle(
                             KmiAppTheme.secondary(
                                 for: colorScheme
@@ -1307,6 +1322,7 @@ struct AttendanceView: View {
                     }
                 }
             }
+            .environment(\.layoutDirection, .leftToRight)
 
             if vm.state.rows.isEmpty {
                 Text(
@@ -1417,10 +1433,9 @@ struct AttendanceView: View {
                     Spacer()
 
                     Image(systemName: "square.and.arrow.up")
-                        .kmiFont(
-                            size: 17,
-                            weight: .heavy
-                        )
+                        .kmiIconSize(17)
+                        .fontWeight(.heavy)
+                        .accessibilityHidden(true)
                         .foregroundStyle(
                             KmiAppTheme.secondary(
                                 for: colorScheme
@@ -1428,10 +1443,9 @@ struct AttendanceView: View {
                         )
                 } else {
                     Image(systemName: "square.and.arrow.up")
-                        .kmiFont(
-                            size: 17,
-                            weight: .heavy
-                        )
+                        .kmiIconSize(17)
+                        .fontWeight(.heavy)
+                        .accessibilityHidden(true)
                         .foregroundStyle(
                             KmiAppTheme.secondary(
                                 for: colorScheme
@@ -1471,6 +1485,7 @@ struct AttendanceView: View {
                     }
                 }
             }
+            .environment(\.layoutDirection, .leftToRight)
 
             HStack(spacing: 10) {
                 NavigationLink {
@@ -1517,14 +1532,12 @@ struct AttendanceView: View {
                         systemName:
                             vm.isReportSaved &&
                             !isEditingSavedReport
-                                ? "pencil.circle.fill"
-                                : "checkmark.circle.fill"
-                    )
-                    .kmiFont(
-                        size: 16,
-                        weight: .bold
-                    )
-                    .accessibilityHidden(true)
+                        ? "pencil.circle.fill"
+                        : "checkmark.circle.fill"
+            )
+            .kmiIconSize(16)
+            .fontWeight(.bold)
+            .accessibilityHidden(true)
 
                     Text(
                         vm.state.isSaving
@@ -1718,14 +1731,20 @@ struct AttendanceView: View {
                                     )
                                     : cleanName
                             )
-                            .kmiFont(
-                                size: 16,
-                                weight: .black
-                            )
+                            .kmiTypography(.cardTitle)
+                            .fontWeight(.black)
                             .foregroundStyle(primaryTextColor)
                             .lineLimit(2)
-                            .minimumScaleFactor(0.72)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            .truncationMode(.tail)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(
+                                horizontal: false,
+                                vertical: true
+                            )
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: .leading
+                            )
 
                             if !cleanPhone.isEmpty {
                                 Text(cleanPhone)
@@ -1785,13 +1804,16 @@ struct AttendanceView: View {
                                     )
                                     : cleanName
                             )
-                            .kmiFont(
-                                size: 16,
-                                weight: .black
-                            )
+                            .kmiTypography(.cardTitle)
+                            .fontWeight(.black)
                             .foregroundStyle(primaryTextColor)
                             .lineLimit(2)
-                            .minimumScaleFactor(0.72)
+                            .truncationMode(.tail)
+                            .multilineTextAlignment(.trailing)
+                            .fixedSize(
+                                horizontal: false,
+                                vertical: true
+                            )
                             .frame(
                                 maxWidth: .infinity,
                                 alignment: .trailing
@@ -1830,14 +1852,20 @@ struct AttendanceView: View {
                     traineeAvatar(row)
                 }
             }
+            .environment(
+                \.layoutDirection,
+                .leftToRight
+            )
 
             HStack(spacing: 6) {
                 statusButton(
                     title: tr("הגיע", "Present"),
                     icon: "checkmark.circle.fill",
                     selected: row.status == .present,
-                    selectedColor: KmiAppTheme.success(
-                        for: colorScheme
+                    selectedColor: Color(
+                        red: 34.0 / 255.0,
+                        green: 197.0 / 255.0,
+                        blue: 94.0 / 255.0
                     )
                 ) {
                     toggleAttendanceStatus(
@@ -1850,8 +1878,10 @@ struct AttendanceView: View {
                     title: tr("לא הגיע", "Absent"),
                     icon: "xmark.circle.fill",
                     selected: row.status == .absent,
-                    selectedColor: KmiAppTheme.error(
-                        for: colorScheme
+                    selectedColor: Color(
+                        red: 239.0 / 255.0,
+                        green: 68.0 / 255.0,
+                        blue: 68.0 / 255.0
                     )
                 ) {
                     toggleAttendanceStatus(
@@ -1984,10 +2014,8 @@ struct AttendanceView: View {
             .fill(tint.opacity(0.14))
 
         Image(systemName: "person.fill")
-            .kmiFont(
-                size: 16,
-                weight: .black
-            )
+            .kmiIconSize(16)
+            .fontWeight(.black)
             .foregroundStyle(tint)
             .accessibilityHidden(true)
     }
@@ -2018,10 +2046,9 @@ struct AttendanceView: View {
             Image(
                 systemName: "trash.fill"
             )
-                .kmiFont(
-                    size: 14,
-                    weight: .black
-                )
+                .kmiIconSize(14)
+                .fontWeight(.black)
+                .accessibilityHidden(true)
                 .foregroundStyle(
                     KmiAppTheme.error(
                         for: colorScheme
@@ -2071,65 +2098,60 @@ struct AttendanceView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .kmiFont(
-                        size: 14,
-                        weight: .black
-                    )
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark")
+                    .kmiIconSize(12)
+                    .fontWeight(.heavy)
+                    .opacity(selected ? 1 : 0)
                     .accessibilityHidden(true)
 
                 Text(title)
-                    .kmiFont(
-                        size: 10.5,
-                        weight: .black
-                    )
+                    .kmiTypography(.caption)
+                    .fontWeight(.heavy)
                     .lineLimit(2)
-                    .minimumScaleFactor(0.66)
+                    .truncationMode(.tail)
                     .multilineTextAlignment(.center)
+                    .fixedSize(
+                        horizontal: false,
+                        vertical: true
+                    )
             }
             .foregroundStyle(
                 selected
                     ? Color.white
-                    : selectedColor
+                    : KmiAppTheme.onSurface(for: colorScheme)
             )
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity)
-            .frame(minHeight: 54)
+            .frame(minHeight: 36)
             .background(
                 selected
                     ? selectedColor
-                    : selectedColor.opacity(
-                        isDarkMode ? 0.18 : 0.10
+                    : KmiAppTheme.surface(for: colorScheme)
+            )
+            .clipShape(Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(
+                        selected
+                            ? Color.clear
+                            : KmiAppTheme.outlineVariant(
+                                for: colorScheme
+                            ),
+                        lineWidth: 1
                     )
-            )
-            .clipShape(
-                RoundedRectangle(
-                    cornerRadius: 13,
-                    style: .continuous
-                )
-            )
-            .overlay(
-                RoundedRectangle(
-                    cornerRadius: 13,
-                    style: .continuous
-                )
-                .stroke(
-                    selected
-                        ? selectedColor.opacity(0.62)
-                        : selectedColor.opacity(
-                            isDarkMode ? 0.42 : 0.22
-                        ),
-                    lineWidth: 1
-                )
-            )
-            .contentShape(
-                RoundedRectangle(
-                    cornerRadius: 13,
-                    style: .continuous
-                )
-            )
+                    .allowsHitTesting(false)
+            }
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityValue(
+            selected
+                ? tr("נבחר", "Selected")
+                : tr("לא נבחר", "Not selected")
+        )
     }
 
     private func statPill(
@@ -2144,26 +2166,28 @@ struct AttendanceView: View {
                     weight: .black
                 )
                 .foregroundStyle(
-                    isDarkMode
-                        ? Color.white
-                        : primaryTextColor
+                    KmiAppTheme.onSurface(
+                        for: colorScheme
+                    )
                 )
                 .lineLimit(1)
                 .minimumScaleFactor(0.70)
 
             Text(title)
-                .kmiFont(
-                    size: 11,
-                    weight: .bold
-                )
+                .kmiTypography(.caption)
+                .fontWeight(.bold)
                 .foregroundStyle(
-                    isDarkMode
-                        ? Color.white.opacity(0.78)
-                        : secondaryTextColor
+                    KmiAppTheme.onSurfaceVariant(
+                        for: colorScheme
+                    )
                 )
                 .lineLimit(2)
-                .minimumScaleFactor(0.70)
+                .truncationMode(.tail)
                 .multilineTextAlignment(.center)
+                .fixedSize(
+                    horizontal: false,
+                    vertical: true
+                )
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 11)
@@ -2218,14 +2242,20 @@ struct AttendanceView: View {
     ) -> some View {
         HStack(spacing: 7) {
             Image(systemName: icon)
+                .kmiIconSize(16)
+                .fontWeight(.bold)
+                .accessibilityHidden(true)
 
             Text(title)
-                .kmiFont(
-                    size: 14,
-                    weight: .heavy
-                )
+                .kmiTypography(.action)
+                .fontWeight(.heavy)
                 .lineLimit(2)
-                .minimumScaleFactor(0.72)
+                .truncationMode(.tail)
+                .multilineTextAlignment(.center)
+                .fixedSize(
+                    horizontal: false,
+                    vertical: true
+                )
         }
         .foregroundStyle(primaryTextColor)
         .frame(maxWidth: .infinity)
@@ -2824,13 +2854,25 @@ struct AttendanceView: View {
     private func formattedDate(
         _ iso: String
     ) -> String {
+        let reportTimeZone =
+            TimeZone(identifier: "Asia/Jerusalem") ?? .current
+
         let input = DateFormatter()
+        input.calendar = Calendar(identifier: .gregorian)
+        input.timeZone = reportTimeZone
         input.locale = Locale(identifier: "en_US_POSIX")
         input.dateFormat = "yyyy-MM-dd"
 
         let output = DateFormatter()
-        output.locale = isEnglish ? Locale(identifier: "en_US") : Locale(identifier: "he_IL")
-        output.dateFormat = isEnglish ? "EEEE, MMM d, yyyy" : "EEEE, d MMM yyyy"
+        output.calendar = Calendar(identifier: .gregorian)
+        output.timeZone = reportTimeZone
+        output.locale = Locale(
+            identifier: isEnglish ? "en_US" : "he_IL"
+        )
+        output.dateFormat =
+            isEnglish
+                ? "EEEE, MMM d, yyyy"
+                : "EEEE, d MMM yyyy"
 
         guard let date = input.date(from: iso) else { return iso }
         return output.string(from: date)
@@ -2838,6 +2880,9 @@ struct AttendanceView: View {
 
     private func dateFromIso(_ iso: String) -> Date? {
         let input = DateFormatter()
+        input.calendar = Calendar(identifier: .gregorian)
+        input.timeZone =
+            TimeZone(identifier: "Asia/Jerusalem") ?? .current
         input.locale = Locale(identifier: "en_US_POSIX")
         input.dateFormat = "yyyy-MM-dd"
         return input.date(from: iso)
@@ -2845,17 +2890,29 @@ struct AttendanceView: View {
 
     private func isoString(from date: Date) -> String {
         let output = DateFormatter()
+        output.calendar = Calendar(identifier: .gregorian)
+        output.timeZone =
+            TimeZone(identifier: "Asia/Jerusalem") ?? .current
         output.locale = Locale(identifier: "en_US_POSIX")
         output.dateFormat = "yyyy-MM-dd"
         return output.string(from: date)
     }
     
-    private func dateComponents(from iso: String) -> DateComponents {
-        let input = DateFormatter()
-        input.locale = Locale(identifier: "en_US_POSIX")
-        input.dateFormat = "yyyy-MM-dd"
-        guard let date = input.date(from: iso) else { return DateComponents() }
-        return Calendar.current.dateComponents([.year, .month, .day], from: date)
+    private func dateComponents(
+        from iso: String
+    ) -> DateComponents {
+        guard let date = dateFromIso(iso) else {
+            return DateComponents()
+        }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone =
+            TimeZone(identifier: "Asia/Jerusalem") ?? .current
+
+        return calendar.dateComponents(
+            [.year, .month, .day],
+            from: date
+        )
     }
 
     private func uniqueMembers(_ rows: [AttendanceRowUi]) -> [AttendanceRowUi] {
@@ -2929,15 +2986,7 @@ private struct AttendancePremiumDatePickerSheet: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors:
-                    KmiAppTheme.screenBackgroundColors(
-                        for: colorScheme
-                    ),
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            KmiAppBackground()
 
             VStack(spacing: 18) {
                 Text(title)
@@ -2959,10 +3008,8 @@ private struct AttendancePremiumDatePickerSheet: View {
                 )
                 .datePickerStyle(.graphical)
                 .tint(
-                    Color(
-                        red: 0.13,
-                        green: 0.83,
-                        blue: 0.93
+                    KmiAppTheme.secondary(
+                        for: colorScheme
                     )
                 )
                 .padding(12)
@@ -3029,10 +3076,8 @@ private struct AttendancePremiumDatePickerSheet: View {
                             weight: .heavy
                         )
                         .foregroundStyle(
-                            Color(
-                                red: 0.03,
-                                green: 0.09,
-                                blue: 0.18
+                            KmiAppTheme.onSecondaryContainer(
+                                for: colorScheme
                             )
                         )
                         .lineLimit(1)
@@ -3040,10 +3085,8 @@ private struct AttendancePremiumDatePickerSheet: View {
                         .frame(maxWidth: .infinity)
                         .frame(minHeight: 48)
                         .background(
-                            Color(
-                                red: 0.13,
-                                green: 0.83,
-                                blue: 0.93
+                            KmiAppTheme.secondaryContainer(
+                                for: colorScheme
                             )
                         )
                         .clipShape(
@@ -3092,6 +3135,20 @@ private struct AttendancePremiumDatePickerSheet: View {
             .padding(.horizontal, 18)
             .padding(.bottom, 16)
         }
+        .environment(
+            \.layoutDirection,
+            isEnglish ? .leftToRight : .rightToLeft
+        )
+        .environment(
+            \.locale,
+            Locale(
+                identifier: isEnglish ? "en_US" : "he_IL"
+            )
+        )
+        .environment(
+            \.timeZone,
+            TimeZone(identifier: "Asia/Jerusalem") ?? .current
+        )
     }
 }
 

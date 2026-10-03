@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		7E6294073070D62600037807 /* firestore.rules in Resources */ = {isa = PBXBuildFile; fileRef = 7E6294063070D62100037807 /* firestore.rules */; };
 		7E6CD4862F5434CD00BE189A /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7E6CD4852F5434CD00BE189A /* FirebaseCore */; };
 		7E6CD4882F5434D700BE189A /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 7E6CD4872F5434D700BE189A /* FirebaseAuth */; };
 		7E6D2C3E2FA6473A00EB82B2 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 7E6D2C3D2FA6473A00EB82B2 /* LaunchScreen.storyboard */; };
@@ -20,6 +21,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		7E6294063070D62100037807 /* firestore.rules */ = {isa = PBXFileReference; lastKnownFileType = text; path = firestore.rules; sourceTree = "<group>"; };
 		7E6CF5212F3907D90061115C /* KMI-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "KMI-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7E6D2C3D2FA6473A00EB82B2 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		7E8199B130115468009FB046 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
@@ -74,6 +76,7 @@
 		7E6CF5182F3907D90061115C = {
 			isa = PBXGroup;
 			children = (
+				7E6294063070D62100037807 /* firestore.rules */,
 				7E84EE45302E59F7001E749E /* KMI.storekit */,
 				7E8684E53001872E00C0A3F2 /* branches.json */,
 				7E6D2C3D2FA6473A00EB82B2 /* LaunchScreen.storyboard */,
@@ -179,6 +182,7 @@
 				7E6D2C3E2FA6473A00EB82B2 /* LaunchScreen.storyboard in Resources */,
 				7E8199B230115468009FB046 /* GoogleService-Info.plist in Resources */,
 				7E8684E63001872E00C0A3F2 /* branches.json in Resources */,
+				7E6294073070D62600037807 /* firestore.rules in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

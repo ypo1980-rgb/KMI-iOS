@@ -12,6 +12,115 @@ final class AttendanceViewModel: ObservableObject {
 
     private let repository: AttendanceRepository
 
+    private var contextLoadID = UUID()
+
+    @Published
+    private(set) var availableBranches: [String] = []
+
+    @Published
+    private(set) var availableGroups: [String] = []
+
+    private var allAssignedBranches: [String] = []
+
+    func setAssignedBranches(_ branches: [String]) {
+        var seen = Set<String>()
+
+        allAssignedBranches = branches
+            .map {
+                $0.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+            }
+            .filter {
+                !$0.isEmpty && seen.insert($0).inserted
+            }
+
+        refreshScheduleOptions()
+        reloadCurrentContext()
+    }
+
+    private func hasScheduledTraining(
+        branch: String,
+        group: String? = nil
+    ) -> Bool {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = ShabbatHolidayCheckerIOS.calendar
+        formatter.timeZone = ShabbatHolidayCheckerIOS.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+
+        guard let selectedDate = formatter.date(
+            from: state.dateIso
+        ) else {
+            return false
+        }
+
+        guard !ShabbatHolidayCheckerIOS.isBlockedDate(
+            selectedDate
+        ) else {
+            return false
+        }
+
+        return TrainingCatalogIOS.trainingSummaryContext(
+            dateIso: state.dateIso,
+            preferredBranches: [branch],
+            preferredGroups: group.map { [$0] } ?? []
+        ) != nil
+    }
+
+    private func refreshScheduleOptions() {
+        availableBranches = allAssignedBranches.filter {
+            hasScheduledTraining(branch: $0)
+        }
+
+        let preferredBranch = state.branchName.trimmed()
+
+        state.branchName =
+            availableBranches.first {
+                $0 == preferredBranch
+            }
+            ?? availableBranches.first
+            ?? ""
+
+        guard !state.branchName.isEmpty else {
+            availableGroups = []
+            state.groupKey = ""
+            return
+        }
+
+        var seenGroups = Set<String>()
+
+        availableGroups = TrainingCatalogIOS
+            .groupsFor(branch: state.branchName)
+            .map { $0.trimmed() }
+            .filter {
+                !$0.isEmpty &&
+                seenGroups.insert($0).inserted
+            }
+            .filter {
+                hasScheduledTraining(
+                    branch: state.branchName,
+                    group: $0
+                )
+            }
+
+        let preferredGroup = state.groupKey.trimmed()
+        let normalizedPreferredGroup =
+            TrainingCatalogIOS.normalizeGroupName(
+                preferredGroup
+            )
+
+        state.groupKey =
+            availableGroups.first {
+                $0 == preferredGroup ||
+                TrainingCatalogIOS.normalizeGroupName($0) ==
+                    normalizedPreferredGroup
+            }
+            ?? availableGroups.first
+            ?? ""
+    }
+
     private var isEnglish: Bool {
         let defaults = UserDefaults.standard
 
@@ -66,23 +175,47 @@ final class AttendanceViewModel: ObservableObject {
     }
 
     func setDateIso(_ value: String) {
-        state.dateIso = value.trimmed()
-        reloadRecordsOnly()
+        let clean = value.trimmed()
+
+        guard !clean.isEmpty,
+              clean != state.dateIso else {
+            return
+        }
+
+        state.dateIso = clean
+
+        refreshScheduleOptions()
+        reloadCurrentContext()
         reloadMonthMarkers()
     }
 
     func setBranchName(_ value: String) {
         let clean = value.trimmed()
+
+        guard availableBranches.contains(clean),
+              clean != state.branchName else {
+            return
+        }
+
         state.branchName = clean
 
+        refreshScheduleOptions()
         reloadCurrentContext()
+        reloadMonthMarkers()
     }
 
     func setGroupKey(_ value: String) {
         let clean = value.trimmed()
+
+        guard availableGroups.contains(clean),
+              clean != state.groupKey else {
+            return
+        }
+
         state.groupKey = clean
 
         reloadCurrentContext()
+        reloadMonthMarkers()
     }
 
     func setCoachName(_ value: String) {
@@ -166,6 +299,26 @@ final class AttendanceViewModel: ObservableObject {
     }
 
     func saveReport() {
+        guard !state.isSaving else {
+            return
+        }
+
+        guard !state.branchName.trimmed().isEmpty,
+              !state.groupKey.trimmed().isEmpty,
+              hasScheduledTraining(
+                branch: state.branchName,
+                group: state.groupKey
+              ) else {
+            publishMessage(
+                tr(
+                    "אין אימון מתוכנן לסניף ולקבוצה בתאריך שנבחר.",
+                    "No training is scheduled for the selected branch, group and date."
+                ),
+                isError: true
+            )
+            return
+        }
+
         state.isSaving = true
 
         let records = state.members.map { member -> AttendanceRecord in
@@ -181,37 +334,55 @@ final class AttendanceViewModel: ObservableObject {
             )
         }
 
-        repository.saveRecords(
-            ownerUid: state.ownerUid,
-            branchName: state.branchName,
-            groupKey: state.groupKey,
-            dateIso: state.dateIso,
-            records: records
-        )
+        let savingState = state
 
-        state.recordsByMemberId =
-            Dictionary(
-                uniqueKeysWithValues:
-                    records.map {
-                        (
-                            $0.memberId,
-                            $0
-                        )
+        Task { @MainActor in
+            defer {
+                state.isSaving = false
+            }
+
+            do {
+                try await repository
+                    .saveAttendanceReportToFirestore(
+                        state: savingState,
+                        records: records
+                    )
+
+                // תוצאת השמירה שייכת לבחירה שהייתה
+                // בזמן הלחיצה, גם אם המשתמש עבר יום.
+                guard state.ownerUid == savingState.ownerUid,
+                      state.branchName == savingState.branchName,
+                      state.groupKey == savingState.groupKey,
+                      state.dateIso == savingState.dateIso else {
+                    return
+                }
+
+                state.recordsByMemberId = Dictionary(
+                    uniqueKeysWithValues: records.map {
+                        ($0.memberId, $0)
                     }
-            )
+                )
 
-        isReportSaved = true
-        state.isSaving = false
+                isReportSaved = true
+                reloadMonthMarkers()
 
-        reloadMonthMarkers()
-
-        publishMessage(
-            tr(
-                "דו״ח הנוכחות נשמר",
-                "The attendance report was saved"
-            ),
-            isError: false
-        )
+                publishMessage(
+                    tr(
+                        "דו״ח הנוכחות נשמר",
+                        "The attendance report was saved"
+                    ),
+                    isError: false
+                )
+            } catch {
+                publishMessage(
+                    tr(
+                        "לא ניתן לשמור את דו״ח הנוכחות כרגע. נסה שוב.",
+                        "Unable to save the attendance report right now. Please try again."
+                    ),
+                    isError: true
+                )
+            }
+        }
     }
 
     func loadSummaryDaysForMonth(year: Int, month1to12: Int) {
@@ -233,51 +404,83 @@ final class AttendanceViewModel: ObservableObject {
     }
 
     private func reloadCurrentContext() {
+        let loadID = UUID()
+        contextLoadID = loadID
+
         let ownerUid = state.ownerUid
-        let branchName = state.branchName
-        let groupKey = state.groupKey
+        let branchName = state.branchName.trimmed()
+        let groupKey = state.groupKey.trimmed()
+        let dateIso = state.dateIso
         let repository = self.repository
+
+        state.members = []
+        state.recordsByMemberId = [:]
+        state.reportDaysInMonth = []
+        isReportSaved = false
+
+        guard !branchName.isEmpty,
+              !groupKey.isEmpty,
+              hasScheduledTraining(
+                branch: branchName,
+                group: groupKey
+              ) else {
+            return
+        }
 
         Task.detached(priority: nil) {
             do {
-                let realMembers = try await repository.loadRealMembers(
-                    ownerUid: ownerUid,
-                    branchName: branchName,
-                    groupKey: groupKey
-                )
-
-                await MainActor.run {
-                
-                    if !realMembers.isEmpty {
-                                          self.state.members = realMembers
-                                      } else {
-                                          let fallbackMembers =
-                                              repository.loadMembers(
-                                                  ownerUid: ownerUid,
-                                                  branchName: branchName,
-                                                  groupKey: groupKey
-                                              )
- 
-                                          self.state.members = fallbackMembers
-                                                              }
-                    self.reloadRecordsOnly()
-                    self.reloadMonthMarkers()
-                    }
-            } catch {
-                await MainActor.run {
-                    let fallbackMembers = repository.loadMembers(
+                let realMembers =
+                    try await repository.loadRealMembers(
                         ownerUid: ownerUid,
                         branchName: branchName,
                         groupKey: groupKey
                     )
 
-                    self.state.members = fallbackMembers
+                await MainActor.run {
+                    guard self.contextLoadID == loadID,
+                          self.state.ownerUid == ownerUid,
+                          self.state.branchName == branchName,
+                          self.state.groupKey == groupKey,
+                          self.state.dateIso == dateIso else {
+                        return
+                    }
+
+                    self.state.members =
+                        realMembers.isEmpty
+                            ? repository.loadMembers(
+                                ownerUid: ownerUid,
+                                branchName: branchName,
+                                groupKey: groupKey
+                            )
+                            : realMembers
+
                     self.reloadRecordsOnly()
                     self.reloadMonthMarkers()
+                }
+            } catch {
+                await MainActor.run {
+                    guard self.contextLoadID == loadID,
+                          self.state.ownerUid == ownerUid,
+                          self.state.branchName == branchName,
+                          self.state.groupKey == groupKey,
+                          self.state.dateIso == dateIso else {
+                        return
+                    }
+
+                    self.state.members =
+                        repository.loadMembers(
+                            ownerUid: ownerUid,
+                            branchName: branchName,
+                            groupKey: groupKey
+                        )
+
+                    self.reloadRecordsOnly()
+                    self.reloadMonthMarkers()
+
                     self.publishMessage(
                         self.tr(
-                            "לא נטענו מתאמנים אמיתיים, נטען גיבוי מקומי",
-                            "Real trainees could not be loaded. Local backup was loaded."
+                            "לא ניתן לטעון את הרשימה כרגע. מוצגים נתונים מקומיים זמינים.",
+                            "Unable to load the list right now. Available local data is shown."
                         ),
                         isError: true
                     )

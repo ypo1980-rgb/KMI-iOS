@@ -1251,6 +1251,37 @@ struct HomeView: View {
         isLoadingTrainingOverrides = false
     }
 
+    private func syncCoachTrainingOccurrences() {
+        guard isCoachUser,
+              !isAbroadUser,
+              Auth.auth().currentUser != nil else {
+            return
+        }
+
+        for training in effectiveUpcomingTrainings {
+            let source = trainingSource(for: training)
+
+            TrainingOverrideRepository.syncTrainingOccurrence(
+                training: training,
+                branch: source.branch,
+                group: source.group,
+                activeOverride: activeOverride(for: training)
+            ) { result in
+                #if DEBUG
+                if case .failure(let error) = result {
+                    let syncError = error as NSError
+
+                    print(
+                        "KMI_TRAINING_OCCURRENCE_SYNC_FAILED",
+                        "domain:", syncError.domain,
+                        "code:", syncError.code
+                    )
+                }
+                #endif
+            }
+        }
+    }
+
     private func startTrainingOverrideListener() {
         stopTrainingOverrideListener()
 
@@ -1279,6 +1310,10 @@ struct HomeView: View {
                         }
 
                         activeTrainingOverrides = overrides
+
+                        if !isLoadingTrainingOverrides {
+                            syncCoachTrainingOccurrences()
+                        }
                     },
                     onInitialLoadFinished: {
                         guard trainingOverrideRequestID == requestID else {
@@ -1286,6 +1321,7 @@ struct HomeView: View {
                         }
 
                         isLoadingTrainingOverrides = false
+                        syncCoachTrainingOccurrences()
                     },
                     onError: { error in
                         guard trainingOverrideRequestID == requestID else {
@@ -4172,22 +4208,25 @@ private struct HomeTrainingCardAndroidStyle: View {
 
     private var trainingOverrideBanner: some View {
 
+        let darkCancellation =
+            isCancelledByCoach && colorScheme == .dark
+
         let contentColor: Color =
-            isCancelledByCoach
-                ? KmiAppTheme.onErrorContainer(
-                    for: colorScheme
-                )
-                : KmiAppTheme.onPrimaryContainer(
-                    for: colorScheme
+            darkCancellation
+                ? KmiAppTheme.onSurface(for: colorScheme)
+                : (
+                    isCancelledByCoach
+                        ? KmiAppTheme.onErrorContainer(for: colorScheme)
+                        : KmiAppTheme.onPrimaryContainer(for: colorScheme)
                 )
 
         let backgroundColor: Color =
-            isCancelledByCoach
-                ? KmiAppTheme.errorContainer(
-                    for: colorScheme
-                )
-                : KmiAppTheme.primaryContainer(
-                    for: colorScheme
+            darkCancellation
+                ? KmiAppTheme.background(for: colorScheme)
+                : (
+                    isCancelledByCoach
+                        ? KmiAppTheme.errorContainer(for: colorScheme)
+                        : KmiAppTheme.primaryContainer(for: colorScheme)
                 )
 
         return VStack(spacing: 3) {
@@ -4531,7 +4570,7 @@ private struct HomeTrainingCardAndroidStyle: View {
                 ? cycle * 2
                 : (1 - cycle) * 2
 
-            return 1 - (triangle * 0.62)
+            return 1 - (triangle * 0.28)
         }()
 
         return Text(title)
@@ -4552,11 +4591,13 @@ private struct HomeTrainingCardAndroidStyle: View {
             .overlay(
                 Capsule()
                     .stroke(
-                        countdownMinutes != nil
-                            ? KmiAppTheme.warning(
-                                for: colorScheme
-                            )
-                            : contentColor.opacity(0.22),
+                        state == .ongoing
+                            ? KmiAppTheme.success(for: colorScheme)
+                            : (
+                                countdownMinutes != nil
+                                    ? KmiAppTheme.warning(for: colorScheme)
+                                    : contentColor.opacity(0.18)
+                            ),
                         lineWidth: 1
                     )
             )
@@ -4565,21 +4606,23 @@ private struct HomeTrainingCardAndroidStyle: View {
     }
 
     private var holidayCancellationBanner: some View {
+        let contentColor =
+            colorScheme == .dark
+                ? KmiAppTheme.onSurface(for: colorScheme)
+                : KmiAppTheme.onSecondaryContainer(for: colorScheme)
 
-        Text(
+        let backgroundColor =
+            colorScheme == .dark
+                ? KmiAppTheme.background(for: colorScheme)
+                : KmiAppTheme.secondaryContainer(for: colorScheme)
+
+        return Text(
             isEnglish
                 ? "Training cancelled due to holiday"
                 : "האימון מבוטל עקב חג"
         )
-        .kmiFont(
-            size: 12,
-            weight: .bold
-        )
-        .foregroundStyle(
-            KmiAppTheme.onSecondaryContainer(
-                for: colorScheme
-            )
-        )
+        .kmiFont(size: 12, weight: .bold)
+        .foregroundStyle(contentColor)
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 10)
@@ -4589,11 +4632,7 @@ private struct HomeTrainingCardAndroidStyle: View {
                 cornerRadius: 14,
                 style: .continuous
             )
-            .fill(
-                KmiAppTheme.secondaryContainer(
-                    for: colorScheme
-                )
-            )
+            .fill(backgroundColor)
         )
         .overlay(
             RoundedRectangle(
@@ -4601,10 +4640,7 @@ private struct HomeTrainingCardAndroidStyle: View {
                 style: .continuous
             )
             .stroke(
-                KmiAppTheme.onSecondaryContainer(
-                    for: colorScheme
-                )
-                .opacity(0.22),
+                contentColor.opacity(0.18),
                 lineWidth: 1
             )
         )
@@ -4615,14 +4651,14 @@ private struct HomeTrainingCardAndroidStyle: View {
         VStack(spacing: 4) {
             VStack(spacing: 2) {
                 Text(branchTitle)
-                    .kmiFont(size: 15, weight: .black)
+                    .kmiTypography(.cardTitle)
                     .foregroundStyle(
                         isCancelledByCoach || isCancelledByHoliday
                             ? KmiAppTheme.onErrorContainer(for: colorScheme)
                             : HomeVisualTheme.primaryText(for: colorScheme)
                     )
                     .lineLimit(1)
-                    .minimumScaleFactor(0.80)
+                    .truncationMode(.tail)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, isCoach ? 36 : 0)
@@ -4649,7 +4685,7 @@ private struct HomeTrainingCardAndroidStyle: View {
                                 : HomeVisualTheme.secondaryText(for: colorScheme)
                         )
                         .lineLimit(1)
-                        .minimumScaleFactor(0.76)
+                        .truncationMode(.tail)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
                 }
@@ -4674,7 +4710,7 @@ private struct HomeTrainingCardAndroidStyle: View {
                     holidayCancellationBanner
                 } else {
                     TimelineView(
-                        .periodic(from: .now, by: 1)
+                        .animation(minimumInterval: 1.0 / 30.0)
                     ) { timeline in
                         liveTrainingStatusBanner(at: timeline.date)
                     }
@@ -4711,9 +4747,10 @@ private struct HomeTrainingCardAndroidStyle: View {
                         style: .continuous
                     )
                     .fill(
-                        KmiAppTheme.surfaceVariant(
-                            for: colorScheme
-                        )
+                        colorScheme == .dark &&
+                        (isCancelledByCoach || isCancelledByHoliday)
+                            ? KmiAppTheme.background(for: colorScheme)
+                            : KmiAppTheme.surfaceVariant(for: colorScheme)
                     )
                 )
                 .overlay(
@@ -4751,36 +4788,82 @@ private struct HomeTrainingCardAndroidStyle: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
-            )
-            .fill(
-                isCancelledByCoach || isCancelledByHoliday
-                    ? KmiAppTheme.errorContainer(for: colorScheme)
-                    : (
-                        wasChangedByCoach
-                            ? KmiAppTheme.primaryContainer(for: colorScheme)
-                            : HomeVisualTheme.cardBackground(for: colorScheme)
-                    )
-            )
-        )
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
-            )
-            .stroke(
-                (
-                    isCancelledByCoach || isCancelledByHoliday
-                        ? KmiAppTheme.onErrorContainer(for: colorScheme)
-                        : KmiAppTheme.primary(for: colorScheme)
+        .background {
+            TimelineView(
+                .periodic(from: .now, by: 1)
+            ) { timeline in
+                let state = liveTrainingState(at: timeline.date)
+
+                let startDate =
+                    activeOverride?.hasChangedTime == true
+                        ? activeOverride?.effectiveStartDate ?? training.date
+                        : training.date
+
+                let secondsUntilStart =
+                    startDate.timeIntervalSince(timeline.date)
+
+                let backgroundColor: Color = {
+                    if isCancelledByCoach || isCancelledByHoliday {
+                        return KmiAppTheme.errorContainer(for: colorScheme)
+                    }
+
+                    if state == .ongoing {
+                        return KmiAppTheme.successContainer(for: colorScheme)
+                    }
+
+                    if state == .scheduled &&
+                        secondsUntilStart > 0 &&
+                        secondsUntilStart <= 30 * 60 {
+                        return KmiAppTheme.warningContainer(for: colorScheme)
+                    }
+
+                    if wasChangedByCoach {
+                        return KmiAppTheme.primaryContainer(for: colorScheme)
+                    }
+
+                    return HomeVisualTheme.cardBackground(for: colorScheme)
+                }()
+
+                RoundedRectangle(
+                    cornerRadius: 16,
+                    style: .continuous
                 )
-                .opacity(0.35),
-                lineWidth: 1
-            )
-        )
+                .fill(backgroundColor)
+            }
+        }
+        .overlay {
+            TimelineView(
+                .periodic(from: .now, by: 1)
+            ) { timeline in
+                let state = liveTrainingState(at: timeline.date)
+
+                let borderColor: Color = {
+                    if isCancelledByCoach || isCancelledByHoliday {
+                        return KmiAppTheme.error(for: colorScheme)
+                    }
+
+                    if state == .ongoing {
+                        return KmiAppTheme.success(for: colorScheme)
+                    }
+
+                    if state == .completed {
+                        return KmiAppTheme.outline(for: colorScheme)
+                    }
+
+                    return KmiAppTheme.primary(for: colorScheme)
+                }()
+
+                RoundedRectangle(
+                    cornerRadius: 16,
+                    style: .continuous
+                )
+                .stroke(
+                    borderColor.opacity(0.35),
+                    lineWidth: 1
+                )
+                .allowsHitTesting(false)
+            }
+        }
         .overlay(
             alignment:
                 isEnglish
@@ -4797,10 +4880,8 @@ private struct HomeTrainingCardAndroidStyle: View {
                     Image(
                         systemName: "calendar.badge.clock"
                     )
-                    .kmiFont(
-                        size: 23,
-                        weight: .bold
-                    )
+                    .kmiIconSize(23)
+                    .fontWeight(.bold)
                     .foregroundStyle(
                         KmiAppTheme.primary(
                             for: colorScheme
@@ -4912,9 +4993,10 @@ private struct HomeTrainingCardAndroidStyle: View {
             VStack(spacing: 6) {
                 Rectangle()
                     .fill(
-                        KmiAppTheme.outlineVariant(
+                        KmiAppTheme.outline(
                             for: colorScheme
                         )
+                        .opacity(0.18)
                     )
                     .frame(height: 1)
 
@@ -5009,16 +5091,7 @@ private struct HomeTrainingCardAndroidStyle: View {
                             && !attendanceSaving
 
                         VStack(spacing: 5) {
-                            HStack(spacing: 7) {
-                                attendanceChoiceButton(
-                                    .present,
-                                    title: attendanceText(
-                                        "מגיע",
-                                        "Coming"
-                                    ),
-                                    systemImage: "checkmark.circle",
-                                    enabled: canEdit
-                                )
+                            HStack(spacing: 8) {
                                 attendanceChoiceButton(
                                     .absent,
                                     title: attendanceText(
@@ -5028,7 +5101,18 @@ private struct HomeTrainingCardAndroidStyle: View {
                                     systemImage: "xmark.circle",
                                     enabled: canEdit
                                 )
+
+                                attendanceChoiceButton(
+                                    .present,
+                                    title: attendanceText(
+                                        "מגיע",
+                                        "Coming"
+                                    ),
+                                    systemImage: "checkmark.circle",
+                                    enabled: canEdit
+                                )
                             }
+                            .environment(\.layoutDirection, .leftToRight)
 
                             if attendanceSaving {
                                 Text(
@@ -5100,33 +5184,40 @@ private struct HomeTrainingCardAndroidStyle: View {
     private func attendanceChoiceButton(
         _ status: AttendanceStatus,
         title: String,
-        systemImage: String,
+        systemImage _: String,
         enabled: Bool
     ) -> some View {
         let selected = attendanceChoice == status
         let statusColor =
             status == .present
-                ? KmiAppTheme.successContainer(for: colorScheme)
-                : KmiAppTheme.errorContainer(for: colorScheme)
+                ? KmiAppTheme.success(for: colorScheme)
+                : KmiAppTheme.error(for: colorScheme)
 
         return Button {
             saveAttendanceChoice(status)
         } label: {
-            HStack(spacing: 5) {
-                Image(systemName: systemImage)
-                    .kmiIconSize(15)
-
-                Text(title)
-                    .kmiFont(size: 13, weight: .bold)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .foregroundStyle(
-                KmiAppTheme.onSurface(for: colorScheme)
-            )
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 9)
+            Text(title)
+                .kmiFont(size: 13, weight: .bold)
+                .multilineTextAlignment(.center)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(
+                    selected
+                        ? (
+                            status == .present
+                                ? KmiAppTheme.onSuccess(for: colorScheme)
+                                : KmiAppTheme.onError(for: colorScheme)
+                        )
+                        : KmiAppTheme.onSurface(for: colorScheme)
+                )
+                .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, minHeight: 44)
             .background(
-                RoundedRectangle(cornerRadius: 13)
+                RoundedRectangle(
+                    cornerRadius: 16,
+                    style: .continuous
+                )
                     .fill(
                         selected
                             ? statusColor
@@ -5134,10 +5225,17 @@ private struct HomeTrainingCardAndroidStyle: View {
                     )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 13)
+                RoundedRectangle(
+                    cornerRadius: 16,
+                    style: .continuous
+                )
                     .stroke(
                         selected
-                            ? statusColor
+                            ? (
+                                status == .present
+                                    ? KmiAppTheme.success(for: colorScheme)
+                                    : KmiAppTheme.error(for: colorScheme)
+                            )
                             : KmiAppTheme.outlineVariant(for: colorScheme),
                         lineWidth: selected ? 1.5 : 1
                     )
@@ -5306,6 +5404,16 @@ private struct HomeTrainingCardAndroidStyle: View {
                     return
                 }
 
+                #if DEBUG
+                let saveError = error as NSError
+                print(
+                    "KMI_HOME_ATTENDANCE_SAVE_FAILED",
+                    "domain:", saveError.domain,
+                    "code:", saveError.code,
+                    "error:", String(describing: error)
+                )
+                #endif
+
                 attendanceSaving = false
                 attendanceSaveError = true
             }
@@ -5315,10 +5423,8 @@ private struct HomeTrainingCardAndroidStyle: View {
     private var navigationIcon: some View {
 
         Image(systemName: "location.north.fill")
-            .kmiFont(
-                size: 19,
-                weight: .black
-            )
+            .kmiIconSize(19)
+            .fontWeight(.black)
             .foregroundStyle(
                 KmiAppTheme.primary(
                     for: colorScheme
@@ -5368,10 +5474,7 @@ private struct HomeTrainingCardAndroidStyle: View {
                     ? "Navigate"
                     : "ניווט"
             )
-            .kmiFont(
-                size: 13,
-                weight: .black
-            )
+            .kmiTypography(.action)
             .foregroundStyle(
                 KmiAppTheme.onSurface(
                     for: colorScheme
@@ -5401,6 +5504,8 @@ private struct HomeTrainingCardAndroidStyle: View {
             .foregroundStyle(
                 KmiAppTheme.onSurfaceVariant(for: colorScheme)
             )
+            .lineLimit(2)
+            .truncationMode(.tail)
             .fixedSize(horizontal: false, vertical: true)
             .frame(
                 maxWidth: .infinity,

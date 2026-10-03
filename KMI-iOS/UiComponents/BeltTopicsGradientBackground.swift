@@ -167,8 +167,8 @@ enum KmiAppTheme {
     static func warning(for scheme: ColorScheme) -> Color {
 
         scheme == .dark
-            ? rgb(0xFCD34D)
-            : rgb(0xB45309)
+            ? rgb(0xFDBA74)
+            : rgb(0xC2410C)
     }
 
     static func onWarning(for scheme: ColorScheme) -> Color {
@@ -181,15 +181,15 @@ enum KmiAppTheme {
     static func warningContainer(for scheme: ColorScheme) -> Color {
 
         scheme == .dark
-            ? rgb(0x78350F)
-            : rgb(0xFFFBEB)
+            ? rgb(0x431407)
+            : rgb(0xFFEDD5)
     }
 
     static func onWarningContainer(for scheme: ColorScheme) -> Color {
 
         scheme == .dark
-            ? rgb(0xFDE68A)
-            : rgb(0x92400E)
+            ? rgb(0xFFEDD5)
+            : rgb(0x7C2D12)
     }
 
     static func error(for scheme: ColorScheme) -> Color {

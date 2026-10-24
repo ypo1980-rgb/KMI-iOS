@@ -524,8 +524,12 @@ extension RegistrationFormState {
             "registrationSchemaVersion": 3,
             "registrationCompletedBy":
                 "registration_form_v3_branch_assignments",
-            "createdAt": Date().timeIntervalSince1970,
-            "updatedAt": Date().timeIntervalSince1970
+            "createdAt": Int64(
+                Date().timeIntervalSince1970 * 1_000
+            ),
+            "updatedAt": Int64(
+                Date().timeIntervalSince1970 * 1_000
+            )
         ]
 
         if hasCompleteBranchAssignments {
@@ -683,6 +687,7 @@ extension RegistrationFormState {
 
         ud.set(roleKey, forKey: "user_role")
         ud.set(roleKey, forKey: "active_user_mode")
+        ud.set(roleKey, forKey: "last_active_app_role")
         ud.set(roleKey, forKey: "last_active_app_role")
         ud.set(gender.trimmed, forKey: "gender")
 

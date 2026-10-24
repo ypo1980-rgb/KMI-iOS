@@ -27,11 +27,13 @@ private enum HomePDFExportError: Error {
 
 private struct CoachHomeMessage: Identifiable, Hashable {
     let id: String
+    let title: String
     let text: String
     let coachName: String
     let sentAt: Date?
     let branch: String
     let group: String
+    var isTrainingEvent: Bool = false
 }
 
 // MARK: - Home visual theme
@@ -208,11 +210,37 @@ struct HomeView: View {
     // Global exercise search result
     @State private var pickedExercise: ExerciseSelection? = nil
     
-    // Coach broadcast from Firestore — Android parity
-    // Android: latest message card + recent 5 messages dialog/sheet
-    @State private var recentCoachMessages: [CoachHomeMessage] = []
-    @State private var showCoachMessagesSheet: Bool = false
-    @State private var coachBroadcastListener: ListenerRegistration? = nil
+    @StateObject private var messageCenterVm =
+        MessageCenterViewModel()
+
+    @State private var showCoachMessagesSheet = false
+
+    /*
+     * התאמת נתונים לתצוגה הקיימת בלבד.
+     * מקור האמת נשאר ב־MessageCenterViewModel.
+     */
+    private var recentCoachMessages: [CoachHomeMessage] {
+        messageCenterVm.messages.map { item in
+            CoachHomeMessage(
+                id: item.id,
+                title: isEnglish
+                    ? item.titleEn
+                    : item.titleHe,
+                text: item.message,
+                coachName: isEnglish
+                    ? item.senderNameEn
+                    : item.senderNameHe,
+                sentAt: item.createdAtMillis > 0
+                    ? Date(
+                        timeIntervalSince1970:
+                            Double(item.createdAtMillis) / 1_000
+                    )
+                    : nil,
+                branch: item.branch,
+                group: item.groups.joined(separator: " · ")
+            )
+        }
+    }
 
     @AppStorage("coach_broadcast_open_dialog")
     private var openCoachMessagesFromPush: Bool = false
@@ -223,7 +251,9 @@ struct HomeView: View {
     @AppStorage("coach_broadcast_push_id")
     private var pendingCoachBroadcastId: String = ""
     
-    private let calendar = Calendar(identifier: .gregorian)
+    private var calendar: Calendar {
+        ShabbatHolidayCheckerIOS.calendar
+    }
     
     private var isEnglish: Bool {
         let primary = kmiAppLanguageCode
@@ -729,20 +759,74 @@ struct HomeView: View {
         return fallbackUserName
     }
     
-    private var freeSessionsBranch: String {
-        resolvedBranches
-            .first?
+    private var freeSessionsAssignment: (
+        branch: String,
+        group: String
+    ) {
+        for assignment in auth.userBranchAssignments {
+            let branch = assignment.branch
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+            guard !branch.isEmpty else {
+                continue
+            }
+
+            if let group = assignment.groups
+                .map({
+                    $0.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                })
+                .first(where: { !$0.isEmpty }) {
+                return (
+                    branch: branch,
+                    group: group
+                )
+            }
+        }
+
+        let assignmentsKey =
+            RegistrationFormState
+                .BranchAssignmentsCodec
+                .preferenceKey
+
+        guard UserDefaults.standard.object(
+            forKey: assignmentsKey
+        ) == nil else {
+            return (branch: "", group: "")
+        }
+
+        /*
+         * תאימות לנתונים ישנים עם סניף יחיד.
+         * אין להסיק שיוכים מרשימות נפרדות
+         * כאשר קיימים כמה סניפים.
+         */
+        let branches = resolvedBranches
+
+        guard branches.count == 1,
+              let branch = branches.first else {
+            return (branch: "", group: "")
+        }
+
+        let group = resolvedGroup
             .trimmingCharacters(
                 in: .whitespacesAndNewlines
-            ) ?? ""
+            )
+
+        return (
+            branch: branch,
+            group: group
+        )
     }
-    
+
+    private var freeSessionsBranch: String {
+        freeSessionsAssignment.branch
+    }
+
     private var freeSessionsGroupKey: String {
-        resolvedGroups
-            .first?
-            .trimmingCharacters(
-                in: .whitespacesAndNewlines
-            ) ?? ""
+        freeSessionsAssignment.group
     }
     
     private var resolvedBeltId: String {
@@ -1055,7 +1139,28 @@ struct HomeView: View {
             left,
             right in
 
-            left.date < right.date
+            let leftOverride =
+                activeOverride(for: left)
+
+            let rightOverride =
+                activeOverride(for: right)
+
+            let leftStart =
+                leftOverride?.hasChangedTime == true
+                ? leftOverride?.effectiveStartDate ?? left.date
+                : left.date
+
+            let rightStart =
+                rightOverride?.hasChangedTime == true
+                ? rightOverride?.effectiveStartDate ?? right.date
+                : right.date
+
+            if leftStart == rightStart {
+                return physicalTrainingKey(for: left)
+                    < physicalTrainingKey(for: right)
+            }
+
+            return leftStart < rightStart
         }
     }
 
@@ -1128,9 +1233,14 @@ struct HomeView: View {
             ) ?? startDate
         }
 
-        var calendar = Calendar(identifier: .gregorian)
+        var calendar =
+            ShabbatHolidayCheckerIOS.calendar
+
         calendar.locale =
             Locale(identifier: "en_US_POSIX")
+
+        calendar.timeZone =
+            ShabbatHolidayCheckerIOS.timeZone
 
         var endComponents =
             calendar.dateComponents(
@@ -1205,15 +1315,17 @@ struct HomeView: View {
                     ? "en_US_POSIX"
                     : "he_IL"
             )
-        dateFormatter.calendar =
-            Calendar(identifier: .gregorian)
+        dateFormatter.calendar = calendar
+        dateFormatter.timeZone =
+            ShabbatHolidayCheckerIOS.timeZone
         dateFormatter.dateFormat = "dd/MM/yyyy"
 
         let timeFormatter = DateFormatter()
         timeFormatter.locale =
             Locale(identifier: "en_US_POSIX")
-        timeFormatter.calendar =
-            Calendar(identifier: .gregorian)
+        timeFormatter.calendar = calendar
+        timeFormatter.timeZone =
+            ShabbatHolidayCheckerIOS.timeZone
         timeFormatter.dateFormat = "HH:mm"
 
         let changedByName =
@@ -1367,20 +1479,184 @@ struct HomeView: View {
                 )
     }
 
+    private var recentTrainingEvents: [CoachHomeMessage] {
+        let timeFormatter = DateFormatter()
+        timeFormatter.locale =
+            Locale(identifier: "en_US_POSIX")
+        timeFormatter.calendar = calendar
+        timeFormatter.timeZone =
+            ShabbatHolidayCheckerIOS.timeZone
+        timeFormatter.dateFormat = "HH:mm"
+
+        return activeTrainingOverrides.values
+            .filter { override in
+                override.isActive &&
+                (
+                    override.isCancelled ||
+                    override.hasChangedTime
+                )
+            }
+            .map { override in
+                let place = override.place
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+                let location = place.isEmpty
+                    ? override.branch
+                    : place
+
+                let displayLocation =
+                    TrainingCatalogIOS.displayPlace(
+                        location,
+                        isEnglish: isEnglish
+                    )
+
+                var lines: [String] = []
+
+                if override.isCancelled {
+                    lines.append(
+                        tr(
+                            "האימון ב־\(displayLocation) בוטל",
+                            "The training at \(displayLocation) was cancelled"
+                        )
+                    )
+                } else {
+                    if !displayLocation.isEmpty {
+                        lines.append(displayLocation)
+                    }
+
+                    let originalStart =
+                        timeFormatter.string(
+                            from: override.originalStartDate
+                        )
+
+                    let originalEnd =
+                        timeFormatter.string(
+                            from: override.originalEndDate
+                        )
+
+                    let newStart =
+                        timeFormatter.string(
+                            from: override.effectiveStartDate
+                        )
+
+                    let newEnd =
+                        timeFormatter.string(
+                            from: override.effectiveEndDate
+                        )
+
+                    lines.append(
+                        tr(
+                            "שעה מקורית: \(originalStart)–\(originalEnd)",
+                            "Original time: \(originalStart)–\(originalEnd)"
+                        )
+                    )
+
+                    lines.append(
+                        tr(
+                            "שעה חדשה: \(newStart)–\(newEnd)",
+                            "New time: \(newStart)–\(newEnd)"
+                        )
+                    )
+                }
+
+                let reason = override.reason
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+                if !reason.isEmpty {
+                    lines.append(
+                        tr(
+                            "סיבה: \(reason)",
+                            "Reason: \(reason)"
+                        )
+                    )
+                }
+
+                let changedBy = override.changedByName
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+                return CoachHomeMessage(
+                    id:
+                        "training_event|\(override.occurrenceKey)",
+                    title: override.isCancelled
+                        ? tr(
+                            "האימון בוטל",
+                            "Training cancelled"
+                        )
+                        : tr(
+                            "שעת האימון שונתה",
+                            "Training time changed"
+                        ),
+                    text: lines.joined(separator: "\n"),
+                    coachName: changedBy.isEmpty
+                        ? tr("המאמן", "Coach")
+                        : changedBy,
+                    sentAt: override.lastChangedAt,
+                    branch: override.branch,
+                    group: override.group,
+                    isTrainingEvent: true
+                )
+            }
+    }
+
+    private var homeMessagesAndEvents: [CoachHomeMessage] {
+        (recentCoachMessages + recentTrainingEvents)
+            .sorted { left, right in
+                let leftDate =
+                    left.sentAt ?? .distantPast
+
+                let rightDate =
+                    right.sentAt ?? .distantPast
+
+                if leftDate == rightDate {
+                    if left.isTrainingEvent != right.isTrainingEvent {
+                        return !left.isTrainingEvent
+                    }
+
+                    return left.id < right.id
+                }
+
+                return leftDate > rightDate
+            }
+    }
+
     private var latestCoachMessage: CoachHomeMessage? {
-        recentCoachMessages.first
+        homeMessagesAndEvents.first
     }
     
     private var resolvedCoachBroadcastName: String {
-        let clean = latestCoachMessage?.coachName
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = latestCoachMessage?.title
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ) ?? ""
 
-        guard !clean.isEmpty, !demoPrivacy.isEnabled else {
+        if !title.isEmpty {
+            return title
+        }
+
+        let sender = latestCoachMessage?.coachName
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ) ?? ""
+
+        guard !sender.isEmpty else {
+            return tr(
+                "צוות ק.מ.י",
+                "K.M.I Team"
+            )
+        }
+
+        if demoPrivacy.isEnabled {
             return tr("המאמן", "Coach")
         }
 
         return TrainingCatalogIOS.displayCoach(
-            clean,
+            sender,
             isEnglish: isEnglish
         )
     }
@@ -1389,9 +1665,24 @@ struct HomeView: View {
         let clean = latestCoachMessage?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         
         if clean.isEmpty {
-            return isEnglish
-                ? "No new messages right now"
-                : "אין הודעות חדשות כרגע"
+            if messageCenterVm.isLoading {
+                return tr(
+                    "ההודעות נטענות",
+                    "Messages are loading"
+                )
+            }
+
+            if messageCenterVm.errorMessage != nil {
+                return tr(
+                    "לא ניתן לטעון הודעות כרגע. בדוק את החיבור ונסה שוב.",
+                    "Unable to load messages right now. Check your connection and try again."
+                )
+            }
+
+            return tr(
+                "אין הודעות חדשות כרגע",
+                "No new messages right now"
+            )
         }
         
         if clean.count > 115 {
@@ -1414,7 +1705,10 @@ struct HomeView: View {
     }
     
     private var recentCoachMessagesExtraCount: Int {
-        max(0, recentCoachMessages.count - 1)
+        max(
+            0,
+            min(5, homeMessagesAndEvents.count) - 1
+        )
     }
     
     private func formatCoachMessageTime(_ date: Date?) -> String {
@@ -1546,12 +1840,16 @@ struct HomeView: View {
                     } else {
                         VStack(spacing: 12) {
                             ForEach(effectiveUpcomingTrainings) { training in
-                                let trainingOverride = activeOverride(for: training)
+                                let source =
+                                    trainingSource(for: training)
+
+                                let trainingOverride =
+                                    activeOverride(for: training)
 
                                 HomeTrainingCardAndroidStyle(
                                     training: training,
-                                    branch: trainingSource(for: training).branch,
-                                    group: trainingSource(for: training).group,
+                                    branch: source.branch,
+                                    group: source.group,
                                     isEnglish: isEnglish,
                                     isCoach: isCoachUser,
                                     activeOverride: trainingOverride,
@@ -1570,7 +1868,7 @@ struct HomeView: View {
                                             )
                                     }
                                 )
-                                .padding(.horizontal, 18)
+                                .padding(.horizontal, 16)
                                 .transition(
                                     .move(edge: .bottom)
                                     .combined(with: .opacity)
@@ -1595,18 +1893,24 @@ struct HomeView: View {
                                 .accessibilityHidden(true)
 
                             CoachMessagesCard(
-                                title: tr(
-                                    "הודעות ואירועים",
-                                    "Messages & Events"
-                                ),
+                                title:
+                                    messageCenterVm.unreadCount > 0
+                                    ? tr(
+                                        "הודעות ואירועים · \(messageCenterVm.unreadCount) שלא נקראו",
+                                        "Messages & Events · \(messageCenterVm.unreadCount) unread"
+                                    )
+                                    : tr(
+                                        "הודעות ואירועים",
+                                        "Messages & Events"
+                                    ),
                         coachName: resolvedCoachBroadcastName,
                         message: resolvedCoachBroadcastMessage,
                         branch: resolvedCoachBroadcastBranch,
                         group: resolvedCoachBroadcastGroup,
                         sentAtText: resolvedCoachBroadcastTimeText,
-                        extraCount: recentCoachMessagesExtraCount,
-                        hasMessages: !recentCoachMessages.isEmpty,
-                        isEnglish: isEnglish,
+                                extraCount: recentCoachMessagesExtraCount,
+                                hasMessages: !homeMessagesAndEvents.isEmpty,
+                                isEnglish: isEnglish,
                         onOpenRecent: {
                             showCoachMessagesSheet = true
                         }
@@ -1630,13 +1934,6 @@ struct HomeView: View {
             spacing: 0
         ) {
             VStack(spacing: 0) {
-                Rectangle()
-                    .fill(
-                        KmiAppTheme.outlineVariant(
-                            for: colorScheme
-                        )
-                    )
-                    .frame(height: 1)
                 bottomBeltSelectionButton
             }
             .background(
@@ -1665,6 +1962,27 @@ struct HomeView: View {
                 ) { _ in
                     shareUpcomingTrainingsPDF()
                 }
+                .onReceive(
+                    NotificationCenter.default.publisher(
+                        for: Notification.Name(
+                            "KMI_GLOBAL_SEARCH_PICK"
+                        )
+                    )
+                ) { notification in
+                    /*
+                     * התוצאה שייכת למסך הבית רק
+                     * כאשר הוא המסך הפעיל בניווט.
+                     */
+                    guard nav.path.isEmpty,
+                          let key = notification.object as? String,
+                          let selection =
+                            ExerciseSelection.fromSearchKey(key) else {
+                        return
+                    }
+
+                    showHomeQuickMenu = false
+                    pickedExercise = selection
+                }
                 .task {
             clearExpiredSubscriptionFlagsIfNeeded()
             reloadTrainingsIfNeeded()
@@ -1688,20 +2006,23 @@ struct HomeView: View {
 
                     clearExpiredSubscriptionFlagsIfNeeded()
                     reloadTrainingsIfNeeded()
+                    startCoachBroadcastListener()
+                    openPendingCoachBroadcastIfNeeded()
                 }
                 .refreshable {
                     clearExpiredSubscriptionFlagsIfNeeded()
                     reloadTrainingsIfNeeded()
+                    startCoachBroadcastListener()
                 }
                 )
 
         let assignmentObservedContent = AnyView(
             lifecycleContent
-                        .onChange(
-                            of: effectiveUpcomingTrainings
-                        ) { _, _ in
-                            startTrainingOverrideListener()
-                        }
+                .onChange(
+                    of: trainingOccurrenceKeys
+                ) { _, _ in
+                    startTrainingOverrideListener()
+                }
                 .onChange(of: auth.isProfileLoading) { _, isLoading in
                     guard !isLoading else {
                         return
@@ -1766,14 +2087,25 @@ struct HomeView: View {
                         .onChange(of: pendingCoachBroadcastId) { _, _ in
             openPendingCoachBroadcastIfNeeded()
         }
-        .onChange(of: recentCoachMessages.count) { _, newCount in
-            if newCount > 0 &&
-                (openCoachMessagesFromPush ||
-                 openCoachMessagesFromPushLegacy) {
-                showCoachMessagesSheet = true
-                clearPendingCoachBroadcast()
-            }
-        }
+                .onChange(
+                    of: messageCenterVm.messages
+                ) { _, _ in
+                    openPendingCoachBroadcastIfNeeded()
+                }
+                .onChange(
+                    of: openCoachMessagesFromPush
+                ) { _, shouldOpen in
+                    if shouldOpen {
+                        openPendingCoachBroadcastIfNeeded()
+                    }
+                }
+                .onChange(
+                    of: openCoachMessagesFromPushLegacy
+                ) { _, shouldOpen in
+                    if shouldOpen {
+                        openPendingCoachBroadcastIfNeeded()
+                    }
+                }
                         .onReceive(
                             NotificationCenter.default.publisher(
                                 for: UIApplication.willEnterForegroundNotification
@@ -1846,15 +2178,49 @@ struct HomeView: View {
                                         }
                                         .sheet(isPresented: $showCoachMessagesSheet) {
                                             CoachMessagesHistorySheet(
-                                                messages: recentCoachMessages,
+                                                messages: homeMessagesAndEvents,
                                                 isEnglish: isEnglish,
-                formatTime: { date in
-                    formatCoachMessageTime(date)
-                },
-                onClose: {
-                    showCoachMessagesSheet = false
-                }
-            )
+                                                formatTime: { date in
+                                                    formatCoachMessageTime(date)
+                                                },
+                                                readMessageIds: Set(
+                                                    messageCenterVm.messages
+                                                        .filter { $0.read }
+                                                        .map(\.id)
+                                                ),
+                                                isLoading:
+                                                    messageCenterVm.isLoading,
+                                                hasError:
+                                                    messageCenterVm.errorMessage != nil,
+                                                onMarkAsRead: { id in
+                                                    guard let item =
+                                                        messageCenterVm.messages.first(
+                                                            where: { $0.id == id }
+                                                        ) else {
+                                                        return
+                                                    }
+
+                                                    messageCenterVm.markAsRead(item)
+                                                },
+                                                onDelete: { id in
+                                                    guard let item =
+                                                        messageCenterVm.messages.first(
+                                                            where: { $0.id == id }
+                                                        ) else {
+                                                        return
+                                                    }
+
+                                                    messageCenterVm.deleteMessage(item)
+                                                },
+                                                onRetry: {
+                                                    messageCenterVm.stopListening()
+                                                    messageCenterVm.startListening()
+                                                    startTrainingOverrideListener()
+                                                },
+                                                onClose: {
+                                                    showCoachMessagesSheet = false
+                                                }
+                                            )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
@@ -2109,6 +2475,8 @@ struct HomeView: View {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: isEnglish ? "en_US_POSIX" : "he_IL")
         formatter.calendar = calendar
+        formatter.timeZone =
+            ShabbatHolidayCheckerIOS.timeZone
         formatter.dateFormat = "dd/MM"
         return formatter.string(from: date)
     }
@@ -2452,7 +2820,9 @@ struct HomeView: View {
                 .font: UIFont.boldSystemFont(ofSize: 10.5),
                 .foregroundColor: blue,
                 .paragraphStyle: pdfParagraphStyle(
-                    alignment: .right
+                    alignment: KmiPdfDirection.textAlign(
+                        isEnglish: isEnglish
+                    )
                 )
             ]
 
@@ -2465,7 +2835,9 @@ struct HomeView: View {
             )
             .draw(
                 in: CGRect(
-                    x: summaryRect.midX,
+                    x: isEnglish
+                        ? summaryRect.minX + 22
+                        : summaryRect.midX,
                     y: summaryRect.minY + 46,
                     width: summaryRect.width / 2 - 22,
                     height: 18
@@ -2476,7 +2848,7 @@ struct HomeView: View {
                 .font: UIFont.boldSystemFont(ofSize: 24),
                 .foregroundColor: navy,
                 .paragraphStyle: pdfParagraphStyle(
-                    alignment: .left
+                    alignment: isEnglish ? .right : .left
                 )
             ]
 
@@ -2486,7 +2858,9 @@ struct HomeView: View {
             )
             .draw(
                 in: CGRect(
-                    x: summaryRect.minX + 28,
+                    x: isEnglish
+                        ? summaryRect.maxX - 118
+                        : summaryRect.minX + 28,
                     y: summaryRect.minY + 32,
                     width: 90,
                     height: 34
@@ -2689,6 +3063,8 @@ struct HomeView: View {
                     identifier: localeIdentifier
                 )
                 dayFormatter.calendar = calendar
+                dayFormatter.timeZone =
+                    ShabbatHolidayCheckerIOS.timeZone
                 dayFormatter.dateFormat = "EEEE"
 
                 let dateFormatter = DateFormatter()
@@ -2696,6 +3072,8 @@ struct HomeView: View {
                     identifier: localeIdentifier
                 )
                 dateFormatter.calendar = calendar
+                dateFormatter.timeZone =
+                    ShabbatHolidayCheckerIOS.timeZone
                 dateFormatter.dateFormat = "dd/MM"
 
                 let timeFormatter = DateFormatter()
@@ -2703,6 +3081,8 @@ struct HomeView: View {
                     identifier: "en_US_POSIX"
                 )
                 timeFormatter.calendar = calendar
+                timeFormatter.timeZone =
+                    ShabbatHolidayCheckerIOS.timeZone
                 timeFormatter.dateFormat = "HH:mm"
 
                 let dayText = dayFormatter.string(
@@ -3010,8 +3390,8 @@ struct HomeView: View {
                 }
 
         let fileName = isEnglish
-            ? "KMI_Weekly_Trainings.pdf"
-            : "קמי_אימונים_לשבוע_הקרוב.pdf"
+            ? "Upcoming Trainings.pdf"
+            : "אימונים קרובים.pdf"
 
         let destinationURL =
             FileManager.default.temporaryDirectory
@@ -3043,628 +3423,56 @@ struct HomeView: View {
     }
     
     private func startCoachBroadcastListener() {
-        stopCoachBroadcastListener()
-
-        guard let firebaseUser = Auth.auth().currentUser else {
-            recentCoachMessages = []
-            return
-        }
-
-        let currentUid = firebaseUser.uid
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !currentUid.isEmpty else {
-            recentCoachMessages = []
-            return
-        }
-
-        let currentEmail = firebaseUser.email?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-        let currentName = freeSessionsName
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let currentPhones = [
-            storedPhone,
-            storedPhoneNumber,
-            storedPhoneNumberSnake,
-            storedMobile
-        ]
-        .map { normalizePhone($0) }
-        .filter { !$0.isEmpty }
-
-        let currentBranches = resolvedBranches
-            .map {
-                normalizeCoachBroadcastText($0)
-            }
-            .filter { !$0.isEmpty }
-
-        let uniqueCurrentBranches =
-            Array(Set(currentBranches))
-
-        let currentGroups = resolvedGroups
-            .flatMap { group -> [String] in
-                let original =
-                    normalizeCoachBroadcastText(group)
-
-                let displayed =
-                    normalizeCoachBroadcastText(
-                        TrainingCatalogIOS.displayGroup(
-                            group,
-                            isEnglish: false
-                        )
-                    )
-
-                return [original, displayed]
-            }
-            .filter { !$0.isEmpty }
-
-        let uniqueCurrentGroups =
-            Array(Set(currentGroups))
-
-        coachBroadcastListener = Firestore.firestore()
-            .collection("coachBroadcasts")
-            .order(by: "createdAt", descending: true)
-            .limit(to: 40)
-            .addSnapshotListener { snapshot, error in
-                if error != nil {
-                    return
-                }
-
-                let docs = snapshot?.documents ?? []
-
-                let messages = mapCoachBroadcastDocs(
-                    docs: docs,
-                    currentUid: currentUid,
-                    currentEmail: currentEmail,
-                    currentPhones: currentPhones,
-                    currentName: currentName,
-                    currentBranches: uniqueCurrentBranches,
-                    currentGroups: uniqueCurrentGroups
-                )
-                .sorted { left, right in
-                    let leftDate = left.sentAt ?? .distantPast
-                    let rightDate = right.sentAt ?? .distantPast
-                    return leftDate > rightDate
-                }
-
-                recentCoachMessages = Array(messages.prefix(5))
-            }
+        messageCenterVm.startListening()
     }
-    
-    private func mapCoachBroadcastDocs(
-        docs: [QueryDocumentSnapshot],
-        currentUid: String,
-        currentEmail: String,
-        currentPhones: [String],
-        currentName: String,
-        currentBranches: [String],
-        currentGroups: [String]
-    ) -> [CoachHomeMessage] {
-        docs
-            .filter { doc in
-                docTargetsCurrentUser(
-                    doc: doc,
-                    currentUid: currentUid,
-                    currentEmail: currentEmail,
-                    currentPhones: currentPhones,
-                    currentName: currentName,
-                    currentBranches: currentBranches,
-                    currentGroups: currentGroups
-                )
-            }
-            .compactMap { doc in
-                let text = firstString(
-                    doc,
-                    keys: ["text", "message", "body", "content"]
-                )
-                .trimmingCharacters(in: .whitespacesAndNewlines)
 
-                guard !text.isEmpty else { return nil }
-
-                let coachName = firstString(
-                    doc,
-                    keys: ["coachName", "coach_name", "senderName", "fromName"]
-                )
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-
-                let sentAt =
-                    (doc.get("createdAt") as? Timestamp)?.dateValue() ??
-                    (doc.get("sentAt") as? Timestamp)?.dateValue() ??
-                    (doc.get("timestamp") as? Timestamp)?.dateValue()
-
-                let branch = firstString(
-                    doc,
-                    keys: ["branch", "branchName", "branch_name", "targetBranch", "selectedBranch"]
-                )
-
-                let group = firstString(
-                    doc,
-                    keys: ["group", "groupKey", "group_key", "targetGroup", "selectedGroup"]
-                )
-
-                return CoachHomeMessage(
-                    id: doc.documentID,
-                    text: text,
-                    coachName: coachName.isEmpty
-                    ? (isEnglish ? "Coach" : "המאמן")
-                    : coachName,
-                    sentAt: sentAt,
-                    branch: branch,
-                    group: group
-                )
-            }
-    }
-    
-    private func normalizeCoachBroadcastText(_ raw: String) -> String {
+    /*
+     * נשאר בשימוש בנרמול רשימות הסניפים והקבוצות.
+     */
+    private func normalizeCoachBroadcastText(
+        _ raw: String
+    ) -> String {
         raw
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
             .replacingOccurrences(of: "־", with: "-")
             .replacingOccurrences(of: "–", with: "-")
             .replacingOccurrences(of: "—", with: "-")
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .replacingOccurrences(
+                of: "\\s+",
+                with: " ",
+                options: .regularExpression
+            )
             .lowercased()
     }
-    
-    private func normalizePhone(_ raw: String) -> String {
-        raw.filter { $0.isNumber }
-    }
-    
-    private func valuesFromDoc(
-        _ doc: DocumentSnapshot,
-        keys: [String]
-    ) -> [String] {
-        var values: [String] = []
-        
-        for key in keys {
-            let raw = doc.get(key)
-            
-            if let stringValue = raw as? String {
-                values += stringValue
-                    .replacingOccurrences(of: "[", with: "")
-                    .replacingOccurrences(of: "]", with: "")
-                    .split { char in
-                        char == "," || char == ";" || char == "|" || char == "\n"
-                    }
-                    .map {
-                        String($0)
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-                    }
-                    .filter { !$0.isEmpty }
-            } else if let arrayValue = raw as? [Any] {
-                values += arrayValue
-                    .map { "\($0)".trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
-            }
-        }
-        
-        return Array(Set(values))
-    }
-    
-    private func firstString(
-        _ doc: DocumentSnapshot,
-        keys: [String]
-    ) -> String {
-        valuesFromDoc(doc, keys: keys).first ?? ""
-    }
-    
-    private func docTargetsCurrentUser(
-        doc: DocumentSnapshot,
-        currentUid: String,
-        currentEmail: String,
-        currentPhones: [String],
-        currentName: String,
-        currentBranches: [String],
-        currentGroups: [String]
-    ) -> Bool {
-        let authorUid = firstString(
-            doc,
-            keys: ["authorUid", "coachUid", "senderUid"]
-        )
-        .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if !currentUid.isEmpty && authorUid == currentUid {
-            return true
-        }
-
-        let uidTargets = valuesFromDoc(
-            doc,
-            keys: [
-                "targetUids",
-                "targetUid",
-                "recipientUids",
-                "recipientUid",
-                "uids",
-                "userIds",
-                "userId",
-                "targetIds",
-                "targetId",
-                "participantIds",
-                "participantId",
-                "selectedUids",
-                "selectedUid",
-                "traineeUids",
-                "traineeUid",
-                "traineeIds",
-                "traineeId",
-                "studentUids",
-                "studentUid",
-                "studentIds",
-                "studentId"
-            ]
-        )
-        
-        if !currentUid.isEmpty && uidTargets.contains(where: { $0 == currentUid }) {
-            return true
-        }
-        
-        let emailTargets = valuesFromDoc(
-            doc,
-            keys: [
-                "targetEmails",
-                "targetEmail",
-                "recipientEmails",
-                "recipientEmail",
-                "emails",
-                "selectedEmails"
-            ]
-        )
-        
-        if !currentEmail.isEmpty &&
-            emailTargets.contains(where: { $0.caseInsensitiveCompare(currentEmail) == .orderedSame }) {
-            return true
-        }
-        
-        let phoneTargets = valuesFromDoc(
-            doc,
-            keys: [
-                "targetPhones",
-                "targetPhone",
-                "recipientPhones",
-                "recipientPhone",
-                "phones",
-                "selectedPhones"
-            ]
-        )
-        .map { normalizePhone($0) }
-        .filter { !$0.isEmpty }
-
-        if !currentPhones.isEmpty &&
-            phoneTargets.contains(where: { target in
-                currentPhones.contains(target)
-            }) {
-            return true
-        }
-
-        let nameTargets = valuesFromDoc(
-            doc,
-            keys: [
-                "targetNames",
-                "targetName",
-                "recipientNames",
-                "recipientName",
-                "names",
-                "selectedNames"
-            ]
-        )
-
-        if !currentName.isEmpty &&
-            nameTargets.contains(where: { $0.caseInsensitiveCompare(currentName) == .orderedSame }) {
-            return true
-        }
-        
-        let docBranches = valuesFromDoc(
-            doc,
-            keys: [
-                "branch",
-                "branches",
-                "branchName",
-                "branch_name",
-                "targetBranch",
-                "targetBranches",
-                "selectedBranch",
-                "selectedBranches"
-            ]
-        )
-        .map { normalizeCoachBroadcastText($0) }
-        
-        let docGroups = valuesFromDoc(
-            doc,
-            keys: [
-                "group",
-                "groups",
-                "groupKey",
-                "group_key",
-                "targetGroup",
-                "targetGroups",
-                "selectedGroup",
-                "selectedGroups"
-            ]
-        )
-        .map { normalizeCoachBroadcastText($0) }
-        
-        let assignments = auth.userBranchAssignments
-
-        if !assignments.isEmpty {
-            return assignments.contains { assignment in
-                let branch = normalizeCoachBroadcastText(
-                    assignment.branch
-                )
-
-                guard !branch.isEmpty,
-                      docBranches.contains(branch) else {
-                    return false
-                }
-
-                return assignment.groups.contains { group in
-                    let normalizedGroup =
-                        normalizeCoachBroadcastText(group)
-
-                    let displayedGroup =
-                        normalizeCoachBroadcastText(
-                            TrainingCatalogIOS.displayGroup(
-                                group,
-                                isEnglish: false
-                            )
-                        )
-
-                    return (
-                        !normalizedGroup.isEmpty &&
-                        docGroups.contains(normalizedGroup)
-                    ) || (
-                        !displayedGroup.isEmpty &&
-                        docGroups.contains(displayedGroup)
-                    )
-                }
-            }
-        }
-
-        // שיוך מפורש וריק אינו מאפשר חזרה לנתונים ישנים.
-        let assignmentsKey =
-            RegistrationFormState
-                .BranchAssignmentsCodec
-                .preferenceKey
-
-        guard UserDefaults.standard.object(
-            forKey: assignmentsKey
-        ) == nil else {
-            return false
-        }
-
-        // תאימות למשתמש ישן עם סניף יחיד בלבד.
-        // בריבוי סניפים אין להסיק שיוך משתי רשימות נפרדות.
-        let legacyBranches = Set(
-            currentBranches.filter { !$0.isEmpty }
-        )
-
-        guard legacyBranches.count == 1,
-              let branch = legacyBranches.first,
-              docBranches.contains(branch) else {
-            return false
-        }
-
-        return currentGroups.contains { group in
-            !group.isEmpty && docGroups.contains(group)
-        }
-    }
-    
     private func openPendingCoachBroadcastIfNeeded() {
-        let shouldOpen =
-            openCoachMessagesFromPush ||
-            openCoachMessagesFromPushLegacy
-
-        guard shouldOpen else {
+        guard openCoachMessagesFromPush ||
+                openCoachMessagesFromPushLegacy else {
             return
         }
 
-        let broadcastId =
-            pendingCoachBroadcastId
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-
-        if broadcastId.isEmpty {
-            if !recentCoachMessages.isEmpty {
-                showCoachMessagesSheet = true
-                clearPendingCoachBroadcast()
-            }
-
-            return
-        }
-
-        let collection =
-            Firestore.firestore()
-                .collection("coachBroadcasts")
-
-        collection
-            .document(broadcastId)
-            .getDocument { document, _ in
-                if let document,
-                   document.exists,
-                   let message = coachMessage(
-                       from: document
-                   ) {
-                    presentCoachBroadcastMessage(message)
-                    return
-                }
-
-                collection
-                    .whereField(
-                        "broadcastId",
-                        isEqualTo: broadcastId
-                    )
-                    .limit(to: 1)
-                    .getDocuments { snapshot, _ in
-                        if let document =
-                            snapshot?.documents.first,
-                           let message = coachMessage(
-                               from: document
-                           ) {
-                            presentCoachBroadcastMessage(message)
-                            return
-                        }
-
-                        collection
-                            .whereField(
-                                "broadcast_id",
-                                isEqualTo: broadcastId
-                            )
-                            .limit(to: 1)
-                            .getDocuments { secondSnapshot, _ in
-                                if let document =
-                                    secondSnapshot?.documents.first,
-                                   let message = coachMessage(
-                                       from: document
-                                   ) {
-                                    presentCoachBroadcastMessage(
-                                        message
-                                    )
-                                }
-                            }
-                    }
-            }
-    }
-
-    private func coachMessage(
-        from document: DocumentSnapshot
-    ) -> CoachHomeMessage? {
-        guard let user = Auth.auth().currentUser else {
-            return nil
-        }
-
-        let currentUid = user.uid
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !currentUid.isEmpty else {
-            return nil
-        }
-
-        let currentBranches = resolvedBranches
-            .map { normalizeCoachBroadcastText($0) }
-            .filter { !$0.isEmpty }
-
-        let currentGroups = resolvedGroups
-            .flatMap { group -> [String] in
-                [
-                    normalizeCoachBroadcastText(group),
-                    normalizeCoachBroadcastText(
-                        TrainingCatalogIOS.displayGroup(
-                            group,
-                            isEnglish: false
-                        )
-                    )
-                ]
-            }
-            .filter { !$0.isEmpty }
-
-        guard docTargetsCurrentUser(
-            doc: document,
-            currentUid: currentUid,
-            currentEmail: user.email?
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                ) ?? "",
-            currentPhones: [
-                storedPhone,
-                storedPhoneNumber,
-                storedPhoneNumberSnake,
-                storedMobile
-            ]
-            .map { normalizePhone($0) }
-            .filter { !$0.isEmpty },
-            currentName: freeSessionsName
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                ),
-            currentBranches: currentBranches,
-            currentGroups: currentGroups
-        ) else {
-            return nil
-        }
-
-        let data = document.data() ?? [:]
-
-        func firstText(
-            _ keys: [String]
-        ) -> String {
-            for key in keys {
-                if let value = data[key] as? String {
-                    let clean =
-                        value.trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        )
-
-                    if !clean.isEmpty {
-                        return clean
-                    }
-                }
-            }
-
-            return ""
-        }
-
-        let text = firstText(
-            ["text", "message", "body", "content"]
-        )
-
-        guard !text.isEmpty else {
-            return nil
-        }
-
-        let coachName = firstText(
-            [
-                "coachName",
-                "coach_name",
-                "senderName",
-                "fromName"
-            ]
-        )
-
-        let sentAt =
-            (data["createdAt"] as? Timestamp)?.dateValue() ??
-            (data["sentAt"] as? Timestamp)?.dateValue() ??
-            (data["timestamp"] as? Timestamp)?.dateValue()
-
-        return CoachHomeMessage(
-            id: document.documentID,
-            text: text,
-            coachName: coachName.isEmpty
-                ? (isEnglish ? "Coach" : "המאמן")
-                : coachName,
-            sentAt: sentAt,
-            branch: firstText(
-                [
-                    "branch",
-                    "branchName",
-                    "branch_name",
-                    "targetBranch",
-                    "selectedBranch"
-                ]
-            ),
-            group: firstText(
-                [
-                    "group",
-                    "groupKey",
-                    "group_key",
-                    "targetGroup",
-                    "selectedGroup"
-                ]
+        let broadcastId = pendingCoachBroadcastId
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
             )
-        )
-    }
 
-    private func presentCoachBroadcastMessage(
-        _ message: CoachHomeMessage
-    ) {
-        var messages = [message]
-
-        messages += recentCoachMessages.filter {
-            $0.id != message.id
+        /*
+         * פותחים רק הודעה שנמצאת ברשימת
+         * הנמען המחובר, ולא מסמך שידור כללי.
+         */
+        if !broadcastId.isEmpty {
+            guard messageCenterVm.messages.contains(
+                where: { $0.id == broadcastId }
+            ) else {
+                return
+            }
+        } else {
+            guard !messageCenterVm.messages.isEmpty else {
+                return
+            }
         }
-
-        recentCoachMessages =
-            Array(messages.prefix(5))
 
         showCoachMessagesSheet = true
         clearPendingCoachBroadcast()
@@ -3681,8 +3489,7 @@ struct HomeView: View {
     }
 
     private func stopCoachBroadcastListener() {
-        coachBroadcastListener?.remove()
-        coachBroadcastListener = nil
+        messageCenterVm.stopListening()
     }
     
     private func emptyBlock(message: String) -> some View {
@@ -4732,9 +4539,25 @@ private struct HomeTrainingCardAndroidStyle: View {
                     holidayCancellationBanner
                 } else {
                     TimelineView(
-                        .animation(minimumInterval: 1.0 / 30.0)
+                        .periodic(from: .now, by: 1)
                     ) { timeline in
-                        liveTrainingStatusBanner(at: timeline.date)
+                        if liveTrainingState(
+                            at: timeline.date
+                        ) == .ongoing {
+                            TimelineView(
+                                .animation(
+                                    minimumInterval: 1.0 / 30.0
+                                )
+                            ) { animationTimeline in
+                                liveTrainingStatusBanner(
+                                    at: animationTimeline.date
+                                )
+                            }
+                        } else {
+                            liveTrainingStatusBanner(
+                                at: timeline.date
+                            )
+                        }
                     }
                 }
             }
@@ -5724,7 +5547,7 @@ private struct HomePremiumExerciseButton: View {
                 ) / 2.6
 
             let shineX =
-                -120 + 320 * progress
+                -120 + 440 * progress
 
             ZStack {
                 RoundedRectangle(
@@ -5773,39 +5596,19 @@ private struct HomePremiumExerciseButton: View {
                 HStack(
                     spacing: 6 * displayScale
                 ) {
-
-                    if isEnglish {
-
-                        Image(systemName: "star.fill")
-                            .kmiFont(
-                                size: 16,
-                                weight: .black
-                            )
-                            .foregroundStyle(.white)
-                            .accessibilityHidden(true)
-                    }
+                    Image(systemName: "star.fill")
+                        .kmiIconSize(16)
+                        .fontWeight(.black)
+                        .foregroundStyle(.white)
+                        .accessibilityHidden(true)
 
                     Text(title)
-                        .kmiFont(
-                            size: 16,
-                            weight: .black
-                        )
+                        .kmiTypography(.action)
+                        .fontWeight(.heavy)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                         .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-
-                    if !isEnglish {
-
-                        Image(systemName: "star.fill")
-                            .kmiFont(
-                                size: 16,
-                                weight: .black
-                            )
-                            .foregroundStyle(.white)
-                            .accessibilityHidden(true)
-                    }
                 }
                 .environment(
                     \.layoutDirection,
@@ -5845,8 +5648,8 @@ private struct WeekHeaderPill: View {
 
     private var minimumHeaderHeight: CGFloat {
         max(
-            68,
-            68 * displayScale
+            60,
+            60 * displayScale
         )
     }
 
@@ -5856,12 +5659,12 @@ private struct WeekHeaderPill: View {
                 KmiAppTheme.sectionHeaderBrush
 
                 VStack(
-                    spacing: 6 * displayScale
+                    spacing: 1 * displayScale
                 ) {
                     Text(title)
                         .kmiFont(
-                            size: 24,
-                            weight: .heavy
+                            size: 14,
+                            weight: .bold
                         )
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
@@ -5876,12 +5679,12 @@ private struct WeekHeaderPill: View {
 
                     Text(subtitle)
                         .kmiFont(
-                            size: 15,
-                            weight: .semibold
+                            size: 12,
+                            weight: .regular
                         )
                         .foregroundStyle(
                             KmiAppTheme.sectionHeaderContentColor
-                                .opacity(0.90)
+                                .opacity(0.92)
                         )
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
@@ -5923,15 +5726,15 @@ private struct CoachMessagesCard: View {
     let onOpenRecent: () -> Void
 
     private var textAlignment: TextAlignment {
-        isEnglish ? .leading : .trailing
+        .leading
     }
 
     private var frameAlignment: Alignment {
-        isEnglish ? .leading : .trailing
+        .leading
     }
 
     private var stackAlignment: HorizontalAlignment {
-        isEnglish ? .leading : .trailing
+        .leading
     }
     
     private var rowDirection: LayoutDirection {
@@ -5996,9 +5799,7 @@ private struct CoachMessagesCard: View {
 
                 HStack(spacing: 10) {
 
-                    if isEnglish {
-                        personBubble
-                    }
+                    personBubble
                     
                     VStack(
                         alignment: stackAlignment,
@@ -6130,10 +5931,6 @@ private struct CoachMessagesCard: View {
                                 }
                             }
                         }
-                    }
-                    
-                    if !isEnglish {
-                        personBubble
                     }
                 }
                 .environment(\.layoutDirection, rowDirection)
@@ -6271,9 +6068,15 @@ private struct CoachMessagesCard: View {
         private var colorScheme
 
         let messages: [CoachHomeMessage]
-    let isEnglish: Bool
-    let formatTime: (Date?) -> String
-    let onClose: () -> Void
+        let isEnglish: Bool
+        let formatTime: (Date?) -> String
+        let readMessageIds: Set<String>
+        let isLoading: Bool
+        let hasError: Bool
+        let onMarkAsRead: (String) -> Void
+        let onDelete: (String) -> Void
+        let onRetry: () -> Void
+        let onClose: () -> Void
     
     private var textAlignment: TextAlignment {
         isEnglish ? .leading : .trailing
@@ -6307,8 +6110,48 @@ private struct CoachMessagesCard: View {
                     ScrollView(
                         showsIndicators: false
                     ) {
-                    VStack(spacing: 12) {
-                        if messages.isEmpty {
+                        VStack(spacing: 12) {
+                            if hasError {
+                                VStack(spacing: 8) {
+                                    Text(
+                                        isEnglish
+                                            ? "Unable to load or update messages. Please try again."
+                                            : "לא ניתן לטעון או לעדכן הודעות כרגע. נסה שוב."
+                                    )
+                                    .kmiFont(
+                                        size: 14,
+                                        weight: .semibold
+                                    )
+                                    .foregroundStyle(
+                                        KmiAppTheme.onSurface(
+                                            for: colorScheme
+                                        )
+                                    )
+                                    .multilineTextAlignment(.center)
+
+                                    Button(action: onRetry) {
+                                        Text(
+                                            isEnglish
+                                                ? "Try again"
+                                                : "נסה שוב"
+                                        )
+                                        .kmiFont(
+                                            size: 14,
+                                            weight: .bold
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                    .foregroundStyle(
+                                        KmiAppTheme.primary(
+                                            for: colorScheme
+                                        )
+                                    )
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(16)
+                            }
+
+                            if messages.isEmpty && !isLoading && !hasError {
                             VStack(spacing: 8) {
 
                                 Image(
@@ -6376,11 +6219,96 @@ private struct CoachMessagesCard: View {
                         } else {
 
                             ForEach(messages) { message in
-                                CoachMessageHistoryCard(
-                                    message: message,
-                                    timeText: formatTime(message.sentAt),
-                                    isEnglish: isEnglish
-                                )
+                                VStack(spacing: 6) {
+                                    CoachMessageHistoryCard(
+                                        message: message,
+                                        timeText: formatTime(message.sentAt),
+                                        isEnglish: isEnglish
+                                    )
+
+                                    HStack(spacing: 12) {
+                                        if message.isTrainingEvent {
+                                            Label(
+                                                isEnglish
+                                                    ? "Training update"
+                                                    : "עדכון אימון",
+                                                systemImage: "calendar.badge.clock"
+                                            )
+                                            .kmiFont(
+                                                size: 12,
+                                                weight: .semibold
+                                            )
+                                            .foregroundStyle(
+                                                KmiAppTheme.onSurfaceVariant(
+                                                    for: colorScheme
+                                                )
+                                            )
+                                        } else if readMessageIds.contains(message.id) {
+                                            Label(
+                                                isEnglish ? "Read" : "נקראה",
+                                                systemImage: "checkmark.circle.fill"
+                                            )
+                                            .kmiFont(
+                                                size: 12,
+                                                weight: .semibold
+                                            )
+                                            .foregroundStyle(
+                                                KmiAppTheme.onSurfaceVariant(
+                                                    for: colorScheme
+                                                )
+                                            )
+                                        } else {
+                                            Button {
+                                                onMarkAsRead(message.id)
+                                            } label: {
+                                                Label(
+                                                    isEnglish
+                                                        ? "Mark as read"
+                                                        : "סמן כנקרא",
+                                                    systemImage:
+                                                        "envelope.open"
+                                                )
+                                                .kmiFont(
+                                                    size: 12,
+                                                    weight: .bold
+                                                )
+                                            }
+                                            .buttonStyle(.plain)
+                                            .foregroundStyle(
+                                                KmiAppTheme.primary(
+                                                    for: colorScheme
+                                                )
+                                            )
+                                        }
+
+                                        Spacer(minLength: 8)
+
+                                        if !message.isTrainingEvent {
+                                            Button(role: .destructive) {
+                                                onDelete(message.id)
+                                            } label: {
+                                                Label(
+                                                    isEnglish
+                                                        ? "Delete"
+                                                        : "מחק",
+                                                    systemImage: "trash"
+                                                )
+                                                .kmiFont(
+                                                    size: 12,
+                                                    weight: .bold
+                                                )
+                                            }
+                                            .buttonStyle(.plain)
+                                            .foregroundStyle(
+                                                KmiAppTheme.error(
+                                                    for: colorScheme
+                                                )
+                                            )
+                                        }
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                }
                             }
                         }
                     }
@@ -6389,11 +6317,16 @@ private struct CoachMessagesCard: View {
                     .padding(.bottom, 28)
                 }
             }
-            .navigationTitle(
-                isEnglish
-                    ? "Recent Messages & Events"
-                    : "הודעות ואירועים אחרונים"
-            )
+                .overlay {
+                    if isLoading {
+                        KmiLoadingOverlay()
+                    }
+                }
+                .navigationTitle(
+                    isEnglish
+                        ? "Messages & Events"
+                        : "הודעות ואירועים"
+                )
             .navigationBarTitleDisplayMode(.inline)
 
             .toolbar {
@@ -6509,6 +6442,29 @@ private struct CoachMessageHistoryCard: View {
                         .multilineTextAlignment(textAlignment)
                 }
                 .environment(\.layoutDirection, rowDirection)
+
+                if !message.title
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                    .isEmpty {
+                    Text(message.title)
+                        .kmiTypography(.cardTitle)
+                        .foregroundStyle(
+                            KmiAppTheme.primary(
+                                for: colorScheme
+                            )
+                        )
+                        .fixedSize(
+                            horizontal: false,
+                            vertical: true
+                        )
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: frameAlignment
+                        )
+                        .multilineTextAlignment(textAlignment)
+                }
 
                 Text(message.text)
                     .kmiFont(size: 16, weight: .bold)

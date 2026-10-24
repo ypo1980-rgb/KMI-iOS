@@ -458,13 +458,30 @@ struct ContentView: View {
     @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
 
     private var isEnglish: Bool {
-        let values = [
-            kmiAppLanguageCode.lowercased(),
-            appLanguageRaw.lowercased(),
-            initialLanguageCode.lowercased()
-        ]
+        for rawValue in [
+            kmiAppLanguageCode,
+            appLanguageRaw,
+            initialLanguageCode
+        ] {
+            let value = rawValue
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
 
-        return values.contains("en") || values.contains("english")
+            switch value {
+            case "he", "hebrew", "עברית":
+                return false
+
+            case "en", "english":
+                return true
+
+            default:
+                continue
+            }
+        }
+
+        return false
     }
 
     @MainActor
@@ -1208,7 +1225,10 @@ struct ContentView: View {
             NavigationStack(path: $nav.path) {
 
                 KmiRootLayout(
-                    title: "מסך הבית",
+                    title: tr(
+                        "מסך הבית",
+                        "Home"
+                    ),
                     nav: nav,
                     selectedIcon: .home,
                     onPickSearchResult: { key in
@@ -1653,7 +1673,14 @@ struct ContentView: View {
                         }
 
                     case .freeSessions(let branch, let groupKey, let uid, let name):
-                        KmiRootLayout(title: "אימונים חופשיים", nav: nav, selectedIcon: .home) {
+                        KmiRootLayout(
+                            title: tr(
+                                "אימונים חופשיים",
+                                "Free Trainings"
+                            ),
+                            nav: nav,
+                            selectedIcon: .home
+                        ) {
                             FreeSessionsView(
                                 branch: branch,
                                 groupKey: groupKey,

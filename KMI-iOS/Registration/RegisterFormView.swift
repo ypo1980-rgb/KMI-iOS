@@ -1,6 +1,7 @@
 import SwiftUI
 import Foundation
 import FirebaseAuth
+import FirebaseFirestore
 
 struct RegisterFormView: View {
 
@@ -28,6 +29,10 @@ struct RegisterFormView: View {
     @FocusState private var focusedField: String?
     @State private var displayedBranchValue: String = ""
     @State private var displayedGroupValue: String = ""
+
+    @State private var profileAllowsCoach = false
+    @State private var isCheckingCoachAuthorization = false
+    @State private var coachAuthorizationMessage: String?
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -59,17 +64,63 @@ struct RegisterFormView: View {
     }
 
     private var branchesOptions: [String] {
-        let cleanRegion =
-            s.region.trimmingCharacters(
-                in: .whitespacesAndNewlines
+        let selectedRegions = s.regionsArray
+
+        return Array(
+            Set(
+                selectedRegions.flatMap { region in
+                    TrainingCatalogIOS.branchesFor(
+                        region: region
+                    )
+                }
             )
+        )
+        .sorted()
+    }
 
-        guard !cleanRegion.isEmpty else {
-            return []
-        }
+    private var selectedRegionsBinding: Binding<Set<String>> {
+        Binding(
+            get: {
+                Set(s.regionsArray)
+            },
+            set: { newValues in
+                let allowed = Set(regions)
 
-        return TrainingCatalogIOS.branchesFor(
-            region: cleanRegion
+                let cleaned = Set(
+                    newValues
+                        .map {
+                            $0.trimmingCharacters(
+                                in: .whitespacesAndNewlines
+                            )
+                        }
+                        .filter {
+                            !$0.isEmpty && allowed.contains($0)
+                        }
+                )
+
+                guard cleaned != Set(s.regionsArray) else {
+                    return
+                }
+
+                s.regions = cleaned
+
+                if !cleaned.contains(s.region) {
+                    s.region = cleaned.sorted().first ?? ""
+                }
+
+                branchGroupsExpansion.removeAll()
+
+                s.branches.removeAll()
+                s.groups.removeAll()
+                s.branchAssignments.removeAll()
+                s.activeBranch = ""
+                s.activeGroup = ""
+
+                displayedBranchValue = ""
+                displayedGroupValue = ""
+                storedActiveBranch = ""
+                storedActiveGroup = ""
+            }
         )
     }
 
@@ -244,7 +295,7 @@ struct RegisterFormView: View {
             return "Complete Registration"
         case "שמירת שינויים":
             return "Save Changes"
-        case "שומר...":
+        case "שומר...", "שומר שינויים...":
             return "Saving..."
         default:
             return clean
@@ -252,26 +303,10 @@ struct RegisterFormView: View {
     }
 
     private func regionDisplayName(_ raw: String) -> String {
-        let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard isEnglish else {
-            return clean
-        }
-
-        switch clean {
-        case "השרון":
-            return "Sharon"
-        case "מרכז":
-            return "Center"
-        case "צפון":
-            return "North"
-        case "דרום":
-            return "South"
-        case "ירושלים":
-            return "Jerusalem"
-        default:
-            return clean
-        }
+        TrainingCatalogIOS.displayRegion(
+            raw,
+            isEnglish: isEnglish
+        )
     }
     
     private func beltDisplayNameForRegistration(_ raw: String) -> String {
@@ -387,24 +422,10 @@ struct RegisterFormView: View {
     }
     
     private func groupDisplayNameForRegistration(_ raw: String) -> String {
-        let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard isEnglish else {
-            return clean
-        }
-
-        switch clean {
-        case "ילדים":
-            return "Kids"
-        case "נוער":
-            return "Teens"
-        case "בוגרים":
-            return "Adults"
-        case "נוער + בוגרים":
-            return "Teens + Adults"
-        default:
-            return clean
-        }
+        TrainingCatalogIOS.displayGroup(
+            raw,
+            isEnglish: isEnglish
+        )
     }
 
     private func displayJoinedValues(
@@ -423,7 +444,10 @@ struct RegisterFormView: View {
             .map {
                 translateGroupNames
                     ? groupDisplayNameForRegistration($0)
-                    : $0
+                    : TrainingCatalogIOS.displayBranch(
+                        $0,
+                        isEnglish: isEnglish
+                    )
             }
             .sorted()
 
@@ -443,25 +467,10 @@ struct RegisterFormView: View {
     }
 
     private var isGoogleAuth: Bool {
-        let defaults = UserDefaults.standard
-
-        let authProvider =
-            defaults.string(forKey: "authProvider") ?? ""
-
-        let googleLogin =
-            defaults.bool(forKey: "google_login")
-
-        let skipOtp =
-            defaults.bool(forKey: "skip_otp")
-
-        return authProvider == "google" &&
-            googleLogin &&
-            skipOtp &&
-            !prefillEmail
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-                .isEmpty
+        !isEditingProfile &&
+        Auth.auth().currentUser?.providerData.contains {
+            $0.providerID == "google.com"
+        } == true
     }
 
     /*
@@ -570,11 +579,7 @@ struct RegisterFormView: View {
 
     private var showRegionError: Bool {
         shouldRevealValidationErrors &&
-        s.region
-            .trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
-            .isEmpty
+        s.regionsArray.isEmpty
     }
 
     private var showBranchesError: Bool {
@@ -740,21 +745,73 @@ struct RegisterFormView: View {
         return ""
     }
 
-    private var isWhitelistedCoach: Bool {
-        CoachWhitelist.isWhitelisted(
-            phone: normalizedPhone,
-            email: normalizedEmail
-        )
-    }
+    @MainActor
+    private func refreshCoachAuthorization() async {
+        profileAllowsCoach = false
 
-    private var firebaseUid: String {
-        Auth.auth().currentUser?.uid ?? ""
-    }
+        guard isEditingProfile,
+              let uid = Auth.auth().currentUser?.uid,
+              !uid.isEmpty else {
+            return
+        }
 
-    private var isSuperTester: Bool {
-        normalizedEmail == "ypo1980@gmail.com" ||
-        normalizedPhone == "0526664660" ||
-        firebaseUid == "DBoyoVVpsrVUX0ukhKwNyQlKUKY2"
+        isCheckingCoachAuthorization = true
+
+        defer {
+            isCheckingCoachAuthorization = false
+        }
+
+        let database = Firestore.firestore()
+
+        var coachAllowed = false
+        var adminAllowed = false
+
+        do {
+            let document = try await database
+                .collection("authorizedCoaches")
+                .document(uid)
+                .getDocument()
+
+            let data = document.data() ?? [:]
+
+            let role = (data["role"] as? String ?? "")
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
+
+            coachAllowed =
+                document.exists &&
+                data["active"] as? Bool == true &&
+                role == "coach"
+        } catch {
+            // כישלון בבדיקה זו אינו מבטל בדיקת מנהל.
+        }
+
+        do {
+            let document = try await database
+                .collection("admins")
+                .document(uid)
+                .getDocument()
+
+            adminAllowed =
+                document.exists &&
+                document.data()?["enabled"] as? Bool == true
+        } catch {
+            // ללא אישור מפורש לא נפתחת הרשאת מאמן.
+        }
+
+        guard !Task.isCancelled,
+              Auth.auth().currentUser?.uid == uid else {
+            return
+        }
+
+        profileAllowsCoach =
+            coachAllowed || adminAllowed
+
+        if !profileAllowsCoach && s.role == .coach {
+            s.role = .trainee
+        }
     }
 
     /*
@@ -821,14 +878,36 @@ struct RegisterFormView: View {
                     .kmiFont(size: 14, weight: .semibold)
                 }
             }
-            .onChange(of: s.region) { oldRegion, newRegion in
-                handleRegionChange(oldRegion: oldRegion, newRegion: newRegion)
-            }
             .onChange(of: s.branches) { _, newBranches in
                 handleBranchesChange(newBranches)
             }
             .onAppear {
                 handleInitialAppear()
+            }
+            .task(id: Auth.auth().currentUser?.uid) {
+                await refreshCoachAuthorization()
+            }
+            .alert(
+                tr("מצב מאמן", "Coach mode"),
+                isPresented: Binding(
+                    get: {
+                        coachAuthorizationMessage != nil
+                    },
+                    set: { presented in
+                        if !presented {
+                            coachAuthorizationMessage = nil
+                        }
+                    }
+                )
+            ) {
+                Button(
+                    tr("אישור", "OK"),
+                    role: .cancel
+                ) {
+                    coachAuthorizationMessage = nil
+                }
+            } message: {
+                Text(coachAuthorizationMessage ?? "")
             }
             .onChange(of: normalizedPhone) { _, _ in
                 applyRoleGate()
@@ -1149,10 +1228,17 @@ struct RegisterFormView: View {
                     selectedValues: $s.branches,
                     placeholder: tr("בחר סניפים", "Choose branches"),
                     isEnglish: isEnglish,
-                    isEnabled: !s.region
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                        .isEmpty && !isSubmitting,
-                    maxSelected: 10
+                    isEnabled:
+                        !s.regionsArray.isEmpty &&
+                        !branchesOptions.isEmpty &&
+                        !isSubmitting,
+                    maxSelected: 10,
+                    labelForOption: { branch in
+                        TrainingCatalogIOS.displayBranch(
+                            branch,
+                            isEnglish: isEnglish
+                        )
+                    }
                 )
                 .padding(4)
                 .background(
@@ -1739,6 +1825,10 @@ struct RegisterFormView: View {
     }
 
     private func handleInitialAppear() {
+        guard !didFinishInitialLoad else {
+            return
+        }
+
         didFinishInitialLoad = false
 
         /*
@@ -1766,10 +1856,42 @@ struct RegisterFormView: View {
         loadSavedProfileIfNeeded()
 
         if isGoogleAuth {
-            if s.email
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let firebaseUser =
+                Auth.auth().currentUser
+
+            if s.fullName
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
                 .isEmpty {
-                s.email = prefillEmail
+                s.fullName =
+                    firebaseUser?.displayName ?? ""
+            }
+
+            if s.email
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .isEmpty {
+                let suppliedEmail = prefillEmail
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+                s.email = suppliedEmail.isEmpty
+                    ? firebaseUser?.email ?? ""
+                    : suppliedEmail
+            }
+
+            if s.phone
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .isEmpty {
+                s.phone = (
+                    firebaseUser?.phoneNumber ?? ""
+                )
+                .filter { $0.isNumber }
             }
 
             if s.username
@@ -1780,7 +1902,9 @@ struct RegisterFormView: View {
                 .isEmpty {
 
                 s.username =
-                    prefillEmail
+                    s.email.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
             }
 
             /*
@@ -1897,11 +2021,62 @@ struct RegisterFormView: View {
         )
         storedActiveGroup = s.activeGroup
 
-        if s.region
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty ||
-            !regions.contains(s.region) {
-            s.region = regions.first ?? ""
+        let currentRegion = s.region
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        if regions.contains(currentRegion) {
+            s.region = currentRegion
+        } else {
+            let comparableRegion =
+                TrainingCatalogIOS.displayRegion(
+                    currentRegion,
+                    isEnglish: true
+                )
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+            let matchingRegion = regions.first { option in
+                TrainingCatalogIOS.displayRegion(
+                    option,
+                    isEnglish: true
+                )
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .caseInsensitiveCompare(comparableRegion)
+                    == .orderedSame
+            }
+
+            s.region =
+                matchingRegion ?? regions.first ?? ""
+        }
+
+        let restoredRegions = Set(
+            s.regionsArray.compactMap { savedRegion in
+                let comparable =
+                    TrainingCatalogIOS.displayRegion(
+                        savedRegion,
+                        isEnglish: true
+                    )
+
+                return regions.first { option in
+                    TrainingCatalogIOS.displayRegion(
+                        option,
+                        isEnglish: true
+                    )
+                    .caseInsensitiveCompare(comparable)
+                        == .orderedSame
+                }
+            }
+        )
+
+        s.regions = restoredRegions
+
+        if !restoredRegions.contains(s.region) {
+            s.region = restoredRegions.sorted().first ?? ""
         }
 
         s.role =
@@ -2049,6 +2224,14 @@ struct RegisterFormView: View {
              */
             guard isEditingProfile else {
                 s.role = .trainee
+
+                if role == .coach {
+                    coachAuthorizationMessage = tr(
+                        "הרשאת מאמן ניתנת לאחר אישור מהשרת",
+                        "Coach access is granted after server authorization"
+                    )
+                }
+
                 return
             }
 
@@ -2065,12 +2248,22 @@ struct RegisterFormView: View {
              * מעבר למאמן מותר רק למשתמש
              * בעל הרשאת מאמן, או למנהל.
              */
-            if role == .coach &&
-                !isSuperTester &&
-                !isWhitelistedCoach {
+            if role == .coach {
+                guard !isCheckingCoachAuthorization else {
+                    coachAuthorizationMessage = tr(
+                        "בדיקת הרשאת המאמן עדיין מתבצעת. נסה שוב בעוד רגע.",
+                        "Coach authorization is still being checked. Please try again shortly."
+                    )
+                    return
+                }
 
-                s.role = .trainee
-                return
+                guard profileAllowsCoach else {
+                    coachAuthorizationMessage = tr(
+                        "מצב מאמן זמין רק לאחר הרשאה מהשרת",
+                        "Coach mode is available only after server authorization"
+                    )
+                    return
+                }
             }
 
             s.role = role
@@ -2716,17 +2909,18 @@ struct RegisterFormView: View {
             alignment: formHorizontalAlignment,
             spacing: 6
         ) {
-            KmiPremiumDropdown(
+            KmiPremiumMultiSelectDropdown(
                 title: isAbroadSelection
-                    ? tr("מדינה", "Country")
-                    : tr("אזור", "Region"),
+                    ? tr("מדינות", "Countries")
+                    : tr("אזורים", "Regions"),
                 options: regions,
-                selectedValue: $s.region,
+                selectedValues: selectedRegionsBinding,
                 placeholder: isAbroadSelection
-                    ? tr("בחר מדינה", "Choose country")
-                    : tr("בחר אזור", "Choose region"),
+                    ? tr("בחר מדינות", "Choose countries")
+                    : tr("בחר אזורים", "Choose regions"),
                 isEnglish: isEnglish,
                 isEnabled: !isSubmitting,
+                maxSelected: regions.count,
                 labelForOption: { region in
                     regionDisplayName(region)
                 }
@@ -3431,10 +3625,16 @@ struct RegisterFormView: View {
             )
         }
 
-        if s.region.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if s.regionsArray.isEmpty {
             return isAbroadSelection
-                ? tr("חובה לבחור מדינה", "Country is required")
-                : tr("חובה לבחור אזור", "Region is required")
+                ? tr(
+                    "חובה לבחור לפחות מדינה אחת",
+                    "Select at least one country"
+                )
+                : tr(
+                    "חובה לבחור לפחות אזור אחד",
+                    "Select at least one region"
+                )
         }
 
         if s.branches.isEmpty {
@@ -3476,6 +3676,18 @@ struct RegisterFormView: View {
             }
         }
 
+        if isEditingProfile,
+           s.role == .coach,
+           (
+               isCheckingCoachAuthorization ||
+               !profileAllowsCoach
+           ) {
+            return tr(
+                "יש להמתין לאימות הרשאת המאמן מהשרת",
+                "Please wait for coach authorization to be verified"
+            )
+        }
+
         if !isEditingProfile,
            s.role == .coach {
             return tr(
@@ -3491,6 +3703,7 @@ struct RegisterFormView: View {
         branchGroupsExpansion.removeAll()
 
         s.region = ""
+        s.regions.removeAll()
         s.branches.removeAll()
         s.groups.removeAll()
         s.branchAssignments.removeAll()
@@ -3529,6 +3742,23 @@ struct RegisterFormView: View {
                 defaults.string(forKey: "active_region") ??
                 defaults.string(forKey: "kmi.user.region") ??
                 s.region
+        }
+
+        if s.regions.isEmpty {
+            let savedRegions =
+                defaults.stringArray(forKey: "regions")
+                ?? defaults.stringArray(forKey: "selected_regions")
+                ?? []
+
+            s.regions = Set(
+                savedRegions
+                    .map {
+                        $0.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                    }
+                    .filter { !$0.isEmpty }
+            )
         }
 
         let savedBranchType = defaults.string(forKey: "branch_type") ?? ""

@@ -194,20 +194,50 @@ final class HomeTrainingsViewModel: ObservableObject {
 
         let trainingSources: [(branch: String, group: String)]
 
+        let assignmentsKey =
+            RegistrationFormState
+                .BranchAssignmentsCodec
+                .preferenceKey
+
+        let hasStoredAssignments =
+            defaults.object(
+                forKey: assignmentsKey
+            ) != nil
+
         if !assignedSources.isEmpty {
             trainingSources = assignedSources
+
             branches = uniqueValues(
                 assignedSources.map { $0.branch }
             )
+
             groups = uniqueValues(
                 assignedSources.map { $0.group }
             )
-        } else {
-            trainingSources = branches.flatMap { branch in
-                groups.map { group in
-                    (branch: branch, group: group)
-                }
+        } else if hasStoredAssignments {
+            /*
+             * שיוך מפורש וריק אינו מאפשר
+             * חזרה לסניפים ולקבוצות ישנים.
+             */
+            trainingSources = []
+            branches = []
+            groups = []
+        } else if branches.count == 1,
+                  let branch = branches.first {
+            /*
+             * תאימות לנתונים ישנים:
+             * ניתן להסיק שיוך רק בסניף יחיד.
+             */
+            trainingSources = groups.map { group in
+                (branch: branch, group: group)
             }
+        } else {
+            statusMessage = isEnglish
+                ? "Branch and group assignments must be updated in your profile."
+                : "יש לעדכן בפרופיל את שיוך הקבוצות לסניפים."
+
+            upcomingTrainings = []
+            return
         }
 
         guard !region.isEmpty else {
@@ -248,7 +278,20 @@ final class HomeTrainingsViewModel: ObservableObject {
          * כאשר קיימים שיוכים, כל קבוצה נטענת
          * רק עבור הסניף שאליו שויכה.
          */
+        var loadedSourceKeys = Set<[String]>()
+
         for source in trainingSources {
+            let sourceKey = [
+                source.branch,
+                source.group
+            ]
+
+            guard loadedSourceKeys.insert(
+                sourceKey
+            ).inserted else {
+                continue
+            }
+
             let matchingTrainings =
                 TrainingCatalogIOS.upcomingFor(
                     region: region,
@@ -266,10 +309,32 @@ final class HomeTrainingsViewModel: ObservableObject {
          */
         var seenTrainingKeys = Set<String>()
 
+        func completenessScore(
+            _ training: TrainingData
+        ) -> Int {
+            [
+                training.place,
+                training.address,
+                training.coach,
+                training.endText
+            ]
+            .filter {
+                !$0.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ).isEmpty
+            }
+            .count
+        }
+
         let uniqueTrainings =
             collectedTrainings
-                .sorted {
-                    $0.date < $1.date
+                .sorted { left, right in
+                    if left.date == right.date {
+                        return completenessScore(left)
+                            > completenessScore(right)
+                    }
+
+                    return left.date < right.date
                 }
                 .filter { training in
                     let startMinute =

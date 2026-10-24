@@ -177,7 +177,28 @@ enum TrainingCatalogIOS {
     ]
 
     static func abroadRegions() -> [String] {
-        [
+        if let catalog = branchesCatalog {
+            return catalog.regions
+                .filter { region in
+                    let country = region.country
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                        .uppercased()
+
+                    return region.active &&
+                        !country.isEmpty &&
+                        country != "IL"
+                }
+                .map {
+                    $0.nameEn.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                }
+                .filter { !$0.isEmpty }
+        }
+
+        return [
             "USA",
             "Canada",
             "Australia",
@@ -191,11 +212,55 @@ enum TrainingCatalogIOS {
     }
 
     static func isAbroadRegion(_ region: String) -> Bool {
-        abroadBranchesByCountry.keys.contains(region)
+        let wanted = normalizedCatalogText(region)
+
+        guard !wanted.isEmpty else {
+            return false
+        }
+
+        if let record = branchesCatalog?.regions.first(
+            where: {
+                normalizedCatalogText($0.id) == wanted ||
+                normalizedCatalogText($0.nameHe) == wanted ||
+                normalizedCatalogText($0.nameEn) == wanted
+            }
+        ) {
+            let country = record.country
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .uppercased()
+
+            return !country.isEmpty && country != "IL"
+        }
+
+        return abroadBranchesByCountry.keys.contains {
+            normalizedCatalogText($0) == wanted
+        }
     }
 
     static func isAbroadBranch(_ branch: String) -> Bool {
-        abroadAddressByBranch.keys.contains(branch)
+        if let record = branchFromCatalog(
+            matching: branch
+        ) {
+            let country = record.country
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .uppercased()
+
+            return !country.isEmpty && country != "IL"
+        }
+
+        let wanted = normalizedCatalogText(branch)
+
+        guard !wanted.isEmpty else {
+            return false
+        }
+
+        return abroadAddressByBranch.keys.contains {
+            normalizedCatalogText($0) == wanted
+        }
     }
     
     private static let inactiveRegions: Set<String> = [
@@ -249,7 +314,17 @@ enum TrainingCatalogIOS {
             }
         }
 
-        // גיבוי: רשימת האימונים המקומית
+        /*
+         * כאשר הקטלוג נטען, הוא מקור האמת.
+         * רשימת הגיבוי אינה מוסיפה אליו קבוצות.
+         */
+        if branchesCatalog != nil {
+            return result.mapValues {
+                Array($0).sorted()
+            }
+        }
+
+        // גיבוי רק כאשר טעינת הקטלוג נכשלה.
         for slot in slots {
             let branchName = slot.branch
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -399,8 +474,35 @@ enum TrainingCatalogIOS {
     // MARK: - Display Localization
     
     static func displayRegion(_ value: String, isEnglish: Bool) -> String {
-        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isEnglish else { return clean }
+        let clean = value.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        let wanted = normalizedCatalogText(clean)
+
+        if !wanted.isEmpty,
+           let region = branchesCatalog?.regions.first(
+               where: {
+                   normalizedCatalogText($0.id) == wanted ||
+                   normalizedCatalogText($0.nameHe) == wanted ||
+                   normalizedCatalogText($0.nameEn) == wanted
+               }
+           ) {
+            let translated = (
+                isEnglish ? region.nameEn : region.nameHe
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+            if !translated.isEmpty {
+                return translated
+            }
+        }
+
+        guard isEnglish else {
+            return clean
+        }
 
         switch clean {
         case "השרון":
@@ -419,8 +521,28 @@ enum TrainingCatalogIOS {
     }
 
     static func displayBranch(_ value: String, isEnglish: Bool) -> String {
-        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isEnglish else { return clean }
+        let clean = value.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        if let branch = branchFromCatalog(
+            matching: clean
+        ) {
+            let translated = (
+                isEnglish ? branch.nameEn : branch.nameHe
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+            if !translated.isEmpty {
+                return translated
+            }
+        }
+
+        guard isEnglish else {
+            return clean
+        }
 
         switch clean {
         case "נתניה – מרכז קהילתי אופק":
@@ -482,8 +604,43 @@ enum TrainingCatalogIOS {
     }
 
     static func displayGroup(_ value: String, isEnglish: Bool) -> String {
-        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isEnglish else { return clean }
+        let clean = value.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        let wanted = catalogComparableText(clean)
+
+        if !wanted.isEmpty,
+           let catalog = branchesCatalog {
+            let translations = Set(
+                catalog.branches
+                    .filter { $0.active }
+                    .flatMap { $0.trainingDays }
+                    .filter {
+                        catalogComparableText($0.groupHe) == wanted ||
+                        catalogComparableText($0.groupEn) == wanted
+                    }
+                    .map {
+                        (isEnglish ? $0.groupEn : $0.groupHe)
+                            .trimmingCharacters(
+                                in: .whitespacesAndNewlines
+                            )
+                    }
+                    .filter { !$0.isEmpty }
+            )
+
+            /*
+             * משתמשים בתרגום רק כאשר הוא חד־משמעי.
+             */
+            if translations.count == 1,
+               let translated = translations.first {
+                return translated
+            }
+        }
+
+        guard isEnglish else {
+            return clean
+        }
 
         switch clean {
         case "גן חובה - כיתה א", "גן חובה - כיתה א'":
@@ -516,8 +673,28 @@ enum TrainingCatalogIOS {
     }
 
     static func displayPlace(_ value: String, isEnglish: Bool) -> String {
-        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isEnglish else { return clean }
+        let clean = value.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        if let branch = branchFromCatalog(
+            matching: clean
+        ) {
+            let translated = (
+                isEnglish ? branch.placeEn : branch.placeHe
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+            if !translated.isEmpty {
+                return translated
+            }
+        }
+
+        guard isEnglish else {
+            return clean
+        }
 
         switch clean {
         case "מרכז קהילתי סוקולוב":
@@ -534,8 +711,39 @@ enum TrainingCatalogIOS {
     }
 
     static func displayAddress(_ value: String, isEnglish: Bool) -> String {
-        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isEnglish else { return clean }
+        let clean = value.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        let wanted = normalizedCatalogText(clean)
+
+        if !wanted.isEmpty,
+           let branch = branchesCatalog?.branches.first(
+               where: {
+                   $0.active &&
+                   (
+                       normalizedCatalogText($0.addressHe) == wanted ||
+                       normalizedCatalogText($0.addressEn) == wanted ||
+                       normalizedCatalogText($0.nameHe) == wanted ||
+                       normalizedCatalogText($0.nameEn) == wanted
+                   )
+               }
+           ) {
+            let translated = (
+                isEnglish ? branch.addressEn : branch.addressHe
+            )
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+            if !translated.isEmpty {
+                return translated
+            }
+        }
+
+        guard isEnglish else {
+            return clean
+        }
 
         switch clean {
         case "רחוב נחום סוקולוב 25, נתניה":
@@ -560,8 +768,40 @@ enum TrainingCatalogIOS {
     }
 
     static func displayCoach(_ value: String, isEnglish: Bool) -> String {
-        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isEnglish else { return clean }
+        let clean = value.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        let wanted = normalizedCatalogText(clean)
+
+        if !wanted.isEmpty,
+           let catalog = branchesCatalog {
+            let translations = Set(
+                catalog.branches
+                    .filter { $0.active }
+                    .flatMap { $0.trainingDays }
+                    .filter {
+                        normalizedCatalogText($0.coachNameHe) == wanted ||
+                        normalizedCatalogText($0.coachNameEn) == wanted
+                    }
+                    .map {
+                        (isEnglish ? $0.coachNameEn : $0.coachNameHe)
+                            .trimmingCharacters(
+                                in: .whitespacesAndNewlines
+                            )
+                    }
+                    .filter { !$0.isEmpty }
+            )
+
+            if translations.count == 1,
+               let translated = translations.first {
+                return translated
+            }
+        }
+
+        guard isEnglish else {
+            return clean
+        }
 
         switch clean {
         case "אדם הולצמן":
@@ -576,7 +816,27 @@ enum TrainingCatalogIOS {
     }
     
     static func isRegionActive(_ region: String) -> Bool {
-        !inactiveRegions.contains(region)
+        let wanted = normalizedCatalogText(region)
+
+        guard !wanted.isEmpty else {
+            return false
+        }
+
+        if let catalog = branchesCatalog {
+            guard let record = catalog.regions.first(
+                where: {
+                    normalizedCatalogText($0.id) == wanted ||
+                    normalizedCatalogText($0.nameHe) == wanted ||
+                    normalizedCatalogText($0.nameEn) == wanted
+                }
+            ) else {
+                return false
+            }
+
+            return record.active
+        }
+
+        return !inactiveRegions.contains(region)
     }
 
     static func regionStatusMessage(_ region: String) -> String? {
@@ -584,24 +844,90 @@ enum TrainingCatalogIOS {
     }
 
     static func branchesFor(region: String) -> [String] {
-        if let abroadBranches = abroadBranchesByCountry[region] {
+        let wanted = normalizedCatalogText(region)
+
+        guard !wanted.isEmpty else {
+            return []
+        }
+
+        if let catalog = branchesCatalog {
+            guard let record = catalog.regions.first(
+                where: {
+                    normalizedCatalogText($0.id) == wanted ||
+                    normalizedCatalogText($0.nameHe) == wanted ||
+                    normalizedCatalogText($0.nameEn) == wanted
+                }
+            ), record.active else {
+                return []
+            }
+
+            var seen = Set<String>()
+
+            return catalog.branches
+                .filter {
+                    $0.active &&
+                    $0.regionId == record.id
+                }
+                .map {
+                    $0.nameHe.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                }
+                .filter { !$0.isEmpty }
+                .filter {
+                    seen.insert(
+                        normalizedCatalogText($0)
+                    ).inserted
+                }
+                .sorted {
+                    $0.localizedCaseInsensitiveCompare($1)
+                        == .orderedAscending
+                }
+        }
+
+        if let abroadBranches =
+            abroadBranchesByCountry[region] {
             return abroadBranches
         }
 
-        guard isRegionActive(region) else { return [] }
+        guard isRegionActive(region) else {
+            return []
+        }
 
         return (branchesByRegionRaw[region] ?? [])
-            .filter { !inactiveBranches.contains($0) }
+            .filter {
+                !inactiveBranches.contains($0)
+            }
     }
 
     static func addressFor(_ branchOrAddress: String) -> String {
-        let clean = branchOrAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clean = branchOrAddress
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
 
-        if let abroadAddress = abroadAddressByBranch[clean] {
+        if let branch = branchFromCatalog(
+            matching: clean
+        ) {
+            let address = branch.addressHe
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+            if !address.isEmpty {
+                return address
+            }
+        }
+
+        if let abroadAddress =
+            abroadAddressByBranch[clean] {
             return abroadAddress
         }
 
-        if clean.contains(",") || clean.rangeOfCharacter(from: .decimalDigits) != nil {
+        if clean.contains(",") ||
+            clean.rangeOfCharacter(
+                from: .decimalDigits
+            ) != nil {
             return clean
         }
 
@@ -609,8 +935,26 @@ enum TrainingCatalogIOS {
     }
 
     static func placeFor(_ branch: String) -> String {
-        let parts = branch.components(separatedBy: " – ")
-        return parts.count == 2 ? parts[1] : branch
+        if let record = branchFromCatalog(
+            matching: branch
+        ) {
+            let place = record.placeHe
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+            if !place.isEmpty {
+                return place
+            }
+        }
+
+        let parts = branch.components(
+            separatedBy: " – "
+        )
+
+        return parts.count == 2
+            ? parts[1]
+            : branch
     }
 
     static func normalizeGroupName(_ name: String?) -> String {
@@ -673,8 +1017,27 @@ enum TrainingCatalogIOS {
             return []
         }
 
+        if let catalogBranch = branchFromCatalog(
+            matching: clean
+        ) {
+            return Array(
+                Set(
+                    catalogBranch.trainingDays
+                        .map {
+                            $0.groupHe.trimmingCharacters(
+                                in: .whitespacesAndNewlines
+                            )
+                        }
+                        .filter { !$0.isEmpty }
+                )
+            )
+            .sorted()
+        }
+
         if isAbroadBranch(clean) {
-            return ["בוגרים"]
+            return branchesCatalog == nil
+                ? ["בוגרים"]
+                : []
         }
 
         if let exactGroups = ageGroupsByBranch[clean],
@@ -715,7 +1078,8 @@ enum TrainingCatalogIOS {
                     return false
                 }
 
-                return normalizedCatalogText(branch.nameHe) == wanted ||
+                return normalizedCatalogText(branch.id) == wanted ||
+                    normalizedCatalogText(branch.nameHe) == wanted ||
                     normalizedCatalogText(branch.nameEn) == wanted ||
                     normalizedCatalogText(branch.placeHe) == wanted ||
                     normalizedCatalogText(branch.placeEn) == wanted
@@ -727,40 +1091,58 @@ enum TrainingCatalogIOS {
         selectedGroup: String?
     ) -> Bool {
         let rawSelected = selectedGroup?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ) ?? ""
 
         guard !rawSelected.isEmpty else {
             return true
         }
 
-        let selectedNormalized = normalizeGroupName(rawSelected)
-        let hebrewNormalized = normalizeGroupName(trainingDay.groupHe)
-        let englishNormalized = normalizedCatalogText(trainingDay.groupEn)
-        let selectedTextNormalized = normalizedCatalogText(rawSelected)
+        let selected =
+            catalogComparableText(rawSelected)
 
-        if selectedNormalized == hebrewNormalized {
+        let hebrew =
+            catalogComparableText(trainingDay.groupHe)
+
+        let english =
+            catalogComparableText(trainingDay.groupEn)
+
+        if selected == hebrew ||
+            (!english.isEmpty && selected == english) {
             return true
         }
 
-        if normalizedCatalogText(trainingDay.groupHe) == selectedTextNormalized {
+        /*
+         * תרגום תצוגה קיים משמש להתאמה מדויקת,
+         * בלי לאחד קבוצות גיל שונות ל"ילדים".
+         */
+        let displayedEnglish =
+            catalogComparableText(
+                displayGroup(
+                    trainingDay.groupHe,
+                    isEnglish: true
+                )
+            )
+
+        if !displayedEnglish.isEmpty &&
+            selected == displayedEnglish {
             return true
         }
 
-        if englishNormalized == selectedTextNormalized {
-            return true
-        }
+        /*
+         * תאימות לבחירת "נוער" עבור קבוצה משולבת,
+         * כפי שקיים במקור האנדרואיד שנשלח.
+         *
+         * "בוגרים" אינה מתרחבת אוטומטית
+         * לקבוצה המשולבת.
+         */
+        let isYouth =
+            selected == "נוער" ||
+            selected == "youth"
 
-        if selectedNormalized == "נוער" &&
-            hebrewNormalized == "נוער + בוגרים" {
-            return true
-        }
-
-        if selectedNormalized == "בוגרים" &&
-            hebrewNormalized == "נוער + בוגרים" {
-            return true
-        }
-
-        return false
+        return isYouth &&
+            hebrew == catalogComparableText("נוער + בוגרים")
     }
 
     private static func calendarWeekday(
@@ -965,7 +1347,10 @@ enum TrainingCatalogIOS {
 
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.calendar =
+            ShabbatHolidayCheckerIOS.calendar
+        formatter.timeZone =
+            ShabbatHolidayCheckerIOS.timeZone
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.isLenient = false
 
@@ -974,7 +1359,8 @@ enum TrainingCatalogIOS {
             return nil
         }
 
-        let calendar = Calendar(identifier: .gregorian)
+        let calendar =
+            ShabbatHolidayCheckerIOS.calendar
         let selectedWeekday =
             calendar.component(
                 .weekday,
@@ -1086,7 +1472,8 @@ enum TrainingCatalogIOS {
         }
 
         let now = Date()
-        let calendar = Calendar(identifier: .gregorian)
+        let calendar =
+            ShabbatHolidayCheckerIOS.calendar
 
         let exactMatches = catalogBranch.trainingDays.filter { trainingDay in
             trainingDayMatchesGroup(
@@ -1126,11 +1513,15 @@ enum TrainingCatalogIOS {
             let startFormatter = DateFormatter()
             startFormatter.locale = Locale(identifier: "he_IL")
             startFormatter.calendar = calendar
+            startFormatter.timeZone =
+                ShabbatHolidayCheckerIOS.timeZone
             startFormatter.dateFormat = "dd/MM/yyyy HH:mm"
 
             let endFormatter = DateFormatter()
             endFormatter.locale = Locale(identifier: "he_IL")
             endFormatter.calendar = calendar
+            endFormatter.timeZone =
+                ShabbatHolidayCheckerIOS.timeZone
             endFormatter.dateFormat = "HH:mm"
 
             let stableId = [
@@ -1171,7 +1562,8 @@ enum TrainingCatalogIOS {
         }
 
         let now = Date()
-        let calendar = Calendar(identifier: .gregorian)
+        let calendar =
+            ShabbatHolidayCheckerIOS.calendar
 
         let startOfToday = calendar.startOfDay(for: now)
 

@@ -130,6 +130,14 @@ final class AuthViewModel: ObservableObject {
             resolvedRole,
             forKey: "profile_role"
         )
+        defaults.set(
+            resolvedRole,
+            forKey: "active_user_mode"
+        )
+        defaults.set(
+            resolvedRole,
+            forKey: "last_active_app_role"
+        )
 
         NotificationCenter.default.post(
             name: Notification.Name(
@@ -158,6 +166,36 @@ final class AuthViewModel: ObservableObject {
             "email",
             "user_email",
             "phone",
+            "phone_number",
+            "phoneNumber",
+            "mobile",
+
+            "regions",
+            "selected_regions",
+            "regions_json",
+            "regions_csv",
+            "branch_type",
+
+            "birthDay",
+            "birth_day",
+            "birthMonth",
+            "birth_month",
+            "birthYear",
+            "birth_year",
+            "gender",
+            "username",
+
+            "subscribeSms",
+            "wantsSms",
+            "acceptsTerms",
+            "authProvider",
+            "google_login",
+
+            "password",
+            "user_password",
+            "remember_password",
+
+            "belt_he",
 
             "belt",
             "beltId",
@@ -200,7 +238,33 @@ final class AuthViewModel: ObservableObject {
             "current_groupKey",
             "selected_groupKey",
 
-            "coach_code"
+            "coach_code",
+            "coachCode",
+
+            "coach_broadcast_open_dialog",
+            "coach_broadcast_open_from_push",
+            "coach_broadcast_push_id",
+            "coach_broadcast_push_received_at",
+
+            "profile_completed",
+            "registration_complete",
+            "registration_form_completed",
+            "registration_schema_version",
+            "profile_completed_uid",
+            "profile_completed_at",
+
+            "active_user_mode",
+            "last_active_app_role",
+
+            "coach_authorized",
+            "can_open_coach_drawer",
+            "can_view_trainees",
+            "can_manage_trainees",
+            "can_manage_attendance",
+            "can_manage_internal_exams",
+            "can_view_payment_reports",
+            "can_manage_payments",
+            "can_send_broadcasts"
         ]
 
         for key in keys {
@@ -292,7 +356,7 @@ final class AuthViewModel: ObservableObject {
 
                     self.registeredBelt = nil
                     self.nextBelt = BeltFlow.defaultBelt
-                    self.userRole = "trainee"
+                    self.setActiveUserRole("trainee")
                     self.userFullName = ""
                     self.userRegion = ""
                     self.userBranch = ""
@@ -322,22 +386,6 @@ final class AuthViewModel: ObservableObject {
             self.handle = nil
         }
         #endif
-    }
-
-    private func nextDeveloperCoachCode(for email: String) -> String? {
-        let normalizedEmail = email
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
-        guard normalizedEmail == "ypo1980@gmail.com" else { return nil }
-
-        let defaults = UserDefaults.standard
-        let key = "kmi.dev.coach.reset.toggle"
-
-        let nextCode = (defaults.bool(forKey: key) ? "123456" : "654321")
-        defaults.set(!defaults.bool(forKey: key), forKey: key)
-
-        return nextCode
     }
 
     private func isDeveloperDualRoleUser(email: String, uid: String) -> Bool {
@@ -390,7 +438,60 @@ final class AuthViewModel: ObservableObject {
     }
 
 #if canImport(FirebaseFirestore)
-    
+
+    private func hasServerCoachAccess(
+        uid: String
+    ) async -> Bool {
+        guard !Task.isCancelled,
+              Auth.auth().currentUser?.uid == uid else {
+            return false
+        }
+
+        let database = Firestore.firestore()
+
+        do {
+            let coachDocument = try await database
+                .collection("authorizedCoaches")
+                .document(uid)
+                .getDocument()
+
+            let data = coachDocument.data() ?? [:]
+
+            let role = (data["role"] as? String ?? "")
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
+
+            if coachDocument.exists,
+               data["active"] as? Bool == true,
+               role == "coach",
+               !Task.isCancelled,
+               Auth.auth().currentUser?.uid == uid {
+                return true
+            }
+        } catch {
+            // ממשיכים לבדיקת הרשאת מנהל.
+        }
+
+        do {
+            let adminDocument = try await database
+                .collection("admins")
+                .document(uid)
+                .getDocument()
+
+            guard !Task.isCancelled,
+                  Auth.auth().currentUser?.uid == uid else {
+                return false
+            }
+
+            return adminDocument.exists &&
+                adminDocument.data()?["enabled"] as? Bool == true
+        } catch {
+            return false
+        }
+    }
+
     private func ensureUserProfileDocumentExists(
         uid: String,
         existingData: [String: Any]
@@ -521,9 +622,15 @@ final class AuthViewModel: ObservableObject {
 
     // MARK: - Helpers
     func refreshCurrentUser() {
-        #if canImport(FirebaseAuth)
-        isLoading = true
-        Auth.auth().currentUser?.reload(completion: { [weak self] err in
+#if canImport(FirebaseAuth)
+guard let currentUser = Auth.auth().currentUser else {
+    isLoading = false
+    return
+}
+
+isLoading = true
+
+currentUser.reload(completion: { [weak self] err in
             DispatchQueue.main.async {
                 self?.isLoading = false
                 if let err {
@@ -542,6 +649,12 @@ final class AuthViewModel: ObservableObject {
 
         Task { @MainActor in
             await self.loadUserProfile(uid: uid)
+
+            guard !Task.isCancelled,
+                  Auth.auth().currentUser?.uid == uid else {
+                return
+            }
+
             KmiPushManager.shared.savePendingFcmTokenAfterLoginIfNeeded()
             KmiPushManager.shared.refreshAndSaveFcmTokenIfPossible()
         }
@@ -552,6 +665,12 @@ final class AuthViewModel: ObservableObject {
         branch: String,
         group: String
     ) {
+        #if canImport(FirebaseAuth)
+        guard let uid = Auth.auth().currentUser?.uid else {
+            return
+        }
+        #endif
+
         let cleanBranch = branch
             .trimmingCharacters(
                 in: .whitespacesAndNewlines
@@ -561,6 +680,27 @@ final class AuthViewModel: ObservableObject {
             .trimmingCharacters(
                 in: .whitespacesAndNewlines
             )
+
+        /*
+         * כאשר קיימים שיוכים מפורשים, הבחירה
+         * הפעילה חייבת להתאים לסניף ולקבוצות שלו.
+         */
+        if !userBranchAssignments.isEmpty {
+            guard let assignment =
+                userBranchAssignments.first(where: {
+                    $0.branch == cleanBranch
+                }),
+                (
+                    assignment.groups.contains(cleanGroup) ||
+                    (
+                        assignment.groups.isEmpty &&
+                        cleanGroup.isEmpty
+                    )
+                )
+            else {
+                return
+            }
+        }
 
         self.userBranch = cleanBranch
         self.userGroup = cleanGroup
@@ -654,14 +794,15 @@ final class AuthViewModel: ObservableObject {
             forKey: "active_group"
         )
 
-        #if canImport(FirebaseAuth)
-        guard let uid = Auth.auth().currentUser?.uid else {
-            return
-        }
+#if canImport(FirebaseAuth)
+Task { @MainActor in
+    #if canImport(FirebaseFirestore)
+    guard !Task.isCancelled,
+          Auth.auth().currentUser?.uid == uid else {
+        return
+    }
 
-        Task { @MainActor in
-            #if canImport(FirebaseFirestore)
-            do {
+    do {
                 /*
                  * מעדכנים בשרת רק את הבחירה הפעילה.
                  * אין לכתוב כאן branches או groups משום
@@ -691,15 +832,25 @@ final class AuthViewModel: ObservableObject {
                         merge: true
                     )
 
-                KmiPushManager.shared
-                    .savePendingFcmTokenAfterLoginIfNeeded()
+        guard !Task.isCancelled,
+              Auth.auth().currentUser?.uid == uid else {
+            return
+        }
 
-                KmiPushManager.shared
-                    .refreshAndSaveFcmTokenIfPossible()
+        KmiPushManager.shared
+            .savePendingFcmTokenAfterLoginIfNeeded()
 
-            } catch {
-                self.errorText = error.localizedDescription
-            }
+        KmiPushManager.shared
+            .refreshAndSaveFcmTokenIfPossible()
+
+    } catch {
+        guard !Task.isCancelled,
+              Auth.auth().currentUser?.uid == uid else {
+            return
+        }
+
+        self.errorText = error.localizedDescription
+    }
             #endif
         }
         #endif
@@ -759,6 +910,12 @@ final class AuthViewModel: ObservableObject {
 
                 await self.loadUserProfile(uid: uid)
 
+                guard !Task.isCancelled,
+                      Auth.auth().currentUser?.uid == uid else {
+                    completion?(false)
+                    return
+                }
+
                 KmiPushManager.shared.savePendingFcmTokenAfterLoginIfNeeded()
                 KmiPushManager.shared.refreshAndSaveFcmTokenIfPossible()
 
@@ -785,7 +942,13 @@ final class AuthViewModel: ObservableObject {
 
         let rawId = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
         let rawPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
-        let wantedRole = expectedRole.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let wantedRole = expectedRole
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        guard wantedRole == "trainee" || wantedRole == "coach" else {
+            return false
+        }
 
         guard !rawId.isEmpty, !rawPassword.isEmpty else {
             errorText = "נא למלא מייל וסיסמה"
@@ -855,14 +1018,6 @@ final class AuthViewModel: ObservableObject {
             let serverRole = ((data["role"] as? String) ?? "trainee").lowercased()
             let loginEmailNormalized = loginEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-            let serverPhoneRaw =
-                (data["phone"] as? String) ??
-                (data["phoneNumber"] as? String) ??
-                (data["mobile"] as? String) ??
-                ""
-
-            let serverPhoneNormalized = serverPhoneRaw.filter { $0.isNumber }
-
             let isCoachAccount =
                 serverRole == "coach" ||
                 serverRole == "trainer" ||
@@ -874,14 +1029,12 @@ final class AuthViewModel: ObservableObject {
             )
 
             if wantedRole == "coach" {
-                let approved = data["coachApproved"] as? Bool ?? false
-                let whitelistedCoach = CoachWhitelist.isWhitelisted(
-                    phone: serverPhoneNormalized,
-                    email: loginEmailNormalized
-                )
+                let authorized =
+                    await hasServerCoachAccess(uid: uid)
 
-                if !approved && !whitelistedCoach {
-                    errorText = "המשתמש אינו מוגדר כמאמן"
+                guard authorized else {
+                    errorText =
+                        "לא ניתן לאמת הרשאת מאמן. בדוק את החיבור ואת ההרשאה בשרת."
                     try? Auth.auth().signOut()
                     return false
                 }
@@ -903,18 +1056,11 @@ final class AuthViewModel: ObservableObject {
                 let typedCoachCode = (coachCode ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
 
-                let specialCoachCode: String? = {
-                    if loginEmailNormalized == "ypo1980@gmail.com" {
-                        return "123456"
-                    }
-                    return nil
-                }()
-
-                let storedCoachCode = (
-                    specialCoachCode ??
-                    ((data["coachCode"] as? String) ?? "")
-                )
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+                let storedCoachCode =
+                    (data["coachCode"] as? String ?? "")
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
 
                 if typedCoachCode.isEmpty {
                     errorText = "יש להזין קוד מאמן"
@@ -931,9 +1077,17 @@ final class AuthViewModel: ObservableObject {
             
             let defaults = UserDefaults.standard
             defaults.set(rawId, forKey: "remember_username")
-            defaults.set(rawPassword, forKey: "remember_password")
+
+            for key in [
+                "remember_password",
+                "password",
+                "user_password"
+            ] {
+                defaults.removeObject(forKey: key)
+            }
+
             defaults.set(true, forKey: "is_logged_in")
-            defaults.set(wantedRole, forKey: "user_role")
+            setActiveUserRole(wantedRole)
 
             if wantedRole == "coach", let coachCode {
                 defaults.set(coachCode.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "coach_code")
@@ -942,6 +1096,12 @@ final class AuthViewModel: ObservableObject {
             }
 
             await loadUserProfile(uid: uid)
+
+            guard !Task.isCancelled,
+                  Auth.auth().currentUser?.uid == uid else {
+                return false
+            }
+
             KmiPushManager.shared.savePendingFcmTokenAfterLoginIfNeeded()
             KmiPushManager.shared.refreshAndSaveFcmTokenIfPossible()
 
@@ -1050,6 +1210,10 @@ final class AuthViewModel: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
 
+        guard wantedRole == "trainee" || wantedRole == "coach" else {
+            return false
+        }
+
         isLoading = true
         defer { isLoading = false }
 
@@ -1115,15 +1279,6 @@ final class AuthViewModel: ObservableObject {
             let serverRole = ((data["role"] as? String) ?? "trainee")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
-
-            let serverPhoneRaw =
-                (data["phone"] as? String) ??
-                (data["phoneNumber"] as? String) ??
-                (data["mobile"] as? String) ??
-                ""
-
-            let serverPhoneNormalized = serverPhoneRaw.filter { $0.isNumber }
-
             let isCoachAccount =
                 serverRole == "coach" ||
                 serverRole == "trainer" ||
@@ -1135,14 +1290,12 @@ final class AuthViewModel: ObservableObject {
             )
 
             if wantedRole == "coach" {
-                let approved = data["coachApproved"] as? Bool ?? false
-                let whitelistedCoach = CoachWhitelist.isWhitelisted(
-                    phone: serverPhoneNormalized,
-                    email: loginEmail
-                )
+                let authorized =
+                    await hasServerCoachAccess(uid: uid)
 
-                if !approved && !whitelistedCoach {
-                    errorText = "המשתמש אינו מוגדר כמאמן"
+                guard authorized else {
+                    errorText =
+                        "לא ניתן לאמת הרשאת מאמן. בדוק את החיבור ואת ההרשאה בשרת."
                     try? Auth.auth().signOut()
                     return false
                 }
@@ -1150,18 +1303,11 @@ final class AuthViewModel: ObservableObject {
                 let typedCoachCode = (coachCode ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
 
-                let specialCoachCode: String? = {
-                    if loginEmail == "ypo1980@gmail.com" {
-                        return "123456"
-                    }
-                    return nil
-                }()
-
-                let storedCoachCode = (
-                    specialCoachCode ??
-                    ((data["coachCode"] as? String) ?? "")
-                )
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+                let storedCoachCode =
+                    (data["coachCode"] as? String ?? "")
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
 
                 if typedCoachCode.isEmpty {
                     errorText = "יש להזין קוד מאמן"
@@ -1193,7 +1339,7 @@ final class AuthViewModel: ObservableObject {
             defaults.set(loginEmail, forKey: "remember_username")
             defaults.set(loginEmail, forKey: "email")
             defaults.set(true, forKey: "is_logged_in")
-            defaults.set(wantedRole, forKey: "user_role")
+            setActiveUserRole(wantedRole)
 
             if wantedRole == "coach", let coachCode {
                 defaults.set(coachCode.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "coach_code")
@@ -1202,6 +1348,12 @@ final class AuthViewModel: ObservableObject {
             }
 
             await loadUserProfile(uid: uid)
+
+            guard !Task.isCancelled,
+                  Auth.auth().currentUser?.uid == uid else {
+                return false
+            }
+
             KmiPushManager.shared.savePendingFcmTokenAfterLoginIfNeeded()
             KmiPushManager.shared.refreshAndSaveFcmTokenIfPossible()
 
@@ -1376,7 +1528,7 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
             self.isSignedIn = false
             self.registeredBelt = nil
             self.nextBelt = BeltFlow.defaultBelt
-            self.userRole = "trainee"
+            self.setActiveUserRole("trainee")
             self.userFullName = ""
             self.userRegion = ""
             self.userBranch = ""
@@ -1454,12 +1606,6 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
                     .lowercased()
             }
 
-            if let devCode = nextDeveloperCoachCode(for: loginEmail) {
-                UserDefaults.standard.set(devCode, forKey: "coach_code")
-                errorText = nil
-                return devCode
-            }
-
             // חיפוש המשתמש
             let snap = try await db.collection("users")
                 .whereField("emailLower", isEqualTo: loginEmail)
@@ -1472,15 +1618,6 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
             }
 
             let uid = doc.documentID
-            let data = doc.data()
-
-            let role = (data["role"] as? String ?? "").lowercased()
-            let approved = data["coachApproved"] as? Bool ?? false
-
-            if role != "coach" && !approved {
-                errorText = "המשתמש אינו מאמן"
-                return nil
-            }
 
             // ✅ שכבת אבטחה: אימות מלא עם האימייל והסיסמה לפני איפוס קוד
             _ = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<AuthDataResult, Error>) in
@@ -1502,6 +1639,20 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
             guard Auth.auth().currentUser?.uid == uid else {
                 try? Auth.auth().signOut()
                 errorText = "אימות המשתמש נכשל"
+                return nil
+            }
+
+            let authorized = await hasServerCoachAccess(uid: uid)
+
+            guard authorized else {
+                try? Auth.auth().signOut()
+                errorText =
+                    "לא ניתן לאמת הרשאת מאמן. בדוק את החיבור ואת ההרשאה בשרת."
+                return nil
+            }
+
+            guard !Task.isCancelled,
+                  Auth.auth().currentUser?.uid == uid else {
                 return nil
             }
 
@@ -1573,10 +1724,29 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
             return
         }
 
-        guard !email.isEmpty, password.count >= 6 else {
-            errorText = "נא למלא אימייל וסיסמה (לפחות 6 תווים)"
-            return
-        }
+#if canImport(FirebaseAuth)
+let isGoogleRegistration =
+    Auth.auth().currentUser?.providerData.contains {
+        $0.providerID == "google.com"
+    } == true
+#else
+let isGoogleRegistration = false
+#endif
+
+guard !email.isEmpty else {
+    errorText = "נא למלא כתובת מייל"
+    return
+}
+
+guard isGoogleRegistration || password.count >= 6 else {
+    errorText = "נא למלא סיסמה באורך 6 תווים לפחות"
+    return
+}
+
+guard form.role == .trainee else {
+    errorText = "הרשאת מאמן ניתנת לאחר אישור מהשרת"
+    return
+}
 
         guard !form.fullNameTrimmed.isEmpty else {
             errorText = "נא למלא שם מלא"
@@ -1589,10 +1759,65 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
         #if canImport(FirebaseAuth)
         
         do {
-            let uid = try await createUserLegacy(email: email, password: password)
-            
+            let uid: String
+
+            if isGoogleRegistration {
+                guard let currentUser =
+                    Auth.auth().currentUser,
+                    !currentUser.uid.isEmpty else {
+                    errorText = "יש להתחבר מחדש באמצעות Google"
+                    return
+                }
+
+                let authenticatedEmail =
+                    (currentUser.email ?? "")
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                        .lowercased()
+
+                guard authenticatedEmail == email.lowercased() else {
+                    errorText = "כתובת המייל חייבת להתאים לחשבון Google המחובר"
+                    return
+                }
+
+                uid = currentUser.uid
+            } else {
+                do {
+                    uid = try await createUserLegacy(
+                        email: email,
+                        password: password
+                    )
+                } catch {
+                    let authError = error as NSError
+
+                    guard authError.code ==
+                        AuthErrorCode.emailAlreadyInUse.rawValue else {
+                        throw error
+                    }
+
+                    /*
+                     * כמו Android:
+                     * מייל קיים מחייב אימות בסיסמה,
+                     * ורק לאחריו ממשיכים לשמירת הפרופיל.
+                     */
+                    let result = try await Auth.auth()
+                        .signIn(
+                            withEmail: email,
+                            password: password
+                        )
+
+                    uid = result.user.uid
+                }
+            }
+
 #if canImport(FirebaseFirestore)
 do {
+    guard !Task.isCancelled,
+          Auth.auth().currentUser?.uid == uid else {
+        return
+    }
+
     let db = Firestore.firestore()
 
     issuedCoachCode = nil
@@ -1602,7 +1827,7 @@ do {
 
     // beltId עוזר לטעינת חגורה בהמשך
     if userData["beltId"] == nil {
-        userData["beltId"] = form.belt.trimmingCharacters(in: .whitespacesAndNewlines)
+        userData["beltId"] = form.currentBeltId
     }
 
     // ✅ שומרים את כל הסניפים וכל הקבוצות כמו באנדרואיד
@@ -1696,86 +1921,111 @@ do {
         return resolvedBranches.first ?? ""
     }()
 
+    let activeBranchGroups: [String] = {
+        if form.hasCompleteBranchAssignments {
+            return form.normalizedBranchAssignments
+                .first {
+                    $0.branch == primaryBranch
+                }?
+                .groups ?? []
+        }
+
+        /*
+         * תאימות למבנה ישן רק בסניף יחיד.
+         */
+        return resolvedBranches.count == 1
+            ? resolvedGroups
+            : []
+    }()
+
     let primaryGroup: String = {
-        if resolvedGroups.contains(requestedActiveGroup) {
+        if activeBranchGroups.contains(requestedActiveGroup) {
             return requestedActiveGroup
         }
 
-        return resolvedGroups.first ?? ""
+        return activeBranchGroups.first ?? ""
     }()
 
     userData["branches"] = resolvedBranches
     userData["groups"] = resolvedGroups
 
-    if !primaryBranch.isEmpty {
-        /*
-         * branch נשמר לצורך תאימות למסכים ישנים,
-         * אך branches מכיל את כל הסניפים שנבחרו.
-         */
-        userData["branch"] = primaryBranch
-        userData["activeBranch"] = primaryBranch
-        userData["active_branch"] = primaryBranch
+    /*
+     * כותבים גם ערך ריק כדי לנקות בחירה קודמת
+     * בזמן שמירה באמצעות merge.
+     */
+    userData["branch"] = primaryBranch
+    userData["activeBranch"] = primaryBranch
+    userData["active_branch"] = primaryBranch
+
+    userData["group"] = primaryGroup
+    userData["age_group"] = primaryGroup
+    userData["ageGroup"] = primaryGroup
+    userData["activeGroup"] = primaryGroup
+    userData["active_group"] = primaryGroup
+
+    /*
+     * רישום הטופס אינו מעניק הרשאת מאמן
+     * ואינו משנה אישור או קוד קיימים.
+     */
+    userData.removeValue(forKey: "coachCode")
+    userData.removeValue(forKey: "coachApproved")
+
+    userData["authProvider"] =
+        isGoogleRegistration ? "google" : "local"
+
+    if isGoogleRegistration {
+        userData["username"] = email
+        userData["usernameLower"] = email.lowercased()
     }
 
-    if !primaryGroup.isEmpty {
-        /*
-         * group ו־age_group נשמרים לצורך תאימות,
-         * אך groups מכיל את כל הקבוצות שנבחרו.
-         */
-        userData["group"] = primaryGroup
-        userData["age_group"] = primaryGroup
-        userData["ageGroup"] = primaryGroup
-        userData["activeGroup"] = primaryGroup
-        userData["active_group"] = primaryGroup
-    }
-
-    // ✅ מאמן מורשה בלבד + יצירת קוד אוטומטי כמו באנדרואיד
-    let generatedCoachCode: String?
-    if form.role == .coach {
-        let normalizedPhone = form.phone.filter { $0.isNumber }
-        let normalizedEmail = form.emailTrimmed.lowercased()
-
-        guard CoachWhitelist.isWhitelisted(
-            phone: normalizedPhone,
-            email: normalizedEmail
-        ) else {
-            self.errorText = "הרישום כמאמן מותר רק למאמנים מורשים"
-            return
-        }
-
-        let code: String
-
-        if normalizedEmail == "ypo1980@gmail.com" {
-            code = "123456"
-        } else {
-            code = CoachCodeGenerator.generate()
-        }
-
-        generatedCoachCode = code
-        userData["coachCode"] = code
-        userData["coachApproved"] = true
-
-    } else {
-        generatedCoachCode = nil
-        userData["coachApproved"] = false
+    guard !Task.isCancelled,
+          Auth.auth().currentUser?.uid == uid else {
+        return
     }
 
     try await db.collection("users")
         .document(uid)
         .setData(userData, merge: true)
 
+    /*
+     * בזמן ההמתנה לשמירה ייתכן שהחשבון התחלף.
+     * שומרים מקומית רק עבור המשתמש שעדיין מחובר.
+     */
+    guard !Task.isCancelled,
+          Auth.auth().currentUser?.uid == uid else {
+        return
+    }
+
     // ✅ שמירה מקומית
     form.persistToUserDefaults()
 
-    if let generatedCoachCode {
-        UserDefaults.standard.set(generatedCoachCode, forKey: "coach_code")
-        issuedCoachCode = generatedCoachCode
-    } else {
-        UserDefaults.standard.removeObject(forKey: "coach_code")
+    let registrationDefaults =
+        UserDefaults.standard
+
+    registrationDefaults.removeObject(
+        forKey: "coach_code"
+    )
+
+    registrationDefaults.set(
+        isGoogleRegistration ? "google" : "local",
+        forKey: "authProvider"
+    )
+
+    registrationDefaults.set(
+        isGoogleRegistration,
+        forKey: "google_login"
+    )
+
+    if isGoogleRegistration {
+        registrationDefaults.set(
+            email,
+            forKey: "username"
+        )
     }
 
 } catch {
-    self.errorText = "שמירת פרופיל נכשלה: \(error.localizedDescription)"
+    self.errorText =
+        "לא ניתן לשמור את הפרופיל כרגע. בדוק את החיבור ונסה שוב."
     return
 }
 
@@ -1921,137 +2171,104 @@ do {
 
 
         // ✅ role מהשרת עם תמיכה בחשבון מנהל דו־תפקידי
-        let roleFromServer =
-            (data["role"] as? String) ??
-            (data["userRole"] as? String) ??
-            (data["user_type"] as? String) ??
-            (data["type"] as? String) ??
-            ""
+            let roleFromServer = [
+                data["role"] as? String,
+                data["user_role"] as? String,
+                data["userRole"] as? String,
+                data["user_type"] as? String,
+                data["type"] as? String
+            ]
+            .compactMap { $0 }
+            .map {
+                $0.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+            }
+            .first { !$0.isEmpty } ?? ""
 
         let normalizedRole = roleFromServer
             .trimmingCharacters(
                 in: .whitespacesAndNewlines
             )
             .lowercased()
-
-        let fallbackEmail =
-            Auth.auth().currentUser?.email?
-                .trimmingCharacters(
+            let serverPhoneRaw = [
+                data["phone"] as? String,
+                data["phoneNumber"] as? String,
+                data["phone_number"] as? String,
+                data["mobile"] as? String
+            ]
+            .compactMap { $0 }
+            .map {
+                $0.trimmingCharacters(
                     in: .whitespacesAndNewlines
                 )
-                .lowercased() ?? ""
+            }
+            .first { !$0.isEmpty } ?? ""
+            let serverAllowsCoach =
+                await hasServerCoachAccess(uid: uid)
 
-        let serverPhoneRaw =
-            (data["phone"] as? String) ??
-            (data["phoneNumber"] as? String) ??
-            (data["mobile"] as? String) ??
-            ""
-
-        let serverPhoneNormalized =
-            serverPhoneRaw.filter { $0.isNumber }
-
-        let isWhitelistedCoach =
-            CoachWhitelist.isWhitelisted(
-                phone: serverPhoneNormalized,
-                email: fallbackEmail
-            )
-
-        let isDeveloperDualRole =
-            isDeveloperDualRoleUser(
-                email: fallbackEmail,
-                uid: uid
-            )
-
-        let serverRoleIsCoach =
-            normalizedRole == "coach" ||
-            normalizedRole == "trainer" ||
-            normalizedRole == "instructor" ||
-            normalizedRole == "coach_user" ||
-            normalizedRole == "kmi_coach" ||
-            normalizedRole == "מאמן"
-
-        let serverRoleIsTrainee =
-            normalizedRole == "trainee" ||
-            normalizedRole == "student" ||
-            normalizedRole == "trainee_user" ||
-            normalizedRole == "kmi_trainee" ||
-            normalizedRole == "מתאמן"
-
-        let resolvedRole: String = {
             /*
-             * חשבון מנהל דו־תפקידי חייב לכבד את הבחירה
-             * שנשמרה בפרופיל, גם אם החשבון נמצא ברשימת
-             * המאמנים המורשים.
+             * בזמן בדיקת ההרשאה ייתכן שהמשתמש
+             * התנתק או שהתחילה טעינת פרופיל אחרת.
              */
-            if isDeveloperDualRole {
-                if serverRoleIsCoach {
-                    return "coach"
-                }
+            guard !Task.isCancelled,
+                  profileLoadRequestID == requestID,
+                  Auth.auth().currentUser?.uid == uid else {
+                return
+            }
 
-                if serverRoleIsTrainee {
-                    return "trainee"
-                }
+            let defaults = UserDefaults.standard
 
-                let locallySelectedRole =
-                    UserDefaults.standard
-                        .string(forKey: self.roleDefaultsKey)?
-                        .trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        )
-                        .lowercased() ?? ""
+            let storedActiveRole = [
+                defaults.string(
+                    forKey: "last_active_app_role"
+                ),
+                defaults.string(
+                    forKey: "active_user_mode"
+                ),
+                defaults.string(
+                    forKey: "user_role"
+                ),
+                defaults.string(
+                    forKey: roleDefaultsKey
+                )
+            ]
+            .compactMap { $0 }
+            .map {
+                $0.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+            }
+            .first { !$0.isEmpty }
 
-                return locallySelectedRole == "coach"
+            let requestedRole =
+                normalizedActiveRole(
+                    storedActiveRole ?? normalizedRole
+                )
+
+            let resolvedRole =
+                requestedRole == "coach" &&
+                serverAllowsCoach
                     ? "coach"
                     : "trainee"
+
+            self.setActiveUserRole(resolvedRole)
+
+            let rawBelt = [
+                data["beltId"] as? String,
+                data["belt"] as? String,
+                data["currentBelt"] as? String,
+                data["registeredBelt"] as? String,
+                data["current_belt"] as? String,
+                data["belt_current"] as? String
+            ]
+            .compactMap { $0 }
+            .map {
+                $0.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
             }
-
-            /*
-             * אצל משתמש רגיל, תפקיד מאמן מאושר לפי
-             * נתוני הפרופיל או רשימת המאמנים המורשים.
-             */
-            if serverRoleIsCoach {
-                return "coach"
-            }
-
-            if (data["coachApproved"] as? Bool) == true {
-                return "coach"
-            }
-
-            if isWhitelistedCoach {
-                return "coach"
-            }
-
-            return "trainee"
-        }()
-
-        self.userRole = resolvedRole
-
-        let roleDefaults = UserDefaults.standard
-        roleDefaults.set(
-            resolvedRole,
-            forKey: self.roleDefaultsKey
-        )
-        roleDefaults.set(
-            resolvedRole,
-            forKey: "user_role"
-        )
-        roleDefaults.set(
-            resolvedRole,
-            forKey: "role"
-        )
-        roleDefaults.set(
-            resolvedRole,
-            forKey: "userRole"
-        )
-        roleDefaults.set(
-            resolvedRole,
-            forKey: "profile_role"
-        )
-
-        let rawBelt =
-                (data["beltId"] as? String) ??
-                (data["belt"] as? String) ??
-                (data["registeredBelt"] as? String)
+            .first { !$0.isEmpty }
 
             let belt = BeltFlow.belt(fromRaw: rawBelt)
             self.registeredBelt = belt
@@ -2062,9 +2279,37 @@ do {
                 (data["fullName"] as? String)?
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-            let region =
+            let legacyRegion =
                 (data["region"] as? String)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    ) ?? ""
+
+            let serverRegions =
+                (data["regions"] as? [String] ?? [])
+                    .map {
+                        $0.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                    }
+                    .filter { !$0.isEmpty }
+
+            var seenRegions = Set<String>()
+
+            let regions = (
+                serverRegions.isEmpty
+                    ? [legacyRegion]
+                    : serverRegions
+            )
+            .filter { !$0.isEmpty }
+            .filter {
+                seenRegions.insert($0).inserted
+            }
+
+            let region =
+                regions.contains(legacyRegion)
+                    ? legacyRegion
+                    : regions.first ?? ""
 
             let codec = RegistrationFormState.BranchAssignmentsCodec.self
 
@@ -2194,15 +2439,87 @@ do {
             }
 
             ud.set(fullName, forKey: "fullName")
+            ud.set(fullName, forKey: "full_name")
             ud.set(fullName, forKey: "name")
             ud.set(fullName, forKey: "displayName")
 
-            ud.set(
-                serverPhoneRaw.trimmingCharacters(
+            let gender = (data["gender"] as? String ?? "")
+                .trimmingCharacters(
                     in: .whitespacesAndNewlines
-                ),
-                forKey: "phone"
+                )
+
+            ud.set(gender, forKey: "gender")
+
+            let birthDate = (data["birthDate"] as? String ?? "")
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+            let birthParts = birthDate.split(
+                separator: "-",
+                omittingEmptySubsequences: false
             )
+
+            for key in [
+                "birthDay",
+                "birth_day",
+                "birthMonth",
+                "birth_month",
+                "birthYear",
+                "birth_year"
+            ] {
+                ud.removeObject(forKey: key)
+            }
+
+            if birthParts.count == 3,
+               let year = Int(birthParts[0]),
+               let month = Int(birthParts[1]),
+               let day = Int(birthParts[2]),
+               (1900...2100).contains(year),
+               (1...12).contains(month),
+               (1...31).contains(day) {
+                ud.set(String(day), forKey: "birthDay")
+                ud.set(String(day), forKey: "birth_day")
+                ud.set(String(month), forKey: "birthMonth")
+                ud.set(String(month), forKey: "birth_month")
+                ud.set(String(year), forKey: "birthYear")
+                ud.set(String(year), forKey: "birth_year")
+            }
+
+            ud.set(
+                data["username"] as? String ?? "",
+                forKey: "username"
+            )
+
+            let wantsSms =
+                data["subscribeSms"] as? Bool
+                ?? data["wantsSms"] as? Bool
+                ?? false
+
+            ud.set(wantsSms, forKey: "subscribeSms")
+            ud.set(wantsSms, forKey: "wantsSms")
+
+            let abroad =
+                TrainingCatalogIOS.isAbroadRegion(region) ||
+                branches.contains {
+                    TrainingCatalogIOS.isAbroadBranch($0)
+                }
+
+            ud.set(
+                abroad ? "abroad" : "israel",
+                forKey: "branch_type"
+            )
+
+            let normalizedPhone =
+                serverPhoneRaw.filter { $0.isNumber }
+
+            for key in [
+                "phone",
+                "phone_number",
+                "phoneNumber"
+            ] {
+                ud.set(normalizedPhone, forKey: key)
+            }
 
             let resolvedEmail = [
                 Auth.auth().currentUser?.email ?? "",
@@ -2219,23 +2536,21 @@ do {
             ud.set(resolvedEmail, forKey: "email")
             ud.set(resolvedEmail, forKey: "user_email")
 
-        ud.set(resolvedRole, forKey: "user_role")
-        ud.set(resolvedRole, forKey: "role")
-        ud.set(resolvedRole, forKey: "userRole")
-        ud.set(resolvedRole, forKey: "profile_role")
+            let beltPreferenceKeys = [
+                "belt",
+                "beltId",
+                "currentBeltId",
+                "registeredBelt",
+                "current_belt",
+                "belt_current"
+            ]
 
             if let belt {
-                ud.set(belt.id, forKey: "belt")
-                ud.set(belt.id, forKey: "beltId")
-                ud.set(belt.id, forKey: "currentBeltId")
-                ud.set(belt.id, forKey: "registeredBelt")
+                for key in beltPreferenceKeys {
+                    ud.set(belt.id, forKey: key)
+                }
             } else {
-                for key in [
-                    "belt",
-                    "beltId",
-                    "currentBeltId",
-                    "registeredBelt"
-                ] {
+                for key in beltPreferenceKeys {
                     ud.removeObject(forKey: key)
                 }
             }
@@ -2254,11 +2569,20 @@ do {
          * שומר גם את כל הרשימות. ערכים אלה משמשים
          * את מסך עריכת הפרופיל ואת מסך האימונים הקרובים.
          */
-        ud.set(branches, forKey: "branches")
-        ud.set(groups, forKey: "groups")
+            ud.set(regions, forKey: "regions")
+            ud.set(regions, forKey: "selected_regions")
+            ud.set(region, forKey: "active_region")
 
-        ud.set(
-            branches.joined(separator: ","),
+            ud.set(
+                regions.joined(separator: ", "),
+                forKey: "regions_csv"
+            )
+
+            ud.set(branches, forKey: "branches")
+            ud.set(groups, forKey: "groups")
+
+            ud.set(
+                branches.joined(separator: ","),
             forKey: "branchesCsv"
         )
 

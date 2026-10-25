@@ -337,14 +337,14 @@ final class AuthViewModel: ObservableObject {
                 self.isSignedIn = (user != nil)
 
                 if let user {
-                    // מציגים את האפליקציה מיד.
-                    // פרופיל, חגורה, תפקיד ושיוך נטענים ברקע ומעדכנים את ה־UI כשהם מגיעים.
-                    self.isLoading = false
-
-                    Task { @MainActor in
-                        await self.loadUserProfile(uid: user.uid)
-                        self.isLoading = false
-                    }
+                    /*
+                     * טעינת הפרופיל מנוהלת באמצעות
+                     * isProfileLoading.
+                     *
+                     * פעולת הכניסה או הרישום מנהלת
+                     * בעצמה את isLoading.
+                     */
+                    await self.loadUserProfile(uid: user.uid)
 
                 } else {
                     self.clearTrainingAssignmentsOnSignOut()
@@ -621,6 +621,99 @@ final class AuthViewModel: ObservableObject {
     #endif
 
     // MARK: - Helpers
+
+    private func authText(
+        _ hebrew: String,
+        _ english: String
+    ) -> String {
+        let language = UserDefaults.standard
+            .string(forKey: "kmi_app_language")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? "he"
+
+        return language == "en" || language == "english"
+            ? english
+            : hebrew
+    }
+
+    private func userFacingError(
+        _ error: Error
+    ) -> String {
+        let nsError = error as NSError
+
+        if nsError.domain == NSURLErrorDomain {
+            return authText(
+                "לא ניתן להתחבר כרגע. בדוק את החיבור לאינטרנט ונסה שוב.",
+                "Unable to connect. Check your internet connection and try again."
+            )
+        }
+
+        #if canImport(FirebaseAuth)
+        if nsError.domain == AuthErrorDomain {
+            switch nsError.code {
+            case AuthErrorCode.invalidEmail.rawValue,
+                 AuthErrorCode.invalidRecipientEmail.rawValue:
+                return authText(
+                    "כתובת האימייל אינה תקינה.",
+                    "The email address is invalid."
+                )
+
+            case AuthErrorCode.wrongPassword.rawValue,
+                 AuthErrorCode.invalidCredential.rawValue,
+                 AuthErrorCode.userNotFound.rawValue:
+                return authText(
+                    "פרטי ההתחברות אינם נכונים.",
+                    "The sign-in details are incorrect."
+                )
+
+            case AuthErrorCode.emailAlreadyInUse.rawValue:
+                return authText(
+                    "כתובת המייל כבר רשומה. יש להתחבר לחשבון הקיים.",
+                    "This email is already registered. Sign in to your existing account."
+                )
+
+            case AuthErrorCode.weakPassword.rawValue:
+                return authText(
+                    "הסיסמה חלשה מדי. בחר סיסמה חזקה יותר.",
+                    "The password is too weak. Choose a stronger password."
+                )
+
+            case AuthErrorCode.userDisabled.rawValue:
+                return authText(
+                    "החשבון חסום. פנה לתמיכה.",
+                    "This account is disabled. Contact support."
+                )
+
+            case AuthErrorCode.tooManyRequests.rawValue:
+                return authText(
+                    "בוצעו יותר מדי ניסיונות. נסה שוב מאוחר יותר.",
+                    "Too many attempts. Please try again later."
+                )
+
+            case AuthErrorCode.networkError.rawValue:
+                return authText(
+                    "יש בעיית רשת. בדוק את החיבור לאינטרנט ונסה שוב.",
+                    "A network error occurred. Check your connection and try again."
+                )
+
+            case AuthErrorCode.requiresRecentLogin.rawValue:
+                return authText(
+                    "יש להתחבר מחדש כדי לבצע את הפעולה.",
+                    "Sign in again to complete this action."
+                )
+
+            default:
+                break
+            }
+        }
+        #endif
+
+        return authText(
+            "לא ניתן להשלים את הפעולה כרגע. נסה שוב.",
+            "Unable to complete this action right now. Please try again."
+        )
+    }
+
     func refreshCurrentUser() {
 #if canImport(FirebaseAuth)
 guard let currentUser = Auth.auth().currentUser else {
@@ -630,11 +723,19 @@ guard let currentUser = Auth.auth().currentUser else {
 
 isLoading = true
 
-currentUser.reload(completion: { [weak self] err in
+        let refreshUID = currentUser.uid
+
+        currentUser.reload(completion: { [weak self] err in
             DispatchQueue.main.async {
-                self?.isLoading = false
+                guard let self,
+                      Auth.auth().currentUser?.uid == refreshUID else {
+                    return
+                }
+
+                self.isLoading = false
+
                 if let err {
-                    self?.errorText = err.localizedDescription
+                    self.errorText = self.userFacingError(err)
                 }
             }
         })
@@ -685,7 +786,15 @@ currentUser.reload(completion: { [weak self] err in
          * כאשר קיימים שיוכים מפורשים, הבחירה
          * הפעילה חייבת להתאים לסניף ולקבוצות שלו.
          */
-        if !userBranchAssignments.isEmpty {
+        let hasStoredBranchAssignments =
+            UserDefaults.standard.object(
+                forKey: RegistrationFormState
+                    .BranchAssignmentsCodec
+                    .preferenceKey
+            ) != nil
+
+        if hasStoredBranchAssignments ||
+            !userBranchAssignments.isEmpty {
             guard let assignment =
                 userBranchAssignments.first(where: {
                     $0.branch == cleanBranch
@@ -849,7 +958,7 @@ Task { @MainActor in
             return
         }
 
-        self.errorText = error.localizedDescription
+        self.errorText = userFacingError(error)
     }
             #endif
         }
@@ -868,7 +977,10 @@ Task { @MainActor in
         let p = password.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !e.isEmpty, !p.isEmpty else {
-            errorText = "נא למלא אימייל וסיסמה"
+            errorText = authText(
+                "נא למלא אימייל וסיסמה",
+                "Enter your email and password."
+            )
             completion?(false)
             return
         }
@@ -887,7 +999,7 @@ Task { @MainActor in
             if let err {
                 DispatchQueue.main.async {
                     self.isLoading = false
-                    self.errorText = err.localizedDescription
+                    self.errorText = self.userFacingError(err)
                     completion?(false)
                 }
                 return
@@ -896,7 +1008,10 @@ Task { @MainActor in
             guard let uid = result?.user.uid else {
                 DispatchQueue.main.async {
                     self.isLoading = false
-                    self.errorText = "לא התקבל מזהה משתמש"
+                    self.errorText = self.authText(
+                        "לא ניתן לזהות את המשתמש. נסה להתחבר שוב.",
+                        "Unable to identify your account. Please sign in again."
+                    )
                     completion?(false)
                 }
                 return
@@ -951,7 +1066,10 @@ Task { @MainActor in
         }
 
         guard !rawId.isEmpty, !rawPassword.isEmpty else {
-            errorText = "נא למלא מייל וסיסמה"
+            errorText = authText(
+                "נא למלא מייל וסיסמה",
+                "Enter your email and password."
+            )
             return false
         }
 
@@ -985,7 +1103,10 @@ Task { @MainActor in
                       let resolvedEmail = (data["emailLower"] as? String) ?? (data["email"] as? String),
                       !resolvedEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 else {
-                    errorText = "המייל לא נמצא"
+                    errorText = authText(
+                        "המייל לא נמצא",
+                        "No account was found for these details."
+                    )
                     return false
                 }
 
@@ -1033,20 +1154,28 @@ Task { @MainActor in
                     await hasServerCoachAccess(uid: uid)
 
                 guard authorized else {
-                    errorText =
-                        "לא ניתן לאמת הרשאת מאמן. בדוק את החיבור ואת ההרשאה בשרת."
+                    errorText = authText(
+                        "לא ניתן לאמת הרשאת מאמן. בדוק את החיבור ואת ההרשאה בשרת.",
+                        "Unable to verify coach access. Check your connection and server authorization."
+                    )
                     try? Auth.auth().signOut()
                     return false
                 }
             } else if wantedRole == "trainee" {
                 if isCoachAccount && !isDeveloperDualRole {
-                    errorText = "החשבון הזה מוגדר כחשבון מאמן. יש להיכנס דרך טאב מאמן ולהזין את קוד המאמן שקיבלת."
+                    errorText = authText(
+                        "החשבון הזה מוגדר כחשבון מאמן. יש להיכנס דרך טאב מאמן ולהזין את קוד המאמן שקיבלת.",
+                        "This is a coach account. Sign in through the Coach tab and enter your coach code."
+                    )
                     try? Auth.auth().signOut()
                     return false
                 }
 
                 if serverRole != "trainee" && !isCoachAccount {
-                    errorText = "המשתמש אינו מוגדר כמתאמן"
+                    errorText = authText(
+                        "המשתמש אינו מוגדר כמתאמן",
+                        "This account is not configured as a trainee."
+                    )
                     try? Auth.auth().signOut()
                     return false
                 }
@@ -1063,13 +1192,19 @@ Task { @MainActor in
                         )
 
                 if typedCoachCode.isEmpty {
-                    errorText = "יש להזין קוד מאמן"
+                    errorText = authText(
+                        "יש להזין קוד מאמן",
+                        "Enter your coach code."
+                    )
                     try? Auth.auth().signOut()
                     return false
                 }
 
                 if typedCoachCode != storedCoachCode {
-                    errorText = "קוד מאמן שגוי"
+                    errorText = authText(
+                        "קוד מאמן שגוי",
+                        "The coach code is incorrect."
+                    )
                     try? Auth.auth().signOut()
                     return false
                 }
@@ -1110,35 +1245,18 @@ Task { @MainActor in
             return true
 
         } catch {
-
-            if let nsError = error as NSError? {
-
-                switch nsError.code {
-
-                case AuthErrorCode.userNotFound.rawValue:
-                    errorText = "המשתמש לא נמצא במערכת"
-
-                case AuthErrorCode.wrongPassword.rawValue:
-                    errorText = "סיסמה שגויה"
-
-                case AuthErrorCode.invalidEmail.rawValue:
-                    errorText = "כתובת האימייל אינה תקינה"
-
-                case AuthErrorCode.invalidCredential.rawValue:
-                    errorText = "מייל או סיסמה שגויים"
-
-                default:
-                    errorText = nsError.localizedDescription
-                }
-
-            } else {
-                errorText = error.localizedDescription
+            guard !Task.isCancelled else {
+                return false
             }
 
+            errorText = userFacingError(error)
             return false
         }
 #else
-        errorText = "FirebaseFirestore לא מותקן בפרויקט"
+        errorText = authText(
+            "שירות הפרופיל אינו זמין כרגע. פנה לתמיכה.",
+            "The profile service is unavailable. Contact support."
+        )
         return false
         #endif
         #else
@@ -1223,19 +1341,28 @@ Task { @MainActor in
 
         do {
             guard let clientID = FirebaseApp.app()?.options.clientID else {
-                errorText = "חסר clientID בקובץ GoogleService-Info.plist"
+                errorText = authText(
+                    "התחברות Google אינה זמינה כרגע. פנה לתמיכה.",
+                    "Google sign-in is currently unavailable. Contact support."
+                )
                 return false
             }
 
             guard let presentingViewController =
                 activePresentingViewController()
             else {
-                errorText = "לא נמצא מסך פעיל להצגת התחברות Google"
+                errorText = authText(
+                    "לא ניתן לפתוח את התחברות Google כרגע. נסה שוב.",
+                    "Unable to open Google sign-in right now. Please try again."
+                )
                 return false
             }
 
             guard presentingViewController.viewIfLoaded?.window != nil else {
-                errorText = "מסך ההתחברות עדיין אינו מוכן להצגת Google"
+                errorText = authText(
+                    "מסך ההתחברות עדיין אינו מוכן. נסה שוב בעוד רגע.",
+                    "The sign-in screen is not ready yet. Please try again shortly."
+                )
                 return false
             }
 
@@ -1246,7 +1373,10 @@ Task { @MainActor in
             )
 
             guard let idToken = googleResult.user.idToken?.tokenString else {
-                errorText = "לא התקבל Google ID Token"
+                errorText = authText(
+                    "אימות Google לא הושלם. נסה להתחבר שוב.",
+                    "Google verification could not be completed. Please sign in again."
+                )
                 return false
             }
 
@@ -1294,8 +1424,10 @@ Task { @MainActor in
                     await hasServerCoachAccess(uid: uid)
 
                 guard authorized else {
-                    errorText =
-                        "לא ניתן לאמת הרשאת מאמן. בדוק את החיבור ואת ההרשאה בשרת."
+                    errorText = authText(
+                        "לא ניתן לאמת הרשאת מאמן. בדוק את החיבור ואת ההרשאה בשרת.",
+                        "Unable to verify coach access. Check your connection and server authorization."
+                    )
                     try? Auth.auth().signOut()
                     return false
                 }
@@ -1310,26 +1442,38 @@ Task { @MainActor in
                         )
 
                 if typedCoachCode.isEmpty {
-                    errorText = "יש להזין קוד מאמן"
+                    errorText = authText(
+                        "יש להזין קוד מאמן",
+                        "Enter your coach code."
+                    )
                     try? Auth.auth().signOut()
                     return false
                 }
 
                 if typedCoachCode != storedCoachCode {
-                    errorText = "קוד מאמן שגוי"
+                    errorText = authText(
+                        "קוד מאמן שגוי",
+                        "The coach code is incorrect."
+                    )
                     try? Auth.auth().signOut()
                     return false
                 }
 
             } else if wantedRole == "trainee" {
                 if isCoachAccount && !isDeveloperDualRole {
-                    errorText = "החשבון הזה מוגדר כחשבון מאמן. יש להיכנס דרך טאב מאמן ולהזין את קוד המאמן שקיבלת."
+                    errorText = authText(
+                        "החשבון הזה מוגדר כחשבון מאמן. יש להיכנס דרך טאב מאמן ולהזין את קוד המאמן שקיבלת.",
+                        "This is a coach account. Sign in through the Coach tab and enter your coach code."
+                    )
                     try? Auth.auth().signOut()
                     return false
                 }
 
                 if serverRole != "trainee" && !isCoachAccount {
-                    errorText = "המשתמש אינו מוגדר כמתאמן"
+                    errorText = authText(
+                        "המשתמש אינו מוגדר כמתאמן",
+                        "This account is not configured as a trainee."
+                    )
                     try? Auth.auth().signOut()
                     return false
                 }
@@ -1363,29 +1507,19 @@ Task { @MainActor in
             return true
 
         } catch {
-            if let nsError = error as NSError? {
-                switch nsError.code {
-                case AuthErrorCode.invalidCredential.rawValue:
-                    errorText = "התחברות Google נכשלה"
-
-                case AuthErrorCode.userDisabled.rawValue:
-                    errorText = "המשתמש חסום במערכת"
-
-                case AuthErrorCode.networkError.rawValue:
-                    errorText = "יש בעיית רשת. בדוק חיבור לאינטרנט ונסה שוב"
-
-                default:
-                    errorText = nsError.localizedDescription
-                }
-            } else {
-                errorText = error.localizedDescription
+            guard !Task.isCancelled else {
+                return false
             }
 
+            errorText = userFacingError(error)
             return false
         }
 
         #else
-        errorText = "GoogleSignIn לא מותקן בפרויקט"
+        errorText = authText(
+            "התחברות Google אינה זמינה כרגע. פנה לתמיכה.",
+            "Google sign-in is unavailable. Contact support."
+        )
         return false
         #endif
         #else
@@ -1404,7 +1538,10 @@ Task { @MainActor in
         let e = email.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !e.isEmpty, e.contains("@"), e.contains(".") else {
-            let msg = "נא להזין כתובת אימייל תקינה"
+            let msg = authText(
+                "נא להזין כתובת אימייל תקינה",
+                "Enter a valid email address."
+            )
             errorText = msg
             completion(false, msg)
             return
@@ -1418,24 +1555,14 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
         self?.isLoading = false
 
         if let err {
-            let nsError = err as NSError
-
-            let message: String
-            switch nsError.code {
-            case AuthErrorCode.userNotFound.rawValue:
-                message = "לא נמצא משתמש עם כתובת המייל הזאת"
-
-            case AuthErrorCode.invalidEmail.rawValue:
-                message = "כתובת האימייל אינה תקינה"
-
-            case AuthErrorCode.invalidRecipientEmail.rawValue:
-                message = "כתובת המייל לא תקינה לשליחת איפוס סיסמה"
-
-            default:
-                message = err.localizedDescription
+            guard let self else {
+                completion(false, nil)
+                return
             }
 
-            self?.errorText = message
+            let message = self.userFacingError(err)
+
+            self.errorText = message
             completion(false, message)
         } else {
             self?.errorText = nil
@@ -1445,7 +1572,10 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
 }
 #else
         isLoading = false
-        let msg = "FirebaseAuth לא מותקן בפרויקט"
+        let msg = authText(
+            "שירות איפוס הסיסמה אינו זמין כרגע. פנה לתמיכה.",
+            "The password reset service is unavailable. Contact support."
+        )
         errorText = msg
         completion(false, msg)
         #endif
@@ -1458,7 +1588,10 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
         let p = password.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !e.isEmpty, !p.isEmpty else {
-            errorText = "נא למלא אימייל וסיסמה"
+            errorText = authText(
+                "נא למלא אימייל וסיסמה",
+                "Enter your email and password."
+            )
             return
         }
 
@@ -1469,7 +1602,7 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
             DispatchQueue.main.async {
                 self?.isLoading = false
                 if let err {
-                    self?.errorText = err.localizedDescription
+                    self?.errorText = self?.userFacingError(err)
                 }
             }
         }
@@ -1488,7 +1621,7 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
             DispatchQueue.main.async {
                 self?.isLoading = false
                 if let err {
-                    self?.errorText = err.localizedDescription
+                    self?.errorText = self?.userFacingError(err)
                 }
             }
         }
@@ -1534,7 +1667,7 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
             self.userBranch = ""
             self.userGroup = ""
         } catch {
-            errorText = error.localizedDescription
+            errorText = userFacingError(error)
         }
         #else
         errorText = "FirebaseAuth לא מותקן בפרויקט"
@@ -1547,21 +1680,32 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
         identifier: String,
         password: String
     ) async -> String? {
+        guard !isLoading else {
+            return nil
+        }
 
         let rawId = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
         let rawPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !rawId.isEmpty else {
-            errorText = "יש להזין מייל"
+            errorText = authText(
+                "יש להזין מייל",
+                "Enter your email address."
+            )
             return nil
         }
 
         guard !rawPassword.isEmpty else {
-            errorText = "יש להזין סיסמה כדי להפיק קוד מאמן חדש"
+            errorText = authText(
+                "יש להזין סיסמה כדי להפיק קוד מאמן חדש",
+                "Enter your password to generate a new coach code."
+            )
             return nil
         }
 
         errorText = nil
+        isLoading = true
+        defer { isLoading = false }
 
         #if canImport(FirebaseFirestore)
         #if canImport(FirebaseAuth)
@@ -1597,7 +1741,10 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
                       let email = (data["emailLower"] as? String) ?? (data["email"] as? String),
                       !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 else {
-                    errorText = "המייל לא נמצא"
+                    errorText = authText(
+                        "המייל לא נמצא",
+                        "No account was found for these details."
+                    )
                     return nil
                 }
 
@@ -1606,39 +1753,23 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
                     .lowercased()
             }
 
-            // חיפוש המשתמש
-            let snap = try await db.collection("users")
-                .whereField("emailLower", isEqualTo: loginEmail)
-                .limit(to: 1)
-                .getDocuments()
-            
-            guard let doc = snap.documents.first else {
-                errorText = "המייל לא נמצא"
-                return nil
-            }
+            /*
+             * מאמתים את הסיסמה ומקבלים את מזהה
+             * המשתמש ישירות מתוצאת ההתחברות.
+             */
+            let authResult = try await Auth.auth().signIn(
+                withEmail: loginEmail,
+                password: rawPassword
+            )
 
-            let uid = doc.documentID
-
-            // ✅ שכבת אבטחה: אימות מלא עם האימייל והסיסמה לפני איפוס קוד
-            _ = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<AuthDataResult, Error>) in
-                Auth.auth().signIn(withEmail: loginEmail, password: rawPassword) { res, err in
-                    if let err {
-                        cont.resume(throwing: err)
-                    } else if let res {
-                        cont.resume(returning: res)
-                    } else {
-                        cont.resume(throwing: NSError(
-                            domain: "Auth",
-                            code: -1,
-                            userInfo: [NSLocalizedDescriptionKey: "Missing auth result"]
-                        ))
-                    }
-                }
-            }
+            let uid = authResult.user.uid
 
             guard Auth.auth().currentUser?.uid == uid else {
                 try? Auth.auth().signOut()
-                errorText = "אימות המשתמש נכשל"
+                errorText = authText(
+                    "אימות המשתמש נכשל",
+                    "User verification failed."
+                )
                 return nil
             }
 
@@ -1665,46 +1796,40 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
                     "updatedAt": FieldValue.serverTimestamp()
                 ])
 
-            UserDefaults.standard.set(newCode, forKey: "coach_code")
-            try? Auth.auth().signOut()
+            guard !Task.isCancelled,
+                  Auth.auth().currentUser?.uid == uid else {
+                return nil
+            }
+
+            /*
+             * הקוד מוחזר למי שהפעיל את האיפוס.
+             * אין צורך לשמור אותו מקומית לפני
+             * התנתקות שמנקה את נתוני המשתמש.
+             */
+            try Auth.auth().signOut()
 
             return newCode
 
         } catch {
-            if let nsError = error as NSError? {
-                switch nsError.code {
-                case AuthErrorCode.wrongPassword.rawValue:
-                    errorText = "הסיסמה שגויה"
-
-                case AuthErrorCode.invalidCredential.rawValue:
-                    errorText = "מייל או סיסמה שגויים"
-
-                case AuthErrorCode.userNotFound.rawValue:
-                    errorText = "המייל לא נמצא"
-
-                case AuthErrorCode.invalidEmail.rawValue:
-                    errorText = "כתובת האימייל אינה תקינה"
-
-                case AuthErrorCode.tooManyRequests.rawValue:
-                    errorText = "בוצעו יותר מדי ניסיונות. נסה שוב מאוחר יותר"
-
-                case AuthErrorCode.networkError.rawValue:
-                    errorText = "יש בעיית רשת. בדוק חיבור לאינטרנט ונסה שוב"
-
-                default:
-                    errorText = nsError.localizedDescription
-                }
-            } else {
-                errorText = error.localizedDescription
+            guard !Task.isCancelled else {
+                return nil
             }
+
+            errorText = userFacingError(error)
             return nil
         }
         #else
-        errorText = "FirebaseAuth לא מותקן"
+        errorText = authText(
+            "שירות ההתחברות אינו זמין כרגע. פנה לתמיכה.",
+            "The sign-in service is unavailable. Contact support."
+        )
         return nil
         #endif
         #else
-        errorText = "FirebaseFirestore לא מותקן"
+        errorText = authText(
+            "שירות הפרופיל אינו זמין כרגע. פנה לתמיכה.",
+            "The profile service is unavailable. Contact support."
+        )
         return nil
         #endif
     }
@@ -1720,7 +1845,10 @@ Auth.auth().sendPasswordReset(withEmail: e) { [weak self] err in
         let password = form.password.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard form.acceptsTerms else {
-            errorText = "צריך לאשר תנאי שימוש"
+            errorText = authText(
+                "צריך לאשר תנאי שימוש",
+                "You must accept the Terms of Use."
+            )
             return
         }
 
@@ -1734,22 +1862,34 @@ let isGoogleRegistration = false
 #endif
 
 guard !email.isEmpty else {
-    errorText = "נא למלא כתובת מייל"
+    errorText = authText(
+        "נא למלא כתובת מייל",
+        "Enter your email address."
+    )
     return
 }
 
 guard isGoogleRegistration || password.count >= 6 else {
-    errorText = "נא למלא סיסמה באורך 6 תווים לפחות"
+    errorText = authText(
+        "נא למלא סיסמה באורך 6 תווים לפחות",
+        "Enter a password with at least 6 characters."
+    )
     return
 }
 
 guard form.role == .trainee else {
-    errorText = "הרשאת מאמן ניתנת לאחר אישור מהשרת"
+    errorText = authText(
+        "הרשאת מאמן ניתנת לאחר אישור מהשרת",
+        "Coach access requires server authorization."
+    )
     return
 }
 
         guard !form.fullNameTrimmed.isEmpty else {
-            errorText = "נא למלא שם מלא"
+            errorText = authText(
+                "נא למלא שם מלא",
+                "Enter your full name."
+            )
             return
         }
 
@@ -1765,7 +1905,10 @@ guard form.role == .trainee else {
                 guard let currentUser =
                     Auth.auth().currentUser,
                     !currentUser.uid.isEmpty else {
-                    errorText = "יש להתחבר מחדש באמצעות Google"
+                    errorText = authText(
+                        "יש להתחבר מחדש באמצעות Google",
+                        "Sign in again with Google."
+                    )
                     return
                 }
 
@@ -1777,7 +1920,10 @@ guard form.role == .trainee else {
                         .lowercased()
 
                 guard authenticatedEmail == email.lowercased() else {
-                    errorText = "כתובת המייל חייבת להתאים לחשבון Google המחובר"
+                    errorText = authText(
+                        "כתובת המייל חייבת להתאים לחשבון Google המחובר",
+                        "The email address must match the signed-in Google account."
+                    )
                     return
                 }
 
@@ -2024,8 +2170,10 @@ do {
     }
 
 } catch {
-    self.errorText =
-        "לא ניתן לשמור את הפרופיל כרגע. בדוק את החיבור ונסה שוב."
+    self.errorText = authText(
+        "לא ניתן לשמור את הפרופיל כרגע. בדוק את החיבור ונסה שוב.",
+        "Unable to save your profile. Check your connection and try again."
+    )
     return
 }
 
@@ -2033,6 +2181,12 @@ do {
 
             // ✅ מרעננים את הפרופיל מהשרת
             await loadUserProfile(uid: uid)
+
+            guard !Task.isCancelled,
+                  Auth.auth().currentUser?.uid == uid else {
+                return
+            }
+
             KmiPushManager.shared.savePendingFcmTokenAfterLoginIfNeeded()
             KmiPushManager.shared.refreshAndSaveFcmTokenIfPossible()
 
@@ -2041,19 +2195,25 @@ do {
             if let nsError = error as NSError?,
                nsError.code == AuthErrorCode.emailAlreadyInUse.rawValue {
 
-                self.errorText = "האימייל כבר רשום. מעבירים למסך התחברות..."
+                self.errorText = self.authText(
+                    "כתובת המייל כבר רשומה. יש להתחבר לחשבון הקיים.",
+                    "This email is already registered. Sign in to your existing account."
+                )
 
                 #if canImport(FirebaseAuth)
                 try? Auth.auth().signOut()
                 #endif
 
             } else {
-                self.errorText = error.localizedDescription
+                self.errorText = self.userFacingError(error)
             }
         }
         
         #else
-        errorText = "FirebaseAuth לא מותקן בפרויקט"
+        errorText = authText(
+            "שירות ההתחברות אינו זמין כרגע. פנה לתמיכה.",
+            "The sign-in service is unavailable. Contact support."
+        )
         #endif
     }
     
@@ -2399,8 +2559,29 @@ do {
                 activeBranchGroups = assignments
                     .first { $0.branch == primaryBranch }?
                     .groups ?? []
-            } else {
+            } else if branches.count == 1 {
                 activeBranchGroups = groups
+            } else {
+                /*
+                 * בפרופיל ישן עם כמה סניפים אין
+                 * קשר מפורש בין הסניף לקבוצות.
+                 * מסננים לפי הקטלוג הגלובלי.
+                 */
+                let catalogGroups = Set(
+                    TrainingCatalogIOS.groupsFor(
+                        branches: [primaryBranch]
+                    )
+                    .map {
+                        $0.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                    }
+                    .filter { !$0.isEmpty }
+                )
+
+                activeBranchGroups = groups.filter {
+                    catalogGroups.contains($0)
+                }
             }
 
             let requestedGroups = [
@@ -2478,12 +2659,42 @@ do {
                (1900...2100).contains(year),
                (1...12).contains(month),
                (1...31).contains(day) {
-                ud.set(String(day), forKey: "birthDay")
-                ud.set(String(day), forKey: "birth_day")
-                ud.set(String(month), forKey: "birthMonth")
-                ud.set(String(month), forKey: "birth_month")
-                ud.set(String(year), forKey: "birthYear")
-                ud.set(String(year), forKey: "birth_year")
+
+                var birthCalendar = Calendar(
+                    identifier: .gregorian
+                )
+                if let utcTimeZone = TimeZone(
+                    secondsFromGMT: 0
+                ) {
+                    birthCalendar.timeZone = utcTimeZone
+                }
+
+                let requestedDate = DateComponents(
+                    year: year,
+                    month: month,
+                    day: day
+                )
+
+                if let date = birthCalendar.date(
+                    from: requestedDate
+                ) {
+                    let actualDate = birthCalendar.dateComponents(
+                        [.year, .month, .day],
+                        from: date
+                    )
+
+                    if actualDate.year == year,
+                       actualDate.month == month,
+                       actualDate.day == day,
+                       date <= Date() {
+                        ud.set(String(day), forKey: "birthDay")
+                        ud.set(String(day), forKey: "birth_day")
+                        ud.set(String(month), forKey: "birthMonth")
+                        ud.set(String(month), forKey: "birth_month")
+                        ud.set(String(year), forKey: "birthYear")
+                        ud.set(String(year), forKey: "birth_year")
+                    }
+                }
             }
 
             ud.set(

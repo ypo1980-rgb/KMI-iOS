@@ -67,12 +67,7 @@ enum AttendanceStatus: String, Codable, CaseIterable, Hashable {
             return .excused
         case "unknown", "not_marked", "not marked", "לא סומן", "לא סומנה":
             return .unknown
-        case "PRESENT".lowercased():
-            return .present
-        case "ABSENT".lowercased():
-            return .absent
-        case "EXCUSED".lowercased():
-            return .excused
+
         default:
             return .unknown
         }
@@ -192,12 +187,29 @@ struct AttendanceRecord: Identifiable, Codable, Hashable {
              "")
             .trimmed()
 
-        let memberId =
-            ((data["memberId"] as? String) ??
-             (data["uid"] as? String) ??
-             (data["userId"] as? String) ??
-             "")
-            .trimmed()
+        let memberId: String = {
+            if let value = data["memberId"] as? String {
+                let clean = value.trimmed()
+
+                if !clean.isEmpty {
+                    return clean
+                }
+            }
+
+            if let value = data["memberId"] as? NSNumber,
+               let numericId = Int64(value.stringValue),
+               numericId > 0 {
+                return String(numericId)
+            }
+
+            return [
+                data["uid"] as? String,
+                data["userId"] as? String
+            ]
+            .compactMap { $0 }
+            .map { $0.trimmed() }
+            .first { !$0.isEmpty } ?? ""
+        }()
 
         let note =
             ((data["note"] as? String) ??
@@ -209,11 +221,20 @@ struct AttendanceRecord: Identifiable, Codable, Hashable {
             return nil
         }
 
+        let rawStatus = [
+            data["coachStatus"] as? String,
+            data["status"] as? String,
+            data["statusKey"] as? String
+        ]
+        .compactMap { $0 }
+        .map { $0.trimmed() }
+        .first { !$0.isEmpty }
+
         return AttendanceRecord(
             id: id,
             dateIso: dateIso,
             memberId: memberId,
-            status: AttendanceStatus.fromFirestoreValue(data["status"] ?? data["statusKey"]),
+            status: AttendanceStatus.fromFirestoreValue(rawStatus),
             note: note
         )
     }
@@ -265,30 +286,36 @@ struct AttendanceRowUi: Identifiable, Hashable {
 }
 
 struct AttendanceUiState {
+    
     private var isEnglish: Bool {
         let defaults = UserDefaults.standard
-        
-        let values = [
-            defaults.string(forKey: "kmi_app_language"),
-            defaults.string(forKey: "app_language"),
-            defaults.string(forKey: "initial_language_code"),
-            defaults.string(forKey: "initial_language_selected_code"),
-            defaults.string(forKey: "kmi.language.code")
+
+        let keys = [
+            "kmi_app_language",
+            "selected_language_code",
+            "app_language",
+            "initial_language_code",
+            "initial_language_selected_code",
+            "kmi.language.code"
         ]
-            .compactMap { $0 }
-            .map {
-                $0.trimmingCharacters(in: .whitespacesAndNewlines)
-                    .lowercased()
+
+        for key in keys {
+            let value = (defaults.string(forKey: key) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            switch value {
+            case "en", "english":
+                return true
+
+            case "he", "hebrew", "עברית":
+                return false
+
+            default:
+                continue
             }
-        
-        if values.contains("en") || values.contains("english") {
-            return true
         }
-        
-        if values.contains("he") || values.contains("hebrew") {
-            return false
-        }
-        
+
         return Locale.preferredLanguages.first?
             .lowercased()
             .hasPrefix("en") == true
@@ -299,17 +326,30 @@ struct AttendanceUiState {
     }
     
     private func displayDate(_ iso: String) -> String {
+        let clean = iso.trimmed()
+
         let input = DateFormatter()
+        input.calendar = ShabbatHolidayCheckerIOS.calendar
+        input.timeZone = ShabbatHolidayCheckerIOS.timeZone
         input.locale = Locale(identifier: "en_US_POSIX")
         input.dateFormat = "yyyy-MM-dd"
-        
-        guard let date = input.date(from: iso) else {
-            return iso
+        input.isLenient = false
+
+        guard let date = input.date(from: clean),
+              input.string(from: date) == clean else {
+            return clean
         }
-        
+
         let output = DateFormatter()
-        output.locale = isEnglish ? Locale(identifier: "en_US") : Locale(identifier: "he_IL")
-        output.dateFormat = isEnglish ? "MMM d, yyyy" : "dd/MM/yyyy"
+        output.calendar = ShabbatHolidayCheckerIOS.calendar
+        output.timeZone = ShabbatHolidayCheckerIOS.timeZone
+        output.locale = Locale(
+            identifier: isEnglish ? "en_US" : "he_IL"
+        )
+        output.dateFormat = isEnglish
+            ? "MMM d, yyyy"
+            : "dd/MM/yyyy"
+
         return output.string(from: date)
     }
     
@@ -396,7 +436,22 @@ struct AttendanceUiState {
         ]
     }
     
+    @MainActor
     var shareText: String {
+        let privacyEnabled = DemoPrivacy.shared.isEnabled
+        let reportRows = rows.sorted {
+            let comparison =
+                $0.memberName.localizedCaseInsensitiveCompare(
+                    $1.memberName
+                )
+
+            if comparison == .orderedSame {
+                return $0.memberId < $1.memberId
+            }
+
+            return comparison == .orderedAscending
+        }
+
         var lines: [String] = []
         
         lines.append(tr("דו״ח נוכחות", "Attendance Report"))
@@ -424,19 +479,48 @@ struct AttendanceUiState {
         lines.append("\(tr("אחוז נוכחות", "Attendance rate")): \(summary.attendancePercent)%")
         lines.append("")
         
-        if rows.isEmpty {
-            lines.append(tr("אין מתאמנים ברשימה", "No trainees in the list"))
+        if reportRows.isEmpty {
+            lines.append(
+                tr(
+                    "אין מתאמנים ברשימה",
+                    "No trainees in the list"
+                )
+            )
         } else {
             lines.append("\(tr("פירוט", "Details")):")
-            for row in rows {
-                lines.append("- \(row.memberName): \(row.status.localized(isEnglish: isEnglish))")
-                
-                if !row.phone.trimmed().isEmpty {
-                    lines.append("  \(tr("טלפון", "Phone")): \(row.phone.trimmed())")
+
+            for (index, row) in reportRows.enumerated() {
+                let name = TraineeDisplayNameMapper.displayName(
+                    realName: row.memberName,
+                    stableKey: row.memberId,
+                    demoIndex: index,
+                    isEnglish: isEnglish
+                )
+
+                lines.append(
+                    "- \(name): \(row.status.localized(isEnglish: isEnglish))"
+                )
+
+                if !privacyEnabled,
+                   !row.phone.trimmed().isEmpty {
+                    lines.append(
+                        "  \(tr("טלפון", "Phone")): \(row.phone.trimmed())"
+                    )
                 }
-                
-                if !row.attendanceNote.trimmed().isEmpty {
-                    lines.append("  \(tr("הערת נוכחות", "Attendance note")): \(row.attendanceNote.trimmed())")
+
+                let note = row.attendanceNote.trimmed()
+
+                if !note.isEmpty {
+                    let displayedNote = privacyEnabled
+                        ? tr(
+                            "ההערה מוסתרת במצב הדגמה",
+                            "Note hidden in demo mode"
+                        )
+                        : note
+
+                    lines.append(
+                        "  \(tr("הערת נוכחות", "Attendance note")): \(displayedNote)"
+                    )
                 }
             }
         }

@@ -38,7 +38,8 @@ enum KmiDrawerRouteKey: String {
 }
 
 struct KmiDrawerItem: Identifiable {
-    let id = UUID()
+    var id: KmiDrawerRouteKey { routeKey }
+
     let routeKey: KmiDrawerRouteKey
     let titleHe: String
     let titleEn: String
@@ -75,6 +76,8 @@ struct KmiDrawerItem: Identifiable {
 
 struct KmiSideDrawer: View {
 
+    @Environment(\.colorScheme) private var colorScheme
+
     @EnvironmentObject private var auth: AuthViewModel
 
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
@@ -93,18 +96,40 @@ struct KmiSideDrawer: View {
     @State private var showDemoVideos: Bool = false
     @State private var showFormsPayments: Bool = false
     @State private var showFormsList: Bool = false
+    @State private var openFormsListAfterDismiss = false
+    @State private var openPaymentAfterDismiss = false
 
     @State private var forumUnreadCount: Int = 0
     @State private var forumListener: ListenerRegistration? = nil
+    @State private var forumListenerRequestID = UUID()
+
+    @State private var verifiedAdminUID: String?
 
     private var isEnglish: Bool {
         let values = [
-            kmiAppLanguageCode.lowercased(),
-            appLanguageRaw.lowercased(),
-            initialLanguageCode.lowercased()
+            kmiAppLanguageCode,
+            appLanguageRaw,
+            initialLanguageCode
         ]
 
-        return values.contains("en") || values.contains("english")
+        for rawValue in values {
+            let value = rawValue
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            switch value {
+            case "en", "english":
+                return true
+
+            case "he", "hebrew", "עברית":
+                return false
+
+            default:
+                continue
+            }
+        }
+
+        return false
     }
 
     private var closeIconName: String {
@@ -192,49 +217,85 @@ struct KmiSideDrawer: View {
             defaults.set("ENGLISH", forKey: "initial_language_code")
             defaults.set("en", forKey: "selected_language_code")
         }
-
-        defaults.synchronize()
     }
 
-    private func startForumUnreadListener() {
+    private func stopForumUnreadListener() {
+        forumListenerRequestID = UUID()
         forumListener?.remove()
         forumListener = nil
         forumUnreadCount = 0
+    }
 
-        let branch = resolvedBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func startForumUnreadListener() {
+        stopForumUnreadListener()
 
-        guard !branch.isEmpty else {
+        let branch = resolvedBranch.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        guard isOpen,
+              !branch.isEmpty,
+              let currentUid = Auth.auth().currentUser?.uid,
+              !currentUid.isEmpty else {
             return
         }
 
-        let lastReadMillis = UserDefaults.standard.double(forKey: forumLastReadKey(branch: branch))
+        let lastReadMillis = UserDefaults.standard.double(
+            forKey: forumLastReadKey(branch: branch)
+        )
 
-        guard lastReadMillis > 0 else {
+        guard lastReadMillis.isFinite,
+              lastReadMillis > 0 else {
             return
         }
 
-        let lastReadDate = Date(timeIntervalSince1970: lastReadMillis / 1000.0)
-        let currentUid = Auth.auth().currentUser?.uid ?? ""
+        let requestID = UUID()
+        forumListenerRequestID = requestID
+
+        let lastReadDate = Date(
+            timeIntervalSince1970: lastReadMillis / 1000
+        )
 
         forumListener = Firestore.firestore()
             .collection("branches")
             .document(branch)
             .collection("messages")
-            .whereField("createdAt", isGreaterThan: Timestamp(date: lastReadDate))
+            .whereField(
+                "createdAt",
+                isGreaterThan: Timestamp(date: lastReadDate)
+            )
             .order(by: "createdAt", descending: true)
             .limit(to: forumUnreadLimit)
             .addSnapshotListener { snapshot, error in
-                if error != nil {
-                    forumUnreadCount = 0
+                guard error == nil,
+                      let snapshot else {
                     return
                 }
 
-                let unread = snapshot?.documents.filter { doc in
-                    let authorUid = doc.get("authorUid") as? String
-                    return authorUid == nil || authorUid?.isEmpty == true || authorUid != currentUid
-                }.count ?? 0
+                let unread = snapshot.documents.filter { document in
+                    let authorUid = (
+                        document.get("authorUid") as? String ?? ""
+                    )
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
 
-                forumUnreadCount = unread
+                    return authorUid.isEmpty ||
+                        authorUid != currentUid
+                }.count
+
+                Task { @MainActor in
+                    guard forumListenerRequestID == requestID,
+                          isOpen,
+                          Auth.auth().currentUser?.uid == currentUid,
+                          resolvedBranch.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                          ) == branch else {
+                        return
+                    }
+
+                    forumUnreadCount = unread
+                }
             }
     }
 
@@ -256,34 +317,7 @@ struct KmiSideDrawer: View {
     }
 
     private var effectiveRole: String {
-        let defaults = UserDefaults.standard
-
-        let profileRole = normalizeRole(auth.userRole)
-
-        let storedCandidates = [
-            defaults.string(forKey: "user_role"),
-            defaults.string(forKey: "role"),
-            defaults.string(forKey: "userRole"),
-            defaults.string(forKey: "profile_role")
-        ]
-        .compactMap { $0 }
-        .map { normalizeRole($0) }
-        .filter { !$0.isEmpty }
-
-        // חשוב: אם אחד המקורות אומר מאמן — נעדיף מאמן ולא ניתקע על trainee ישן.
-        if isCoachRole(profileRole) {
-            return profileRole
-        }
-
-        if let coachStoredRole = storedCandidates.first(where: { isCoachRole($0) }) {
-            return coachStoredRole
-        }
-
-        if let firstStoredRole = storedCandidates.first {
-            return firstStoredRole
-        }
-
-        return profileRole
+        normalizeRole(auth.userRole)
     }
 
     private var isCoach: Bool {
@@ -291,11 +325,20 @@ struct KmiSideDrawer: View {
     }
 
     private var isAdminUser: Bool {
-        let email = Auth.auth().currentUser?.email?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() ?? ""
+        guard auth.isSignedIn,
+              let currentUID = Auth.auth().currentUser?.uid else {
+            return false
+        }
 
-        return email == "ypo1980@gmail.com"
+        return verifiedAdminUID == currentUID
+    }
+
+    private var adminCheckUID: String? {
+        guard isOpen, auth.isSignedIn else {
+            return nil
+        }
+
+        return Auth.auth().currentUser?.uid
     }
 
     private var coachItems: [KmiDrawerItem] {
@@ -456,14 +499,8 @@ struct KmiSideDrawer: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.055, green: 0.086, blue: 0.188), // #0E1630
-                        Color(red: 0.122, green: 0.165, blue: 0.322), // #1F2A52
-                        Color(red: 0.145, green: 0.459, blue: 0.737)  // #2575BC
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
+                KmiAppTheme.tertiaryContainer(
+                    for: colorScheme
                 )
                 .ignoresSafeArea()
 
@@ -478,18 +515,18 @@ struct KmiSideDrawer: View {
 
                         Spacer()
 
-                        Button {
-                            withAnimation(.easeOut(duration: 0.18)) {
-                                isOpen = false
-                            }
-                        } label: {
+                        Button(action: onClose) {
                             Image(systemName: closeIconName)
-                                .font(.system(size: 18, weight: .bold))
+                                .kmiIconSize(18)
+                                .fontWeight(.bold)
                                 .foregroundStyle(.white)
                                 .frame(width: 44, height: 44)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel(
+                            isEnglish ? "Close menu" : "סגירת התפריט"
+                        )
                     }
                     .frame(height: 48)
                     .padding(.horizontal, 18)
@@ -535,12 +572,45 @@ struct KmiSideDrawer: View {
                 .padding(.top, 50)
             }
         }
+        .task(id: adminCheckUID) {
+            verifiedAdminUID = nil
+
+            guard let requestedUID = adminCheckUID else {
+                return
+            }
+
+            let authorized =
+                await AdminAccessService.isCurrentUserAdmin()
+
+            guard !Task.isCancelled,
+                  isOpen,
+                  auth.isSignedIn,
+                  Auth.auth().currentUser?.uid == requestedUID else {
+                return
+            }
+
+            verifiedAdminUID = authorized
+                ? requestedUID
+                : nil
+        }
         .onAppear {
             startForumUnreadListener()
         }
+        .onChange(of: resolvedBranch) { _, _ in
+            startForumUnreadListener()
+        }
+        .onChange(of: auth.isSignedIn) { _, _ in
+            startForumUnreadListener()
+        }
+        .onChange(of: isOpen) { _, newValue in
+            if newValue {
+                startForumUnreadListener()
+            } else {
+                stopForumUnreadListener()
+            }
+        }
         .onDisappear {
-            forumListener?.remove()
-            forumListener = nil
+            stopForumUnreadListener()
         }
         .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
         .sheet(isPresented: $showDemoVideos) {
@@ -551,22 +621,38 @@ struct KmiSideDrawer: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $showFormsPayments) {
+        .sheet(
+            isPresented: $showFormsPayments,
+            onDismiss: {
+                let shouldOpenForms = openFormsListAfterDismiss
+                let shouldOpenPayment = openPaymentAfterDismiss
+
+                openFormsListAfterDismiss = false
+                openPaymentAfterDismiss = false
+
+                guard isOpen else {
+                    return
+                }
+
+                if shouldOpenPayment {
+                    AppNavModel.sharedInstance?.push(.membershipPayment)
+                    onClose()
+                } else if shouldOpenForms {
+                    showFormsList = true
+                }
+            }
+        ) {
             KmiFormsPaymentsSheet(
                 isEnglish: isEnglish,
                 onOpenForms: {
+                    openPaymentAfterDismiss = false
+                    openFormsListAfterDismiss = true
                     showFormsPayments = false
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                        showFormsList = true
-                    }
                 },
                 onOpenPayments: {
+                    openFormsListAfterDismiss = false
+                    openPaymentAfterDismiss = true
                     showFormsPayments = false
-                    onClose()
-
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
-                        AppNavModel.sharedInstance?.push(.membershipPayment)
-                    }
                 }
             )
             .presentationDetents([.medium])
@@ -628,9 +714,13 @@ struct KmiSideDrawer: View {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(borderColor.opacity(0.28), lineWidth: 1)
+                        .stroke(
+                            borderColor.opacity(
+                                colorScheme == .dark ? 0.65 : 0.85
+                            ),
+                            lineWidth: 1
+                        )
                 )
-                .shadow(color: Color.black.opacity(0.18), radius: 10, x: 0, y: 5)
         )
         .padding(.horizontal, 10)
     }
@@ -641,11 +731,11 @@ struct KmiSideDrawer: View {
             titleEn: "Coach area",
             items: coachItems,
             colors: [
-                Color(red: 0.118, green: 0.106, blue: 0.294).opacity(0.94), // #1E1B4B
-                Color(red: 0.192, green: 0.180, blue: 0.506).opacity(0.82), // #312E81
-                Color(red: 0.114, green: 0.306, blue: 0.847).opacity(0.42)  // #1D4ED8
+                KmiAppTheme.tertiaryContainer(for: colorScheme),
+                KmiAppTheme.tertiaryContainer(for: colorScheme)
+                    .opacity(0.86)
             ],
-            borderColor: Color(red: 1.0, green: 0.54, blue: 0.85),
+            borderColor: KmiAppTheme.primary(for: colorScheme),
             isCoachButton: true
         )
     }
@@ -656,11 +746,11 @@ struct KmiSideDrawer: View {
             titleEn: "Admin area",
             items: adminItems,
             colors: [
-                Color(red: 0.031, green: 0.322, blue: 0.255).opacity(0.94), // #085241
-                Color(red: 0.047, green: 0.443, blue: 0.345).opacity(0.82), // #0C7158
-                Color(red: 0.027, green: 0.624, blue: 0.420).opacity(0.34)  // #079F6B
+                KmiAppTheme.tertiaryContainer(for: colorScheme),
+                KmiAppTheme.tertiaryContainer(for: colorScheme)
+                    .opacity(0.86)
             ],
-            borderColor: Color(red: 0.251, green: 0.878, blue: 0.659),
+            borderColor: KmiAppTheme.success(for: colorScheme),
             isCoachButton: false
         )
     }
@@ -671,11 +761,11 @@ struct KmiSideDrawer: View {
             titleEn: "Trainee area",
             items: items,
             colors: [
-                Color(red: 0.055, green: 0.180, blue: 0.345).opacity(0.96), // #0E2E58
-                Color(red: 0.082, green: 0.294, blue: 0.525).opacity(0.84), // #154B86
-                Color(red: 0.145, green: 0.459, blue: 0.737).opacity(0.48)  // #2575BC
+                KmiAppTheme.tertiaryContainer(for: colorScheme),
+                KmiAppTheme.tertiaryContainer(for: colorScheme)
+                    .opacity(0.86)
             ],
-            borderColor: Color(red: 0.310, green: 0.650, blue: 1.0),
+            borderColor: KmiAppTheme.secondary(for: colorScheme),
             isCoachButton: false
         )
     }
@@ -707,32 +797,10 @@ struct KmiSideDrawer: View {
                 onSelect(it)
                 return
 
-            case .myProfile:
-                onClose()
-
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
-                    AppNavModel.sharedInstance?.push(.myProfile)
-                }
-                return
-
-            case .editProfile:
-                onClose()
-
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
-                    AppNavModel.sharedInstance?.push(.editProfile)
-                }
-                return
-
-            case .controlCenterLogs:
-                onClose()
-
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
-                    AppNavModel.sharedInstance?.push(.controlCenterLogs)
-                }
-                return
-
-            case .logout:
-                auth.signOut()
+            case .myProfile,
+                 .editProfile,
+                 .controlCenterLogs,
+                 .logout:
                 onSelect(it)
                 return
 
@@ -743,8 +811,6 @@ struct KmiSideDrawer: View {
 
         } label: {
             HStack(spacing: isCoachButton ? 10 : 8) {
-                DrawerIconBubble(systemImage: it.systemImage, isCoachButton: isCoachButton)
-
                 VStack(
                     alignment: isEnglish ? .leading : .trailing,
                     spacing: 2
@@ -791,8 +857,13 @@ struct KmiSideDrawer: View {
                 if it.routeKey == .forum {
                     DrawerUnreadBadge(count: forumUnreadCount)
                 }
+
+                DrawerIconBubble(
+                    systemImage: it.systemImage,
+                    isCoachButton: isCoachButton
+                )
             }
-            .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+            .environment(\.layoutDirection, .leftToRight)
             .padding(rowHorizontalPadding(isCoachButton: isCoachButton))
             .padding(.vertical, isCoachButton ? 7 : 7)
             .frame(maxWidth: .infinity)
@@ -828,7 +899,9 @@ private struct DrawerIconBubble: View {
                 .shadow(color: Color.black.opacity(0.16), radius: 2, x: 0, y: 1)
 
             Image(systemName: systemImage)
-                .font(.system(size: 16, weight: .bold))
+                .kmiIconSize(16)
+                .fontWeight(.bold)
+                .accessibilityHidden(true)
                 .foregroundStyle(isCoachButton ? Color(red: 1.0, green: 0.54, blue: 0.85) : .white)
                 .symbolRenderingMode(.hierarchical)
         }
@@ -837,6 +910,8 @@ private struct DrawerIconBubble: View {
 }
 
 private struct DrawerUnreadBadge: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let count: Int
 
     var body: some View {
@@ -846,7 +921,9 @@ private struct DrawerUnreadBadge: View {
                     size: 12,
                     weight: .black
                 )
-                .foregroundStyle(.white)
+                .foregroundStyle(
+                    KmiAppTheme.onSuccess(for: colorScheme)
+                )
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .padding(.horizontal, 7)
@@ -854,12 +931,19 @@ private struct DrawerUnreadBadge: View {
                 .frame(minWidth: 24, minHeight: 24)
                 .background(
                     Capsule()
-                        .fill(Color(red: 0.145, green: 0.827, blue: 0.400)) // #25D366
+                        .fill(
+                            KmiAppTheme.success(for: colorScheme)
+                        )
                         .overlay(
                             Capsule()
-                                .stroke(Color.white.opacity(0.55), lineWidth: 1)
+                                .stroke(
+                                    KmiAppTheme.onSuccess(
+                                        for: colorScheme
+                                    )
+                                    .opacity(0.35),
+                                    lineWidth: 1
+                                )
                         )
-                        .shadow(color: Color.black.opacity(0.22), radius: 4, x: 0, y: 2)
                 )
         }
     }
@@ -889,16 +973,29 @@ struct KmiSideDrawerContainer<Content: View>: View {
 
     private var isEnglish: Bool {
         let values = [
-            kmiAppLanguageCode.lowercased(),
-            appLanguageRaw.lowercased(),
-            initialLanguageCode.lowercased()
+            kmiAppLanguageCode,
+            appLanguageRaw,
+            initialLanguageCode
         ]
 
-        return values.contains("en") || values.contains("english")
-    }
+        for rawValue in values {
+            let value = rawValue
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
 
-    private var drawerAlignment: Alignment {
-        isEnglish ? .leading : .trailing
+            switch value {
+            case "en", "english":
+                return true
+
+            case "he", "hebrew", "עברית":
+                return false
+
+            default:
+                continue
+            }
+        }
+
+        return false
     }
 
     private var drawerTransitionEdge: Edge {
@@ -911,6 +1008,7 @@ struct KmiSideDrawerContainer<Content: View>: View {
 
             ZStack {
                 content
+                    .disabled(isOpen)
                     .overlay {
                         if isOpen {
                             Color.black.opacity(0.25)
@@ -924,8 +1022,9 @@ struct KmiSideDrawerContainer<Content: View>: View {
                                 }
                         }
                     }
-                    .simultaneousGesture(edgeOpenGesture(containerWidth: geo.size.width))
-                    .disabled(isOpen)
+                    .simultaneousGesture(
+                        edgeOpenGesture(containerWidth: geo.size.width)
+                    )
 
                 if isOpen {
                     KmiSideDrawer(
@@ -954,9 +1053,13 @@ struct KmiSideDrawerContainer<Content: View>: View {
                         x: -8,
                         y: 0
                     )
-                    // מיקום פיזי מוחלט: צמוד לימין המסך.
-                    .offset(x: (geo.size.width - drawerWidth) / 2)
-                    .transition(.move(edge: .trailing))
+                    .offset(
+                        x: (geo.size.width - drawerWidth) / 2 *
+                            (isEnglish ? -1 : 1)
+                    )
+                    .transition(
+                        .move(edge: drawerTransitionEdge)
+                    )
                     .zIndex(2)
                 }
             }
@@ -1046,6 +1149,8 @@ private let kmiDemoVideos: [KmiDemoVideo] = [
 ]
 
 private struct KmiDemoVideosSheet: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let isEnglish: Bool
     let onCloseDrawer: () -> Void
 
@@ -1066,8 +1171,10 @@ private struct KmiDemoVideosSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(red: 0.05, green: 0.09, blue: 0.18)
-                    .ignoresSafeArea()
+                KmiAppTheme.tertiaryContainer(
+                    for: colorScheme
+                )
+                .ignoresSafeArea()
 
                 VStack(spacing: 14) {
                     TextField(
@@ -1087,7 +1194,9 @@ private struct KmiDemoVideosSheet: View {
                                 } label: {
                                     HStack(spacing: 12) {
                                         Image(systemName: "play.fill")
-                                            .font(.system(size: 18, weight: .bold))
+                                            .kmiIconSize(18)
+                                            .fontWeight(.bold)
+                                            .accessibilityHidden(true)
                                             .foregroundStyle(.white)
                                             .frame(width: 34, height: 34)
                                             .background(Circle().fill(Color.white.opacity(0.14)))
@@ -1147,6 +1256,8 @@ private struct KmiDemoVideosSheet: View {
 }
 
 private struct KmiFormsPaymentsSheet: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let isEnglish: Bool
     let onOpenForms: () -> Void
     let onOpenPayments: () -> Void
@@ -1156,8 +1267,9 @@ private struct KmiFormsPaymentsSheet: View {
             Color(red: 0.05, green: 0.09, blue: 0.18)
                 .ignoresSafeArea()
 
-            VStack(spacing: 14) {
-                Text(isEnglish ? "Forms & Payments" : "טפסים ותשלומים")
+            ScrollView {
+                VStack(spacing: 14) {
+                    Text(isEnglish ? "Forms & Payments" : "טפסים ותשלומים")
                     .kmiFont(
                         size: 24,
                         weight: .black
@@ -1182,10 +1294,9 @@ private struct KmiFormsPaymentsSheet: View {
                         : "פתיחת טופס תשלום דמי חבר לעמותה",
                     onTap: onOpenPayments
                 )
-
-                Spacer()
+                }
+                .padding(18)
             }
-            .padding(18)
         }
         .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
     }
@@ -1230,37 +1341,21 @@ private struct KmiFormsPaymentsSheet: View {
         }
         .buttonStyle(.plain)
     }
-    
-    private struct DrawerIconBubble: View {
-        let systemImage: String
-        let isCoachButton: Bool
-        
-        var body: some View {
-            ZStack {
-                Circle()
-                    .fill(Color.white.opacity(isCoachButton ? 0.16 : 0.12))
-                
-                Circle()
-                    .stroke(Color.white.opacity(isCoachButton ? 0.20 : 0.16), lineWidth: 1)
-                
-                Image(systemName: systemImage)
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 30, height: 30)
-        }
-    }
 }
 
 private struct KmiFormsListSheet: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let isEnglish: Bool
     let onCloseDrawer: () -> Void
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(red: 0.05, green: 0.09, blue: 0.18)
-                    .ignoresSafeArea()
+                KmiAppTheme.tertiaryContainer(
+                    for: colorScheme
+                )
+                .ignoresSafeArea()
 
                 ScrollView {
                     VStack(spacing: 12) {
@@ -1365,6 +1460,7 @@ private struct KmiFormsListSheet: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
     }
 
     private func openUrl(_ raw: String) {

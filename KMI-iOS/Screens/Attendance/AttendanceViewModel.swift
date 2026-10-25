@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import FirebaseAuth
 
 @MainActor
 final class AttendanceViewModel: ObservableObject {
@@ -13,6 +14,30 @@ final class AttendanceViewModel: ObservableObject {
     private let repository: AttendanceRepository
 
     private var contextLoadID = UUID()
+    private var contextLoadTask: Task<Void, Never>?
+
+    private var monthLoadTask: Task<Void, Never>?
+    private var monthLoadID = UUID()
+
+    @Published
+    private(set) var isContextLoading = false
+
+    @Published
+    private(set) var contextLoadFailed = false
+
+    private var canModifyLoadedContext: Bool {
+        !state.isSaving &&
+        !isContextLoading &&
+        !contextLoadFailed
+    }
+
+    func retryLoadingCurrentContext() {
+        guard !state.isSaving else {
+            return
+        }
+
+        reloadCurrentContext()
+    }
 
     @Published
     private(set) var availableBranches: [String] = []
@@ -21,11 +46,14 @@ final class AttendanceViewModel: ObservableObject {
     private(set) var availableGroups: [String] = []
 
     private var allAssignedBranches: [String] = []
+    private var hasResolvedAssignedBranches = false
+    private var pendingAssignedBranches: [String]?
+    private var displayedMonthKey: [String]?
 
     func setAssignedBranches(_ branches: [String]) {
         var seen = Set<String>()
 
-        allAssignedBranches = branches
+        let cleanBranches = branches
             .map {
                 $0.trimmingCharacters(
                     in: .whitespacesAndNewlines
@@ -35,8 +63,40 @@ final class AttendanceViewModel: ObservableObject {
                 !$0.isEmpty && seen.insert($0).inserted
             }
 
+        /*
+         * שינוי שיוכים שמגיע בזמן כתיבה
+         * יטופל לאחר סיום הפעולה.
+         */
+        if state.isSaving {
+            pendingAssignedBranches = cleanBranches
+            return
+        }
+
+        /*
+         * חזרה למסך עם אותם שיוכים אינה
+         * טוענת מחדש ואינה מוחקת סימונים בעריכה.
+         */
+        if hasResolvedAssignedBranches,
+           Set(cleanBranches) == Set(allAssignedBranches) {
+            return
+        }
+
+        hasResolvedAssignedBranches = true
+        allAssignedBranches = cleanBranches
+
         refreshScheduleOptions()
         reloadCurrentContext()
+    }
+
+    private func finishSavingOperation() {
+        state.isSaving = false
+
+        guard let pending = pendingAssignedBranches else {
+            return
+        }
+
+        pendingAssignedBranches = nil
+        setAssignedBranches(pending)
     }
 
     private func hasScheduledTraining(
@@ -56,8 +116,8 @@ final class AttendanceViewModel: ObservableObject {
             return false
         }
 
-        guard !ShabbatHolidayCheckerIOS.isBlockedDate(
-            selectedDate
+        guard !HolidayCalendarStore.isTrainingCancelled(
+            on: selectedDate
         ) else {
             return false
         }
@@ -124,25 +184,30 @@ final class AttendanceViewModel: ObservableObject {
     private var isEnglish: Bool {
         let defaults = UserDefaults.standard
 
-        let values = [
-            defaults.string(forKey: "kmi_app_language"),
-            defaults.string(forKey: "app_language"),
-            defaults.string(forKey: "initial_language_code"),
-            defaults.string(forKey: "initial_language_selected_code"),
-            defaults.string(forKey: "kmi.language.code")
+        let keys = [
+            "kmi_app_language",
+            "selected_language_code",
+            "app_language",
+            "initial_language_code",
+            "initial_language_selected_code",
+            "kmi.language.code"
         ]
-        .compactMap { $0 }
-        .map {
-            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        for key in keys {
+            let value = (defaults.string(forKey: key) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
-        }
 
-        if values.contains("en") || values.contains("english") {
-            return true
-        }
+            switch value {
+            case "en", "english":
+                return true
 
-        if values.contains("he") || values.contains("hebrew") {
-            return false
+            case "he", "hebrew", "עברית":
+                return false
+
+            default:
+                continue
+            }
         }
 
         return Locale.preferredLanguages.first?
@@ -160,9 +225,9 @@ final class AttendanceViewModel: ObservableObject {
         initialBranchName: String = "",
         initialGroupKey: String = "",
         initialCoachName: String = "",
-        repository: AttendanceRepository = .shared
+        repository: AttendanceRepository? = nil
     ) {
-        self.repository = repository
+        self.repository = repository ?? .shared
         self.state = AttendanceUiState(
             ownerUid: ownerUid,
             dateIso: initialDateIso?.trimmedNonEmpty ?? Self.todayIso(),
@@ -175,7 +240,22 @@ final class AttendanceViewModel: ObservableObject {
     }
 
     func setDateIso(_ value: String) {
+        guard !state.isSaving else {
+            return
+        }
+
         let clean = value.trimmed()
+
+        guard Self.parsedDate(fromIso: clean) != nil else {
+            publishMessage(
+                tr(
+                    "תאריך האימון אינו תקין",
+                    "The training date is invalid"
+                ),
+                isError: true
+            )
+            return
+        }
 
         guard !clean.isEmpty,
               clean != state.dateIso else {
@@ -190,6 +270,10 @@ final class AttendanceViewModel: ObservableObject {
     }
 
     func setBranchName(_ value: String) {
+        guard !state.isSaving else {
+            return
+        }
+
         let clean = value.trimmed()
 
         guard availableBranches.contains(clean),
@@ -205,6 +289,10 @@ final class AttendanceViewModel: ObservableObject {
     }
 
     func setGroupKey(_ value: String) {
+        guard !state.isSaving else {
+            return
+        }
+
         let clean = value.trimmed()
 
         guard availableGroups.contains(clean),
@@ -224,6 +312,13 @@ final class AttendanceViewModel: ObservableObject {
     }
 
     func setAttendanceStatus(memberId: String, status: AttendanceStatus) {
+        guard canModifyLoadedContext,
+              state.members.contains(where: {
+                $0.id == memberId
+              }) else {
+            return
+        }
+
         let current = state.recordsByMemberId[memberId]
         let updated = AttendanceRecord(
             id: current?.id ?? "\(state.dateIso)_\(memberId)",
@@ -237,6 +332,13 @@ final class AttendanceViewModel: ObservableObject {
     }
 
     func setAttendanceNote(memberId: String, note: String) {
+        guard canModifyLoadedContext,
+              state.members.contains(where: {
+                $0.id == memberId
+              }) else {
+            return
+        }
+
         let current = state.recordsByMemberId[memberId]
         let updated = AttendanceRecord(
             id: current?.id ?? "\(state.dateIso)_\(memberId)",
@@ -249,57 +351,279 @@ final class AttendanceViewModel: ObservableObject {
         state.recordsByMemberId[memberId] = updated
     }
 
-    func addMember(fullName: String, phone: String = "", notes: String = "") {
+    func addMember(
+        fullName: String,
+        phone: String = "",
+        notes: String = "",
+        completion: ((Bool) -> Void)? = nil
+    ) {
+        guard canModifyLoadedContext,
+              !state.branchName.trimmed().isEmpty,
+              !state.groupKey.trimmed().isEmpty else {
+            completion?(false)
+            return
+        }
+
         let cleanName = fullName.trimmed()
+
         guard !cleanName.isEmpty else {
             publishMessage(
-                tr("יש להזין שם מתאמן", "Please enter a trainee name"),
+                tr(
+                    "יש להזין שם מתאמן",
+                    "Please enter a trainee name"
+                ),
                 isError: true
             )
+            completion?(false)
             return
         }
 
-        if state.members.contains(where: { $0.fullName.trimmed().lowercased() == cleanName.lowercased() }) {
+        guard !state.members.contains(where: {
+            $0.fullName.trimmed().lowercased()
+                == cleanName.lowercased()
+        }) else {
             publishMessage(
-                tr("המתאמן כבר קיים ברשימה", "This trainee already exists in the list"),
+                tr(
+                    "המתאמן כבר קיים ברשימה",
+                    "This trainee already exists in the list"
+                ),
                 isError: true
             )
+            completion?(false)
             return
         }
 
-        let member = AttendanceMember(
-            fullName: cleanName,
-            phone: phone.trimmed(),
-            notes: notes.trimmed()
-        )
+        let ownerUid = state.ownerUid
+        let branchName = state.branchName.trimmed()
+        let groupKey = state.groupKey.trimmed()
+        let dateIso = state.dateIso
+        let loadID = contextLoadID
 
-        state.members.append(member)
-        state.members.sort { $0.fullName < $1.fullName }
+        let cleanPhone = phone.trimmed()
+        let cleanNotes = notes.trimmed()
 
-        persistMembers()
+        guard Auth.auth().currentUser?.uid == ownerUid else {
+            completion?(false)
+            return
+        }
 
-        state.newMemberName = ""
-        state.newMemberPhone = ""
-        state.newMemberNotes = ""
+        state.isSaving = true
 
-        publishMessage(
-            tr("המתאמן נוסף לרשימה", "The trainee was added to the list"),
-            isError: false
-        )
+        Task { @MainActor in
+            @MainActor
+            func isCurrentContext() -> Bool {
+                !Task.isCancelled &&
+                self.contextLoadID == loadID &&
+                self.state.ownerUid == ownerUid &&
+                self.state.branchName == branchName &&
+                self.state.groupKey == groupKey &&
+                self.state.dateIso == dateIso &&
+                Auth.auth().currentUser?.uid == ownerUid
+            }
+
+            defer {
+                self.finishSavingOperation()
+            }
+
+            do {
+                /*
+                 * יצירת המזהה והשמירה מתבצעות
+                 * ב־Repository לפי מבנה Android.
+                 */
+                let member = try await self.repository
+                    .addManualMemberToFirestore(
+                        ownerUid: ownerUid,
+                        branchName: branchName,
+                        groupKey: groupKey,
+                        fullName: cleanName,
+                        phone: cleanPhone,
+                        notes: cleanNotes
+                    )
+
+                guard isCurrentContext() else {
+                    completion?(false)
+                    return
+                }
+
+                /*
+                 * מעדכנים לפי המזהה שהשרת החזיר.
+                 * אין יצירת UUID מקומי.
+                 */
+                if let index = self.state.members.firstIndex(
+                    where: { $0.id == member.id }
+                ) {
+                    self.state.members[index] = member
+                } else {
+                    self.state.members.append(member)
+                }
+
+                self.state.members.sort {
+                    $0.fullName.localizedCaseInsensitiveCompare(
+                        $1.fullName
+                    ) == .orderedAscending
+                }
+
+                self.persistMembers()
+
+                self.state.newMemberName = ""
+                self.state.newMemberPhone = ""
+                self.state.newMemberNotes = ""
+
+                self.publishMessage(
+                    self.tr(
+                        "המתאמן נשמר ונוסף לרשימה",
+                        "The trainee was saved and added to the list"
+                    ),
+                    isError: false
+                )
+
+                completion?(true)
+            } catch {
+                guard isCurrentContext() else {
+                    completion?(false)
+                    return
+                }
+
+                /*
+                 * בכישלון לא מוסיפים רשומה מקומית
+                 * ולא מציגים הודעת הצלחה.
+                 */
+                self.publishMessage(
+                    self.tr(
+                        "לא ניתן להוסיף את המתאמן כרגע. בדוק את החיבור ונסה שוב.",
+                        "Unable to add the trainee right now. Check your connection and try again."
+                    ),
+                    isError: true
+                )
+
+                completion?(false)
+            }
+        }
     }
 
     func removeMember(memberId: String) {
-        state.members.removeAll { $0.id == memberId }
-        state.recordsByMemberId.removeValue(forKey: memberId)
-        persistMembers()
-        publishMessage(
-            tr("המתאמן הוסר מהרשימה", "The trainee was removed from the list"),
-            isError: false
-        )
+        guard canModifyLoadedContext,
+              state.members.contains(where: {
+                $0.id == memberId
+              }) else {
+            return
+        }
+
+        let ownerUid = state.ownerUid
+        let branchName = state.branchName
+        let groupKey = state.groupKey
+        let dateIso = state.dateIso
+        let loadID = contextLoadID
+
+        guard Auth.auth().currentUser?.uid == ownerUid else {
+            return
+        }
+
+        state.isSaving = true
+
+        Task { @MainActor in
+            @MainActor
+            func isCurrentContext() -> Bool {
+                !Task.isCancelled &&
+                self.contextLoadID == loadID &&
+                self.state.ownerUid == ownerUid &&
+                self.state.branchName == branchName &&
+                self.state.groupKey == groupKey &&
+                self.state.dateIso == dateIso &&
+                Auth.auth().currentUser?.uid == ownerUid
+            }
+
+            defer {
+                self.finishSavingOperation()
+            }
+
+            do {
+                try await self.repository.removeMemberFromFirestore(
+                    ownerUid: ownerUid,
+                    branchName: branchName,
+                    groupKey: groupKey,
+                    memberId: memberId
+                )
+
+                guard isCurrentContext() else {
+                    return
+                }
+
+                /*
+                 * מסירים מהמסך רק לאחר שהשרת
+                 * אישר את השלמת המחיקה.
+                 */
+                self.state.members.removeAll {
+                    $0.id == memberId
+                }
+
+                self.state.recordsByMemberId.removeValue(
+                    forKey: memberId
+                )
+
+                self.persistMembers()
+
+                let remainingRecords = Array(
+                    self.state.recordsByMemberId.values
+                )
+
+                self.repository.saveRecords(
+                    ownerUid: ownerUid,
+                    branchName: branchName,
+                    groupKey: groupKey,
+                    dateIso: dateIso,
+                    records: remainingRecords
+                )
+
+                self.reloadMonthMarkers()
+
+                self.publishMessage(
+                    self.tr(
+                        "המתאמן הוסר מהקבוצה",
+                        "The trainee was removed from the group"
+                    ),
+                    isError: false
+                )
+            } catch {
+                guard isCurrentContext() else {
+                    return
+                }
+
+                self.publishMessage(
+                    self.tr(
+                        "מחיקת המתאמן לא הושלמה. נסה שוב להשלמת המחיקה.",
+                        "The trainee deletion did not complete. Retry to finish deleting."
+                    ),
+                    isError: true
+                )
+            }
+        }
     }
 
-    func saveReport() {
+    func saveReport(onSaved: (() -> Void)? = nil) {
         guard !state.isSaving else {
+            return
+        }
+
+        guard !isContextLoading else {
+            publishMessage(
+                tr(
+                    "יש להמתין לסיום טעינת הדוח",
+                    "Please wait until the report finishes loading"
+                ),
+                isError: true
+            )
+            return
+        }
+
+        guard !contextLoadFailed else {
+            publishMessage(
+                tr(
+                    "יש לטעון את הדוח מחדש לפני שמירה",
+                    "Reload the report before saving"
+                ),
+                isError: true
+            )
             return
         }
 
@@ -335,10 +659,11 @@ final class AttendanceViewModel: ObservableObject {
         }
 
         let savingState = state
+        let savingContextID = contextLoadID
 
         Task { @MainActor in
             defer {
-                state.isSaving = false
+                finishSavingOperation()
             }
 
             do {
@@ -350,7 +675,10 @@ final class AttendanceViewModel: ObservableObject {
 
                 // תוצאת השמירה שייכת לבחירה שהייתה
                 // בזמן הלחיצה, גם אם המשתמש עבר יום.
-                guard state.ownerUid == savingState.ownerUid,
+                guard !Task.isCancelled,
+                      contextLoadID == savingContextID,
+                      Auth.auth().currentUser?.uid == savingState.ownerUid,
+                      state.ownerUid == savingState.ownerUid,
                       state.branchName == savingState.branchName,
                       state.groupKey == savingState.groupKey,
                       state.dateIso == savingState.dateIso else {
@@ -358,8 +686,11 @@ final class AttendanceViewModel: ObservableObject {
                 }
 
                 state.recordsByMemberId = Dictionary(
-                    uniqueKeysWithValues: records.map {
+                    records.map {
                         ($0.memberId, $0)
+                    },
+                    uniquingKeysWith: { _, latest in
+                        latest
                     }
                 )
 
@@ -373,7 +704,23 @@ final class AttendanceViewModel: ObservableObject {
                     ),
                     isError: false
                 )
+
+                /*
+                 * המסך יסגור את העריכה רק לאחר
+                 * הצלחה, ועבור אותו דוח שנשמר.
+                 */
+                onSaved?()
             } catch {
+                guard !Task.isCancelled,
+                      contextLoadID == savingContextID,
+                      Auth.auth().currentUser?.uid == savingState.ownerUid,
+                      state.ownerUid == savingState.ownerUid,
+                      state.branchName == savingState.branchName,
+                      state.groupKey == savingState.groupKey,
+                      state.dateIso == savingState.dateIso else {
+                    return
+                }
+
                 publishMessage(
                     tr(
                         "לא ניתן לשמור את דו״ח הנוכחות כרגע. נסה שוב.",
@@ -385,25 +732,126 @@ final class AttendanceViewModel: ObservableObject {
         }
     }
 
-    func loadSummaryDaysForMonth(year: Int, month1to12: Int) {
-        guard
-            let start = Self.makeDate(year: year, month: month1to12, day: 1),
-            let end = Calendar.current.date(byAdding: .month, value: 1, to: start)
-        else {
+    func loadSummaryDaysForMonth(
+        year: Int,
+        month1to12: Int
+    ) {
+        monthLoadTask?.cancel()
+        monthLoadTask = nil
+
+        let requestID = UUID()
+        monthLoadID = requestID
+
+        let ownerUid = state.ownerUid
+        let branchName = state.branchName.trimmed()
+        let groupKey = state.groupKey.trimmed()
+        let contextID = contextLoadID
+
+        guard !branchName.isEmpty,
+              !groupKey.isEmpty,
+              let start = Self.makeDate(
+                year: year,
+                month: month1to12,
+                day: 1
+              ),
+              let end = ShabbatHolidayCheckerIOS.calendar.date(
+                byAdding: .month,
+                value: 1,
+                to: start
+              ) else {
             state.reportDaysInMonth = []
             return
         }
 
-        state.reportDaysInMonth = repository.listReportDaysInRange(
-            ownerUid: state.ownerUid,
-            branchName: state.branchName,
-            groupKey: state.groupKey,
-            startIso: Self.isoString(start),
-            endIsoExclusive: Self.isoString(end)
-        )
+        let startIso = Self.isoString(start)
+        let endIso = Self.isoString(end)
+
+        let monthKey = [
+            ownerUid,
+            branchName,
+            groupKey,
+            startIso,
+            endIso
+        ]
+
+        /*
+         * באותו חודש משאירים את הסימונים
+         * שכבר נטענו מהשרת בזמן הרענון.
+         */
+        if displayedMonthKey != monthKey {
+            displayedMonthKey = monthKey
+
+            state.reportDaysInMonth =
+                repository.listReportDaysInRange(
+                    ownerUid: ownerUid,
+                    branchName: branchName,
+                    groupKey: groupKey,
+                    startIso: startIso,
+                    endIsoExclusive: endIso
+                )
+        }
+
+        monthLoadTask = Task { @MainActor in
+            @MainActor
+            func isCurrentRequest() -> Bool {
+                !Task.isCancelled &&
+                self.monthLoadID == requestID &&
+                self.contextLoadID == contextID &&
+                self.state.ownerUid == ownerUid &&
+                self.state.branchName == branchName &&
+                self.state.groupKey == groupKey &&
+                Auth.auth().currentUser?.uid == ownerUid
+            }
+
+            defer {
+                if self.monthLoadID == requestID {
+                    self.monthLoadTask = nil
+                }
+            }
+
+            do {
+                let days = try await self.repository
+                    .listReportDaysInRangeFromFirestore(
+                        ownerUid: ownerUid,
+                        branchName: branchName,
+                        groupKey: groupKey,
+                        startIso: startIso,
+                        endIsoExclusive: endIso
+                    )
+
+                guard isCurrentRequest() else {
+                    return
+                }
+
+                /*
+                 * תשובה ריקה מוצלחת מנקה סימונים
+                 * מקומיים ישנים מהתצוגה.
+                 */
+                self.state.reportDaysInMonth = days
+            } catch {
+                guard isCurrentRequest() else {
+                    return
+                }
+
+                /*
+                 * בכשל משאירים את המידע המקומי.
+                 * אין להסיק מכשל שאין דוחות.
+                 */
+                self.publishMessage(
+                    self.tr(
+                        "לא ניתן לעדכן את ימי הדוחות כרגע. מוצגים סימונים מקומיים זמינים.",
+                        "Could not refresh report dates. Available local markers are shown."
+                    ),
+                    isError: true
+                )
+            }
+        }
     }
 
     private func reloadCurrentContext() {
+        contextLoadTask?.cancel()
+        contextLoadTask = nil
+
         let loadID = UUID()
         contextLoadID = loadID
 
@@ -411,11 +859,14 @@ final class AttendanceViewModel: ObservableObject {
         let branchName = state.branchName.trimmed()
         let groupKey = state.groupKey.trimmed()
         let dateIso = state.dateIso
-        let repository = self.repository
+
+        isContextLoading = false
+        contextLoadFailed = false
 
         state.members = []
         state.recordsByMemberId = [:]
         state.reportDaysInMonth = []
+        displayedMonthKey = nil
         isReportSaved = false
 
         guard !branchName.isEmpty,
@@ -427,64 +878,118 @@ final class AttendanceViewModel: ObservableObject {
             return
         }
 
-        Task.detached(priority: nil) {
+        /*
+         * מציגים מטמון בזמן הבדיקה.
+         * עריכה ושמירה ייחסמו עד לסיום הטעינה.
+         */
+        state.members = repository.loadMembers(
+            ownerUid: ownerUid,
+            branchName: branchName,
+            groupKey: groupKey
+        )
+
+        reloadRecordsOnly()
+        reloadMonthMarkers()
+
+        isContextLoading = true
+
+        contextLoadTask = Task { @MainActor in
+            @MainActor
+            func isCurrentContext() -> Bool {
+                !Task.isCancelled &&
+                self.contextLoadID == loadID &&
+                self.state.ownerUid == ownerUid &&
+                self.state.branchName == branchName &&
+                self.state.groupKey == groupKey &&
+                self.state.dateIso == dateIso &&
+                Auth.auth().currentUser?.uid == ownerUid
+            }
+
+            defer {
+                if self.contextLoadID == loadID {
+                    self.isContextLoading = false
+                    self.contextLoadTask = nil
+                }
+            }
+
             do {
-                let realMembers =
-                    try await repository.loadRealMembers(
-                        ownerUid: ownerUid,
-                        branchName: branchName,
-                        groupKey: groupKey
-                    )
+                let members = try await self.repository.loadRealMembers(
+                    ownerUid: ownerUid,
+                    branchName: branchName,
+                    groupKey: groupKey
+                )
 
-                await MainActor.run {
-                    guard self.contextLoadID == loadID,
-                          self.state.ownerUid == ownerUid,
-                          self.state.branchName == branchName,
-                          self.state.groupKey == groupKey,
-                          self.state.dateIso == dateIso else {
-                        return
-                    }
-
-                    self.state.members =
-                        realMembers.isEmpty
-                            ? repository.loadMembers(
-                                ownerUid: ownerUid,
-                                branchName: branchName,
-                                groupKey: groupKey
-                            )
-                            : realMembers
-
-                    self.reloadRecordsOnly()
-                    self.reloadMonthMarkers()
+                guard isCurrentContext() else {
+                    return
                 }
+
+                let records = try await self.repository.loadRecordsFromFirestore(
+                    ownerUid: ownerUid,
+                    branchName: branchName,
+                    groupKey: groupKey,
+                    dateIso: dateIso
+                )
+
+                guard isCurrentContext() else {
+                    return
+                }
+
+                let savedReport = try await self.repository.hasSavedAttendanceReport(
+                    branchName: branchName,
+                    groupKey: groupKey,
+                    dateIso: dateIso
+                )
+
+                guard isCurrentContext() else {
+                    return
+                }
+
+                /*
+                 * מעדכנים את המסך לאחר שכל חלקי
+                 * ההקשר נטענו בהצלחה.
+                 * תשובה ריקה מוצלחת נשארת ריקה.
+                 */
+                self.state.members = members
+
+                self.state.recordsByMemberId = Dictionary(
+                    records.map {
+                        ($0.memberId, $0)
+                    },
+                    uniquingKeysWith: { _, latest in
+                        latest
+                    }
+                )
+
+                self.isReportSaved = savedReport
+                self.contextLoadFailed = false
+
+                self.reloadMonthMarkers()
             } catch {
-                await MainActor.run {
-                    guard self.contextLoadID == loadID,
-                          self.state.ownerUid == ownerUid,
-                          self.state.branchName == branchName,
-                          self.state.groupKey == groupKey,
-                          self.state.dateIso == dateIso else {
-                        return
-                    }
-
-                    self.state.members =
-                        repository.loadMembers(
-                            ownerUid: ownerUid,
-                            branchName: branchName,
-                            groupKey: groupKey
-                        )
-
-                    self.reloadRecordsOnly()
-                    self.reloadMonthMarkers()
-
-                    self.publishMessage(
-                        self.tr(
-                            "לא ניתן לטעון את הרשימה כרגע. מוצגים נתונים מקומיים זמינים.",
-                            "Unable to load the list right now. Available local data is shown."
-                        ),
-                        isError: true
-                    )
+                guard isCurrentContext() else {
+                    return
                 }
+
+                /*
+                 * שגיאה אינה הוכחה שאין דוח.
+                 * מציגים מטמון וחוסמים כתיבה
+                 * עד לטעינה מוצלחת.
+                 */
+                self.state.members = self.repository.loadMembers(
+                    ownerUid: ownerUid,
+                    branchName: branchName,
+                    groupKey: groupKey
+                )
+
+                self.reloadRecordsOnly()
+                self.contextLoadFailed = true
+
+                self.publishMessage(
+                    self.tr(
+                        "לא ניתן להשלים את טעינת הדוח. מוצגים נתונים מקומיים זמינים; העריכה חסומה עד לטעינה מוצלחת.",
+                        "Could not finish loading the report. Available local data is shown; editing is blocked until loading succeeds."
+                    ),
+                    isError: true
+                )
             }
         }
     }
@@ -499,16 +1004,14 @@ final class AttendanceViewModel: ObservableObject {
                 dateIso: state.dateIso
             )
 
-        state.recordsByMemberId =
-            Dictionary(
-                uniqueKeysWithValues:
-                    loaded.map {
-                        (
-                            $0.memberId,
-                            $0
-                        )
-                    }
-            )
+        state.recordsByMemberId = Dictionary(
+            loaded.map {
+                ($0.memberId, $0)
+            },
+            uniquingKeysWith: { _, latest in
+                latest
+            }
+        )
 
         isReportSaved =
             !loaded.isEmpty
@@ -535,7 +1038,15 @@ final class AttendanceViewModel: ObservableObject {
     private func publishMessage(_ text: String, isError: Bool) {
         state.lastMessage = text
         state.lastMessageIsError = isError
-        state.messageEventId = Int64(Date().timeIntervalSince1970 * 1000)
+
+        let now = Int64(
+            Date().timeIntervalSince1970 * 1_000
+        )
+
+        state.messageEventId = max(
+            now,
+            state.messageEventId + 1
+        )
     }
 
     private static func todayIso() -> String {
@@ -543,22 +1054,76 @@ final class AttendanceViewModel: ObservableObject {
     }
 
     private static func isoString(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: date)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = ShabbatHolidayCheckerIOS.calendar
+        formatter.timeZone = ShabbatHolidayCheckerIOS.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
     }
 
-    private static func makeDate(year: Int, month: Int, day: Int) -> Date? {
-        Calendar.current.date(from: DateComponents(year: year, month: month, day: day))
+    private static func parsedDate(fromIso iso: String) -> Date? {
+        let clean = iso.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = ShabbatHolidayCheckerIOS.calendar
+        formatter.timeZone = ShabbatHolidayCheckerIOS.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+
+        guard let date = formatter.date(from: clean),
+              formatter.string(from: date) == clean else {
+            return nil
+        }
+
+        return date
     }
 
-    private static func dateComponents(fromIso iso: String) -> DateComponents {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"
-        guard let date = f.date(from: iso) else { return DateComponents() }
-        return Calendar.current.dateComponents([.year, .month, .day], from: date)
+    private static func makeDate(
+        year: Int,
+        month: Int,
+        day: Int
+    ) -> Date? {
+        let calendar = ShabbatHolidayCheckerIOS.calendar
+
+        guard let date = calendar.date(
+            from: DateComponents(
+                year: year,
+                month: month,
+                day: day
+            )
+        ) else {
+            return nil
+        }
+
+        let components = calendar.dateComponents(
+            [.year, .month, .day],
+            from: date
+        )
+
+        guard components.year == year,
+              components.month == month,
+              components.day == day else {
+            return nil
+        }
+
+        return date
+    }
+
+    private static func dateComponents(
+        fromIso iso: String
+    ) -> DateComponents {
+        guard let date = parsedDate(fromIso: iso) else {
+            return DateComponents()
+        }
+
+        return ShabbatHolidayCheckerIOS.calendar.dateComponents(
+            [.year, .month, .day],
+            from: date
+        )
     }
 }
 

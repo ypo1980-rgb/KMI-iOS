@@ -16,30 +16,13 @@ enum AdminAccessService {
                 .document(uid)
                 .getDocument()
 
-            guard snapshot.exists else {
+            guard !Task.isCancelled,
+                  Auth.auth().currentUser?.uid == uid,
+                  snapshot.exists else {
                 return false
             }
 
-            let data = snapshot.data() ?? [:]
-
-            let enabled = data["enabled"] as? Bool == true
-            let role = (data["role"] as? String)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased() ?? ""
-
-            let type = (data["type"] as? String)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased() ?? ""
-
-            let isAdminRole =
-                role == "admin" ||
-                role == "super_admin" ||
-                role == "owner" ||
-                type == "admin" ||
-                type == "super_admin" ||
-                type == "owner"
-
-            return enabled || isAdminRole
+            return snapshot.data()?["enabled"] as? Bool == true
         } catch {
             return false
         }

@@ -413,6 +413,12 @@ struct BeltQuestionsByTopicView: View {
 
     @State private var expandedMainTopicId: String? = nil
     @State private var pickedAcrossBeltsSubject: SubjectTopic? = nil
+
+    @State private var isTopicsScreenVisible = false
+    @State private var isPreparingTopicsPDF = false
+    @State private var topicsPDFURL: URL?
+    @State private var showTopicsPDFShare = false
+    @State private var topicsPDFError: String?
     @State private var pickedAcrossBeltsSubTopicTitle:
         String? = nil
 
@@ -1065,7 +1071,8 @@ struct BeltQuestionsByTopicView: View {
     private func loadMainTopicsIfNeeded(
         force: Bool = false
     ) async {
-        guard force || !didLoadMainTopics else {
+        guard !Task.isCancelled,
+              force || !didLoadMainTopics else {
             return
         }
 
@@ -1091,6 +1098,10 @@ struct BeltQuestionsByTopicView: View {
 
             ByTopicScreenMemoryCache.mainTopics = preparedTopics
             cachedMainTopics = preparedTopics
+        }
+
+        guard !Task.isCancelled else {
+            return
         }
 
         subjectCountCache =
@@ -2597,69 +2608,48 @@ struct BeltQuestionsByTopicView: View {
         return 0
     }
 
-    private func buildSubtitleLineBottom(
+    private func displayedTopicStats(
         for topic: MainTopic
-    ) -> String {
-
-        let stats =
-            KmiExerciseCountProvider
-                .topicStats(
-                    belt: belt,
-                    topicTitle:
-                        topic.titleHeb
-                )
+    ) -> KmiExerciseCountStats {
+        let stats = KmiExerciseCountProvider.topicStats(
+            belt: belt,
+            topicTitle: topic.titleHeb
+        )
 
         let total: Int
 
         if stats.exerciseCount > 0 {
-
-            total =
-                stats.exerciseCount
-
+            total = stats.exerciseCount
         } else {
+            total = topic.subjects.reduce(0) {
+                partial, subject in
 
-            /*
-             * משתמשים ב-cache של ה-subjects
-             * במקום לפתור את כל SubjectItemsResolver
-             * בכל render.
-             */
-            total =
-                topic.subjects.reduce(
-                    0
-                ) {
-                    partial,
-                    subject in
-
-                    partial +
-                        cachedDisplayedExerciseCount(
-                            for: subject
-                        )
-                }
+                partial + cachedDisplayedExerciseCount(
+                    for: subject
+                )
+            }
         }
 
-        let resolvedSubTopicCount =
-            max(
-                stats.subTopicCount,
-                topic.subjects.count
-            )
+        let subTopicCount = max(
+            stats.subTopicCount,
+            topic.subjects.count
+        )
 
-        let displayStats =
-            KmiExerciseCountStats(
-                subTopicCount:
-                    resolvedSubTopicCount > 1
-                        ? resolvedSubTopicCount
-                        : 0,
-                exerciseCount:
-                    total
-            )
+        return KmiExerciseCountStats(
+            subTopicCount: subTopicCount > 1
+                ? subTopicCount
+                : 0,
+            exerciseCount: total
+        )
+    }
 
-        return KmiExerciseCountProvider
-            .combinedCountText(
-                stats:
-                    displayStats,
-                isEnglish:
-                    isEnglish
-            )
+    private func buildSubtitleLineBottom(
+        for topic: MainTopic
+    ) -> String {
+        KmiExerciseCountProvider.combinedCountText(
+            stats: displayedTopicStats(for: topic),
+            isEnglish: isEnglish
+        )
     }
 
     private func subtitleLineBottom(
@@ -2676,14 +2666,26 @@ struct BeltQuestionsByTopicView: View {
                 "Counting exercises…"
             )
     }
-
+    
     @MainActor
     private func rebuildTopicCountCaches() async {
         let requestedBeltId = belt.id
+        let requestedLanguageCode = effectiveLanguageCode
+
+        @MainActor
+        func isCurrentRequest() -> Bool {
+            !Task.isCancelled &&
+            belt.id == requestedBeltId &&
+            effectiveLanguageCode == requestedLanguageCode
+        }
+
+        guard isCurrentRequest() else {
+            return
+        }
 
         for topic in cachedMainTopics {
             for subject in topic.subjects {
-                guard !Task.isCancelled else {
+                guard isCurrentRequest() else {
                     return
                 }
 
@@ -2703,7 +2705,7 @@ struct BeltQuestionsByTopicView: View {
                         topicTitle: subject.titleHeb
                     )
 
-                guard !Task.isCancelled else {
+                guard isCurrentRequest() else {
                     return
                 }
 
@@ -2712,11 +2714,9 @@ struct BeltQuestionsByTopicView: View {
                 if stats.exerciseCount > 0 {
                     count = stats.exerciseCount
                 } else {
-                    // שומר על מסלול הספירה הקיים
-                    // בנושאים שאין להם ספירה ישירה.
                     await Task.yield()
 
-                    guard !Task.isCancelled else {
+                    guard isCurrentRequest() else {
                         return
                     }
 
@@ -2725,11 +2725,17 @@ struct BeltQuestionsByTopicView: View {
                     )
                 }
 
+                guard isCurrentRequest() else {
+                    return
+                }
+
                 ByTopicScreenMemoryCache.subjectCounts[key] = count
                 subjectCountCache[key] = count
+
+                await Task.yield()
             }
 
-            guard !Task.isCancelled else {
+            guard isCurrentRequest() else {
                 return
             }
 
@@ -2743,26 +2749,29 @@ struct BeltQuestionsByTopicView: View {
                 continue
             }
 
-            // מכין ברקע את הספירה שמשמשת לכיתוב הכרטיס.
             _ = await KmiExerciseCountProvider.topicStatsInBackground(
                 beltId: requestedBeltId,
                 topicTitle: topic.titleHeb
             )
 
-            guard !Task.isCancelled else {
+            guard isCurrentRequest() else {
                 return
             }
 
-            // הספירה הישירה כבר נמצאת במטמון הגלובלי,
-            // וספירות תתי־הנושאים כבר הוכנו למעלה.
             let subtitle = buildSubtitleLineBottom(
                 for: topic
             )
+
+            guard isCurrentRequest() else {
+                return
+            }
 
             ByTopicScreenMemoryCache.topicSubtitles[subtitleKey] =
                 subtitle
 
             topicSubtitleCache[subtitleKey] = subtitle
+
+            await Task.yield()
         }
     }
 
@@ -2781,16 +2790,16 @@ struct BeltQuestionsByTopicView: View {
     }
 
     private func openTopic(_ topic: MainTopic) {
-        triggerTapHaptic()
-
         if isTopicLocked(topic) &&
             !isDefenseRootTopic(topic) {
-
+            triggerTapHaptic()
             nav.push(.subscriptionPlans)
             return
         }
 
         if topic.subjects.count > 1 {
+            triggerTapHaptic()
+
             withAnimation(.easeInOut(duration: 0.22)) {
                 expandedMainTopicId =
                     expandedMainTopicId == topic.id
@@ -3784,6 +3793,351 @@ struct BeltQuestionsByTopicView: View {
         }
     }
 
+    @MainActor
+    private func shareTopicsPDF() {
+        guard isTopicsScreenVisible,
+              !isPreparingTopicsPDF,
+              !showTopicsPDFShare else {
+            return
+        }
+
+        guard didLoadMainTopics,
+              !mainTopics.isEmpty else {
+            topicsPDFError = tr(
+                "יש להמתין לטעינת הנושאים לפני השיתוף.",
+                "Wait for the topics to load before sharing."
+            )
+            return
+        }
+
+        let requestedBeltID = belt.id
+        let requestedLanguage = effectiveLanguageCode
+
+        isPreparingTopicsPDF = true
+
+        Task { @MainActor in
+            defer {
+                isPreparingTopicsPDF = false
+            }
+
+            await rebuildTopicCountCaches()
+
+            guard !Task.isCancelled,
+                  isTopicsScreenVisible,
+                  belt.id == requestedBeltID,
+                  effectiveLanguageCode == requestedLanguage else {
+                return
+            }
+
+            guard let url = createTopicsPDF() else {
+                topicsPDFError = tr(
+                    "לא ניתן היה ליצור את קובץ ה־PDF.",
+                    "The PDF file could not be created."
+                )
+                return
+            }
+
+            topicsPDFURL = url
+            showTopicsPDFShare = true
+        }
+    }
+
+    @MainActor
+    private func createTopicsPDF() -> URL? {
+        let entries = mainTopics.map { topic in
+            let stats = displayedTopicStats(for: topic)
+
+            return (
+                title: displayTitle(for: topic),
+                subtitle: KmiExerciseCountProvider.combinedCountText(
+                    stats: stats,
+                    isEnglish: isEnglish
+                ),
+                exerciseCount: stats.exerciseCount
+            )
+        }
+
+        guard !entries.isEmpty else {
+            return nil
+        }
+
+        let totalExercises = entries.reduce(0) {
+            $0 + $1.exerciseCount
+        }
+
+        let english = isEnglish
+        let pageRect = CGRect(
+            x: 0,
+            y: 0,
+            width: 595,
+            height: 842
+        )
+
+        let renderer = UIGraphicsPDFRenderer(bounds: pageRect)
+
+        let data = renderer.pdfData { context in
+            MainActor.assumeIsolated {
+                let margin: CGFloat = 34
+                let contentWidth = pageRect.width - margin * 2
+                let contentBottom =
+                    pageRect.height -
+                    KmiPdfFooter.CONTENT_BOTTOM_PADDING
+
+                let style = NSMutableParagraphStyle()
+                style.alignment = english ? .left : .right
+                style.baseWritingDirection = english
+                    ? .leftToRight
+                    : .rightToLeft
+                style.lineBreakMode = .byWordWrapping
+
+                let titleAttributes: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.boldSystemFont(ofSize: 14),
+                    .foregroundColor: UIColor.black,
+                    .paragraphStyle: style
+                ]
+
+                let subtitleAttributes: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(ofSize: 11),
+                    .foregroundColor: UIColor.darkGray,
+                    .paragraphStyle: style
+                ]
+
+                var pageNumber = 0
+                var currentY = KmiPdfHeader.CONTENT_TOP
+
+                func drawFooter() {
+                    KmiPdfFooter.draw(
+                        context: context.cgContext,
+                        pageWidth: pageRect.width,
+                        pageHeight: pageRect.height,
+                        pageNumber: pageNumber,
+                        isEnglish: english
+                    )
+                }
+
+                func beginPage() {
+                    context.beginPage()
+                    pageNumber += 1
+
+                    KmiPdfHeader.draw(
+                        context: context.cgContext,
+                        pageWidth: pageRect.width,
+                        isEnglish: english,
+                        titleHebrew: "תרגילים לפי נושא",
+                        titleEnglish: "Exercises by Topic",
+                        subtitleHebrew: "נושאי התרגול והספירות",
+                        subtitleEnglish: "Practice topics and counts"
+                    )
+
+                    currentY = KmiPdfHeader.CONTENT_TOP
+                }
+
+                func textHeight(
+                    _ text: String,
+                    attributes: [NSAttributedString.Key: Any],
+                    width: CGFloat
+                ) -> CGFloat {
+                    ceil(
+                        (text as NSString).boundingRect(
+                            with: CGSize(
+                                width: width,
+                                height: .greatestFiniteMagnitude
+                            ),
+                            options: [
+                                .usesLineFragmentOrigin,
+                                .usesFontLeading
+                            ],
+                            attributes: attributes,
+                            context: nil
+                        ).height
+                    )
+                }
+
+                beginPage()
+
+                let summaryTitle = english
+                    ? "Topics Summary"
+                    : "סיכום נושאים"
+
+                let summaryText = english
+                    ? "\(entries.count) topics · \(totalExercises) exercises"
+                    : "\(entries.count) נושאים · \(totalExercises) תרגילים"
+
+                let summaryTextWidth = contentWidth - 24
+
+                let summaryTitleHeight = textHeight(
+                    summaryTitle,
+                    attributes: titleAttributes,
+                    width: summaryTextWidth
+                )
+
+                let summaryTextHeight = textHeight(
+                    summaryText,
+                    attributes: subtitleAttributes,
+                    width: summaryTextWidth
+                )
+
+                let summaryHeight =
+                    summaryTitleHeight +
+                    summaryTextHeight +
+                    30
+
+                let summaryRect = CGRect(
+                    x: margin,
+                    y: currentY,
+                    width: contentWidth,
+                    height: summaryHeight
+                )
+
+                UIColor(
+                    KmiAppTheme.secondaryContainer(for: .light)
+                ).setFill()
+
+                let summaryPath = UIBezierPath(
+                    roundedRect: summaryRect,
+                    cornerRadius: 10
+                )
+                summaryPath.fill()
+
+                UIColor(
+                    KmiAppTheme.secondary(for: .light)
+                ).setStroke()
+                summaryPath.lineWidth = 1
+                summaryPath.stroke()
+
+                (summaryTitle as NSString).draw(
+                    with: CGRect(
+                        x: margin + 12,
+                        y: currentY + 12,
+                        width: summaryTextWidth,
+                        height: summaryTitleHeight
+                    ),
+                    options: [
+                        .usesLineFragmentOrigin,
+                        .usesFontLeading
+                    ],
+                    attributes: titleAttributes,
+                    context: nil
+                )
+
+                (summaryText as NSString).draw(
+                    with: CGRect(
+                        x: margin + 12,
+                        y: currentY + 18 + summaryTitleHeight,
+                        width: summaryTextWidth,
+                        height: summaryTextHeight
+                    ),
+                    options: [
+                        .usesLineFragmentOrigin,
+                        .usesFontLeading
+                    ],
+                    attributes: subtitleAttributes,
+                    context: nil
+                )
+
+                currentY += summaryHeight + 14
+
+                for (index, entry) in entries.enumerated() {
+                    let title = "\(index + 1). \(entry.title)"
+                    let textWidth = contentWidth - 24
+
+                    let titleHeight = textHeight(
+                        title,
+                        attributes: titleAttributes,
+                        width: textWidth
+                    )
+
+                    let subtitleHeight = textHeight(
+                        entry.subtitle,
+                        attributes: subtitleAttributes,
+                        width: textWidth
+                    )
+
+                    let rowHeight = max(
+                        58,
+                        titleHeight + subtitleHeight + 30
+                    )
+
+                    if currentY + rowHeight > contentBottom {
+                        drawFooter()
+                        beginPage()
+                    }
+
+                    let rowRect = CGRect(
+                        x: margin,
+                        y: currentY,
+                        width: contentWidth,
+                        height: rowHeight
+                    )
+
+                    UIColor(
+                        KmiAppTheme.surfaceVariant(for: .light)
+                    ).setFill()
+
+                    let path = UIBezierPath(
+                        roundedRect: rowRect,
+                        cornerRadius: 10
+                    )
+                    path.fill()
+
+                    UIColor(
+                        KmiAppTheme.outlineVariant(for: .light)
+                    ).setStroke()
+                    path.lineWidth = 1
+                    path.stroke()
+
+                    (title as NSString).draw(
+                        with: CGRect(
+                            x: margin + 12,
+                            y: currentY + 12,
+                            width: textWidth,
+                            height: titleHeight
+                        ),
+                        options: [
+                            .usesLineFragmentOrigin,
+                            .usesFontLeading
+                        ],
+                        attributes: titleAttributes,
+                        context: nil
+                    )
+
+                    (entry.subtitle as NSString).draw(
+                        with: CGRect(
+                            x: margin + 12,
+                            y: currentY + 18 + titleHeight,
+                            width: textWidth,
+                            height: subtitleHeight
+                        ),
+                        options: [
+                            .usesLineFragmentOrigin,
+                            .usesFontLeading
+                        ],
+                        attributes: subtitleAttributes,
+                        context: nil
+                    )
+
+                    currentY += rowHeight + 10
+                }
+
+                drawFooter()
+            }
+        }
+
+        let fileName = english
+            ? "KMI_Exercises_by_Topic.pdf"
+            : "קמי_תרגילים_לפי_נושא.pdf"
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(fileName)
+
+        do {
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            return nil
+        }
+    }
+
     private var emptyTopicsMessage: some View {
         Text(
             tr(
@@ -3831,7 +4185,7 @@ struct BeltQuestionsByTopicView: View {
             topicsScreenContent
             quickRailLayer
 
-            if !didLoadMainTopics {
+            if !didLoadMainTopics || isPreparingTopicsPDF {
                 KmiLoadingOverlay()
                     .zIndex(100)
             }
@@ -3841,7 +4195,53 @@ struct BeltQuestionsByTopicView: View {
              screenLayoutDirection
         )
         .navigationBarTitleDisplayMode(.inline)
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name(
+                    "KMI_GLOBAL_SHARE_REQUEST"
+                )
+            )
+        ) { notification in
+            guard isTopicsScreenVisible,
+                  pickedAcrossBeltsSubject == nil,
+                  let request =
+                    notification.object as? NSMutableDictionary,
+                  request["handled"] as? Bool != true else {
+                return
+            }
+
+            request["handled"] = true
+            shareTopicsPDF()
+        }
+        .sheet(
+            isPresented: $showTopicsPDFShare,
+            onDismiss: {
+                topicsPDFURL = nil
+            }
+        ) {
+            if let url = topicsPDFURL {
+                ByTopicPDFShareSheet(url: url)
+            }
+        }
+        .alert(
+            tr("שיתוף PDF", "Share PDF"),
+            isPresented: Binding(
+                get: { topicsPDFError != nil },
+                set: {
+                    if !$0 {
+                        topicsPDFError = nil
+                    }
+                }
+            )
+        ) {
+            Button(tr("אישור", "OK"), role: .cancel) {
+                topicsPDFError = nil
+            }
+        } message: {
+            Text(topicsPDFError ?? "")
+        }
         .onDisappear {
+            isTopicsScreenVisible = false
             showQuickActionsDialog = false
         }
         .task(id: "\(belt.id)::\(effectiveLanguageCode)") {
@@ -3860,6 +4260,8 @@ struct BeltQuestionsByTopicView: View {
             await rebuildTopicCountCaches()
         }
         .onAppear {
+            isTopicsScreenVisible = true
+
             onActiveBeltChange?(
                 belt
             )
@@ -3973,16 +4375,29 @@ private struct SubjectSectionsListView: View {
 
     private var isEnglish: Bool {
         let values = [
-            kmiAppLanguageCode.lowercased(),
-            appLanguageRaw.lowercased(),
-            initialLanguageCode.lowercased()
+            kmiAppLanguageCode,
+            appLanguageRaw,
+            initialLanguageCode
         ]
 
-        return values.contains("en") || values.contains("english")
-    }
+        for rawValue in values {
+            let value = rawValue
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
 
-    private var screenLayoutDirection: LayoutDirection {
-        isEnglish ? .leftToRight : .rightToLeft
+            switch value {
+            case "en", "english":
+                return true
+
+            case "he", "hebrew", "עברית":
+                return false
+
+            default:
+                continue
+            }
+        }
+
+        return false
     }
 
     private var primaryTextAlignment: TextAlignment {
@@ -4642,8 +5057,26 @@ private struct SubjectSectionsListView: View {
                 .padding(.bottom, 14)
             }
         }
-        .environment(\.layoutDirection, screenLayoutDirection)
+        .environment(\.layoutDirection, .leftToRight)
         .navigationTitle(uiSubjectTitle(subject))
         .navigationBarTitleDisplayMode(.inline)
     }
+}
+
+private struct ByTopicPDFShareSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(
+        context: Context
+    ) -> UIActivityViewController {
+        UIActivityViewController(
+            activityItems: [url],
+            applicationActivities: nil
+        )
+    }
+
+    func updateUIViewController(
+        _ uiViewController: UIActivityViewController,
+        context: Context
+    ) {}
 }

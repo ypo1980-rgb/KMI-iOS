@@ -1380,22 +1380,420 @@ final class AttendanceRepository {
         }
     }
     
+    func addManualMemberToFirestore(
+        ownerUid: String,
+        branchName: String,
+        groupKey: String,
+        fullName: String,
+        phone: String = "",
+        notes: String = "",
+        authUid: String? = nil
+    ) async throws -> AttendanceMember {
+        let owner = ownerUid.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let branch = branchName.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let group = groupKey.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let name = fullName.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let cleanPhone = phone.filter { $0.isNumber }
+        let cleanNotes = notes.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let cleanAuthUid = (authUid ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        func validateCurrentUser() throws {
+            try Task.checkCancellation()
+
+            guard !owner.isEmpty,
+                  Auth.auth().currentUser?.uid == owner else {
+                throw CancellationError()
+            }
+        }
+
+        try validateCurrentUser()
+
+        guard !branch.isEmpty,
+              !group.isEmpty,
+              !name.isEmpty else {
+            throw OwnAttendanceError.invalidContext
+        }
+
+        let nameKey = attendanceNameKey(name)
+
+        guard !nameKey.isEmpty else {
+            throw OwnAttendanceError.invalidContext
+        }
+
+        let membersReference = attendanceGroupReference(
+            branchName: branch,
+            groupKey: group
+        )
+        .collection("members")
+
+        /*
+         * כמו Android:
+         * מזהים קודם לפי Firebase UID, אם נמסר.
+         * חיפוש לפי שם משמש לתאימות למסמכים ישנים.
+         */
+        var existingDocument: QueryDocumentSnapshot?
+
+        if !cleanAuthUid.isEmpty {
+            let snapshot = try await membersReference
+                .whereField(
+                    "authUid",
+                    isEqualTo: cleanAuthUid
+                )
+                .limit(to: 1)
+                .getDocuments()
+
+            try validateCurrentUser()
+
+            existingDocument = snapshot.documents.first
+        }
+
+        if existingDocument == nil {
+            let snapshot = try await membersReference
+                .whereField(
+                    "displayNameKey",
+                    isEqualTo: nameKey
+                )
+                .limit(to: 1)
+                .getDocuments()
+
+            try validateCurrentUser()
+
+            existingDocument = snapshot.documents.first
+        }
+
+        if let existing = existingDocument {
+            let data = existing.data()
+            let storedId = int64Value(data["id"])
+
+            let memberId = storedId > 0
+                ? storedId
+                : (Int64(existing.documentID) ?? 0)
+
+            /*
+             * מזהה ישן שאינו מספרי דורש בירור.
+             * אין ליצור לו מזהה חלופי שעלול
+             * לנתק את היסטוריית הנוכחות.
+             */
+            guard memberId > 0 else {
+                throw OwnAttendanceError.memberNotResolved
+            }
+
+            var update: [String: Any] = [
+                "updatedAtMillis":
+                    Int64(Date().timeIntervalSince1970 * 1_000),
+                "updatedAt": FieldValue.serverTimestamp()
+            ]
+
+            if !cleanAuthUid.isEmpty {
+                let storedAuthUid =
+                    (data["authUid"] as? String ?? "")
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+
+                /*
+                 * התאמת שם לבדה אינה מאפשרת
+                 * להעביר חבר מחשבון רשום אחד לאחר.
+                 */
+                guard storedAuthUid.isEmpty ||
+                      storedAuthUid == cleanAuthUid else {
+                    throw OwnAttendanceError.memberMismatch
+                }
+
+                update["authUid"] = cleanAuthUid
+            }
+
+            if !cleanPhone.isEmpty {
+                update["phone"] = cleanPhone
+            }
+
+            if !cleanNotes.isEmpty {
+                update["notes"] = cleanNotes
+            }
+
+            try validateCurrentUser()
+
+            try await existing.reference.setData(
+                update,
+                merge: true
+            )
+
+            try validateCurrentUser()
+
+            return AttendanceMember(
+                id: String(memberId),
+                fullName:
+                    (data["displayName"] as? String)
+                    ?? (data["fullName"] as? String)
+                    ?? name,
+                phone:
+                    cleanPhone.isEmpty
+                    ? (data["phone"] as? String ?? "")
+                    : cleanPhone,
+                notes:
+                    cleanNotes.isEmpty
+                    ? (
+                        (data["notes"] as? String)
+                        ?? (data["attendanceNotes"] as? String)
+                        ?? (data["coachNotes"] as? String)
+                        ?? ""
+                    )
+                    : cleanNotes
+            )
+        }
+
+        /*
+         * אותה נוסחה כמו addMember ב־Android:
+         * branch | groupKey | displayNameKey
+         */
+        let memberId = stableAttendanceId(
+            "\(branch)|\(group)|\(nameKey)"
+        )
+
+        try validateCurrentUser()
+
+        try await ensureGroupMetadata(
+            branchName: branch,
+            groupKey: group
+        )
+
+        try validateCurrentUser()
+
+        let now = Int64(
+            Date().timeIntervalSince1970 * 1_000
+        )
+
+        var data: [String: Any] = [
+            "id": memberId,
+            "branch": branch,
+            "groupKey": group,
+            "displayName": name,
+            "displayNameKey": nameKey,
+            "coachUid": owner,
+            "coachEmail": Auth.auth().currentUser?.email ?? "",
+            "source": "manual_or_bootstrap",
+            "createdAtMillis": now,
+            "updatedAtMillis": now,
+            "updatedAt": FieldValue.serverTimestamp()
+        ]
+
+        if !cleanAuthUid.isEmpty {
+            data["authUid"] = cleanAuthUid
+        }
+
+        if !cleanPhone.isEmpty {
+            data["phone"] = cleanPhone
+        }
+
+        if !cleanNotes.isEmpty {
+            data["notes"] = cleanNotes
+        }
+
+        try validateCurrentUser()
+
+        try await membersReference
+            .document(String(memberId))
+            .setData(data, merge: true)
+
+        try validateCurrentUser()
+
+        return AttendanceMember(
+            id: String(memberId),
+            fullName: name,
+            phone: cleanPhone,
+            notes: cleanNotes
+        )
+    }
+
+    func removeMemberFromFirestore(
+        ownerUid: String,
+        branchName: String,
+        groupKey: String,
+        memberId: String
+    ) async throws {
+        let owner = ownerUid.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let branch = branchName.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let group = groupKey.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let rawMemberId = memberId.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        func validateCurrentUser() throws {
+            try Task.checkCancellation()
+
+            guard !owner.isEmpty,
+                  Auth.auth().currentUser?.uid == owner else {
+                throw CancellationError()
+            }
+        }
+
+        try validateCurrentUser()
+
+        guard !branch.isEmpty,
+              !group.isEmpty,
+              let numericMemberId = Int64(rawMemberId),
+              numericMemberId > 0 else {
+            throw OwnAttendanceError.invalidContext
+        }
+
+        let identifier = String(numericMemberId)
+
+        let groupReference = attendanceGroupReference(
+            branchName: branch,
+            groupKey: group
+        )
+
+        let sessions = try await groupReference
+            .collection("sessions")
+            .getDocuments()
+
+        try validateCurrentUser()
+
+        /*
+         * כמו Android:
+         * מסירים גם את סימוני המתאמן מהאימונים.
+         * מחלקים לקבוצות כתיבה כדי לא לעבור
+         * את מגבלת מספר הפעולות ב־batch.
+         */
+        let recordReferences = sessions.documents.map {
+            $0.reference
+                .collection("records")
+                .document(identifier)
+        }
+
+        var offset = 0
+
+        while offset < recordReferences.count {
+            try validateCurrentUser()
+
+            let upperBound = min(
+                offset + 450,
+                recordReferences.count
+            )
+
+            let batch = Firestore.firestore().batch()
+
+            for reference in recordReferences[offset..<upperBound] {
+                batch.deleteDocument(reference)
+            }
+
+            try await batch.commit()
+
+            offset = upperBound
+        }
+
+        /*
+         * מסירים את חבר הקבוצה לאחר השלמת
+         * מחיקת הסימונים. כשל אינו מדווח כהצלחה.
+         */
+        try validateCurrentUser()
+
+        try await groupReference
+            .collection("members")
+            .document(identifier)
+            .delete()
+
+        try validateCurrentUser()
+
+        let remainingMembers = store.loadMembers(
+            ownerUid: owner,
+            branchName: branch,
+            groupKey: group
+        )
+        .filter { $0.id != identifier }
+
+        store.saveMembers(
+            ownerUid: owner,
+            branchName: branch,
+            groupKey: group,
+            members: remainingMembers
+        )
+    }
+
     func loadRealMembers(
         ownerUid: String,
         branchName: String,
         groupKey: String
     ) async throws -> [AttendanceMember] {
         guard let remoteMembersSource else {
-            return []
+            throw NSError(
+                domain: "AttendanceRepository",
+                code: 7,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Remote attendance members source is unavailable."
+                ]
+            )
+        }
+
+        let owner = ownerUid.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let branch = branchName.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let group = groupKey.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        try Task.checkCancellation()
+
+        guard !owner.isEmpty,
+              Auth.auth().currentUser?.uid == owner else {
+            throw CancellationError()
+        }
+
+        guard !branch.isEmpty,
+              !group.isEmpty else {
+            throw NSError(
+                domain: "AttendanceRepository",
+                code: 8,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Invalid attendance members context."
+                ]
+            )
         }
 
         let members = try await remoteMembersSource.loadMembers(
-            ownerUid: ownerUid,
-            branchName: branchName,
-            groupKey: groupKey
+            ownerUid: owner,
+            branchName: branch,
+            groupKey: group
         )
 
-        return uniqueMembers(members)
+        try Task.checkCancellation()
+
+        guard Auth.auth().currentUser?.uid == owner else {
+            throw CancellationError()
+        }
+
+        let resolvedMembers = uniqueMembers(members)
+
+        store.saveMembers(
+            ownerUid: owner,
+            branchName: branch,
+            groupKey: group,
+            members: resolvedMembers
+        )
+
+        return resolvedMembers
     }
     
     // MARK: - Local fallback members (optional only)
@@ -1449,11 +1847,15 @@ final class AttendanceRepository {
 
             let data = document.data()
 
-            let memberId =
-                (data["memberId"] as? NSNumber)?.int64Value
-                ?? Int64(document.documentID)
+            let storedMemberId = int64Value(
+                data["memberId"]
+            )
 
-            guard let memberId, memberId > 0 else {
+            let memberId = storedMemberId > 0
+                ? storedMemberId
+                : (Int64(document.documentID) ?? 0)
+
+            guard memberId > 0 else {
                 return nil
             }
 
@@ -1528,6 +1930,18 @@ final class AttendanceRepository {
         let group = state.groupKey
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let dateIso = state.dateIso
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard Self.date(fromIso: dateIso) != nil else {
+            throw NSError(
+                domain: "AttendanceRepository",
+                code: 4,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Invalid attendance report date."
+                ]
+            )
+        }
 
         guard let user = Auth.auth().currentUser,
               user.uid == state.ownerUid,
@@ -1614,7 +2028,26 @@ final class AttendanceRepository {
         var excusedCount = 0
         var absentCount = 0
 
+        var seenMemberIDs = Set<Int64>()
+
         for record in records {
+            let rawMemberId = record.memberId
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard let memberId = Int64(rawMemberId),
+                  memberId > 0,
+                  record.dateIso == dateIso,
+                  seenMemberIDs.insert(memberId).inserted else {
+                throw NSError(
+                    domain: "AttendanceRepository",
+                    code: 3,
+                    userInfo: [
+                        NSLocalizedDescriptionKey:
+                            "Invalid or duplicate attendance record."
+                    ]
+                )
+            }
+
             let statusName: String
 
             switch record.status {
@@ -1637,10 +2070,10 @@ final class AttendanceRepository {
 
             var recordData = coachFields
             recordData["id"] = stableAttendanceId(
-                "\(sessionId)|\(record.memberId)"
+                "\(sessionId)|\(memberId)"
             )
             recordData["sessionId"] = sessionId
-            recordData["memberId"] = record.memberId
+            recordData["memberId"] = memberId
             recordData["coachStatus"] = statusName
             recordData["status"] = statusName
             recordData["note"] = record.note
@@ -1650,7 +2083,7 @@ final class AttendanceRepository {
                 recordData,
                 forDocument: sessionReference
                     .collection("records")
-                    .document(String(record.memberId)),
+                    .document(String(memberId)),
                 merge: true
             )
         }
@@ -1681,7 +2114,23 @@ final class AttendanceRepository {
             merge: true
         )
 
+        try Task.checkCancellation()
+
+        guard Auth.auth().currentUser?.uid == user.uid else {
+            throw CancellationError()
+        }
+
         try await batch.commit()
+
+        /*
+         * אם המשתמש התנתק בזמן ההמתנה,
+         * לא כותבים את התוצאה למטמון המקומי.
+         */
+        try Task.checkCancellation()
+
+        guard Auth.auth().currentUser?.uid == user.uid else {
+            throw CancellationError()
+        }
 
         // שומרים מקומית רק אחרי שהשמירה בענן הצליחה.
         store.saveRecords(
@@ -1728,36 +2177,68 @@ final class AttendanceRepository {
         groupKey: String,
         dateIso: String
     ) async throws -> [AttendanceRecord] {
-        let documentId = reportDocumentId(
-            ownerUid: ownerUid,
-            branchName: branchName,
-            groupKey: groupKey,
-            dateIso: dateIso
+        let owner = ownerUid.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let branch = branchName.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let group = groupKey.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let date = dateIso.trimmingCharacters(
+            in: .whitespacesAndNewlines
         )
 
-        let snapshot = try await Firestore.firestore()
-            .collection("attendanceReports")
-            .document(documentId)
-            .getDocument()
+        try Task.checkCancellation()
 
-        guard let data = snapshot.data() else {
-            return []
+        guard !owner.isEmpty,
+              Auth.auth().currentUser?.uid == owner else {
+            throw CancellationError()
         }
 
-        let rawRecords = data["records"] as? [[String: Any]] ?? []
-
-        return rawRecords.compactMap { recordData in
-            let recordId =
-                ((recordData["id"] as? String) ??
-                 (recordData["recordId"] as? String) ??
-                 "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-
-            return AttendanceRecord.fromFirestore(
-                id: recordId.isEmpty ? UUID().uuidString : recordId,
-                data: recordData
+        guard !branch.isEmpty,
+              !group.isEmpty,
+              Self.date(fromIso: date) != nil else {
+            throw NSError(
+                domain: "AttendanceRepository",
+                code: 5,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Invalid attendance read context."
+                ]
             )
         }
+
+        /*
+         * אותו מסלול שמשמש את Android:
+         * attendanceGroups / group / sessions / date / records
+         */
+        let records = try await loadAttendanceRecordsFromFirestore(
+            branchName: branch,
+            groupKey: group,
+            dateIso: date
+        )
+
+        try Task.checkCancellation()
+
+        guard Auth.auth().currentUser?.uid == owner else {
+            throw CancellationError()
+        }
+
+        /*
+         * גם תשובה ריקה מוצלחת מחליפה מטמון ישן.
+         * בשגיאת קריאה לא מגיעים לכתיבה המקומית.
+         */
+        store.saveRecords(
+            ownerUid: owner,
+            branchName: branch,
+            groupKey: group,
+            dateIso: date,
+            records: records
+        )
+
+        return records
     }
 
     func listReportDaysInRangeFromFirestore(
@@ -1767,52 +2248,87 @@ final class AttendanceRepository {
         startIso: String,
         endIsoExclusive: String
     ) async throws -> Set<String> {
-        let snapshot = try await Firestore.firestore()
-            .collection("attendanceReports")
-            .whereField("ownerUid", isEqualTo: ownerUid.trimmingCharacters(in: .whitespacesAndNewlines))
-            .getDocuments()
+        let owner = ownerUid.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let branch = branchName.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let group = groupKey.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let start = startIso.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let end = endIsoExclusive.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
 
-        let cleanBranch = branchName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        try Task.checkCancellation()
 
-        let days = snapshot.documents.compactMap { doc -> String? in
-            let data = doc.data()
+        guard !owner.isEmpty,
+              Auth.auth().currentUser?.uid == owner else {
+            throw CancellationError()
+        }
 
-            let dateIso =
-                ((data["dateIso"] as? String) ??
-                 (data["date"] as? String) ??
-                 "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !branch.isEmpty,
+              !group.isEmpty,
+              Self.date(fromIso: start) != nil,
+              Self.date(fromIso: end) != nil,
+              start < end else {
+            throw NSError(
+                domain: "AttendanceRepository",
+                code: 6,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Invalid attendance report range."
+                ]
+            )
+        }
 
-            let reportBranch =
-                ((data["branchName"] as? String) ??
-                 (data["branch"] as? String) ??
-                 "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+        /*
+         * דוחות משותפים לפי סניף וקבוצה,
+         * כמו Android, ללא סינון לפי המאמן שיצר אותם.
+         */
+        let snapshot = try await attendanceGroupReference(
+            branchName: branch,
+            groupKey: group
+        )
+        .collection("reports")
+        .whereField(
+            "date",
+            isGreaterThanOrEqualTo: start
+        )
+        .whereField(
+            "date",
+            isLessThan: end
+        )
+        .getDocuments()
 
-            let reportGroup =
-                ((data["groupKey"] as? String) ??
-                 (data["group"] as? String) ??
-                 "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+        try Task.checkCancellation()
 
-            guard !dateIso.isEmpty else {
+        guard Auth.auth().currentUser?.uid == owner else {
+            throw CancellationError()
+        }
+
+        let days = snapshot.documents.compactMap {
+            document -> String? in
+
+            guard let rawDate = document.data()["date"] as? String else {
                 return nil
             }
 
-            guard dateIso >= startIso, dateIso < endIsoExclusive else {
+            let date = rawDate.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+            guard Self.date(fromIso: date) != nil,
+                  date >= start,
+                  date < end else {
                 return nil
             }
 
-            if !cleanBranch.isEmpty, reportBranch != cleanBranch {
-                return nil
-            }
-
-            if !cleanGroup.isEmpty, reportGroup != cleanGroup {
-                return nil
-            }
-
-            return dateIso
+            return date
         }
 
         return Set(days)
@@ -1901,7 +2417,7 @@ final class AttendanceRepository {
         groupKey: String,
         today: Date = Date()
     ) -> [AttendanceSavedReport] {
-        let calendar = Calendar.current
+        let calendar = ShabbatHolidayCheckerIOS.calendar
         guard let start = calendar.date(byAdding: .year, value: -1, to: today) else {
             return []
         }
@@ -2188,27 +2704,52 @@ final class AttendanceRepository {
     }
 
     private static func date(fromIso iso: String) -> Date? {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"
-        return f.date(from: iso)
+        let clean = iso.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = ShabbatHolidayCheckerIOS.calendar
+        formatter.timeZone = ShabbatHolidayCheckerIOS.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+
+        guard let date = formatter.date(from: clean),
+              formatter.string(from: date) == clean else {
+            return nil
+        }
+
+        return date
     }
 
-    private static func displayDateString(fromIso iso: String, isEnglish: Bool) -> String {
+    private static func displayDateString(
+        fromIso iso: String,
+        isEnglish: Bool
+    ) -> String {
         guard let date = date(fromIso: iso) else {
             return iso
         }
 
-        let f = DateFormatter()
-        f.locale = isEnglish ? Locale(identifier: "en_US") : Locale(identifier: "he_IL")
-        f.dateFormat = isEnglish ? "MMM d, yyyy" : "dd/MM/yyyy"
-        return f.string(from: date)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(
+            identifier: isEnglish ? "en_US" : "he_IL"
+        )
+        formatter.calendar = ShabbatHolidayCheckerIOS.calendar
+        formatter.timeZone = ShabbatHolidayCheckerIOS.timeZone
+        formatter.dateFormat = isEnglish
+            ? "MMM d, yyyy"
+            : "dd/MM/yyyy"
+
+        return formatter.string(from: date)
     }
-    
+
     private static func isoString(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: date)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = ShabbatHolidayCheckerIOS.calendar
+        formatter.timeZone = ShabbatHolidayCheckerIOS.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
     }
 }

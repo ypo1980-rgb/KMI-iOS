@@ -233,15 +233,14 @@ enum HolidayCalendarStore {
                 calendar.component(.year, from: $0.date)
             )
         }
-        let bundledDates = Set(
-            bundleEntries.map {
-                calendar.startOfDay(for: $0.date)
-            }
-        )
-
+        /*
+         * כמו Android:
+         * בשנים 2024–2026 ה־JSON הוא מקור האמת.
+         * חישוב אוטומטי משמש רק לשנים אחרות.
+         */
         let fallbackEntries = generateFallbackEntries().filter {
-            !bundledDates.contains(
-                calendar.startOfDay(for: $0.date)
+            !assetYears.contains(
+                calendar.component(.year, from: $0.date)
             )
         }
 

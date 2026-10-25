@@ -94,9 +94,13 @@ struct AttendanceView: View {
     }
 
     private var canEditAttendance: Bool {
-
-        !vm.isReportSaved ||
-        isEditingSavedReport
+        !vm.state.isSaving &&
+        !vm.isContextLoading &&
+        !vm.contextLoadFailed &&
+        (
+            !vm.isReportSaved ||
+            isEditingSavedReport
+        )
     }
 
     private var primaryTextColor: Color {
@@ -200,6 +204,10 @@ struct AttendanceView: View {
                 VStack(spacing: 10) {
                     attendanceHeroCard
 
+                    if vm.contextLoadFailed {
+                        attendanceLoadFailureCard
+                    }
+
                     attendanceSummaryCard
 
                     if isAddMemberExpanded &&
@@ -237,6 +245,8 @@ struct AttendanceView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 104)
             }
+            .scrollDismissesKeyboard(.interactively)
+            .disabled(vm.state.isSaving)
 
             if !vm.isReportSaved {
 
@@ -264,7 +274,7 @@ struct AttendanceView: View {
                 }
             }
 
-            if vm.state.isSaving {
+            if vm.state.isSaving || vm.isContextLoading {
 
                 KmiLoadingOverlay()
                     .transition(.opacity)
@@ -375,6 +385,8 @@ struct AttendanceView: View {
                 return
             }
 
+            let messageEventId = vm.state.messageEventId
+
             withAnimation {
                 toastMessage = msg
             }
@@ -382,6 +394,14 @@ struct AttendanceView: View {
             DispatchQueue.main.asyncAfter(
                 deadline: .now() + 2
             ) {
+                /*
+                 * טיימר של הודעה קודמת אינו
+                 * מסתיר הודעה חדשה יותר.
+                 */
+                guard vm.state.messageEventId == messageEventId,
+                      toastMessage == msg else {
+                    return
+                }
 
                 withAnimation {
                     toastMessage = nil
@@ -392,10 +412,17 @@ struct AttendanceView: View {
         .onChange(
             of: vm.state.dateIso
         ) { _, _ in
-
-            isEditingSavedReport = false
-            isAddMemberExpanded = false
-            pendingDeleteRow = nil
+            resetAttendanceEditingState()
+        }
+        .onChange(
+            of: vm.state.branchName
+        ) { _, _ in
+            resetAttendanceEditingState()
+        }
+        .onChange(
+            of: vm.state.groupKey
+        ) { _, _ in
+            resetAttendanceEditingState()
         }
 
         .onAppear {
@@ -428,7 +455,7 @@ struct AttendanceView: View {
             }
         }
         .onChange(
-            of: auth.userBranchAssignments.map(\.branch)
+            of: auth.userBranchAssignments
         ) { _, _ in
             refreshAssignedAttendanceBranches()
         }
@@ -445,6 +472,67 @@ struct AttendanceView: View {
         }
     }
     
+    private var attendanceLoadFailureCard: some View {
+        VStack(
+            alignment: screenHorizontalAlignment,
+            spacing: 10
+        ) {
+            Text(
+                tr(
+                    "טעינת הדוח לא הושלמה",
+                    "Report loading did not complete"
+                )
+            )
+            .kmiTypography(.cardTitle)
+            .fontWeight(.bold)
+
+            Text(
+                tr(
+                    "מוצגים נתונים מקומיים זמינים. יש לנסות שוב לפני עריכה או שיתוף.",
+                    "Available local data is shown. Retry before editing or sharing."
+                )
+            )
+            .kmiFont(size: 13, weight: .medium)
+
+            Button {
+                vm.retryLoadingCurrentContext()
+            } label: {
+                secondaryActionButton(
+                    icon: "arrow.clockwise",
+                    title: tr("נסה שוב", "Retry")
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(
+                vm.isContextLoading ||
+                vm.state.isSaving
+            )
+        }
+        .foregroundStyle(primaryTextColor)
+        .multilineTextAlignment(screenTextAlignment)
+        .frame(
+            maxWidth: .infinity,
+            alignment: screenFrameAlignment
+        )
+        .padding(14)
+        .background(cardSurfaceColor)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(cardBorderColor, lineWidth: 1)
+        }
+    }
+
+    private func resetAttendanceEditingState() {
+        isEditingSavedReport = false
+        isAddMemberExpanded = false
+        pendingDeleteRow = nil
+
+        newMemberName = ""
+        newMemberPhone = ""
+        newMemberNotes = ""
+    }
+
     private func refreshAssignedAttendanceBranches() {
         let assignedBranches =
             auth.userBranchAssignments.map(\.branch)
@@ -514,6 +602,7 @@ struct AttendanceView: View {
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .disabled(vm.state.isSaving)
         .accessibilityLabel(
             isAddMemberExpanded
                 ? tr(
@@ -528,20 +617,8 @@ struct AttendanceView: View {
     }
 
     private var attendanceHeroCard: some View {
-        let branch =
-            vm.state.branchName
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-
-        let group =
-            vm.state.groupKey
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-
         let dateText = formattedDate(vm.state.dateIso)
-        let total = vm.state.summary.totalMembers
+        let total = displayedAttendanceSummary.totalMembers
 
         return VStack(
             alignment: screenHorizontalAlignment,
@@ -597,7 +674,13 @@ struct AttendanceView: View {
                     "No training at assigned branches on this date"
                 ),
                 isEnglish: isEnglish,
-                isEnabled: !vm.availableBranches.isEmpty
+                isEnabled: !vm.availableBranches.isEmpty,
+                labelForOption: {
+                    TrainingCatalogIOS.displayBranch(
+                        $0,
+                        isEnglish: isEnglish
+                    )
+                }
             )
 
             KmiPremiumDropdown(
@@ -612,7 +695,13 @@ struct AttendanceView: View {
                     "No groups with training on this date"
                 ),
                 isEnglish: isEnglish,
-                isEnabled: !vm.availableGroups.isEmpty
+                isEnabled: !vm.availableGroups.isEmpty,
+                labelForOption: {
+                    TrainingCatalogIOS.displayGroup(
+                        $0,
+                        isEnglish: isEnglish
+                    )
+                }
             )
 
             Text(
@@ -768,8 +857,49 @@ struct AttendanceView: View {
             )
     }
     
+    private var displayedAttendanceSummary: (
+        totalMembers: Int,
+        attendancePercent: Int,
+        presentLabel: String,
+        absentLabel: String,
+        excusedLabel: String,
+        unknownLabel: String
+    ) {
+        let rows = uniqueMembers(vm.state.rows)
+        let total = rows.count
+
+        let present = rows.filter {
+            $0.status == .present
+        }.count
+
+        let absent = rows.filter {
+            $0.status == .absent
+        }.count
+
+        let excused = rows.filter {
+            $0.status == .excused
+        }.count
+
+        let unmarked = rows.filter {
+            $0.status == .unknown
+        }.count
+
+        let percent = total > 0
+            ? Int(Double(present) * 100 / Double(total))
+            : 0
+
+        return (
+            totalMembers: total,
+            attendancePercent: percent,
+            presentLabel: String(present),
+            absentLabel: String(absent),
+            excusedLabel: String(excused),
+            unknownLabel: String(unmarked)
+        )
+    }
+
     private var attendanceSummaryCard: some View {
-        let summary = vm.state.summary
+        let summary = displayedAttendanceSummary
         let pct = max(0.0, min(100.0, Double(summary.attendancePercent)))
 
         return VStack(alignment: screenHorizontalAlignment, spacing: 14) {
@@ -818,10 +948,9 @@ struct AttendanceView: View {
                         )
                 } else {
                     Image(systemName: "chart.bar.fill")
-                        .kmiFont(
-                            size: 17,
-                            weight: .heavy
-                        )
+                        .kmiIconSize(17)
+                        .fontWeight(.heavy)
+                        .accessibilityHidden(true)
                         .foregroundStyle(
                             KmiAppTheme.secondary(
                                 for: colorScheme
@@ -1001,13 +1130,23 @@ struct AttendanceView: View {
                 )
             }
 
-            statPill(
-                title: tr("לא סומנו", "Not marked"),
-                value: summary.unknownLabel,
-                tint: KmiAppTheme.onSurfaceVariant(
-                    for: colorScheme
+            HStack(spacing: 10) {
+                statPill(
+                    title: tr("מוצדקים", "Excused"),
+                    value: summary.excusedLabel,
+                    tint: KmiAppTheme.secondary(
+                        for: colorScheme
+                    )
                 )
-            )
+
+                statPill(
+                    title: tr("לא סומנו", "Not marked"),
+                    value: summary.unknownLabel,
+                    tint: KmiAppTheme.onSurfaceVariant(
+                        for: colorScheme
+                    )
+                )
+            }
         }
         .padding(16)
         .background(cardSurfaceColor)
@@ -1134,16 +1273,23 @@ struct AttendanceView: View {
                 vm.addMember(
                     fullName: newMemberName,
                     phone: newMemberPhone,
-                    notes: newMemberNotes
+                    notes: newMemberNotes,
+                    completion: { succeeded in
+                        guard succeeded else {
+                            return
+                        }
+
+                        newMemberName = ""
+                        newMemberPhone = ""
+                        newMemberNotes = ""
+
+                        withAnimation(
+                            .easeInOut(duration: 0.22)
+                        ) {
+                            isAddMemberExpanded = false
+                        }
+                    }
                 )
-
-                newMemberName = ""
-                newMemberPhone = ""
-                newMemberNotes = ""
-
-                withAnimation(.easeInOut(duration: 0.22)) {
-                    isAddMemberExpanded = false
-                }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "plus.circle.fill")
@@ -1183,6 +1329,7 @@ struct AttendanceView: View {
             }
             .buttonStyle(.plain)
             .disabled(
+                !canEditAttendance ||
                 newMemberName
                     .trimmingCharacters(
                         in: .whitespacesAndNewlines
@@ -1190,13 +1337,16 @@ struct AttendanceView: View {
                     .isEmpty
             )
             .opacity(
-                newMemberName
-                    .trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    )
-                    .isEmpty
-                        ? 0.45
-                        : 1.0
+                (
+                    !canEditAttendance ||
+                    newMemberName
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                        .isEmpty
+                )
+                    ? 0.45
+                    : 1.0
             )
         }
         .padding(16)
@@ -1224,7 +1374,12 @@ struct AttendanceView: View {
     }
 
     private var membersCard: some View {
-        VStack(alignment: screenHorizontalAlignment, spacing: 12) {
+        let displayedRows = uniqueMembers(vm.state.rows)
+
+        return VStack(
+            alignment: screenHorizontalAlignment,
+            spacing: 12
+        ) {
             HStack {
                 if isEnglish {
                     VStack(alignment: .leading, spacing: 3) {
@@ -1243,7 +1398,7 @@ struct AttendanceView: View {
                         .minimumScaleFactor(0.74)
 
                         Text(
-                            vm.state.rows.isEmpty
+                            displayedRows.isEmpty
                                 ? tr(
                                     "אין מתאמנים עדיין",
                                     "No trainees yet"
@@ -1302,7 +1457,7 @@ struct AttendanceView: View {
                         .minimumScaleFactor(0.74)
 
                         Text(
-                            vm.state.rows.isEmpty
+                            displayedRows.isEmpty
                                 ? tr(
                                     "אין מתאמנים עדיין",
                                     "No trainees yet"
@@ -1324,7 +1479,7 @@ struct AttendanceView: View {
             }
             .environment(\.layoutDirection, .leftToRight)
 
-            if vm.state.rows.isEmpty {
+            if displayedRows.isEmpty {
                 Text(
                     tr(
                         "לא נוספו מתאמנים לסניף ולקבוצה שנבחרו.",
@@ -1346,16 +1501,11 @@ struct AttendanceView: View {
                 .padding(.vertical, 10)
             } else {
 
-                let uniqueRows =
-                    uniqueMembers(
-                        vm.state.rows
-                    )
-
                 VStack(spacing: 10) {
 
                     ForEach(
                         Array(
-                            uniqueRows.enumerated()
+                            displayedRows.enumerated()
                         ),
                         id: \.element.id
                     ) { index, row in
@@ -1519,9 +1669,11 @@ struct AttendanceView: View {
                     isEditingSavedReport = true
 
                 } else {
-
-                    vm.saveReport()
-                    isEditingSavedReport = false
+                    vm.saveReport(
+                        onSaved: {
+                            isEditingSavedReport = false
+                        }
+                    )
                 }
 
             } label: {
@@ -1616,9 +1768,17 @@ struct AttendanceView: View {
                 )
             }
             .buttonStyle(.plain)
-            .disabled(vm.state.isSaving)
+            .disabled(
+                vm.state.isSaving ||
+                vm.isContextLoading ||
+                vm.contextLoadFailed
+            )
             .opacity(
-                vm.state.isSaving
+                (
+                    vm.state.isSaving ||
+                    vm.isContextLoading ||
+                    vm.contextLoadFailed
+                )
                     ? 0.65
                     : 1
             )
@@ -2316,6 +2476,38 @@ struct AttendanceView: View {
     }
 
     private func shareReport() {
+        guard !vm.state.isSaving,
+              !showShareSheet else {
+            return
+        }
+
+        guard !vm.isContextLoading,
+              !vm.contextLoadFailed else {
+            withAnimation {
+                toastMessage = tr(
+                    "יש להשלים את טעינת הדוח לפני שיתוף",
+                    "Finish loading the report before sharing"
+                )
+            }
+
+            return
+        }
+
+        guard !vm.state.branchName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty,
+              !vm.state.groupKey
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty else {
+            withAnimation {
+                toastMessage = tr(
+                    "יש לבחור סניף וקבוצה לפני שיתוף הדוח",
+                    "Select a branch and group before sharing the report"
+                )
+            }
+
+            return
+        }
 
         guard let pdfUrl =
             createAttendancePDF()
@@ -2449,13 +2641,130 @@ struct AttendanceView: View {
                         KmiPdfHeader.CONTENT_TOP
                 }
 
-                func drawText(
-                    _ text: String,
-                    in rect: CGRect,
-                    font: UIFont,
-                    color: UIColor,
-                    alignment: NSTextAlignment
-                ) {
+                    /*
+                     * הערות ארוכות נפרסות על פני עמודים.
+                     * המדידה והציור משתמשים באותם מאפייני טקסט.
+                     */
+                    func drawReportNote(_ text: String) {
+                        let font = UIFont.systemFont(ofSize: 10)
+                        let width = contentWidth - 24
+
+                        let style = NSMutableParagraphStyle()
+                        style.alignment = textAlignment
+                        style.baseWritingDirection = writingDirection
+                        style.lineBreakMode = .byWordWrapping
+
+                        let attributes: [NSAttributedString.Key: Any] = [
+                            .font: font,
+                            .foregroundColor: UIColor(
+                                red: 0.29,
+                                green: 0.34,
+                                blue: 0.40,
+                                alpha: 1
+                            ),
+                            .paragraphStyle: style
+                        ]
+
+                        let options: NSStringDrawingOptions = [
+                            .usesLineFragmentOrigin,
+                            .usesFontLeading
+                        ]
+
+                        func measuredHeight(_ value: String) -> CGFloat {
+                            ceil(
+                                (value as NSString).boundingRect(
+                                    with: CGSize(
+                                        width: width,
+                                        height: .greatestFiniteMagnitude
+                                    ),
+                                    options: options,
+                                    attributes: attributes,
+                                    context: nil
+                                ).height
+                            )
+                        }
+
+                        var remaining = text
+
+                        while !remaining.isEmpty {
+                            let availableHeight =
+                                floor(contentBottom - currentY - 4)
+
+                            if availableHeight < ceil(font.lineHeight) {
+                                drawFooter()
+                                beginPage()
+                                continue
+                            }
+
+                            /*
+                             * מוצאים את כמות התווים שנכנסת בעמוד.
+                             * String.prefix שומר על תווים מורכבים.
+                             */
+                            var low = 1
+                            var high = remaining.count
+                            var fittingCount = 0
+
+                            while low <= high {
+                                let middle = low + (high - low) / 2
+                                let candidate = String(
+                                    remaining.prefix(middle)
+                                )
+
+                                if measuredHeight(candidate) <= availableHeight {
+                                    fittingCount = middle
+                                    low = middle + 1
+                                } else {
+                                    high = middle - 1
+                                }
+                            }
+
+                            guard fittingCount > 0 else {
+                                drawFooter()
+                                beginPage()
+                                continue
+                            }
+
+                            let chunk = String(
+                                remaining.prefix(fittingCount)
+                            )
+
+                            let height = measuredHeight(chunk)
+
+                            (chunk as NSString).draw(
+                                with: CGRect(
+                                    x: horizontalMargin + 12,
+                                    y: currentY,
+                                    width: width,
+                                    height: height + 1
+                                ),
+                                options: options,
+                                attributes: attributes,
+                                context: nil
+                            )
+
+                            currentY += height + 4
+
+                            remaining = String(
+                                remaining.dropFirst(fittingCount)
+                            )
+                            .trimmingCharacters(
+                                in: .whitespacesAndNewlines
+                            )
+
+                            if !remaining.isEmpty {
+                                drawFooter()
+                                beginPage()
+                            }
+                        }
+                    }
+
+                    func drawText(
+                        _ text: String,
+                        in rect: CGRect,
+                        font: UIFont,
+                        color: UIColor,
+                        alignment: NSTextAlignment
+                    ) {
 
                     let attributes:
                         [NSAttributedString.Key: Any] = [
@@ -2500,7 +2809,13 @@ struct AttendanceView: View {
                             "Absent"
                         )
 
-                    default:
+                    case .excused:
+                        return tr(
+                            "היעדרות מוצדקת",
+                            "Excused absence"
+                        )
+
+                    case .unknown:
                         return tr(
                             "לא סומן",
                             "Not marked"
@@ -2542,17 +2857,17 @@ struct AttendanceView: View {
 
                 beginPage()
 
-                let branch =
-                    vm.state.branchName
-                        .trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        )
+                    let branch = TrainingCatalogIOS.displayBranch(
+                        vm.state.branchName,
+                        isEnglish: isEnglish
+                    )
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
 
-                let group =
-                    vm.state.groupKey
-                        .trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        )
+                    let group = TrainingCatalogIOS.displayGroup(
+                        vm.state.groupKey,
+                        isEnglish: isEnglish
+                    )
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
 
                 let branchGroupText =
                     [
@@ -2631,16 +2946,25 @@ struct AttendanceView: View {
                     for (index, row)
                         in rows.enumerated() {
 
-                        let note =
+                        let originalNote =
                             row.attendanceNote
                                 .trimmingCharacters(
                                     in: .whitespacesAndNewlines
                                 )
 
-                        let rowHeight: CGFloat =
-                            note.isEmpty
-                                ? 46
-                                : 62
+                        let note: String
+
+                        if demoPrivacy.isEnabled &&
+                            !originalNote.isEmpty {
+                            note = tr(
+                                "ההערה מוסתרת במצב הדגמה",
+                                "Note hidden in demo mode"
+                            )
+                        } else {
+                            note = originalNote
+                        }
+
+                        let rowHeight: CGFloat = 46
 
                         if currentY + rowHeight >
                             contentBottom {
@@ -2784,38 +3108,18 @@ struct AttendanceView: View {
                                     : .left
                         )
 
-                        if !note.isEmpty {
+                        currentY = rowRect.maxY + 4
 
-                            drawText(
+                        if !note.isEmpty {
+                            drawReportNote(
                                 tr(
                                     "הערה: \(note)",
                                     "Note: \(note)"
-                                ),
-                                in: CGRect(
-                                    x: rowRect.minX + 12,
-                                    y: rowRect.minY + 31,
-                                    width:
-                                        rowRect.width - 24,
-                                    height: 22
-                                ),
-                                font:
-                                    UIFont.systemFont(
-                                        ofSize: 10
-                                    ),
-                                color:
-                                    UIColor(
-                                        red: 0.29,
-                                        green: 0.34,
-                                        blue: 0.40,
-                                        alpha: 1
-                                    ),
-                                alignment:
-                                    textAlignment
+                                )
                             )
                         }
 
-                        currentY =
-                            rowRect.maxY + 8
+                        currentY += 8
                     }
                 }
 
@@ -2857,12 +3161,6 @@ struct AttendanceView: View {
         let reportTimeZone =
             TimeZone(identifier: "Asia/Jerusalem") ?? .current
 
-        let input = DateFormatter()
-        input.calendar = Calendar(identifier: .gregorian)
-        input.timeZone = reportTimeZone
-        input.locale = Locale(identifier: "en_US_POSIX")
-        input.dateFormat = "yyyy-MM-dd"
-
         let output = DateFormatter()
         output.calendar = Calendar(identifier: .gregorian)
         output.timeZone = reportTimeZone
@@ -2874,25 +3172,37 @@ struct AttendanceView: View {
                 ? "EEEE, MMM d, yyyy"
                 : "EEEE, d MMM yyyy"
 
-        guard let date = input.date(from: iso) else { return iso }
+        guard let date = dateFromIso(iso) else {
+            return iso
+        }
+
         return output.string(from: date)
     }
 
     private func dateFromIso(_ iso: String) -> Date? {
+        let clean = iso.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
         let input = DateFormatter()
-        input.calendar = Calendar(identifier: .gregorian)
-        input.timeZone =
-            TimeZone(identifier: "Asia/Jerusalem") ?? .current
+        input.calendar = ShabbatHolidayCheckerIOS.calendar
+        input.timeZone = ShabbatHolidayCheckerIOS.timeZone
         input.locale = Locale(identifier: "en_US_POSIX")
         input.dateFormat = "yyyy-MM-dd"
-        return input.date(from: iso)
+        input.isLenient = false
+
+        guard let date = input.date(from: clean),
+              input.string(from: date) == clean else {
+            return nil
+        }
+
+        return date
     }
 
     private func isoString(from date: Date) -> String {
         let output = DateFormatter()
-        output.calendar = Calendar(identifier: .gregorian)
-        output.timeZone =
-            TimeZone(identifier: "Asia/Jerusalem") ?? .current
+        output.calendar = ShabbatHolidayCheckerIOS.calendar
+        output.timeZone = ShabbatHolidayCheckerIOS.timeZone
         output.locale = Locale(identifier: "en_US_POSIX")
         output.dateFormat = "yyyy-MM-dd"
         return output.string(from: date)
@@ -2915,31 +3225,87 @@ struct AttendanceView: View {
         )
     }
 
-    private func uniqueMembers(_ rows: [AttendanceRowUi]) -> [AttendanceRowUi] {
-        var unique: [String: AttendanceRowUi] = [:]
-
-        for row in rows {
-            let cleanPhone = row.phone
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .filter { $0.isNumber }
-
-            let cleanName = row.memberName
+    private func uniqueMembers(
+        _ rows: [AttendanceRowUi]
+    ) -> [AttendanceRowUi] {
+        func normalizedName(_ value: String) -> String {
+            value
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
+                .replacingOccurrences(of: "־", with: "-")
+                .replacingOccurrences(of: "–", with: "-")
+                .replacingOccurrences(of: "—", with: "-")
+                .replacingOccurrences(
+                    of: #"[."'׳״,;:()\[\]{}]"#,
+                    with: "",
+                    options: .regularExpression
+                )
+                .replacingOccurrences(
+                    of: #"\s+"#,
+                    with: " ",
+                    options: .regularExpression
+                )
+        }
 
-            let key = cleanPhone.isEmpty ? cleanName : cleanPhone
+        func isPlaceholder(_ name: String) -> Bool {
+            let key = normalizedName(name)
 
-            guard !key.isEmpty else {
+            return key.isEmpty ||
+                key == "מתאמן" ||
+                key.hasPrefix("מתאמן ") ||
+                key.hasPrefix("מתאמן_") ||
+                key == "demo" ||
+                key.hasPrefix("demo ") ||
+                key.hasPrefix("test trainee") ||
+                key == "trainee" ||
+                key.hasPrefix("trainee ")
+        }
+
+        func normalizedPhone(_ value: String) -> String {
+            var digits = value.filter { $0.isNumber }
+
+            if digits.hasPrefix("972") {
+                digits = String(digits.dropFirst(3))
+            }
+
+            if digits.hasPrefix("0") {
+                digits = String(digits.dropFirst())
+            }
+
+            return digits
+        }
+
+        var seen = Set<String>()
+        var result: [AttendanceRowUi] = []
+
+        for row in rows {
+            /*
+             * הסינון נעשה לפי השם המקורי.
+             * שמות שמוצגים באמצעות DemoPrivacy
+             * אינם משמשים לסינון או לזיהוי.
+             */
+            guard !isPlaceholder(row.memberName) else {
                 continue
             }
 
-            if unique[key] == nil {
-                unique[key] = row
+            let phone = normalizedPhone(row.phone)
+            let name = normalizedName(row.memberName)
+
+            let key = phone.isEmpty
+                ? "name:\(name)"
+                : "phone:\(phone)"
+
+            guard seen.insert(key).inserted else {
+                continue
             }
+
+            result.append(row)
         }
 
-        return unique.values.sorted {
-            $0.memberName.localizedCaseInsensitiveCompare($1.memberName) == .orderedAscending
+        return result.sorted {
+            $0.memberName.localizedCaseInsensitiveCompare(
+                $1.memberName
+            ) == .orderedAscending
         }
     }
 }
@@ -2988,8 +3354,9 @@ private struct AttendancePremiumDatePickerSheet: View {
         ZStack {
             KmiAppBackground()
 
-            VStack(spacing: 18) {
-                Text(title)
+            ScrollView {
+                VStack(spacing: 18) {
+                    Text(title)
                     .kmiFont(
                         size: 22,
                         weight: .black
@@ -3001,11 +3368,14 @@ private struct AttendancePremiumDatePickerSheet: View {
                     .minimumScaleFactor(0.72)
                     .padding(.top, 6)
 
-                DatePicker(
-                    "",
-                    selection: $selectedDate,
-                    displayedComponents: [.date]
-                )
+                    DatePicker(
+                        isEnglish
+                            ? "Attendance date"
+                            : "תאריך אימון",
+                        selection: $selectedDate,
+                        displayedComponents: [.date]
+                    )
+                    .labelsHidden()
                 .datePickerStyle(.graphical)
                 .tint(
                     KmiAppTheme.secondary(
@@ -3132,8 +3502,10 @@ private struct AttendancePremiumDatePickerSheet: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 18)
-            .padding(.bottom, 16)
+                .padding(.horizontal, 18)
+                .padding(.top, 8)
+                .padding(.bottom, 16)
+            }
         }
         .environment(
             \.layoutDirection,
@@ -3146,8 +3518,12 @@ private struct AttendancePremiumDatePickerSheet: View {
             )
         )
         .environment(
+            \.calendar,
+            ShabbatHolidayCheckerIOS.calendar
+        )
+        .environment(
             \.timeZone,
-            TimeZone(identifier: "Asia/Jerusalem") ?? .current
+            ShabbatHolidayCheckerIOS.timeZone
         )
     }
 }

@@ -21,6 +21,9 @@ struct AuthGateView: View {
      */
     @State private var isCheckingServerUser: Bool = false
     @State private var canContinueExistingUser: Bool
+    @State private var showProfileLoadError = false
+    @State private var showRegistrationTerms = false
+    @State private var serverProfileRequestID = UUID()
 
     private enum AuthEntryStep {
         case intro
@@ -90,7 +93,40 @@ struct AuthGateView: View {
             }
         }
         .environmentObject(auth)
+        .alert(
+            KmiStartupLanguage.currentFromDefaults().isEnglish
+                ? "Unable to load profile"
+                : "לא ניתן לטעון את הפרופיל",
+            isPresented: $showProfileLoadError
+        ) {
+            Button(
+                KmiStartupLanguage.currentFromDefaults().isEnglish
+                    ? "Try again"
+                    : "נסה שוב"
+            ) {
+                routeSignedInUserByServerDocument()
+            }
+
+            Button(
+                KmiStartupLanguage.currentFromDefaults().isEnglish
+                    ? "Cancel"
+                    : "ביטול",
+                role: .cancel
+            ) { }
+        } message: {
+            Text(
+                KmiStartupLanguage.currentFromDefaults().isEnglish
+                    ? "Check your internet connection and try again."
+                    : "בדוק את החיבור לאינטרנט ונסה שוב."
+            )
+        }
         .onAppear {
+            /*
+             * start מוגנת מהוספת מאזין כפול.
+             * מחדשים האזנה גם לאחר הופעה חוזרת.
+             */
+            auth.start()
+
             guard !didBootstrap else {
                 return
             }
@@ -106,7 +142,6 @@ struct AuthGateView: View {
             step = .intro
 
             nav.popToRoot()
-            auth.start()
 
             let existingUser =
                 FirebaseApp.app() != nil
@@ -122,15 +157,21 @@ struct AuthGateView: View {
                 existingUser?.isAnonymous == false
         }
         .onChange(of: auth.isSignedIn) { _, isSignedIn in
-            if isSignedIn {
+            if isSignedIn,
+               let currentUser = Auth.auth().currentUser,
+               !currentUser.isAnonymous {
                 /*
                  * לאחר התחברות מציגים "המשך".
                  * מסך הטעינה ייפתח רק בלחיצה על הכפתור.
                  */
                 canContinueExistingUser = true
-                isCheckingServerUser = false
                 didFinishInitialAuthCheck = true
-                step = .intro
+
+                /*
+                 * מסלול הכניסה הפעיל אחראי לניווט.
+                 * אירוע Firebase אינו מאפס מסך
+                 * או בדיקת פרופיל שעדיין מתבצעים.
+                 */
             } else {
                 resetToIntro()
             }
@@ -141,12 +182,19 @@ struct AuthGateView: View {
     }
 
     private func resetToIntro() {
+        serverProfileRequestID = UUID()
+        showProfileLoadError = false
+        showRegistrationTerms = false
         isCheckingServerUser = false
         didRequestEnterApp = false
         didFinishPostLoginLoading = true
         didCompleteAuthScreen = false
+        didEnterAuthFlow = false
+        didFinishInitialAuthCheck = true
         canContinueExistingUser = false
         step = .intro
+
+        nav.popToRoot()
     }
 
     private func prepareSignedInUserForIntro() {
@@ -189,6 +237,11 @@ struct AuthGateView: View {
                         .document(uid)
                         .getDocument()
 
+                guard !Task.isCancelled,
+                      Auth.auth().currentUser?.uid == uid else {
+                    return
+                }
+
                 let data =
                     snapshot.data() ?? [:]
 
@@ -200,6 +253,11 @@ struct AuthGateView: View {
                     )
 
                 await MainActor.run {
+                    guard !Task.isCancelled,
+                          Auth.auth().currentUser?.uid == uid else {
+                        return
+                    }
+
                     completeInitialUserCheck(
                         canContinue: isComplete
                     )
@@ -211,6 +269,11 @@ struct AuthGateView: View {
                      * שמור, לא מחליפים אותו זמנית בכפתור Google
                      * בגלל כשל רשת רגעי.
                      */
+                    guard !Task.isCancelled,
+                          Auth.auth().currentUser?.uid == uid else {
+                        return
+                    }
+
                     let hasLocalProfile =
                         hasSavedLocalUserProfile()
 
@@ -258,7 +321,20 @@ struct AuthGateView: View {
                     in: .whitespacesAndNewlines
                 ) ?? ""
 
-        return !uid.isEmpty &&
+        let completedProfileUID = defaults
+            .string(forKey: "profile_completed_uid")?
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ) ?? ""
+
+        let belongsToCurrentUser =
+            !uid.isEmpty &&
+            (
+                auth.loadedProfileUID == uid ||
+                completedProfileUID == uid
+            )
+
+        return belongsToCurrentUser &&
             !email.isEmpty &&
             !fullName.isEmpty &&
             !role.isEmpty
@@ -279,6 +355,12 @@ struct AuthGateView: View {
         data: [String: Any],
         firebaseUser: User
     ) -> Bool {
+        guard !Task.isCancelled,
+              Auth.auth().currentUser?.uid == firebaseUser.uid,
+              !firebaseUser.isAnonymous else {
+            return false
+        }
+
         let defaults = UserDefaults.standard
 
         let fullName = firstNonEmptyString(
@@ -299,19 +381,24 @@ struct AuthGateView: View {
             ]
         )
 
-        if let fullName, !fullName.isEmpty {
-            defaults.set(fullName, forKey: "fullName")
+        guard let fullName,
+              !fullName.isEmpty,
+              let beltId,
+              !beltId.isEmpty else {
+            return false
         }
 
-        if let beltId, !beltId.isEmpty {
-            defaults.set(beltId, forKey: "current_belt")
-        }
+        defaults.set(fullName, forKey: "fullName")
+        defaults.set(beltId, forKey: "current_belt")
 
-        return fullName?.isEmpty == false &&
-            beltId?.isEmpty == false
+        return true
     }
 
     private func routeSignedInUserByServerDocument() {
+        guard !isCheckingServerUser else {
+            return
+        }
+
         guard FirebaseApp.app() != nil else {
             resetToIntro()
             return
@@ -334,6 +421,10 @@ struct AuthGateView: View {
             return
         }
 
+        let requestID = UUID()
+        serverProfileRequestID = requestID
+
+        showProfileLoadError = false
         isCheckingServerUser = true
         didRequestEnterApp = false
         didFinishPostLoginLoading = true
@@ -346,7 +437,25 @@ struct AuthGateView: View {
                     .getDocument()
 
                 await MainActor.run {
+                    guard !Task.isCancelled,
+                          serverProfileRequestID == requestID,
+                          Auth.auth().currentUser?.uid == uid else {
+                        return
+                    }
+
                     isCheckingServerUser = false
+
+                    /*
+                     * ללא מסמך במטמון אי אפשר לקבוע
+                     * שהפרופיל אינו קיים בשרת.
+                     */
+                    if !snapshot.exists &&
+                        snapshot.metadata.isFromCache {
+                        resetToIntro()
+                        canContinueExistingUser = true
+                        showProfileLoadError = true
+                        return
+                    }
 
                     guard snapshot.exists,
                           let data = snapshot.data(),
@@ -354,6 +463,18 @@ struct AuthGateView: View {
                             data: data,
                             firebaseUser: firebaseUser
                           ) else {
+                        /*
+                         * פרופיל חלקי מהמטמון עשוי להיות
+                         * ישן. ממתינים לאימות מול השרת
+                         * לפני הפניה להשלמת רישום.
+                         */
+                        if snapshot.metadata.isFromCache {
+                            resetToIntro()
+                            canContinueExistingUser = true
+                            showProfileLoadError = true
+                            return
+                        }
+
                         canContinueExistingUser = false
                         didRequestEnterApp = false
                         didFinishPostLoginLoading = true
@@ -371,8 +492,20 @@ struct AuthGateView: View {
 
             } catch {
                 await MainActor.run {
-                    isCheckingServerUser = false
+                    guard !Task.isCancelled,
+                          serverProfileRequestID == requestID,
+                          Auth.auth().currentUser?.uid == uid else {
+                        return
+                    }
+
                     resetToIntro()
+
+                    /*
+                     * כשל בקריאת הפרופיל אינו
+                     * מבטל את ההתחברות הקיימת.
+                     */
+                    canContinueExistingUser = true
+                    showProfileLoadError = true
                 }
             }
         }
@@ -390,7 +523,9 @@ struct AuthGateView: View {
                             routeSignedInUserByServerDocument()
                         },
                         onGoogleLogin: {
-                            if auth.isSignedIn {
+                            if let currentUser =
+                                Auth.auth().currentUser,
+                               !currentUser.isAnonymous {
                                 routeSignedInUserByServerDocument()
                                 return true
                             }
@@ -400,7 +535,7 @@ struct AuthGateView: View {
                                 coachCode: nil
                             )
 
-                            if success || auth.isSignedIn {
+                            if success {
                                 routeSignedInUserByServerDocument()
                                 return true
                             }
@@ -416,7 +551,10 @@ struct AuthGateView: View {
 
                 case .choice:
                     KmiRootLayout(
-                        title: "רישום משתמש",
+                        title:
+                            KmiStartupLanguage.currentFromDefaults().isEnglish
+                                ? "Registration"
+                                : "רישום משתמש",
                         nav: nav,
                         selectedIcon: nil
                     ) {
@@ -440,7 +578,9 @@ struct AuthGateView: View {
                     LoginView(
                         initialRole: .coach,
                         onBackToChoice: { step = .intro },
-                        onGoToRegister: { step = .registerNewCoach },
+                        onGoToRegister: {
+                            step = .registerNewTrainee
+                        },
                         onLoginSuccess: {
                             routeSignedInUserByServerDocument()
                         }
@@ -459,31 +599,43 @@ struct AuthGateView: View {
                                 step = .loginExistingTrainee
                             }
                         },
-                        onReadMoreTerms: { }
+                        onReadMoreTerms: {
+                            showRegistrationTerms = true
+                        }
                     )
 
                 case .registerNewCoach:
                     RegisterView(
                         prefillPhone: "",
                         prefillEmail: "",
-                        initialRole: .coach,
+                        initialRole: .trainee,
                         onBack: { step = .intro },
                         onSubmit: { _ in
                             if auth.isSignedIn {
                                 routeSignedInUserByServerDocument()
                             } else {
-                                step = .loginExistingCoach
+                                step = .loginExistingTrainee
                             }
                         },
-                        onReadMoreTerms: { }
+                        onReadMoreTerms: {
+                            showRegistrationTerms = true
+                        }
                     )
                 }
+            }
+            .navigationDestination(
+                isPresented: $showRegistrationTerms
+            ) {
+                LegalView()
             }
             .navigationDestination(for: AppRoute.self) { route in
                 switch route {
                 case .settings:
                     KmiRootLayout(
-                        title: "הגדרות",
+                        title:
+                            KmiStartupLanguage.currentFromDefaults().isEnglish
+                                ? "Settings"
+                                : "הגדרות",
                         nav: nav,
                         selectedIcon: .settings
                     ) {
@@ -494,9 +646,15 @@ struct AuthGateView: View {
                     ZStack {
                         KmiGradientBackground(forceTraineeStyle: true)
 
-                        Text("Route לא נתמך עדיין")
-                            .foregroundStyle(.white)
-                            .font(.system(size: 18, weight: .bold))
+                        Text(
+                            KmiStartupLanguage.currentFromDefaults().isEnglish
+                                ? "This screen is not available yet."
+                                : "המסך הזה עדיין אינו זמין."
+                        )
+                        .kmiFont(size: 18, weight: .bold)
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .padding()
                     }
                 }
             }
@@ -505,6 +663,8 @@ struct AuthGateView: View {
 }
 
 private struct KmiIntroGateScreen: View {
+    @EnvironmentObject
+    private var auth: AuthViewModel
 
     @Environment(\.colorScheme)
     private var colorScheme
@@ -1045,7 +1205,29 @@ private struct KmiIntroGateScreen: View {
                 .frame(width: geo.size.width, height: geo.size.height)
             }
         }
-        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+        .environment(
+            \.layoutDirection,
+            isEnglish ? .leftToRight : .rightToLeft
+        )
+        .alert(
+            isEnglish ? "Sign-in" : "התחברות",
+            isPresented: Binding(
+                get: {
+                    auth.errorText?.isEmpty == false
+                },
+                set: { presented in
+                    if !presented {
+                        auth.errorText = nil
+                    }
+                }
+            )
+        ) {
+            Button(isEnglish ? "OK" : "אישור") {
+                auth.errorText = nil
+            }
+        } message: {
+            Text(auth.errorText ?? "")
+        }
         .onAppear {
             withAnimation(.easeOut(duration: 1.1)) {
                 startAnim = true
@@ -1062,6 +1244,7 @@ private struct KmiIntroGateScreen: View {
 
     private var regularLoginButton: some View {
         Button {
+            auth.errorText = nil
             onRegularLogin()
         } label: {
             Text(
@@ -1110,6 +1293,8 @@ private struct KmiIntroGateScreen: View {
         Button {
             guard !isGoogleLoading else { return }
 
+            auth.errorText = nil
+
             if canContinueExistingUser {
                 onExistingUserContinue()
                 return
@@ -1118,11 +1303,11 @@ private struct KmiIntroGateScreen: View {
             isGoogleLoading = true
 
             Task { @MainActor in
-                let success = await onGoogleLogin()
-
-                if !success {
+                defer {
                     isGoogleLoading = false
                 }
+
+                _ = await onGoogleLogin()
             }
         } label: {
             ZStack {

@@ -11,9 +11,9 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
     ) async throws -> [AttendanceMember] {
 
         /*
-         * לחישוב groupId חייבים להשתמש בערכים
-         * המקוריים בדיוק כפי ש־Android שומר אותם.
-         * אסור להחליף סוגי מקפים לפני החישוב.
+         * שומרים את ערכי הסניף והקבוצה לצורך החיפוש.
+         * חישוב groupId מנרמל מקפים ורווחים
+         * בהתאם למימוש העדכני של Android.
          */
         let branchStorageValue =
             branchName.trimmingCharacters(
@@ -35,7 +35,24 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
         let groupClean =
             normalize(groupStorageValue)
 
+        guard !branchStorageValue.isEmpty,
+              !groupStorageValue.isEmpty else {
+            throw NSError(
+                domain: "AttendanceFirestoreMembersSource",
+                code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "A branch and group are required."
+                ]
+            )
+        }
+
+        try Task.checkCancellation()
+
         let db = Firestore.firestore()
+
+        var existingMembers: [AttendanceMember] = []
+        var existingMemberIDsByAuthUID: [String: String] = [:]
 
         /*
          * מקור האמת המשותף ל־Android ול־iOS.
@@ -118,33 +135,35 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
                             ) ??
                             document.documentID
 
-                        return AttendanceMember(
+                        let member = AttendanceMember(
                             id: memberId,
                             fullName:
                                 fullName.isEmpty
                                 ? phone
                                 : fullName,
                             phone: phone,
-                            notes:
-                                readNotes(
-                                    from: data
-                                )
+                            notes: readNotes(from: data)
                         )
+
+                        let authUID =
+                            (data["authUid"] as? String ?? "")
+                                .trimmingCharacters(
+                                    in: .whitespacesAndNewlines
+                                )
+
+                        if !authUID.isEmpty {
+                            existingMemberIDsByAuthUID[authUID] =
+                                member.id
+                        }
+
+                        return member
                     }
 
             /*
-             * אם קיימים חברים במבנה Android,
-             * לא מערבבים אותם עם משתמשים מהאוסף
-             * הישן כדי למנוע מזהים כפולים ושגויים.
+             * שומרים את חברי הקבוצה הקיימים,
+             * וממשיכים לבדוק משתמשים חסרים.
              */
-            if !groupMembers.isEmpty {
-                return groupMembers.sorted {
-                    $0.fullName
-                        .localizedCaseInsensitiveCompare(
-                            $1.fullName
-                        ) == .orderedAscending
-                }
-            }
+            existingMembers = groupMembers
         }
 
         /*
@@ -199,15 +218,64 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
             let storedBranches = branchValues(from: data)
             let storedGroups = groupValues(from: data)
 
-            let branchMatches =
-                branchCandidates.isEmpty ||
-                hasSoftMatch(storedValues: storedBranches, candidates: branchCandidates)
+            let codec =
+                RegistrationFormState.BranchAssignmentsCodec.self
 
-            let groupMatches =
-                groupCandidates.isEmpty ||
-                hasSoftMatch(storedValues: storedGroups, candidates: groupCandidates)
+            let matchesAssignment: Bool
 
-            guard branchMatches && groupMatches else {
+            if data[codec.firestoreKey] != nil {
+                /*
+                 * כאשר קיים שיוך מפורש, הקבוצה
+                 * חייבת להיות משויכת לאותו סניף.
+                 * שדה פגום אינו מאפשר חזרה לערכים ישנים.
+                 */
+                guard let objects =
+                    data[codec.firestoreKey] as? [Any] else {
+                    return nil
+                }
+
+                let assignments = codec.fromFirestoreList(objects)
+
+                matchesAssignment = assignments.contains {
+                    assignment in
+
+                    let branchMatches = hasSoftMatch(
+                        storedValues: [
+                            normalizeKey(assignment.branch)
+                        ],
+                        candidates: branchCandidates
+                    )
+
+                    let assignedGroups = assignment.groups.reduce(
+                        into: Set<String>()
+                    ) { result, group in
+                        result.formUnion(groupAliases(group))
+                    }
+
+                    let groupMatches = hasSoftMatch(
+                        storedValues: assignedGroups,
+                        candidates: groupCandidates
+                    )
+
+                    return branchMatches && groupMatches
+                }
+            } else {
+                /*
+                 * תאימות לפרופילים ישנים שאין בהם
+                 * שדה שיוכים מפורש.
+                 */
+                matchesAssignment =
+                    hasSoftMatch(
+                        storedValues: storedBranches,
+                        candidates: branchCandidates
+                    ) &&
+                    hasSoftMatch(
+                        storedValues: storedGroups,
+                        candidates: groupCandidates
+                    )
+            }
+
+            guard matchesAssignment else {
                 return nil
             }
 
@@ -251,8 +319,64 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
             }
         }
 
-        return uniqueMembers.values.sorted {
-            $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending
+        var resolvedByID: [String: AttendanceMember] = [:]
+
+        for member in existingMembers {
+            guard let numericID = Int64(member.id),
+                  numericID > 0 else {
+                /*
+                 * לא משנים מזהה קיים באופן אוטומטי.
+                 * נדרש בירור כדי לשמור על ההיסטוריה.
+                 */
+                throw NSError(
+                    domain: "AttendanceFirestoreMembersSource",
+                    code: 2,
+                    userInfo: [
+                        NSLocalizedDescriptionKey:
+                            "An existing attendance member has an invalid identifier."
+                    ]
+                )
+            }
+
+            resolvedByID[member.id] = member
+        }
+
+        for candidate in uniqueMembers.values {
+            try Task.checkCancellation()
+
+            /*
+             * כאן candidate.id הוא Firebase UID
+             * של המשתמש שנמצא באוסף users.
+             */
+            if let memberID =
+                existingMemberIDsByAuthUID[candidate.id],
+               resolvedByID[memberID] != nil {
+                continue
+            }
+
+            /*
+             * ה־Repository מחפש לפי authUid ואז שם,
+             * ומשתמש במזהה מספרי תואם Android.
+             * אין כאן יצירת מזהים או כתיבה מקומית.
+             */
+            let resolvedMember = try await AttendanceRepository.shared
+                .addManualMemberToFirestore(
+                    ownerUid: ownerUid,
+                    branchName: branchStorageValue,
+                    groupKey: groupStorageValue,
+                    fullName: candidate.fullName,
+                    phone: candidate.phone,
+                    notes: candidate.notes,
+                    authUid: candidate.id
+                )
+
+            resolvedByID[resolvedMember.id] = resolvedMember
+        }
+
+        return resolvedByID.values.sorted {
+            $0.fullName.localizedCaseInsensitiveCompare(
+                $1.fullName
+            ) == .orderedAscending
         }
     }
 
@@ -495,24 +619,23 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
         storedValues: Set<String>,
         candidates: Set<String>
     ) -> Bool {
-        if candidates.isEmpty {
-            return true
+        let stored = Set(
+            storedValues
+                .map { normalizeKey($0) }
+                .filter { !$0.isEmpty }
+        )
+
+        let requested = Set(
+            candidates
+                .map { normalizeKey($0) }
+                .filter { !$0.isEmpty }
+        )
+
+        guard !stored.isEmpty,
+              !requested.isEmpty else {
+            return false
         }
 
-        if !storedValues.isDisjoint(with: candidates) {
-            return true
-        }
-
-        for stored in storedValues {
-            for candidate in candidates {
-                if stored.count >= 2,
-                   candidate.count >= 2,
-                   stored.contains(candidate) || candidate.contains(stored) {
-                    return true
-                }
-            }
-        }
-
-        return false
+        return !stored.isDisjoint(with: requested)
     }
 }

@@ -308,7 +308,9 @@ extension SettingsView {
 
             try store.remove(
                 event,
-                span: .thisEvent,
+                span: event.hasRecurrenceRules
+                    ? .futureEvents
+                    : .thisEvent,
                 commit: false
             )
         }
@@ -339,16 +341,84 @@ extension SettingsView {
                 return
             }
 
-            let branch = self.resolvedCalendarBranch()
-            let group = self.resolvedCalendarGroup()
+            let assignments = self.calendarSyncAssignments()
 
-            guard !branch.isEmpty else {
+            /*
+             * רק רשימה ריקה ותקינה שנשמרה במפורש
+             * נחשבת להסרת כל הבחירות.
+             * נתון חסר או פגום אינו מצדיק מחיקת אירועים.
+             */
+            let defaults = UserDefaults.standard
+            let codec = RegistrationFormState.BranchAssignmentsCodec.self
+
+            let explicitlyEmptyAssignments: Bool = {
+                guard let raw = defaults.string(
+                    forKey: codec.preferenceKey
+                ),
+                let data = raw.data(using: .utf8),
+                let objects = try? JSONSerialization.jsonObject(
+                    with: data
+                ) as? [Any] else {
+                    return false
+                }
+
+                return objects.isEmpty
+            }()
+
+            if explicitlyEmptyAssignments {
+                do {
+                    let retainedIDs =
+                        try self.stageOwnedCalendarEventRemoval(
+                            using: store
+                        )
+
+                    try store.commit()
+
+                    defaults.set(
+                        retainedIDs,
+                        forKey: self.calendarOwnedEventIDsKey
+                    )
+
+                    self.calendarSyncEnabled = true
+                    self.selectedCalendarSyncEnabled = true
+
+                    self.toast(
+                        self.tr(
+                            "לא נבחרו אימונים. אירועי האפליקציה הקודמים הוסרו מהיומן.",
+                            "No trainings selected. Previous app events were removed from the calendar."
+                        )
+                    )
+
+                    self.hapticSuccess()
+                } catch {
+                    store.reset()
+
+                    self.calendarSyncEnabled = false
+                    self.selectedCalendarSyncEnabled = false
+
+                    self.toast(
+                        self.tr(
+                            "לא ניתן היה להסיר את אירועי האפליקציה. נסה שוב.",
+                            "Could not remove the app events. Try again."
+                        )
+                    )
+
+                    self.hapticError()
+                }
+
+                return
+            }
+
+            guard !assignments.isEmpty,
+                  assignments.allSatisfy({
+                    !$0.branch.isEmpty && !$0.groups.isEmpty
+                  }) else {
                 self.calendarSyncEnabled = false
                 self.selectedCalendarSyncEnabled = false
                 self.toast(
                     self.tr(
-                        "לא נבחר סניף",
-                        "No branch selected"
+                        "יש להשלים שיוך קבוצות לכל סניף בפרופיל. אירועים קיימים לא נמחקו.",
+                        "Complete the group assignments for each branch in your profile. Existing events were not removed."
                     )
                 )
                 self.hapticError()
@@ -372,10 +442,65 @@ extension SettingsView {
                 return
             }
 
-            let trainings = TrainingCatalogIOS.trainingsFor(
-                branch: branch,
-                group: group
-            )
+            var trainings: [
+                (
+                    training: TrainingData,
+                    branch: String,
+                    group: String
+                )
+            ] = []
+
+            var seenTrainings = Set<String>()
+
+            for assignment in assignments {
+                for group in assignment.groups {
+                    let matches = TrainingCatalogIOS.trainingsFor(
+                        branch: assignment.branch,
+                        group: group
+                    )
+
+                    for training in matches {
+                        /*
+                         * אותה משבצת אימון עשויה להתאים
+                         * ליותר מקבוצה אחת. מוסיפים אותה פעם אחת.
+                         */
+                        let identity = [
+                            assignment.branch,
+                            String(training.date.timeIntervalSince1970),
+                            String(
+                                self.endDate(for: training)
+                                    .timeIntervalSince1970
+                            ),
+                            training.place,
+                            training.address,
+                            training.coach
+                        ]
+
+                        let encodedIdentity = try? JSONEncoder().encode(
+                            identity
+                        )
+
+                        guard let encodedIdentity,
+                              seenTrainings.insert(
+                                encodedIdentity.base64EncodedString()
+                              ).inserted else {
+                            continue
+                        }
+
+                        trainings.append(
+                            (
+                                training: training,
+                                branch: assignment.branch,
+                                group: group
+                            )
+                        )
+                    }
+                }
+            }
+
+            trainings.sort {
+                $0.training.date < $1.training.date
+            }
 
             guard !trainings.isEmpty else {
                 self.calendarSyncEnabled = false
@@ -393,6 +518,41 @@ extension SettingsView {
             let marker = self.settingsCalendarOwnershipMarker()
 
             do {
+                let now = Date()
+
+                var calendarSeries: [
+                    (
+                        training: TrainingData,
+                        branch: String,
+                        group: String,
+                        start: Date,
+                        count: Int?
+                    )
+                ] = []
+
+                /*
+                 * מחשבים את כל הסדרות לפני מחיקת
+                 * האירועים הקיימים.
+                 */
+                for item in trainings {
+                    let segments = try self.calendarWeeklySegments(
+                        for: item.training,
+                        now: now
+                    )
+
+                    for segment in segments {
+                        calendarSeries.append(
+                            (
+                                training: item.training,
+                                branch: item.branch,
+                                group: item.group,
+                                start: segment.start,
+                                count: segment.count
+                            )
+                        )
+                    }
+                }
+
                 let retainedIDs =
                     try self.stageOwnedCalendarEventRemoval(
                         using: store
@@ -400,16 +560,60 @@ extension SettingsView {
 
                 var newEvents: [EKEvent] = []
 
-                for training in trainings {
+                let reminderMinutes = min(
+                    max(self.trainingReminderMinutes, 0),
+                    180
+                )
+
+                for item in calendarSeries {
+                    let training = item.training
+                    let branch = item.branch
+                    let group = item.group
+
+                    let duration = self.endDate(
+                        for: training
+                    )
+                    .timeIntervalSince(training.date)
+
+                    let trainingEnd = item.start.addingTimeInterval(
+                        duration
+                    )
+
                     let event = EKEvent(eventStore: store)
+
+                    let recurrenceEnd: EKRecurrenceEnd?
+
+                    if let count = item.count {
+                        recurrenceEnd = EKRecurrenceEnd(
+                            occurrenceCount: count
+                        )
+                    } else {
+                        recurrenceEnd = nil
+                    }
+
+                    event.addRecurrenceRule(
+                        EKRecurrenceRule(
+                            recurrenceWith: .weekly,
+                            interval: 1,
+                            end: recurrenceEnd
+                        )
+                    )
 
                     event.calendar = targetCalendar
                     event.title = self.calendarEventTitle(
                         for: training,
                         group: group
                     )
-                    event.startDate = training.date
-                    event.endDate = self.endDate(for: training)
+                    event.startDate = item.start
+                    event.endDate = trainingEnd
+
+                    event.addAlarm(
+                        EKAlarm(
+                            relativeOffset:
+                                -TimeInterval(reminderMinutes * 60)
+                        )
+                    )
+
                     event.notes = [
                         self.calendarNotes(
                             for: training,
@@ -419,10 +623,24 @@ extension SettingsView {
                         marker
                     ]
                     .joined(separator: "\n")
-                    event.location = training.address
-                    event.timeZone = TimeZone(
-                        identifier: "Asia/Jerusalem"
+                    let address = TrainingCatalogIOS.displayAddress(
+                        training.address,
+                        isEnglish: self.isEnglish
                     )
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                    let place = TrainingCatalogIOS.displayPlace(
+                        training.place,
+                        isEnglish: self.isEnglish
+                    )
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                    event.location = address.isEmpty
+                        ? place
+                        : address
+
+                    event.timeZone =
+                        ShabbatHolidayCheckerIOS.timeZone
 
                     try store.save(
                         event,
@@ -449,8 +667,8 @@ extension SettingsView {
 
                 self.toast(
                     self.tr(
-                        "סונכרנו \(newEvents.count) אימונים ליומן",
-                        "\(newEvents.count) trainings were synced to the calendar"
+                        "לוח האימונים השבועי סונכרן ליומן",
+                        "The weekly training schedule was synced to the calendar"
                     )
                 )
                 self.hapticSuccess()
@@ -536,6 +754,169 @@ extension SettingsView {
         }
     }
 
+    private func calendarWeeklySegments(
+        for training: TrainingData,
+        now: Date
+    ) throws -> [(start: Date, count: Int?)] {
+        let calendar = ShabbatHolidayCheckerIOS.calendar
+
+        func calculationError() -> NSError {
+            NSError(
+                domain: "KMI.CalendarSync",
+                code: 1,
+                userInfo: nil
+            )
+        }
+
+        guard training.date.timeIntervalSince1970 > 0,
+              endDate(for: training) > training.date,
+              let horizon = calendar.date(
+                byAdding: .year,
+                value: 3,
+                to: now
+              ) else {
+            throw calculationError()
+        }
+
+        func followingWeek(_ date: Date) throws -> Date {
+            guard let next = calendar.date(
+                byAdding: .weekOfYear,
+                value: 1,
+                to: date
+            ), next > date else {
+                throw calculationError()
+            }
+
+            return next
+        }
+
+        var candidate = training.date
+
+        /*
+         * כמו Android:
+         * הסדרה מתחילה במועד שטרם התחיל.
+         */
+        while candidate <= now {
+            candidate = try followingWeek(candidate)
+        }
+
+        var segments: [(start: Date, count: Int?)] = []
+        var segmentStart: Date?
+        var occurrenceCount = 0
+
+        /*
+         * החרגות החגים מחושבות לשלוש שנים קדימה.
+         * חיבור שבועות נעשה לפי שעון ישראל,
+         * כדי לשמור על שעת האימון במעבר שעון.
+         */
+        while calendar.startOfDay(for: candidate)
+                <= calendar.startOfDay(for: horizon) {
+            if HolidayCalendarStore.isTrainingCancelled(
+                on: candidate
+            ) {
+                if let start = segmentStart {
+                    segments.append(
+                        (start: start, count: occurrenceCount)
+                    )
+                }
+
+                segmentStart = nil
+                occurrenceCount = 0
+            } else {
+                if segmentStart == nil {
+                    segmentStart = candidate
+                }
+
+                occurrenceCount += 1
+            }
+
+            candidate = try followingWeek(candidate)
+        }
+
+        /*
+         * כמו Android, החזרה ממשיכה ללא סוף.
+         * מעבר לאופק שלוש השנים אין החרגות
+         * חדשות עד לביצוע סנכרון נוסף.
+         */
+        segments.append(
+            (
+                start: segmentStart ?? candidate,
+                count: nil
+            )
+        )
+
+        return segments
+    }
+
+    private func calendarSyncAssignments()
+        -> [RegistrationFormState.BranchAssignment] {
+        let defaults = UserDefaults.standard
+        let codec = RegistrationFormState.BranchAssignmentsCodec.self
+
+        /*
+         * כאשר קיים שדה שיוכים, הוא מקור האמת.
+         * גם רשימה ריקה אינה מאפשרת חזרה לשיוכים ישנים.
+         */
+        if defaults.object(forKey: codec.preferenceKey) != nil {
+            return codec.decode(
+                defaults.string(forKey: codec.preferenceKey)
+            )
+        }
+
+        /*
+         * תאימות לפרופיל ישן:
+         * רשימת קבוצות שטוחה בטוחה רק בסניף יחיד.
+         */
+        let storedBranches =
+            defaults.stringArray(forKey: "branches") ?? []
+
+        var seenBranches = Set<String>()
+
+        let branches = storedBranches
+            .map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .filter { !$0.isEmpty }
+            .filter { seenBranches.insert($0).inserted }
+
+        guard branches.count <= 1 else {
+            return []
+        }
+
+        let branch = branches.first ?? resolvedCalendarBranch()
+
+        guard !branch.isEmpty else {
+            return []
+        }
+
+        let storedGroups =
+            defaults.stringArray(forKey: "groups") ?? []
+
+        var seenGroups = Set<String>()
+
+        var groups = storedGroups
+            .map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .filter { !$0.isEmpty }
+            .filter { seenGroups.insert($0).inserted }
+
+        if groups.isEmpty {
+            let activeGroup = resolvedCalendarGroup()
+
+            if !activeGroup.isEmpty {
+                groups = [activeGroup]
+            }
+        }
+
+        return [
+            RegistrationFormState.BranchAssignment(
+                branch: branch,
+                groups: groups
+            ).sanitized()
+        ]
+    }
+
     private func resolvedCalendarBranch() -> String {
         (
             UserDefaults.standard.string(forKey: "kmi.user.branch") ??
@@ -556,31 +937,103 @@ extension SettingsView {
         .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func calendarEventTitle(for training: TrainingData, group: String) -> String {
-        let cleanGroup = group.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func calendarEventTitle(
+        for training: TrainingData,
+        group: String
+    ) -> String {
+        let place = TrainingCatalogIOS.displayPlace(
+            training.place,
+            isEnglish: isEnglish
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if isEnglish {
-            return cleanGroup.isEmpty ? "K.M.I Training" : "K.M.I Training – \(cleanGroup)"
-        }
+        let title = isEnglish
+            ? "KMI Training"
+            : "אימון ק.מ.י"
 
-        return cleanGroup.isEmpty ? "אימון ק.מ.י" : "אימון ק.מ.י – \(cleanGroup)"
+        return place.isEmpty
+            ? title
+            : "\(title) – \(place)"
     }
 
-    private func calendarNotes(for training: TrainingData, branch: String, group: String) -> String {
-        var parts: [String] = []
+    private func calendarNotes(
+        for training: TrainingData,
+        branch: String,
+        group: String
+    ) -> String {
+        let details: [(he: String, en: String, value: String)] = [
+            (
+                "סניף", "Branch",
+                TrainingCatalogIOS.displayBranch(
+                    branch,
+                    isEnglish: isEnglish
+                )
+            ),
+            (
+                "קבוצה", "Group",
+                TrainingCatalogIOS.displayGroup(
+                    group,
+                    isEnglish: isEnglish
+                )
+            ),
+            (
+                "מקום", "Place",
+                TrainingCatalogIOS.displayPlace(
+                    training.place,
+                    isEnglish: isEnglish
+                )
+            ),
+            (
+                "כתובת", "Address",
+                TrainingCatalogIOS.displayAddress(
+                    training.address,
+                    isEnglish: isEnglish
+                )
+            ),
+            (
+                "מאמן", "Coach",
+                TrainingCatalogIOS.displayCoach(
+                    training.coach,
+                    isEnglish: isEnglish
+                )
+            )
+        ]
 
-        if !branch.isEmpty {
-            parts.append(isEnglish ? "Branch: \(branch)" : "סניף: \(branch)")
+        var parts = details.compactMap { detail -> String? in
+            let value = detail.value.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+            guard !value.isEmpty else {
+                return nil
+            }
+
+            let label = isEnglish ? detail.en : detail.he
+            return "\(label): \(value)"
         }
 
-        if !group.isEmpty {
-            parts.append(isEnglish ? "Group: \(group)" : "קבוצה: \(group)")
-        }
+        /*
+         * תיאור משותף לכל מופעי הסדרה:
+         * מציגים שעות בלבד, ללא תאריך המופע הראשון.
+         */
+        let timeFormatter = DateFormatter()
+        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
+        timeFormatter.calendar = ShabbatHolidayCheckerIOS.calendar
+        timeFormatter.timeZone = ShabbatHolidayCheckerIOS.timeZone
+        timeFormatter.dateFormat = "HH:mm"
 
-        parts.append(isEnglish ? "Place: \(training.place)" : "מקום: \(training.place)")
-        parts.append(isEnglish ? "Address: \(training.address)" : "כתובת: \(training.address)")
-        parts.append(isEnglish ? "Coach: \(training.coach)" : "מאמן: \(training.coach)")
-        parts.append(isEnglish ? "Time: \(training.startText) - \(training.endText)" : "שעה: \(training.startText) - \(training.endText)")
+        let startTime = timeFormatter.string(
+            from: training.date
+        )
+
+        let endTime = timeFormatter.string(
+            from: endDate(for: training)
+        )
+
+        parts.append(
+            "\(isEnglish ? "Time" : "שעה"): " +
+            "\(startTime) – \(endTime)"
+        )
 
         return parts.joined(separator: "\n")
     }

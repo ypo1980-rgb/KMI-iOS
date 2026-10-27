@@ -416,6 +416,7 @@ struct BeltQuestionsByTopicView: View {
 
     @State private var isTopicsScreenVisible = false
     @State private var isPreparingTopicsPDF = false
+    @State private var topicsPDFRequestID = UUID()
     @State private var topicsPDFURL: URL?
     @State private var showTopicsPDFShare = false
     @State private var topicsPDFError: String?
@@ -3812,7 +3813,9 @@ struct BeltQuestionsByTopicView: View {
 
         let requestedBeltID = belt.id
         let requestedLanguage = effectiveLanguageCode
+        let requestID = UUID()
 
+        topicsPDFRequestID = requestID
         isPreparingTopicsPDF = true
 
         Task { @MainActor in
@@ -3823,6 +3826,7 @@ struct BeltQuestionsByTopicView: View {
             await rebuildTopicCountCaches()
 
             guard !Task.isCancelled,
+                  topicsPDFRequestID == requestID,
                   isTopicsScreenVisible,
                   belt.id == requestedBeltID,
                   effectiveLanguageCode == requestedLanguage else {
@@ -4242,6 +4246,7 @@ struct BeltQuestionsByTopicView: View {
         }
         .onDisappear {
             isTopicsScreenVisible = false
+            topicsPDFRequestID = UUID()
             showQuickActionsDialog = false
         }
         .task(id: "\(belt.id)::\(effectiveLanguageCode)") {

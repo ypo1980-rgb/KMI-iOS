@@ -104,7 +104,9 @@ struct RandomPracticeView: View {
     }
 
     // MARK: - Favorites
-    @State private var favoriteIds: Set<String> = []
+    @ObservedObject private var exerciseFavorites =
+        ExerciseFavoritesStore.shared
+
     @State private var favoritesOnlyMode: Bool = false
 
     private let favoritesKey = "practice_favorites"
@@ -114,8 +116,13 @@ struct RandomPracticeView: View {
     }
 
     private func loadFavorites() {
-        let saved = UserDefaults.standard.stringArray(forKey: favoritesKey) ?? []
-        favoriteIds = Set(saved)
+        let saved = UserDefaults.standard.stringArray(
+            forKey: favoritesKey
+        ) ?? []
+
+        for item in saved {
+            exerciseFavorites.importLegacyFavorite(item)
+        }
     }
 
     private func loadFavoritesOnlyMode() {
@@ -124,21 +131,6 @@ struct RandomPracticeView: View {
 
     private func saveFavoritesOnlyMode() {
         UserDefaults.standard.set(favoritesOnlyMode, forKey: favoritesOnlyKey)
-    }
-
-    private func toggleFavorite(_ item: String) {
-        let clean = item.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return }
-
-        var updated = favoriteIds
-        if updated.contains(clean) {
-            updated.remove(clean)
-        } else {
-            updated.insert(clean)
-        }
-
-        favoriteIds = updated
-        UserDefaults.standard.set(Array(updated).sorted(), forKey: favoritesKey)
     }
 
     // MARK: - Audio
@@ -397,7 +389,10 @@ struct RandomPracticeView: View {
 
         guard favoritesOnlyMode else { return base }
 
-        let filtered = base.filter { favoriteIds.contains($0) }
+        let filtered = base.filter {
+            exerciseFavorites.contains($0)
+        }
+
         return filtered.isEmpty ? base : filtered
     }
 
@@ -1292,9 +1287,8 @@ private struct PracticeExplanationSheet: View {
 
     private let favoritesKey = "practice_favorites"
 
-    @State private var favoriteIds: Set<String> = {
-        Set(UserDefaults.standard.stringArray(forKey: "practice_favorites") ?? [])
-    }()
+    @ObservedObject private var exerciseFavorites =
+        ExerciseFavoritesStore.shared
 
     private var beltColor: Color { KmiBeltPalette.color(for: belt) }
 
@@ -1338,21 +1332,40 @@ private struct PracticeExplanationSheet: View {
     }
 
     private var isFavorite: Bool {
-        !favoriteId.isEmpty && favoriteIds.contains(favoriteId)
+        !favoriteId.isEmpty &&
+            exerciseFavorites.contains(favoriteId)
     }
 
     private func toggleFavorite() {
         guard !favoriteId.isEmpty else { return }
 
-        var updated = favoriteIds
-        if updated.contains(favoriteId) {
-            updated.remove(favoriteId)
-        } else {
-            updated.insert(favoriteId)
+        let newValue = !exerciseFavorites.contains(
+            favoriteId
+        )
+
+        exerciseFavorites.set(
+            favoriteId,
+            favorite: newValue
+        )
+
+        // תאימות זמנית למסכים שעדיין קוראים את הרשימה הישנה.
+        let defaults = UserDefaults.standard
+        var saved = defaults.stringArray(
+            forKey: favoritesKey
+        ) ?? []
+
+        let normalizedID =
+            ExerciseFavoritesStore.normalize(favoriteId)
+
+        saved.removeAll {
+            ExerciseFavoritesStore.normalize($0) == normalizedID
         }
 
-        favoriteIds = updated
-        UserDefaults.standard.set(Array(updated).sorted(), forKey: favoritesKey)
+        if newValue {
+            saved.append(favoriteId)
+        }
+
+        defaults.set(saved.sorted(), forKey: favoritesKey)
     }
 
     var body: some View {

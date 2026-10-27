@@ -1,9 +1,240 @@
 import SwiftUI
+import Combine
 import Shared
+
+#if canImport(FirebaseAuth)
+import FirebaseAuth
+#endif
+
+@MainActor
+final class ExerciseFavoritesStore: ObservableObject {
+    static let shared = ExerciseFavoritesStore()
+
+    private let defaults = UserDefaults.standard
+    private let storageKey = "kmi.exercise.favorites.global"
+    private let removedKey = "kmi.exercise.favorites.removed"
+
+    @Published private(set) var favorites: Set<String>
+
+    private init() {
+        let saved = UserDefaults.standard.stringArray(
+            forKey: "kmi.exercise.favorites.global"
+        ) ?? []
+
+        favorites = Set(
+            saved
+                .map { Self.normalize($0) }
+                .filter { !$0.isEmpty }
+        )
+    }
+
+    static func normalize(_ raw: String) -> String {
+        let displayName = ExerciseTitleFormatter.shared
+            .displayName(raw: raw)
+
+        return displayName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\u{200F}", with: "")
+            .replacingOccurrences(of: "\u{200E}", with: "")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .replacingOccurrences(
+                of: "[\u{0591}-\u{05C7}]",
+                with: "",
+                options: .regularExpression
+            )
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: "—", with: "-")
+            .replacingOccurrences(
+                of: "\\s+",
+                with: " ",
+                options: .regularExpression
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    func contains(_ raw: String) -> Bool {
+        let id = Self.normalize(raw)
+        return !id.isEmpty && favorites.contains(id)
+    }
+
+    func set(_ raw: String, favorite: Bool) {
+        let id = Self.normalize(raw)
+        guard !id.isEmpty else { return }
+
+        var updated = favorites
+        var removed = Set(
+            defaults.stringArray(forKey: removedKey) ?? []
+        )
+
+        if favorite {
+            updated.insert(id)
+            removed.remove(id)
+        } else {
+            updated.remove(id)
+            removed.insert(id)
+        }
+
+        defaults.set(removed.sorted(), forKey: removedKey)
+
+        guard updated != favorites else { return }
+
+        favorites = updated
+        defaults.set(updated.sorted(), forKey: storageKey)
+    }
+
+    func importLegacyFavorite(_ raw: String) {
+        let id = Self.normalize(raw)
+        guard !id.isEmpty else { return }
+
+        let removed = Set(
+            defaults.stringArray(forKey: removedKey) ?? []
+        )
+
+        guard !removed.contains(id),
+              !favorites.contains(id) else {
+            return
+        }
+
+        var updated = favorites
+        updated.insert(id)
+
+        favorites = updated
+        defaults.set(updated.sorted(), forKey: storageKey)
+    }
+
+    func toggle(_ raw: String) {
+        set(raw, favorite: !contains(raw))
+    }
+}
+
+@MainActor
+final class ExerciseNotesStore: ObservableObject {
+    static let shared = ExerciseNotesStore()
+
+    private let defaults = UserDefaults.standard
+
+    // מאפשר למסכים שמאזינים למנגנון להתעדכן לאחר שינוי.
+    @Published private(set) var revision = 0
+
+    private init() {}
+
+    private func storageKey(
+        userID: String,
+        beltID: String,
+        exerciseID: String
+    ) -> String? {
+        let parts = [userID, beltID, exerciseID].map {
+            $0.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+        }
+
+        guard parts.allSatisfy({ !$0.isEmpty }),
+              let data = try? JSONEncoder().encode(parts) else {
+            return nil
+        }
+
+        return "kmi.exercise.note.\(data.base64EncodedString())"
+    }
+
+    func knownExerciseID(
+        belt: Belt,
+        title: String,
+        topicKey: String? = nil
+    ) -> String? {
+        let cleanTitle = title.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        guard !cleanTitle.isEmpty else {
+            return nil
+        }
+
+        let resolved = ExerciseIdentityRegistry.shared.resolve(
+            belt: belt,
+            hebrewTitle: cleanTitle,
+            topicKey: topicKey
+        )
+
+        guard resolved.isKnown else {
+            return nil
+        }
+
+        let id = resolved.id.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        return id.isEmpty ? nil : id
+    }
+
+    func hasStoredValue(
+        userID: String,
+        beltID: String,
+        exerciseID: String
+    ) -> Bool {
+        guard let key = storageKey(
+            userID: userID,
+            beltID: beltID,
+            exerciseID: exerciseID
+        ) else {
+            return false
+        }
+
+        return defaults.object(forKey: key) != nil
+    }
+
+    func load(
+        userID: String,
+        beltID: String,
+        exerciseID: String
+    ) -> String {
+        guard let key = storageKey(
+            userID: userID,
+            beltID: beltID,
+            exerciseID: exerciseID
+        ) else {
+            return ""
+        }
+
+        return defaults.string(forKey: key) ?? ""
+    }
+
+    func save(
+        _ note: String,
+        userID: String,
+        beltID: String,
+        exerciseID: String
+    ) {
+        guard let key = storageKey(
+            userID: userID,
+            beltID: beltID,
+            exerciseID: exerciseID
+        ) else {
+            return
+        }
+
+        let clean = note.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        guard defaults.string(forKey: key) != clean else {
+            return
+        }
+
+        /*
+         * גם מחיקה נשמרת כערך ריק, כדי שנוכל בהמשך
+         * להבחין בין הערה שנמחקה לבין הערה שטרם הועברה.
+         */
+        defaults.set(clean, forKey: key)
+        revision += 1
+    }
+}
 
 fileprivate enum ExerciseMarkState: String {
     case unmarked
     case know
+    case partiallyKnown
     case dontKnow
 }
 
@@ -147,11 +378,16 @@ struct SubjectAcrossBeltsView: View {
     private let belts: [Belt] = [.yellow, .orange, .green, .blue, .brown, .black]
     @State private var selectedBelt: Belt = .orange
     @State private var exerciseMarks: [String: ExerciseMarkState] = [:]
-    @State private var activeExerciseMenu: ExerciseMenuContext? = nil
     @State private var activeInfoExercise: ExerciseMenuContext? = nil
     @State private var activeNoteExercise: ExerciseMenuContext? = nil
     @State private var noteText: String = ""
-    @State private var favoriteExerciseIds: Set<String> = []
+
+    @ObservedObject private var exerciseFavorites =
+        ExerciseFavoritesStore.shared
+
+    @ObservedObject private var exerciseNotes =
+        ExerciseNotesStore.shared
+
     @State private var excludedExerciseIds: Set<String> = []
 
     @State private var cachedSectionsByBelt:
@@ -189,11 +425,19 @@ struct SubjectAcrossBeltsView: View {
         isEnglish ? en : he
     }
 
-    // MARK: - Local UI models (במקום SubjectItemsResolver מה-KMP)
+    // MARK: - Local UI models
     private struct UiItem: Identifiable, Hashable {
         let id: String
         let displayName: String
         let topicTitle: String
+
+        // פרטי הזיהוי שמגיעים ממקור התוכן המשותף.
+        // במסלולים אחרים הם נשארים nil עד לזיהוי מתאים.
+        var canonicalId: String? = nil
+        var itemKey: String? = nil
+        var rawItem: String? = nil
+        var sourceTopicTitle: String? = nil
+        var sourceSubTopicTitle: String? = nil
     }
 
     private struct UiSection: Identifiable {
@@ -710,7 +954,12 @@ struct SubjectAcrossBeltsView: View {
                     UiItem(
                         id: "\(belt.id)::\(sec.title)::\(index)::\(item.displayName)",
                         displayName: item.displayName,
-                        topicTitle: sec.title
+                        topicTitle: sec.title,
+                        canonicalId: item.canonicalId,
+                        itemKey: item.itemKey,
+                        rawItem: item.rawItem,
+                        sourceTopicTitle: item.topicTitle,
+                        sourceSubTopicTitle: item.subTopicTitle
                     )
                 }
 
@@ -943,95 +1192,11 @@ struct SubjectAcrossBeltsView: View {
                                                     )
                                                 }
 
-                                                ForEach(sec.items) { it in
-                                                    if isCoachUser {
-                                                        KmiCoachExerciseCard(
-                                                            title: uiExerciseTitle(
-                                                                it.displayName
-                                                            ),
-                                                            accent: KmiBeltPalette.color(
-                                                                for: belt
-                                                            ),
-                                                            isEnglish: isEnglish,
-                                                            selectedStatuses: coachStatuses(
-                                                                belt: belt,
-                                                                item: it
-                                                            ),
-                                                            onSelectStatus: { status in
-                                                                toggleCoachStatus(
-                                                                    status,
-                                                                    belt: belt,
-                                                                    item: it
-                                                                )
-                                                            },
-                                                            onInfoClick: {
-                                                                activeExerciseMenu =
-                                                                    ExerciseMenuContext(
-                                                                        belt: belt,
-                                                                        item: it
-                                                                    )
-                                                            },
-                                                            updatedAtByStatus: coachDates(
-                                                                belt: belt,
-                                                                item: it
-                                                            ),
-                                                            isFavorite: isFavorite(
-                                                                belt: belt,
-                                                                item: it
-                                                            )
-                                                        )
-                                                    } else {
-                                                        KmiExerciseMarkRow(
-                                                            title: uiExerciseTitle(
-                                                                it.displayName
-                                                            ),
-                                                            mark: sharedMark(
-                                                                belt: belt,
-                                                                item: it
-                                                            ),
-                                                            isEnglish: isEnglish,
-                                                            onMarkDone: {
-                                                                selectMark(
-                                                                    .know,
-                                                                    belt: belt,
-                                                                    item: it
-                                                                )
-                                                            },
-                                                            onMarkNotDone: {
-                                                                selectMark(
-                                                                    .dontKnow,
-                                                                    belt: belt,
-                                                                    item: it
-                                                                )
-                                                            },
-                                                            accent: KmiBeltPalette.color(
-                                                                for: belt
-                                                            ),
-                                                            isFavorite: isFavorite(
-                                                                belt: belt,
-                                                                item: it
-                                                            ),
-                                                            onStatusClick: {
-                                                                toggleMark(
-                                                                    belt: belt,
-                                                                    item: it
-                                                                )
-                                                            },
-                                                            onInfoClick: {
-                                                                activeExerciseMenu =
-                                                                    ExerciseMenuContext(
-                                                                        belt: belt,
-                                                                        item: it
-                                                                    )
-                                                            },
-                                                            onToggleFavorite: {
-                                                                toggleFavorite(
-                                                                    belt: belt,
-                                                                    item: it
-                                                                )
-                                                            }
-                                                        )
-                                                    }
+                                                ForEach(sec.items) { item in
+                                                    subjectExerciseCard(
+                                                        belt: belt,
+                                                        item: item
+                                                    )
                                                 }
                                             }
                                         }
@@ -1124,11 +1289,22 @@ struct SubjectAcrossBeltsView: View {
                     selectedBelt = firstVisibleBelt
                 }
 
-                favoriteExerciseIds = loadedFavorites
                 excludedExerciseIds = loadedExcluded
-            }
-            .onChange(of: isCoachUser) { _, _ in
-                activeExerciseMenu = nil
+
+                for belt in belts {
+                    for item in allItemsForBelt(belt) {
+                        let legacyID = exerciseId(
+                            belt: belt,
+                            item: item
+                        )
+
+                        if loadedFavorites.contains(legacyID) {
+                            exerciseFavorites.importLegacyFavorite(
+                                item.rawItem ?? item.displayName
+                            )
+                        }
+                    }
+                }
             }
             .onDisappear {
             NotificationCenter.default.post(
@@ -1157,15 +1333,7 @@ struct SubjectAcrossBeltsView: View {
                 }
             )
         }
-        .overlay {
-            if let activeExerciseMenu {
-                exerciseActionMenu(
-                    context: activeExerciseMenu
-                )
-                .zIndex(999)
-            }
-        }
-            }
+    }
 
     private var screenTopTitleBar: some View {
         HStack(spacing: 12) {
@@ -1185,145 +1353,6 @@ struct SubjectAcrossBeltsView: View {
         .padding(.top, 8)
         .padding(.bottom, 8)
         .background(Color.clear)
-    }
-    
-        private func exerciseActionMenu(
-            context: ExerciseMenuContext
-        ) -> some View {
-            ZStack {
-            Color.black.opacity(0.001)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    activeExerciseMenu = nil
-                }
-
-                ScrollView {
-                    VStack(spacing: 0) {
-                        exerciseMenuRow(title: tr("מידע", "Info")) {
-                    activeExerciseMenu = nil
-                    activeInfoExercise = context
-                }
-
-                exerciseMenuDivider
-
-                exerciseMenuRow(
-                    title: isFavorite(
-                        belt: context.belt,
-                        item: context.item
-                    )
-                    ? tr("הסר ממועדפים", "Remove from favorites")
-                    : tr("הוסף למועדפים", "Add to favorites")
-                ) {
-                    toggleFavorite(
-                        belt: context.belt,
-                        item: context.item
-                    )
-                    activeExerciseMenu = nil
-                }
-                
-                exerciseMenuDivider
-
-                exerciseMenuRow(
-                    title: isExcluded(
-                        belt: context.belt,
-                        item: context.item
-                    )
-                    ? tr("בטל החרגה מהתרגול", "Remove from excluded")
-                    : tr("החרג מהתרגול", "Exclude from practice")
-                ) {
-                    toggleExcluded(
-                        belt: context.belt,
-                        item: context.item
-                    )
-                    activeExerciseMenu = nil
-                }
-                
-                exerciseMenuDivider
-
-                exerciseMenuRow(
-                    title: loadNote(
-                        belt: context.belt,
-                        item: context.item
-                    ).isEmpty
-                    ? tr("הוסף הערה לתרגיל", "Add exercise note")
-                    : tr("ערוך הערה לתרגיל", "Edit exercise note")
-                ) {
-                    noteText = loadNote(
-                        belt: context.belt,
-                        item: context.item
-                    )
-                    activeExerciseMenu = nil
-                    activeNoteExercise = context
-                }
-                }
-            }
-            .scrollIndicators(.hidden)
-            .frame(maxHeight: 320)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: 280)
-            .background(
-                RoundedRectangle(
-                    cornerRadius: 14,
-                    style: .continuous
-                )
-                .fill(
-                    KmiAppTheme.surface(for: colorScheme)
-                )
-            )
-            .overlay(
-                RoundedRectangle(
-                    cornerRadius: 14,
-                    style: .continuous
-                )
-                .stroke(
-                    KmiAppTheme.outlineVariant(for: colorScheme),
-                    lineWidth: 1
-                )
-            )
-            .environment(
-                \.layoutDirection,
-                screenLayoutDirection
-            )
-            .padding(.horizontal, 24)
-            .frame(
-                maxWidth: .infinity,
-                maxHeight: .infinity,
-                alignment: .center
-            )
-        }
-    }
-
-    private func exerciseMenuRow(
-        title: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(title)
-                .kmiTypography(.body)
-                .fontWeight(.semibold)
-                .foregroundStyle(
-                    KmiAppTheme.onSurface(for: colorScheme)
-                )
-                .multilineTextAlignment(primaryTextAlignment)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 11)
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: horizontalTextAlignment
-                )
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var exerciseMenuDivider: some View {
-        Rectangle()
-            .fill(
-                KmiAppTheme.outlineVariant(for: colorScheme)
-            )
-            .frame(height: 1)
     }
     
     @ViewBuilder
@@ -1415,12 +1444,13 @@ struct SubjectAcrossBeltsView: View {
                 )
 
                 subjectStatChip(
-                    title: tr("מועדפים", "Favorites"),
-                    value: favoriteCount(belt: selectedBelt),
-                    tint: Color(
-                        red: 224.0 / 255.0,
-                        green: 160.0 / 255.0,
-                        blue: 0
+                    title: tr("חלקי", "Partial"),
+                    value: markCount(
+                        belt: selectedBelt,
+                        state: .partiallyKnown
+                    ),
+                    tint: KmiAppTheme.warning(
+                        for: colorScheme
                     )
                 )
 
@@ -1797,74 +1827,200 @@ struct SubjectAcrossBeltsView: View {
         return .unmarked
     }
     
-    private func sharedMark(
-        belt: Belt,
-        item: UiItem
-    ) -> KmiExerciseMark? {
-        switch markState(belt: belt, item: item) {
-        case .unmarked:
-            return nil
-        case .know:
-            return .done
-        case .dontKnow:
-            return .notDone
+        private func materialsMark(
+            belt: Belt,
+            item: UiItem
+        ) -> MaterialsView.RowMark? {
+            switch markState(belt: belt, item: item) {
+            case .unmarked:
+                return nil
+
+            case .know:
+                return .mastered
+
+            case .partiallyKnown:
+                return .partiallyKnown
+
+            case .dontKnow:
+                return .unknown
+            }
         }
-    }
 
-    private func selectMark(
-        _ state: ExerciseMarkState,
-        belt: Belt,
-        item: UiItem
-    ) {
-        let key = markKey(belt: belt, item: item)
-
-        let nextState: ExerciseMarkState =
-            markState(belt: belt, item: item) == state
-                ? .unmarked
-                : state
-
-        exerciseMarks[key] = nextState
-
-        if nextState == .unmarked {
-            UserDefaults.standard.removeObject(
-                forKey: key
+        private func traineeUpdatedAt(
+            belt: Belt,
+            item: UiItem
+        ) -> Int64 {
+            let timestamp = UserDefaults.standard.double(
+                forKey: "\(markKey(belt: belt, item: item)).updatedAt"
             )
-        } else {
-            UserDefaults.standard.set(
-                nextState.rawValue,
-                forKey: key
+
+            guard timestamp.isFinite,
+                  timestamp > 0,
+                  timestamp < Double(Int64.max) / 1000 else {
+                return 0
+            }
+
+            return Int64(timestamp * 1000)
+        }
+
+        private func saveMaterialsMark(
+            _ selectedStatus: MaterialsView.RowMark?,
+            belt: Belt,
+            item: UiItem
+        ) {
+            let state: ExerciseMarkState
+
+            switch selectedStatus {
+            case .mastered:
+                state = .know
+
+            case .partiallyKnown:
+                state = .partiallyKnown
+
+            case .unknown:
+                state = .dontKnow
+
+            case nil:
+                state = .unmarked
+            }
+
+            let key = markKey(belt: belt, item: item)
+            let defaults = UserDefaults.standard
+
+            exerciseMarks[key] = state
+
+            if state == .unmarked {
+                defaults.removeObject(forKey: key)
+                defaults.removeObject(forKey: "\(key).updatedAt")
+            } else {
+                defaults.set(state.rawValue, forKey: key)
+                defaults.set(
+                    Date().timeIntervalSince1970,
+                    forKey: "\(key).updatedAt"
+                )
+            }
+        }
+        
+        private func subjectExerciseCard(
+            belt: Belt,
+            item: UiItem
+        ) -> some View {
+            let context = ExerciseMenuContext(
+                belt: belt,
+                item: item
+            )
+
+            let note = loadNote(
+                belt: belt,
+                item: item
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            return MaterialsExerciseRow(
+                title: uiExerciseTitle(item.displayName),
+                beltColor: KmiBeltPalette.color(for: belt),
+                isFavorite: isFavorite(belt: belt, item: item),
+                isExcluded: isExcluded(belt: belt, item: item),
+                mark: materialsMark(belt: belt, item: item),
+                traineeUpdatedAt: traineeUpdatedAt(
+                    belt: belt,
+                    item: item
+                ),
+                coachProgress: materialsCoachProgress(
+                    belt: belt,
+                    item: item
+                ),
+                hasNote: !note.isEmpty,
+                isCoach: isCoachUser,
+                isEnglish: isEnglish,
+                onToggleFavorite: {
+                    toggleFavorite(belt: belt, item: item)
+                },
+                onToggleExcluded: {
+                    toggleExcluded(belt: belt, item: item)
+                },
+                onShowInfo: {
+                    activeInfoExercise = context
+                },
+                onEditNote: {
+                    noteText = loadNote(belt: belt, item: item)
+                    activeNoteExercise = context
+                },
+                onSelectTraineeStatus: { status in
+                    saveMaterialsMark(
+                        status,
+                        belt: belt,
+                        item: item
+                    )
+                },
+                onSelectCoachStatus: { status in
+                    switch status {
+                    case .taught:
+                        toggleCoachStatus(
+                            .taught,
+                            belt: belt,
+                            item: item
+                        )
+
+                    case .practiced:
+                        toggleCoachStatus(
+                            .practiced,
+                            belt: belt,
+                            item: item
+                        )
+
+                    case .needsReinforcement:
+                        toggleCoachStatus(
+                            .needsReinforcement,
+                            belt: belt,
+                            item: item
+                        )
+
+                    case .notTaught:
+                        break
+                    }
+                }
             )
         }
-    }
 
-    private func toggleMark(
-        belt: Belt,
-        item: UiItem
-    ) {
-        let key = markKey(belt: belt, item: item)
-        let current = markState(belt: belt, item: item)
+        private func materialsCoachProgress(
+            belt: Belt,
+            item: UiItem
+        ) -> MaterialsView.CoachMaterialProgress {
+            let selected = coachStatuses(belt: belt, item: item)
+            let dates = coachDates(belt: belt, item: item)
 
-        let nextState: ExerciseMarkState
+            let mappings: [
+                (
+                    source: KmiCoachExerciseStatus,
+                    target: MaterialsView.CoachMaterialStatus
+                )
+            ] = [
+                (.taught, .taught),
+                (.practiced, .practiced),
+                (.needsReinforcement, .needsReinforcement)
+            ]
 
-        switch current {
-        case .unmarked:
-            nextState = .know
-        case .know:
-            nextState = .dontKnow
-        case .dontKnow:
-            nextState = .unmarked
+            var statuses = Set<MaterialsView.CoachMaterialStatus>()
+            var timestamps: [MaterialsView.CoachMaterialStatus: Int64] = [:]
+
+            for mapping in mappings where selected.contains(mapping.source) {
+                statuses.insert(mapping.target)
+
+                if let date = dates[mapping.source] {
+                    timestamps[mapping.target] = Int64(
+                        date.timeIntervalSince1970 * 1000
+                    )
+                }
+            }
+
+            return MaterialsView.CoachMaterialProgress(
+                selectedStatuses: statuses,
+                updatedAtByStatus: timestamps
+            )
         }
 
-        exerciseMarks[key] = nextState
-
-        if nextState == .unmarked {
-            UserDefaults.standard.removeObject(forKey: key)
-        } else {
-            UserDefaults.standard.set(nextState.rawValue, forKey: key)
-        }
-    }
-    
-    private func preloadExerciseProgress() {
+        private func preloadExerciseProgress() {
         let defaults = UserDefaults.standard
 
         var loadedMarks: [String: ExerciseMarkState] = [:]
@@ -1958,8 +2114,8 @@ struct SubjectAcrossBeltsView: View {
         belt: Belt,
         item: UiItem
     ) -> Bool {
-        favoriteExerciseIds.contains(
-            exerciseId(belt: belt, item: item)
+        exerciseFavorites.contains(
+            item.rawItem ?? item.displayName
         )
     }
 
@@ -1987,13 +2143,58 @@ struct SubjectAcrossBeltsView: View {
         "kmi.subject.note.\(exerciseId(belt: belt, item: item))"
     }
 
+    private func currentNoteUserID() -> String? {
+        #if canImport(FirebaseAuth)
+        let uid = Auth.auth().currentUser?.uid
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        return uid.isEmpty ? nil : uid
+        #else
+        return nil
+        #endif
+    }
+
+    private func sharedNoteExerciseID(
+        belt: Belt,
+        item: UiItem
+    ) -> String? {
+        exerciseNotes.knownExerciseID(
+            belt: belt,
+            title: item.rawItem ?? item.displayName,
+            topicKey: item.sourceTopicTitle
+        )
+    }
+
     private func loadNote(
         belt: Belt,
         item: UiItem
     ) -> String {
-        UserDefaults.standard.string(
-            forKey: noteStorageKey(belt: belt, item: item)
-        ) ?? ""
+        if let exerciseID = sharedNoteExerciseID(
+            belt: belt,
+            item: item
+        ) {
+            guard let userID = currentNoteUserID() else {
+                return ""
+            }
+
+            return exerciseNotes.load(
+                userID: userID,
+                beltID: belt.id,
+                exerciseID: exerciseID
+            )
+        }
+
+        // לתרגיל לא מזוהה משתמשים במזהה המקומי של המסך,
+        // אבל שומרים את ההערה בנפרד לכל משתמש.
+        guard let userID = currentNoteUserID() else {
+            return ""
+        }
+
+        return exerciseNotes.load(
+            userID: userID,
+            beltID: belt.id,
+            exerciseID: "subject-local:\(exerciseId(belt: belt, item: item))"
+        )
     }
 
     private func saveNote(
@@ -2001,14 +2202,34 @@ struct SubjectAcrossBeltsView: View {
         item: UiItem,
         value: String
     ) {
-        let key = noteStorageKey(belt: belt, item: item)
-        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let exerciseID = sharedNoteExerciseID(
+            belt: belt,
+            item: item
+        ) {
+            guard let userID = currentNoteUserID() else {
+                return
+            }
 
-        if clean.isEmpty {
-            UserDefaults.standard.removeObject(forKey: key)
-        } else {
-            UserDefaults.standard.set(clean, forKey: key)
+            exerciseNotes.save(
+                value,
+                userID: userID,
+                beltID: belt.id,
+                exerciseID: exerciseID
+            )
+            return
         }
+
+        // גם הערה של תרגיל לא מזוהה מבודדת לפי המשתמש.
+        guard let userID = currentNoteUserID() else {
+            return
+        }
+
+        exerciseNotes.save(
+            value,
+            userID: userID,
+            beltID: belt.id,
+            exerciseID: "subject-local:\(exerciseId(belt: belt, item: item))"
+        )
     }
     
     private func loadStringSet(_ key: String) -> Set<String> {
@@ -2024,19 +2245,9 @@ struct SubjectAcrossBeltsView: View {
         belt: Belt,
         item: UiItem
     ) {
-        let id = exerciseId(belt: belt, item: item)
-        let key = favoritesStorageKey(for: belt)
-
-        var values = loadStringSet(key)
-        values.formSymmetricDifference([id])
-
-        if values.contains(id) {
-            favoriteExerciseIds.insert(id)
-        } else {
-            favoriteExerciseIds.remove(id)
-        }
-
-        saveStringSet(values, key: key)
+        exerciseFavorites.toggle(
+            item.rawItem ?? item.displayName
+        )
     }
 
     private func toggleExcluded(
@@ -2114,7 +2325,7 @@ private struct SubjectBeltPositionPreferenceKey:
     }
 }
 
-private struct ExerciseNoteSheet: View {
+struct ExerciseNoteSheet: View {
     let title: String
     @Binding var noteText: String
     let isEnglish: Bool
@@ -2226,20 +2437,6 @@ private struct ExerciseNoteSheet: View {
             }
         }
         .environment(\.layoutDirection, layoutDirection)
-    }
-}
-    
-private struct ExerciseInfoCircle: View {
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(Color.black.opacity(0.46))
-                .frame(width: 24, height: 24)
-
-            Image(systemName: "info")
-                .font(.system(size: 12, weight: .black))
-                .foregroundStyle(.white)
-        }
     }
 }
 

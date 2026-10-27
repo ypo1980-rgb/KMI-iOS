@@ -1,5 +1,10 @@
 import SwiftUI
 import Shared
+import CoreFoundation
+
+#if canImport(FirebaseAuth)
+import FirebaseAuth
+#endif
 
 // MARK: - Summary models (file-scope)
 
@@ -22,7 +27,8 @@ enum SummaryMark: String {
 
         case "done",
              "mastered",
-             "known":
+             "known",
+             "know":
             return .done
 
         case "partiallyknown",
@@ -32,7 +38,8 @@ enum SummaryMark: String {
 
         case "notdone",
              "not_done",
-             "unknown":
+             "unknown",
+             "dontknow":
             return .notDone
 
         default:
@@ -67,6 +74,12 @@ enum SummaryCoachStatus: String, CaseIterable {
                 .lowercased()
         ) ?? .notTaught
     }
+}
+
+private struct SummarySelectedExercise: Identifiable, Hashable {
+    let id: String
+    let topicTitle: String
+    let title: String
 }
 
 struct SummaryRowItem: Identifiable {
@@ -216,6 +229,20 @@ struct SummaryView: View {
     @State private var showProgressCard: Bool = false
     @State private var showComparisonCard: Bool = false
     @State private var marksRevision: Int = 0
+
+    @State private var selectedExercise:
+        SummarySelectedExercise?
+
+    @State private var selectedNoteExercise:
+        SummarySelectedExercise?
+
+    @State private var noteDraft = ""
+    @State private var noteUserID = ""
+    @State private var noteExerciseID = ""
+    @State private var showNoteUnavailable = false
+
+    @ObservedObject private var exerciseNotes =
+        ExerciseNotesStore.shared
 
     @State private var cachedBlocks: [SummaryTopicBlock] = []
     @State private var isSummaryLoading: Bool = true
@@ -398,7 +425,16 @@ struct SummaryView: View {
             ? cleanTopic
             : "\(cleanTopic)__\(cleanSubTopic)"
 
+        let materialsStatusID = coachStatusId(
+            topicTitle: topicTitle,
+            subTopicTitle: subTopicTitle,
+            item: item,
+            index: index
+        )
+
         let directStringKeys = [
+            "mark.\(materialsStatusID)",
+
             "mark.status_\(beltId)_\(topicTitle)_\(index)_\(item)",
             "mark.status_\(beltId)_\(topicTitle)_\(index)_\(cleanItem)",
 
@@ -407,12 +443,30 @@ struct SummaryView: View {
 
             "kmi.mark.\(beltId).\(topicTitle).\(item)",
             "kmi.mark.\(beltId).\(cleanTopic).\(cleanItem)",
-            "kmi.mark.\(beltId).\(topicKey).\(cleanItem)"
+            "kmi.mark.\(beltId).\(topicKey).\(cleanItem)",
+
+            // מפתח קיים של מסך התרגילים לפי נושא.
+            "kmi.subject.mark.\(beltId).\(topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)).\(item.trimmingCharacters(in: .whitespacesAndNewlines))"
         ]
 
         for key in directStringKeys {
-            if let raw = defaults.string(forKey: key),
-               let mark = SummaryMark.fromStoredValue(raw) {
+            guard let raw = defaults.string(forKey: key) else {
+                continue
+            }
+
+            let normalized = raw
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            /*
+             * מצב מפורש של "לא סומן" עוצר את החיפוש,
+             * כדי שסימון ישן במפתח אחר לא יחזור.
+             */
+            if normalized == "unmarked" {
+                return nil
+            }
+
+            if let mark = SummaryMark.fromStoredValue(raw) {
                 return mark
             }
         }
@@ -434,29 +488,20 @@ struct SummaryView: View {
         ]
 
         for key in directBoolKeys {
-            if defaults.object(forKey: key) != nil {
-                return defaults.bool(forKey: key) ? .done : .notDone
-            }
-        }
-
-        for entry in defaults.dictionaryRepresentation() {
-            let normalizedKey = summarySafePart(entry.key)
-
-            guard normalizedKey.contains(beltId),
-                  normalizedKey.contains(cleanItem) else {
+            guard let value = defaults.object(forKey: key),
+                  CFGetTypeID(value as CFTypeRef) == CFBooleanGetTypeID(),
+                  let boolValue = value as? Bool else {
                 continue
             }
 
-            if let raw = entry.value as? String,
-               let mark = SummaryMark.fromStoredValue(raw) {
-                return mark
-            }
-
-            if let boolValue = entry.value as? Bool {
-                return boolValue ? .done : .notDone
-            }
+            return boolValue ? .done : .notDone
         }
 
+        /*
+         * לא נמצא מפתח מדויק לסימון.
+         * אין להסיק סטטוס ממפתח אחר שמכיל
+         * במקרה את שם התרגיל.
+         */
         return nil
     }
 
@@ -1846,7 +1891,21 @@ struct SummaryView: View {
                                         isCoach:
                                             effectiveIsCoach,
                                         isEnglish:
-                                            isEnglish
+                                            isEnglish,
+                                        onSelectExercise: { item in
+                                            selectedExercise =
+                                                SummarySelectedExercise(
+                                                    id: item.id,
+                                                    topicTitle: block.title,
+                                                    title: item.title
+                                                )
+                                        },
+                                        onEditNote: { item in
+                                            openNoteEditor(
+                                                item: item,
+                                                topicTitle: block.title
+                                            )
+                                        }
                                     )
 
                                     if index <
@@ -1927,6 +1986,51 @@ struct SummaryView: View {
             ) {
                 postSummaryTopTitleOverride()
             }
+        }
+        .navigationDestination(item: $selectedExercise) { exercise in
+            ExerciseDetailView(
+                belt: belt,
+                topicTitle: exercise.topicTitle,
+                item: exercise.title
+            )
+        }
+        .sheet(item: $selectedNoteExercise) { exercise in
+            ExerciseNoteSheet(
+                title: KmiEnglishTitleResolver.title(
+                    for: ExerciseTitleFormatter.shared
+                        .displayName(raw: exercise.title),
+                    isEnglish: isEnglish
+                ),
+                noteText: $noteDraft,
+                isEnglish: isEnglish,
+                onSave: {
+                    #if canImport(FirebaseAuth)
+                    guard Auth.auth().currentUser?.uid == noteUserID else {
+                        showNoteUnavailable = true
+                        return
+                    }
+
+                    exerciseNotes.save(
+                        noteDraft,
+                        userID: noteUserID,
+                        beltID: belt.id,
+                        exerciseID: noteExerciseID
+                    )
+                    #endif
+                }
+            )
+        }
+        .alert(
+            isEnglish ? "Note unavailable" : "ההערה אינה זמינה",
+            isPresented: $showNoteUnavailable
+        ) {
+            Button(isEnglish ? "OK" : "אישור", role: .cancel) {}
+        } message: {
+            Text(
+                isEnglish
+                    ? "Sign in and try again. If the problem persists, the exercise may not yet be recognized."
+                    : "יש להתחבר ולנסות שוב. אם הבעיה נמשכת, ייתכן שהתרגיל עדיין אינו מזוהה."
+            )
         }
         .onChange(of: percentAll) { _, _ in
             postSummaryTopTitleOverride()
@@ -3253,6 +3357,43 @@ struct SummaryView: View {
         }
     }
     
+    private func openNoteEditor(
+        item: SummaryRowItem,
+        topicTitle: String
+    ) {
+        #if canImport(FirebaseAuth)
+        guard let userID = Auth.auth().currentUser?.uid,
+              !userID.trimmingCharacters(
+                in: .whitespacesAndNewlines
+              ).isEmpty,
+              let exerciseID = exerciseNotes.knownExerciseID(
+                belt: belt,
+                title: item.title,
+                topicKey: topicTitle
+              ) else {
+            showNoteUnavailable = true
+            return
+        }
+
+        noteUserID = userID
+        noteExerciseID = exerciseID
+
+        noteDraft = exerciseNotes.load(
+            userID: userID,
+            beltID: belt.id,
+            exerciseID: exerciseID
+        )
+
+        selectedNoteExercise = SummarySelectedExercise(
+            id: item.id,
+            topicTitle: topicTitle,
+            title: item.title
+        )
+        #else
+        showNoteUnavailable = true
+        #endif
+    }
+
     private struct TopicSummaryCard: View {
         let block: SummaryTopicBlock
 
@@ -3261,6 +3402,8 @@ struct SummaryView: View {
 
         let isCoach: Bool
         let isEnglish: Bool
+        let onSelectExercise: (SummaryRowItem) -> Void
+        let onEditNote: (SummaryRowItem) -> Void
 
         @Environment(\.colorScheme)
         private var colorScheme
@@ -3613,7 +3756,13 @@ struct SummaryView: View {
                                         isCoach:
                                             isCoach,
                                         isEnglish:
-                                            isEnglish
+                                            isEnglish,
+                                        onSelect: {
+                                            onSelectExercise(item)
+                                        },
+                                        onEditNote: {
+                                            onEditNote(item)
+                                        }
                                     )
 
                                     if index <
@@ -3723,6 +3872,11 @@ struct SummaryView: View {
 
         let isCoach: Bool
         let isEnglish: Bool
+        let onSelect: () -> Void
+        let onEditNote: () -> Void
+
+        @ObservedObject private var exerciseFavorites =
+            ExerciseFavoritesStore.shared
 
         @Environment(\.colorScheme)
         private var colorScheme
@@ -4004,21 +4158,77 @@ struct SummaryView: View {
                     )
                 }
 
-                Text(title)
+                Button {
+                    exerciseFavorites.toggle(title)
+                } label: {
+                    Image(
+                        systemName: exerciseFavorites.contains(title)
+                            ? "star.fill"
+                            : "star"
+                    )
+                    .kmiFont(
+                        size: 18,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(
+                        exerciseFavorites.contains(title)
+                            ? Color.orange
+                            : rowTextColor
+                    )
+                    .frame(width: 36, height: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    exerciseFavorites.contains(title)
+                        ? (isEnglish
+                            ? "Remove from favorites"
+                            : "הסר ממועדפים")
+                        : (isEnglish
+                            ? "Add to favorites"
+                            : "הוסף למועדפים")
+                )
+
+                Button(action: onEditNote) {
+                    Image(systemName: "note.text")
+                        .kmiFont(
+                            size: 18,
+                            weight: .semibold
+                        )
+                        .foregroundStyle(rowTextColor)
+                        .frame(width: 36, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    isEnglish ? "Edit note" : "עריכת הערה"
+                )
+
+                Button(action: onSelect) {
+                    Text(
+                        KmiEnglishTitleResolver.title(
+                            for: ExerciseTitleFormatter.shared
+                                .displayName(raw: title),
+                            isEnglish: isEnglish
+                        )
+                    )
                     .kmiFont(
                         size: 16,
                         weight: .semibold
                     )
-                    .foregroundStyle(rowTextColor)
-                    .frame(
-                        maxWidth: .infinity,
-                        alignment: frameAlignment
-                    )
-                    .multilineTextAlignment(
-                        isEnglish
-                            ? .leading
-                            : .trailing
-                    )
+                        .foregroundStyle(rowTextColor)
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: frameAlignment
+                        )
+                        .multilineTextAlignment(
+                            isEnglish
+                                ? .leading
+                                : .trailing
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
             .environment(
                 \.layoutDirection,

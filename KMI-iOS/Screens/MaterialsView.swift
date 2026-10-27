@@ -210,7 +210,7 @@ struct MaterialsView: View {
         return isCoach
     }
 
-    fileprivate enum RowMark: String {
+    enum RowMark: String {
         case mastered
         case partiallyKnown
         case unknown
@@ -220,14 +220,14 @@ struct MaterialsView: View {
      * סטטוסי המאמן נשמרים בנפרד לחלוטין
      * מסימוני יודע / לא יודע של המתאמן.
      */
-    fileprivate enum CoachMaterialStatus: String, CaseIterable {
+    enum CoachMaterialStatus: String, CaseIterable {
         case notTaught = "not_taught"
         case taught = "taught"
         case practiced = "practiced"
         case needsReinforcement = "needs_reinforcement"
     }
 
-    fileprivate struct CoachMaterialProgress:
+    struct CoachMaterialProgress:
         Equatable {
 
         let selectedStatuses:
@@ -326,7 +326,13 @@ struct MaterialsView: View {
         let displayName: String
     }
 
-    @State private var favorites: Set<String> = []
+    @ObservedObject private var exerciseFavorites =
+        ExerciseFavoritesStore.shared
+
+    private func isFavorite(_ row: ExerciseRow) -> Bool {
+        exerciseFavorites.contains(row.rawItem)
+    }
+
     @State private var excluded: Set<String> = []
     @State private var marks: [String: RowMark?] = [:]
 
@@ -1009,9 +1015,7 @@ struct MaterialsView: View {
                                             for: belt
                                         ),
                                     isFavorite:
-                                        favorites.contains(
-                                            row.canonicalId
-                                        ),
+                                        isFavorite(row),
                                     isExcluded:
                                         excluded.contains(
                                             row.canonicalId
@@ -1260,7 +1264,7 @@ struct MaterialsView: View {
             MaterialsInfoSheet(
                 title: row.displayName,
                 text: explanationText(for: row),
-                isFavorite: favorites.contains(row.canonicalId),
+                isFavorite: isFavorite(row),
                 isSpeaking: isSpeakingExplanation,
                 isEnglish: isEnglish,
                 accentColor: BeltPaletteByMaterials.color(for: belt),
@@ -2301,9 +2305,6 @@ struct MaterialsView: View {
     }
 
     private func loadState() {
-        var loadedFavorites =
-            Set<String>()
-
         var loadedExcluded =
             Set<String>()
 
@@ -2356,23 +2357,9 @@ struct MaterialsView: View {
                         storedPracticeFavorites
                 )
 
-            if isCanonicalFavorite ||
-                isPracticeFavorite {
-                loadedFavorites.insert(
-                    row.canonicalId
-                )
-
-                /*
-                 * מבצעים migration שקט לפורמט
-                 * הקנוני של MaterialsView.
-                 */
-                UserDefaults.standard.set(
-                    true,
-                    forKey:
-                        favoriteKey(
-                            for:
-                                row.canonicalId
-                        )
+            if isCanonicalFavorite || isPracticeFavorite {
+                exerciseFavorites.importLegacyFavorite(
+                    row.rawItem
                 )
             }
 
@@ -2455,7 +2442,6 @@ struct MaterialsView: View {
                 ) ?? ""
         }
 
-        favorites = loadedFavorites
         excluded = loadedExcluded
         marks = loadedMarks
         traineeUpdatedAtStates = loadedTraineeUpdatedAt
@@ -2482,54 +2468,37 @@ struct MaterialsView: View {
     private func toggleFavorite(
         _ row: ExerciseRow
     ) {
-        let id =
-            row.canonicalId
+        let newValue = !exerciseFavorites.contains(
+            row.rawItem
+        )
 
-        if favorites.contains(id) {
-            favorites.remove(id)
+        exerciseFavorites.set(
+            row.rawItem,
+            favorite: newValue
+        )
 
-            UserDefaults.standard.set(
-                false,
-                forKey:
-                    favoriteKey(
-                        for: id
-                    )
-            )
+        // תאימות זמנית למסכים שעדיין משתמשים בשמירה הישנה.
+        UserDefaults.standard.set(
+            newValue,
+            forKey: favoriteKey(for: row.canonicalId)
+        )
 
-            updatePracticeFavorites(
-                for: row,
-                isFavorite: false
-            )
+        updatePracticeFavorites(
+            for: row,
+            isFavorite: newValue
+        )
 
-            showToast(
-                tr(
-                    "הוסר מהמועדפים.",
-                    "Removed from favorites."
-                )
-            )
-        } else {
-            favorites.insert(id)
-
-            UserDefaults.standard.set(
-                true,
-                forKey:
-                    favoriteKey(
-                        for: id
-                    )
-            )
-
-            updatePracticeFavorites(
-                for: row,
-                isFavorite: true
-            )
-
-            showToast(
-                tr(
+        showToast(
+            newValue
+                ? tr(
                     "נוסף למועדפים.",
                     "Added to favorites."
                 )
-            )
-        }
+                : tr(
+                    "הוסר מהמועדפים.",
+                    "Removed from favorites."
+                )
+        )
 
         refreshToken = UUID()
     }
@@ -2795,7 +2764,7 @@ struct MaterialsView: View {
                 number: index + 1,
                 title: row.displayName,
                 status: pdfStatusText(for: row),
-                isFavorite: favorites.contains(row.canonicalId),
+                isFavorite: isFavorite(row),
                 isExcluded: excluded.contains(row.canonicalId),
                 hasNote: !(notes[row.canonicalId]?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2854,10 +2823,6 @@ struct MaterialsView: View {
                     }
 
                 return [
-                    favoriteKey(
-                        for:
-                            row.canonicalId
-                    ),
                     excludedKey(
                         for:
                             row.canonicalId
@@ -2889,6 +2854,26 @@ struct MaterialsView: View {
             }
 
         /*
+         * איפוס המועדפים מתעדכן גם במנגנון המשותף.
+         * כך הסרה מפורשת לא תוחזר ממידע ישן.
+         */
+        for row in rows {
+            exerciseFavorites.set(
+                row.rawItem,
+                favorite: false
+            )
+
+            UserDefaults.standard.removeObject(
+                forKey: favoriteKey(for: row.canonicalId)
+            )
+
+            updatePracticeFavorites(
+                for: row,
+                isFavorite: false
+            )
+        }
+
+        /*
          * קודם מעדכנים את ממשק המשתמש.
          * כך כל הסימונים והסטטוסים נעלמים מיד.
          */
@@ -2900,7 +2885,6 @@ struct MaterialsView: View {
             selectedNoteRow = nil
             noteDraft = ""
 
-            favorites.removeAll()
             excluded.removeAll()
             marks.removeAll()
             traineeUpdatedAtStates.removeAll()
@@ -3551,7 +3535,7 @@ private struct MaterialsStatsHeader:
 
 // MARK: - Row
 
-private struct MaterialsExerciseRow: View {
+struct MaterialsExerciseRow: View {
     @Environment(\.colorScheme)
     private var colorScheme
     
@@ -5618,7 +5602,7 @@ private struct MaterialsGeneralNoteSheet:
 
 // MARK: - Info sheet
 
-private struct MaterialsInfoSheet:
+struct MaterialsInfoSheet:
     View {
 
     @Environment(\.colorScheme)

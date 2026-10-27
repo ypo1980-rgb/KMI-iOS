@@ -1874,21 +1874,10 @@ struct ContentView: View {
                         let belt,
                         let topicTitle
                     ):
-                        KmiRootLayout(
-                            title:
-                                tr(
-                                    "תרגול",
-                                    "Practice"
-                                ),
-                            nav: nav,
-                            selectedIcon: .home
-                        ) {
-                            RandomPracticeView(
-                                nav: nav,
-                                belt: belt,
-                                topicTitle:
-                                    topicTitle,
-                                items: {
+                        let practiceData: (
+                            items: [String],
+                            sourceTopicsByItem: [String: [String]]
+                        ) = {
                                     let cleanToken =
                                         topicTitle
                                             .trimmingCharacters(
@@ -1988,14 +1977,17 @@ struct ContentView: View {
                                         ]
                                     }
 
-                                    var seen =
-                                        Set<String>()
+                            var representativeByKey:
+                                [String: String] = [:]
 
-                                    var result:
-                                        [String] = []
+                            var sourceTopicsByItem:
+                                [String: [String]] = [:]
 
-                                    for requestedTopic
-                                        in requestedTopics {
+                            var result:
+                                [String] = []
+
+                            for requestedTopic
+                                in requestedTopics {
                                         for rawItem
                                             in itemsForTopic(
                                                 requestedTopic
@@ -2034,29 +2026,73 @@ struct ContentView: View {
                                                     )
                                                     .lowercased()
 
-                                            guard seen
-                                                .insert(
+                                            let sourceTopic =
+                                                requestedTopic
+                                                    .trimmingCharacters(
+                                                        in: .whitespacesAndNewlines
+                                                    )
+
+                                            let representative: String
+
+                                            if let existing =
+                                                representativeByKey[normalizedKey] {
+                                                representative = existing
+                                            } else {
+                                                representative = cleanItem
+
+                                                representativeByKey[
                                                     normalizedKey
-                                                )
-                                                .inserted else {
-                                                continue
+                                                ] = cleanItem
+
+                                                result.append(cleanItem)
                                             }
 
-                                            result.append(
-                                                cleanItem
-                                            )
+                                            if !sourceTopic.isEmpty {
+                                                var topics =
+                                                    sourceTopicsByItem[
+                                                        representative
+                                                    ] ?? []
+
+                                                if !topics.contains(sourceTopic) {
+                                                    topics.append(sourceTopic)
+                                                }
+
+                                                sourceTopicsByItem[
+                                                    representative
+                                                ] = topics
+                                            }
                                         }
                                     }
 
-                                    return result
-                                }()
+                            return (
+                                items: result,
+                                sourceTopicsByItem: sourceTopicsByItem
                             )
-                            .navigationBarBackButtonHidden(
-                                true
-                            )
-                        }
+                        }()
 
-                    case .summary(
+                KmiRootLayout(
+                    title:
+                        tr(
+                            "תרגול",
+                            "Practice"
+                        ),
+                    nav: nav,
+                    selectedIcon: .home
+                ) {
+                    RandomPracticeView(
+                        nav: nav,
+                        belt: belt,
+                        topicTitle: topicTitle,
+                        items: practiceData.items,
+                        sourceTopicsByItem:
+                            practiceData.sourceTopicsByItem
+                    )
+                    .navigationBarBackButtonHidden(
+                        true
+                    )
+                }
+
+            case .summary(
                         let belt,
                         let topic,
                         let subTopic

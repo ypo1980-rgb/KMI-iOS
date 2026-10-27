@@ -4,6 +4,10 @@ import Shared
 import AVFoundation
 import Combine
 
+#if canImport(FirebaseAuth)
+import FirebaseAuth
+#endif
+
 /*
  * מעדכן את ממשק המשתמש לפי סיום ההקראה בפועל,
  * ללא חישוב משוער לפי אורך הטקסט.
@@ -329,6 +333,9 @@ struct MaterialsView: View {
     @ObservedObject private var exerciseFavorites =
         ExerciseFavoritesStore.shared
 
+    @ObservedObject private var exerciseNotes =
+        ExerciseNotesStore.shared
+
     private func isFavorite(_ row: ExerciseRow) -> Bool {
         exerciseFavorites.contains(row.rawItem)
     }
@@ -355,9 +362,28 @@ struct MaterialsView: View {
 
     @State private var notes: [String: String] = [:]
 
+    private struct NoteConflictContext {
+        let requestID = UUID()
+        let userID: String
+        let beltID: String
+        let scopeKey: String
+        let identity: ExerciseIdentityResolverIOS.Identity
+        let values: [String]
+    }
+
     @State private var selectedInfoRow: ExerciseRow? = nil
     @State private var selectedNoteRow: ExerciseRow? = nil
     @State private var noteDraft: String = ""
+    @State private var noteOwnerUID: String? = nil
+    @State private var showNoteAccountChanged = false
+
+    @State private var noteConflictContext: NoteConflictContext? = nil
+    @State private var showNoteConflictChoices = false
+
+    #if canImport(FirebaseAuth)
+    @State private var noteAuthHandle:
+        AuthStateDidChangeListenerHandle?
+    #endif
 
     @State private var refreshToken = UUID()
 
@@ -1056,10 +1082,12 @@ struct MaterialsView: View {
                                         selectedInfoRow = row
                                     },
                                     onEditNote: {
-                                        noteDraft =
-                                            notes[row.canonicalId]
-                                            ?? ""
+                                        guard canOpenNote(for: row) else {
+                                            return
+                                        }
 
+                                        noteOwnerUID = currentNoteUserID()
+                                        noteDraft = sharedNote(for: row)
                                         selectedNoteRow = row
                                     },
                                     onSelectTraineeStatus: {
@@ -1164,15 +1192,32 @@ struct MaterialsView: View {
 
             speechSynth.delegate = speechDelegate
             loadState()
+            startNoteAuthListener()
         }
         .onDisappear {
+            stopNoteAuthListener()
+
+            selectedNoteRow = nil
+            noteOwnerUID = nil
+            noteDraft = ""
+            showNoteAccountChanged = false
+
+            noteConflictContext = nil
+            showNoteConflictChoices = false
+
             speechSynth.stopSpeaking(at: .immediate)
             speechSynth.delegate = nil
             speechDelegate.onFinish = nil
             isSpeakingExplanation = false
         }
         .onChange(of: scopeKey) { _, _ in
+            showNoteConflictChoices = false
+            noteConflictContext = nil
+
             loadState()
+        }
+        .onReceive(exerciseNotes.$revision) { _ in
+            refreshSharedNotes()
         }
         /*
          * אין להאזין כאן לכל שינוי ב־UserDefaults.
@@ -1219,6 +1264,48 @@ struct MaterialsView: View {
                     Visibility.visible
                 )
             }
+        }
+        .confirmationDialog(
+            tr(
+                "נמצאו הערות שונות לתרגיל. בחר איזו הערה לשמור:",
+                "Different notes were found for this exercise. Choose which note to keep:"
+            ),
+            isPresented: $showNoteConflictChoices,
+            titleVisibility: .visible,
+            presenting: noteConflictContext
+        ) { context in
+            ForEach(
+                Array(context.values.enumerated()),
+                id: \.offset
+            ) { _, value in
+                Button(
+                    value.isEmpty
+                        ? tr(
+                            "ללא הערה",
+                            "No note"
+                        )
+                        : value
+                ) {
+                    resolveNoteConflict(
+                        selectedValue: value,
+                        context: context
+                    )
+                }
+            }
+
+            Button(
+                tr("ביטול", "Cancel"),
+                role: .cancel
+            ) {
+                noteConflictContext = nil
+            }
+        } message: { _ in
+            Text(
+                tr(
+                    "הגרסאות הקודמות יישארו שמורות במכשיר.",
+                    "The previous versions will remain saved on this device."
+                )
+            )
         }
         .confirmationDialog(
             effectiveIsCoach
@@ -1280,13 +1367,28 @@ struct MaterialsView: View {
                     toggleSpeak(explanationText(for: row))
                 },
                 onEditNote: {
+                    guard canOpenNote(for: row) else {
+                        return
+                    }
+
                     speechSynth.stopSpeaking(at: .immediate)
                     isSpeakingExplanation = false
 
-                    noteDraft = notes[row.canonicalId] ?? ""
+                    let openingUserID = currentNoteUserID()
+
+                    noteOwnerUID = openingUserID
+                    noteDraft = sharedNote(for: row)
                     selectedInfoRow = nil
 
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                        guard let openingUserID,
+                              currentNoteUserID() == openingUserID,
+                              noteOwnerUID == openingUserID else {
+                            noteOwnerUID = nil
+                            noteDraft = ""
+                            return
+                        }
+
                         selectedNoteRow = row
                     }
                 }
@@ -1294,24 +1396,71 @@ struct MaterialsView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
-        .sheet(item: $selectedNoteRow) { row in
+        .sheet(
+            item: $selectedNoteRow,
+            onDismiss: {
+                noteOwnerUID = nil
+                noteDraft = ""
+                showNoteAccountChanged = false
+            }
+        ) { row in
             MaterialsPremiumNoteSheet(
                 title: row.displayName,
                 noteText: $noteDraft,
                 isEnglish: isEnglish,
                 onCancel: {
                     selectedNoteRow = nil
+                    noteOwnerUID = nil
                 },
                 onSave: {
-                    saveNote(noteDraft, for: row.canonicalId)
+                    guard noteEditorHasCurrentUser() else {
+                        showNoteAccountChanged = true
+                        return
+                    }
+
+                    guard saveNote(
+                        noteDraft,
+                        for: row.canonicalId
+                    ) else {
+                        showNoteAccountChanged = true
+                        return
+                    }
+
                     selectedNoteRow = nil
+                    noteOwnerUID = nil
                 },
                 onDelete: {
+                    guard noteEditorHasCurrentUser() else {
+                        showNoteAccountChanged = true
+                        return
+                    }
+
+                    guard saveNote(
+                        "",
+                        for: row.canonicalId
+                    ) else {
+                        showNoteAccountChanged = true
+                        return
+                    }
+
                     noteDraft = ""
-                    saveNote("", for: row.canonicalId)
                     selectedNoteRow = nil
+                    noteOwnerUID = nil
                 }
             )
+            .alert(
+                tr("לא ניתן לעדכן הערה", "Unable to update note"),
+                isPresented: $showNoteAccountChanged
+            ) {
+                Button(tr("אישור", "OK"), role: .cancel) {}
+            } message: {
+                Text(
+                    tr(
+                        "לא ניתן לעדכן את ההערה. ייתכן שהחשבון השתנה, שהתרגיל אינו זמין או שנמצאו הערות שונות לאותו תרגיל. ההערות הקיימות לא שונו.",
+                        "The note could not be updated. The account may have changed, the exercise may be unavailable, or different notes may exist for the same exercise. Existing notes were not changed."
+                    )
+                )
+            }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
@@ -2251,22 +2400,18 @@ struct MaterialsView: View {
         switch mark {
 
         case .mastered:
-            defaults.set(
-                "known",
-                forKey:
-                    statusKey
-            )
+            if defaults.string(forKey: statusKey) != "known" {
+                defaults.set("known", forKey: statusKey)
+            }
 
             wrongItems.remove(
                 row.rawItem
             )
 
         case .partiallyKnown:
-            defaults.set(
-                "partial",
-                forKey:
-                    statusKey
-            )
+            if defaults.string(forKey: statusKey) != "partial" {
+                defaults.set("partial", forKey: statusKey)
+            }
 
             /*
              * חלקית עדיין צריך להישאר
@@ -2277,31 +2422,34 @@ struct MaterialsView: View {
             )
 
         case .unknown:
-            defaults.set(
-                "unknown",
-                forKey:
-                    statusKey
-            )
+            if defaults.string(forKey: statusKey) != "unknown" {
+                defaults.set("unknown", forKey: statusKey)
+            }
 
             wrongItems.insert(
                 row.rawItem
             )
 
         case nil:
-            defaults.removeObject(
-                forKey:
-                    statusKey
-            )
+            if defaults.object(forKey: statusKey) != nil {
+                defaults.removeObject(forKey: statusKey)
+            }
 
             wrongItems.remove(
                 row.rawItem
             )
         }
 
-        defaults.set(
-            Array(wrongItems).sorted(),
-            forKey: practiceWrongStorageKey
-        )
+        let updatedWrongItems = wrongItems.sorted()
+        let storedWrongItems =
+            defaults.stringArray(forKey: practiceWrongStorageKey) ?? []
+
+        if storedWrongItems != updatedWrongItems {
+            defaults.set(
+                updatedWrongItems,
+                forKey: practiceWrongStorageKey
+            )
+        }
     }
 
     private func loadState() {
@@ -2367,50 +2515,181 @@ struct MaterialsView: View {
                 loadedExcluded.insert(row.canonicalId)
             }
 
-            if let raw = UserDefaults.standard.string(
-                forKey: markKey(
-                    for: row.statusId
-                )
-            ),
-               let storedMark = RowMark(
-                    rawValue: raw
-               ) {
-                /*
-                 * חומרי החגורה הם המקור הראשון כאשר
-                 * כבר קיים בהם סימון.
-                 */
-                loadedMarks[row.statusId] =
-                    storedMark
+            let defaults = UserDefaults.standard
 
-                /*
-                 * מעבירים את המצב גם לתרגול האקראי,
-                 * כדי ליישר נתונים ישנים שנשמרו רק
-                 * בפורמט של MaterialsView.
-                 */
-                savePracticeMark(
-                    storedMark,
-                    for: row
-                )
-            } else if let storedPracticeMark =
-                        practiceMark(for: row) {
-                /*
-                 * אם התרגיל סומן מתוך התרגול האקראי,
-                 * מציגים את אותו סימון בחומרי החגורה.
-                 */
-                loadedMarks[row.statusId] =
-                    storedPracticeMark
+            let materialsKey = markKey(
+                for: row.statusId
+            )
 
-                /*
-                 * מבצעים מיגרציה לפורמט הקבוע של
-                 * MaterialsView בלי למחוק את הפורמט
-                 * שנדרש לתרגול האקראי.
-                 */
-                UserDefaults.standard.set(
-                    storedPracticeMark.rawValue,
-                    forKey: markKey(
-                        for: row.statusId
+            let materialsTimeKey = traineeUpdatedAtKey(
+                for: row.statusId
+            )
+
+            let practiceKey = practiceStatusKey(
+                for: row.rawItem
+            )
+
+            let materialsRaw = defaults.string(
+                forKey: materialsKey
+            )
+
+            let practiceStoredObject = defaults.object(
+                forKey: practiceKey
+            )
+
+            let practiceRaw = practiceStoredObject as? String
+
+            // זמן Materials נשמר במילישניות.
+            let materialsTime =
+                defaults.double(forKey: materialsTimeKey) / 1_000
+
+            // זמן התרגול נשמר בשניות.
+            let practiceTime = defaults.double(
+                forKey: "\(practiceKey).updatedAt"
+            )
+
+            let practiceIsNewer =
+                practiceTime.isFinite &&
+                practiceTime > 0 &&
+                materialsTime.isFinite &&
+                practiceTime > materialsTime
+
+            if practiceIsNewer {
+                let normalizedPractice = practiceRaw?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+
+                let recognizedPracticeValue =
+                    practiceStoredObject == nil ||
+                    normalizedPractice == "known" ||
+                    normalizedPractice == "partial" ||
+                    normalizedPractice == "partially_known" ||
+                    normalizedPractice == "partiallyknown" ||
+                    normalizedPractice == "unknown" ||
+                    normalizedPractice == "unmarked"
+
+                if recognizedPracticeValue {
+                    let newerMark = practiceMark(for: row)
+
+                    loadedMarks[row.statusId] = newerMark
+
+                    /*
+                     * ערך ריק בתרגול עם זמן עדכון חדש
+                     * מייצג הסרה מפורשת של הסימון.
+                     */
+                    defaults.set(
+                        newerMark?.rawValue ?? "unmarked",
+                        forKey: materialsKey
                     )
+
+                    defaults.set(
+                        practiceTime * 1_000,
+                        forKey: materialsTimeKey
+                    )
+                } else if let materialsRaw,
+                          let storedMark = RowMark(rawValue: materialsRaw) {
+                    loadedMarks[row.statusId] = storedMark
+                } else {
+                    loadedMarks[row.statusId] = nil
+                }
+
+            } else if materialsRaw?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased() == "unmarked" {
+                loadedMarks[row.statusId] = nil
+
+                /*
+                 * מחיקה מתוארכת במסך החומר היא מחיקה
+                 * מפורשת. מעבירים אותה גם למפתח התרגול
+                 * רק כאשר זמן מסך החומר אינו ישן יותר.
+                 */
+                if materialsTime.isFinite,
+                   materialsTime > 0,
+                   practiceTime.isFinite,
+                   (
+                       materialsTime > practiceTime ||
+                       (
+                           materialsTime == practiceTime &&
+                           practiceStoredObject == nil
+                       )
+                   ) {
+                    savePracticeMark(
+                        nil,
+                        for: row
+                    )
+
+                    defaults.set(
+                        materialsTime,
+                        forKey: "\(practiceKey).updatedAt"
+                    )
+                }
+
+            } else if let materialsRaw,
+                      let storedMark = RowMark(rawValue: materialsRaw) {
+                loadedMarks[row.statusId] = storedMark
+
+                let normalizedPractice = practiceRaw?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+
+                let canUpdatePractice =
+                    practiceStoredObject == nil ||
+                    normalizedPractice == "known" ||
+                    normalizedPractice == "partial" ||
+                    normalizedPractice == "partially_known" ||
+                    normalizedPractice == "partiallyknown" ||
+                    normalizedPractice == "unknown" ||
+                    normalizedPractice == "unmarked"
+
+                let practiceMarkMatches =
+                    practiceMark(for: row) == storedMark
+
+                let materialIsStrictlyNewer =
+                    materialsTime.isFinite &&
+                    materialsTime > 0 &&
+                    practiceTime.isFinite &&
+                    materialsTime > practiceTime
+
+                /*
+                 * אם הזמנים שווים או חסרים והערכים שונים,
+                 * שומרים את שני הערכים במקום להכריע
+                 * באופן אוטומטי.
+                 */
+                let canResolveOrder =
+                    practiceStoredObject == nil ||
+                    practiceMarkMatches ||
+                    materialIsStrictlyNewer
+
+                /*
+                 * לא דורסים ערך תרגול שאינו מוכר.
+                 * כאשר מעתיקים סטטוס מתוארך, מעתיקים
+                 * גם את זמן העדכון שלו.
+                 */
+                if canUpdatePractice && canResolveOrder {
+                    savePracticeMark(
+                        storedMark,
+                        for: row
+                    )
+
+                    if materialsTime.isFinite,
+                       materialsTime > 0,
+                       practiceTime.isFinite,
+                       materialsTime >= practiceTime {
+                        defaults.set(
+                            materialsTime,
+                            forKey: "\(practiceKey).updatedAt"
+                        )
+                    }
+                }
+
+            } else if let storedPracticeMark = practiceMark(for: row) {
+                loadedMarks[row.statusId] = storedPracticeMark
+
+                defaults.set(
+                    storedPracticeMark.rawValue,
+                    forKey: materialsKey
                 )
+
             } else {
                 loadedMarks[row.statusId] = nil
             }
@@ -2435,11 +2714,7 @@ struct MaterialsView: View {
                 )
 
             loadedNotes[row.canonicalId] =
-                UserDefaults.standard.string(
-                    forKey: noteKey(
-                        for: row.canonicalId
-                    )
-                ) ?? ""
+                sharedNote(for: row)
         }
 
         excluded = loadedExcluded
@@ -2543,14 +2818,12 @@ struct MaterialsView: View {
                     row.statusId
             )
 
-        if let selectedMark {
+        // זמן אחד לאותה פעולה, במילישניות.
+        let updatedAt = Int64(
+            Date().timeIntervalSince1970 * 1_000
+        )
 
-            let updatedAt =
-                Int64(
-                    Date()
-                        .timeIntervalSince1970
-                    * 1000
-                )
+        if let selectedMark {
 
             traineeUpdatedAtStates[
                 row.statusId
@@ -2605,19 +2878,22 @@ struct MaterialsView: View {
 
         } else {
 
-            traineeUpdatedAtStates.removeValue(
-                forKey:
-                    row.statusId
+            traineeUpdatedAtStates[
+                row.statusId
+            ] = updatedAt
+
+            /*
+             * שומרים איפוס מפורש עם זמן עדכון,
+             * כדי שלא ייחשב להיעדר נתון.
+             */
+            UserDefaults.standard.set(
+                "unmarked",
+                forKey: materialsKey
             )
 
-            UserDefaults.standard.removeObject(
-                forKey:
-                    updatedAtKey
-            )
-
-            UserDefaults.standard.removeObject(
-                forKey:
-                    materialsKey
+            UserDefaults.standard.set(
+                Double(updatedAt),
+                forKey: updatedAtKey
             )
 
             savePracticeMark(
@@ -2634,24 +2910,349 @@ struct MaterialsView: View {
             )
         }
 
+        /*
+         * אותו פורמט זמן שבו משתמש התרגול האקראי:
+         * שניות מאז 1970.
+         */
+        let practiceKey = practiceStatusKey(
+            for: row.rawItem
+        )
+
+        UserDefaults.standard.set(
+            Double(updatedAt) / 1_000,
+            forKey: "\(practiceKey).updatedAt"
+        )
+
         refreshToken =
             UUID()
     }
 
-    private func saveNote(_ text: String, for id: String) {
-        notes[id] = text
-        let key = noteKey(for: id)
-        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if clean.isEmpty {
-            UserDefaults.standard.removeObject(forKey: key)
-            showToast(tr("ההערה נמחקה.", "Note deleted."))
-        } else {
-            UserDefaults.standard.set(clean, forKey: key)
-            showToast(tr("ההערה נשמרה.", "Note saved."))
+    private func startNoteAuthListener() {
+        #if canImport(FirebaseAuth)
+        guard noteAuthHandle == nil else {
+            return
         }
 
+        noteAuthHandle = Auth.auth().addStateDidChangeListener {
+            _, user in
+
+            DispatchQueue.main.async {
+                guard Auth.auth().currentUser?.uid == user?.uid else {
+                    return
+                }
+
+                /*
+                 * אם נפתח עורך תחת חשבון אחר,
+                 * סוגרים אותו ומנקים את הטיוטה.
+                 */
+                if let ownerUID = noteOwnerUID,
+                   ownerUID != user?.uid {
+                    selectedNoteRow = nil
+                    noteOwnerUID = nil
+                    noteDraft = ""
+                    showNoteAccountChanged = false
+                }
+
+                if let conflictUserID =
+                    noteConflictContext?.userID,
+                   conflictUserID != user?.uid {
+                    showNoteConflictChoices = false
+                    noteConflictContext = nil
+                }
+
+                refreshSharedNotes()
+            }
+        }
+        #endif
+    }
+
+    private func stopNoteAuthListener() {
+        #if canImport(FirebaseAuth)
+        if let noteAuthHandle {
+            Auth.auth().removeStateDidChangeListener(
+                noteAuthHandle
+            )
+            self.noteAuthHandle = nil
+        }
+        #endif
+    }
+
+    private func currentNoteUserID() -> String? {
+        #if canImport(FirebaseAuth)
+        let uid = Auth.auth().currentUser?.uid
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        return uid.isEmpty ? nil : uid
+        #else
+        return nil
+        #endif
+    }
+
+    private func noteEditorHasCurrentUser() -> Bool {
+        guard let ownerUID = noteOwnerUID,
+              let currentUID = currentNoteUserID() else {
+            return false
+        }
+
+        return ownerUID == currentUID
+    }
+
+    private func sharedNoteID(for row: ExerciseRow) -> String {
+        if let knownID = exerciseNotes.knownExerciseID(
+            belt: belt,
+            title: row.rawItem,
+            topicKey: materialRootTopic
+        ) {
+            return knownID
+        }
+
+        /*
+         * תרגיל שאינו מזוהה נשמר באופן מבודד למשתמש,
+         * אך המזהה הזה עדיין מקומי ל-MaterialsView.
+         */
+        return "materials-local:\(row.canonicalId)"
+    }
+
+    private func compatibleNoteIdentity(
+        for row: ExerciseRow
+    ) -> ExerciseIdentityResolverIOS.Identity? {
+        guard let resolved = ExerciseIdentityResolverIOS.resolve(
+            belt: belt,
+            topic: materialRootTopic,
+            rawItem: row.rawItem
+        ) else {
+            return nil
+        }
+
+        var previousIDs = resolved.previousIDs
+
+        let previousID = sharedNoteID(for: row)
+
+        if previousID != resolved.primaryID {
+            previousIDs.insert(previousID)
+        }
+
+        return ExerciseIdentityResolverIOS.Identity(
+            primaryID: resolved.primaryID,
+            displayTitle: resolved.displayTitle,
+            previousIDs: previousIDs
+        )
+    }
+
+    private func noteHasConflict(
+        for row: ExerciseRow,
+        userID: String
+    ) -> Bool {
+        guard let identity = compatibleNoteIdentity(for: row) else {
+            return false
+        }
+
+        if case .conflict = exerciseNotes.loadCompatible(
+            userID: userID,
+            beltID: belt.id,
+            identity: identity
+        ) {
+            return true
+        }
+
+        return false
+    }
+
+    private func canOpenNote(for row: ExerciseRow) -> Bool {
+        guard let userID = currentNoteUserID() else {
+            showToast(
+                tr(
+                    "יש להתחבר כדי לערוך הערה.",
+                    "Sign in to edit a note."
+                )
+            )
+            return false
+        }
+
+        guard noteHasConflict(for: row, userID: userID) else {
+            return true
+        }
+
+        guard let identity = compatibleNoteIdentity(for: row),
+              let values = exerciseNotes.conflictingNoteValues(
+                  userID: userID,
+                  beltID: belt.id,
+                  identity: identity
+              ) else {
+            showToast(
+                tr(
+                    "לא ניתן לקרוא את כל גרסאות ההערה. לא בוצע שינוי.",
+                    "Unable to read every note version. No changes were made."
+                )
+            )
+            return false
+        }
+
+        let context = NoteConflictContext(
+            userID: userID,
+            beltID: belt.id,
+            scopeKey: scopeKey,
+            identity: identity,
+            values: values
+        )
+
+        noteConflictContext = context
+
+        /*
+         * אם ההערה נפתחה מתוך חלון ההסבר, סוגרים אותו
+         * לפני הצגת הבחירה.
+         */
+        if selectedInfoRow != nil {
+            speechSynth.stopSpeaking(at: .immediate)
+            isSpeakingExplanation = false
+            selectedInfoRow = nil
+
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + 0.3
+            ) {
+                guard noteConflictContext?.requestID ==
+                        context.requestID else {
+                    return
+                }
+
+                guard currentNoteUserID() == context.userID,
+                      belt.id == context.beltID,
+                      scopeKey == context.scopeKey else {
+                    noteConflictContext = nil
+                    return
+                }
+
+                showNoteConflictChoices = true
+            }
+        } else {
+            showNoteConflictChoices = true
+        }
+
+        return false
+    }
+
+    private func resolveNoteConflict(
+        selectedValue: String,
+        context: NoteConflictContext
+    ) {
+        defer {
+            noteConflictContext = nil
+        }
+
+        guard currentNoteUserID() == context.userID,
+              belt.id == context.beltID,
+              scopeKey == context.scopeKey else {
+            showToast(
+                tr(
+                    "החשבון או הנושא השתנו. ההערות לא שונו.",
+                    "The account or topic changed. The notes were not changed."
+                )
+            )
+            return
+        }
+
+        let didResolve = exerciseNotes.resolveNoteConflict(
+            selectedValue: selectedValue,
+            expectedValues: context.values,
+            userID: context.userID,
+            beltID: context.beltID,
+            identity: context.identity
+        )
+
+        guard didResolve else {
+            showToast(
+                tr(
+                    "ההערות השתנו או שלא ניתן לקרוא אותן. לא בוצע שינוי.",
+                    "The notes changed or could not be read. No changes were made."
+                )
+            )
+            return
+        }
+
+        refreshSharedNotes()
+
+        showToast(
+            tr(
+                "ההערה שנבחרה נשמרה.",
+                "The selected note was saved."
+            )
+        )
+    }
+
+    private func sharedNote(for row: ExerciseRow) -> String {
+        guard let userID = currentNoteUserID() else {
+            return ""
+        }
+
+        guard let identity = compatibleNoteIdentity(for: row) else {
+            return exerciseNotes.load(
+                userID: userID,
+                beltID: belt.id,
+                exerciseID: sharedNoteID(for: row)
+            )
+        }
+
+        switch exerciseNotes.loadCompatible(
+            userID: userID,
+            beltID: belt.id,
+            identity: identity
+        ) {
+        case .found(let note):
+            return note
+
+        case .missing, .conflict:
+            return ""
+        }
+    }
+
+    private func refreshSharedNotes() {
+        var updated: [String: String] = [:]
+
+        for row in rows {
+            updated[row.canonicalId] = sharedNote(for: row)
+        }
+
+        notes = updated
+    }
+
+    @discardableResult
+    private func saveNote(_ text: String, for id: String) -> Bool {
+        guard let userID = currentNoteUserID(),
+              let row = rows.first(where: {
+                  $0.canonicalId == id
+              }) else {
+            return false
+        }
+
+        guard !noteHasConflict(for: row, userID: userID) else {
+            return false
+        }
+
+        let clean = text.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        let exerciseID =
+            compatibleNoteIdentity(for: row)?.primaryID
+            ?? sharedNoteID(for: row)
+
+        exerciseNotes.save(
+            clean,
+            userID: userID,
+            beltID: belt.id,
+            exerciseID: exerciseID
+        )
+
+        notes[id] = clean
+
+        showToast(
+            clean.isEmpty
+                ? tr("ההערה נמחקה.", "Note deleted.")
+                : tr("ההערה נשמרה.", "Note saved.")
+        )
+
         refreshToken = UUID()
+        return true
     }
 
     private func pdfStatusText(
@@ -2794,6 +3395,19 @@ struct MaterialsView: View {
     }
 
     private func resetCurrentScope() {
+        if let userID = currentNoteUserID(),
+           rows.contains(where: {
+               noteHasConflict(for: $0, userID: userID)
+           }) {
+            showToast(
+                tr(
+                    "לא ניתן לאפס: נמצאו הערות שונות לאותו תרגיל. הנתונים לא שונו.",
+                    "Cannot reset: different notes were found for the same exercise. No data was changed."
+                )
+            )
+            return
+        }
+
         speechSynth.stopSpeaking(at: .immediate)
         isSpeakingExplanation = false
 
@@ -2827,22 +3441,6 @@ struct MaterialsView: View {
                         for:
                             row.canonicalId
                     ),
-                    markKey(
-                        for:
-                            row.statusId
-                    ),
-                    traineeUpdatedAtKey(
-                        for:
-                            row.statusId
-                    ),
-                    practiceStatusKey(
-                        for:
-                            row.rawItem
-                    ),
-                    noteKey(
-                        for:
-                            row.canonicalId
-                    ),
 
                     /*
                      * legacy coach storage
@@ -2852,6 +3450,55 @@ struct MaterialsView: View {
                 ]
                 + coachStatusKeys
             }
+
+        let resetTime = Date().timeIntervalSince1970
+        let defaults = UserDefaults.standard
+
+        /*
+         * מאפסים רק הערות של המשתמש המחובר.
+         * ערך ריק במזהה הראשי מייצג מחיקה מפורשת.
+         */
+        if let userID = currentNoteUserID() {
+            for row in rows {
+                let exerciseID =
+                    compatibleNoteIdentity(for: row)?.primaryID
+                    ?? sharedNoteID(for: row)
+
+                exerciseNotes.save(
+                    "",
+                    userID: userID,
+                    beltID: belt.id,
+                    exerciseID: exerciseID
+                )
+            }
+        }
+
+        /*
+         * שומרים איפוס מפורש בחומרי החגורה ומעדכנים
+         * גם את זמן האיפוס של התרגול האקראי.
+         */
+        for row in rows {
+            defaults.set(
+                "unmarked",
+                forKey: markKey(for: row.statusId)
+            )
+
+            defaults.set(
+                resetTime * 1_000,
+                forKey: traineeUpdatedAtKey(for: row.statusId)
+            )
+
+            let practiceKey = practiceStatusKey(
+                for: row.rawItem
+            )
+
+            defaults.removeObject(forKey: practiceKey)
+
+            defaults.set(
+                resetTime,
+                forKey: "\(practiceKey).updatedAt"
+            )
+        }
 
         /*
          * איפוס המועדפים מתעדכן גם במנגנון המשותף.
@@ -2906,58 +3553,30 @@ struct MaterialsView: View {
                 )
         )
 
-        /*
-         * המחיקה מהאחסון מתבצעת לאחר
-         * שממשק המשתמש כבר התאפס.
-         */
-        DispatchQueue.global(
-            qos: .utility
-        ).async {
-
-            let defaults =
-                UserDefaults.standard
-
-            keysToRemove.forEach {
-                key in
-
-                defaults.removeObject(
-                    forKey:
-                        key
-                )
-            }
-
-            /*
-             * מסירים מרשימת החזרה של Random Practice
-             * רק את התרגילים ששייכים לנושא הנוכחי.
-             */
-            let currentRawItems =
-                Set(
-                    rows.map(
-                        \.rawItem
-                    )
-                )
-
-            var wrongItems =
-                Set(
-                    defaults.stringArray(
-                        forKey:
-                            practiceWrongStorageKey
-                    ) ?? []
-                )
-
-            wrongItems.subtract(
-                currentRawItems
-            )
-
-            defaults.set(
-                Array(
-                    wrongItems
-                )
-                .sorted(),
-                forKey:
-                    practiceWrongStorageKey
-            )
+        keysToRemove.forEach { key in
+            defaults.removeObject(forKey: key)
         }
+
+        /*
+         * מסירים מרשימת החזרה רק את התרגילים
+         * ששייכים לנושא הנוכחי.
+         */
+        let currentRawItems = Set(
+            rows.map(\.rawItem)
+        )
+
+        var wrongItems = Set(
+            defaults.stringArray(
+                forKey: practiceWrongStorageKey
+            ) ?? []
+        )
+
+        wrongItems.subtract(currentRawItems)
+
+        defaults.set(
+            Array(wrongItems).sorted(),
+            forKey: practiceWrongStorageKey
+        )
     }
 
     private func toggleSpeak(_ text: String) {

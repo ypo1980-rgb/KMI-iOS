@@ -221,7 +221,20 @@ struct TopicExercisesListView: View {
                     nav: nav,
                     belt: belt,
                     topicTitle: forcedSubTopicTitle ?? topic.title,
-                    items: allItems
+                    items: allItems,
+                    sourceTopicsByItem: allItems.reduce(
+                        into: [String: [String]]()
+                    ) { result, item in
+                        let cleanItem = item.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+
+                        guard !cleanItem.isEmpty else {
+                            return
+                        }
+
+                        result[cleanItem] = [topic.title]
+                    }
                 )
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)

@@ -5073,6 +5073,12 @@ private struct BeltScreenSideQuickMenuOverlay: View {
     @Binding
     var isPresented: Bool
 
+    @AppStorage("kmi.belt.quickMenu.bottomOffset")
+    private var savedBottomOffset: Double = -1
+
+    @State private var dragBottomOffset: CGFloat?
+    @State private var dragStartBottomOffset: CGFloat?
+
     let isEnglish: Bool
     let accent: Color
     let items: [BeltScreenQuickMenuItem]
@@ -5088,27 +5094,40 @@ private struct BeltScreenSideQuickMenuOverlay: View {
             let triggerHeight: CGFloat =
                 72
 
-            let panelGap: CGFloat =
-                8
-
             let panelWidth: CGFloat =
                 min(
-                    248,
-                    max(
-                        220,
-                        geometry.size.width
-                            - triggerWidth
-                            - 24
-                    )
+                    60,
+                    geometry.size.width
                 )
 
             /*
-             * Android parity:
-             * הטריגר יושב קרוב לתחתית,
-             * מעל אזור החגורות.
+             * ערך ברירת המחדל ממקם את הידית קרוב
+             * לתחתית. המיקום מוגבל לגבולות המסך.
              */
-            let bottomSpacing: CGFloat =
-                72
+            let minimumBottom: CGFloat = 12
+
+            let maximumBottom: CGFloat =
+                max(
+                    minimumBottom,
+                    geometry.size.height
+                        - geometry.safeAreaInsets.bottom
+                        - triggerHeight
+                        - 12
+                )
+
+            let storedBottom: CGFloat =
+                savedBottomOffset >= 0
+                    ? CGFloat(savedBottomOffset)
+                    : 72
+
+            let bottomSpacing =
+                min(
+                    maximumBottom,
+                    max(
+                        minimumBottom,
+                        dragBottomOffset ?? storedBottom
+                    )
+                )
 
             let triggerTop: CGFloat =
                 max(
@@ -5130,22 +5149,33 @@ private struct BeltScreenSideQuickMenuOverlay: View {
 
             let panelX: CGFloat =
                 startIsLeft
-                    ? triggerWidth
-                        + panelGap
+                    ? 0
                     : geometry.size.width
-                        - triggerWidth
-                        - panelGap
                         - panelWidth
 
             /*
              * הפאנל נפתח מעל הטריגר,
              * כדי שלא ייחתך בתחתית המסך.
              */
+            /*
+             * שומרים מקום לידית בתחתית ולשוליים העליונים.
+             * כאשר אין מספיק גובה, רשימת הפעולות תגלול.
+             */
+            let actionsMaxHeight: CGFloat =
+                max(
+                    0,
+                    min(
+                        280,
+                        triggerTop + triggerHeight - 12 - 65
+                    )
+                )
+
             let panelY: CGFloat =
                 max(
                     12,
-                    triggerTop
-                        - 220
+                    triggerTop + triggerHeight
+                        - actionsMaxHeight
+                        - 65
                 )
 
             ZStack(
@@ -5166,6 +5196,32 @@ private struct BeltScreenSideQuickMenuOverlay: View {
                             accent,
                         items:
                             items,
+                        actionsMaxHeight:
+                            actionsMaxHeight,
+                        onDragChanged: { translation in
+                            if dragStartBottomOffset == nil {
+                                dragStartBottomOffset = bottomSpacing
+                            }
+
+                            let start =
+                                dragStartBottomOffset ?? bottomSpacing
+
+                            let proposed = start - translation
+
+                            dragBottomOffset =
+                                min(
+                                    maximumBottom,
+                                    max(minimumBottom, proposed)
+                                )
+                        },
+                        onDragEnded: {
+                            if let finalOffset = dragBottomOffset {
+                                savedBottomOffset = Double(finalOffset)
+                            }
+
+                            dragBottomOffset = nil
+                            dragStartBottomOffset = nil
+                        },
                         onClose: {
 
                             withAnimation(
@@ -5211,45 +5267,80 @@ private struct BeltScreenSideQuickMenuOverlay: View {
                     )
                 }
 
-                Button {
-
-                    withAnimation(
-                        .spring(
-                            response:
-                                0.28,
-                            dampingFraction:
-                                0.86
-                        )
-                    ) {
-
-                        isPresented
-                            .toggle()
-                    }
-
-                } label: {
-
-                    BeltScreenSideQuickFab(
-                        accent:
-                            accent,
-                        attachedToLeftEdge:
-                            startIsLeft
-                    )
-                }
-                .buttonStyle(
-                    .plain
+                BeltScreenSideQuickFab(
+                    accent: accent,
+                    attachedToLeftEdge: startIsLeft
                 )
                 .frame(
-                    width:
-                        triggerWidth,
-                    height:
-                        triggerHeight
+                    width: triggerWidth,
+                    height: triggerHeight
                 )
+                .contentShape(Rectangle())
+                .overlay {
+                    BeltQuickMenuGestureView(
+                        onTap: {
+                            withAnimation(
+                                .spring(
+                                    response: 0.28,
+                                    dampingFraction: 0.86
+                                )
+                            ) {
+                                isPresented.toggle()
+                            }
+                        },
+                        onDragChanged: { translation in
+                            if dragStartBottomOffset == nil {
+                                dragStartBottomOffset = bottomSpacing
+                            }
+
+                            let start =
+                                dragStartBottomOffset ?? bottomSpacing
+
+                            dragBottomOffset =
+                                min(
+                                    maximumBottom,
+                                    max(
+                                        minimumBottom,
+                                        start - translation
+                                    )
+                                )
+                        },
+                        onDragEnded: {
+                            if let finalOffset = dragBottomOffset {
+                                savedBottomOffset = Double(finalOffset)
+                            }
+
+                            dragBottomOffset = nil
+                            dragStartBottomOffset = nil
+                        }
+                    )
+                }
+                .accessibilityElement()
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel(
+                    isEnglish
+                        ? "Open quick menu"
+                        : "פתח תפריט מהיר"
+                )
+                .accessibilityAction {
+                    withAnimation(
+                        .spring(
+                            response: 0.28,
+                            dampingFraction: 0.86
+                        )
+                    ) {
+                        isPresented.toggle()
+                    }
+                }
                 .offset(
                     x:
                         triggerX,
                     y:
                         triggerTop
                 )
+                .opacity(isPresented ? 0 : 1)
+                .allowsHitTesting(!isPresented)
+                .accessibilityHidden(isPresented)
                 .zIndex(
                     52
                 )
@@ -5411,6 +5502,105 @@ private struct BeltScreenSideQuickFab: View {
     }
 }
 
+/*
+ * מזהה לחיצה קצרה או לחיצה ארוכה וגרירה.
+ * הגרירה נמדדת בקואורדינטות המסך כדי שהזזת
+ * הידית עצמה לא תשנה את נקודת המדידה.
+ */
+struct BeltQuickMenuGestureView: UIViewRepresentable {
+    let onTap: () -> Void
+    let onDragChanged: (CGFloat) -> Void
+    let onDragEnded: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        view.isOpaque = false
+        view.isAccessibilityElement = false
+
+        let longPress = UILongPressGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleLongPress(_:))
+        )
+        longPress.minimumPressDuration = 0.45
+        longPress.allowableMovement = 10
+
+        let tap = UITapGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleTap(_:))
+        )
+
+        tap.require(toFail: longPress)
+
+        view.addGestureRecognizer(longPress)
+        view.addGestureRecognizer(tap)
+
+        return view
+    }
+
+    func updateUIView(
+        _ uiView: UIView,
+        context: Context
+    ) {
+        context.coordinator.parent = self
+    }
+
+    final class Coordinator: NSObject {
+        var parent: BeltQuickMenuGestureView
+        private var startY: CGFloat?
+
+        init(parent: BeltQuickMenuGestureView) {
+            self.parent = parent
+        }
+
+        @objc func handleTap(
+            _ recognizer: UITapGestureRecognizer
+        ) {
+            guard recognizer.state == .ended else {
+                return
+            }
+
+            parent.onTap()
+        }
+
+        @objc func handleLongPress(
+            _ recognizer: UILongPressGestureRecognizer
+        ) {
+            let currentY = recognizer.location(in: nil).y
+
+            switch recognizer.state {
+            case .began:
+                startY = currentY
+                parent.onDragChanged(0)
+
+            case .changed:
+                guard let startY else {
+                    return
+                }
+
+                parent.onDragChanged(currentY - startY)
+
+            case .ended, .cancelled:
+                if startY != nil {
+                    parent.onDragEnded()
+                }
+
+                startY = nil
+
+            case .failed:
+                startY = nil
+
+            default:
+                break
+            }
+        }
+    }
+}
+
 private struct BeltScreenQuickMenuPanel: View {
     
     @Environment(\.colorScheme)
@@ -5420,7 +5610,13 @@ private struct BeltScreenQuickMenuPanel: View {
     let isEnglish: Bool
     let accent: Color
     let items: [BeltScreenQuickMenuItem]
+    let actionsMaxHeight: CGFloat
+    let onDragChanged: (CGFloat) -> Void
+    let onDragEnded: () -> Void
     let onClose: () -> Void
+
+    @State private var handlePressStartedAt: Date?
+    @State private var handleIsDragging = false
 
     private var stackAlignment: HorizontalAlignment {
         isEnglish ? .leading : .trailing
@@ -5436,65 +5632,76 @@ private struct BeltScreenQuickMenuPanel: View {
 
     var body: some View {
         VStack(alignment: stackAlignment, spacing: 0) {
-            HStack(spacing: 8) {
-                Text(title)
-                    .kmiTypography(
-                        .cardTitle
-                    )
-                    .foregroundStyle(
-                        accent.opacity(0.92)
-                    )
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.68)
+            ScrollView(.vertical) {
+                VStack(spacing: 0) {
+                    ForEach(
+                        Array(items.enumerated()),
+                        id: \.element.id
+                    ) { index, item in
+                        BeltScreenQuickMenuRow(
+                            title: item.title,
+                            systemImage: item.systemImage,
+                            isEnglish: isEnglish,
+                            accent: accent,
+                            action: {
+                                onClose()
 
-                Spacer(minLength: 0)
+                                DispatchQueue.main.asyncAfter(
+                                    deadline: .now() + 0.05
+                                ) {
+                                    item.action()
+                                }
+                            }
+                        )
 
-                Button(action: onClose) {
-                    Image(
-                        systemName:
-                            "xmark"
-                    )
-                    .kmiIconSize(
-                        12
-                    )
-                        .foregroundStyle(accent)
-                }
-                .buttonStyle(.plain)
-            }
-            .frame(maxWidth: .infinity, alignment: frameAlignment)
-            .padding(.horizontal, 10)
-            .padding(.top, 10)
-            .padding(.bottom, 8)
-
-            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                BeltScreenQuickMenuRow(
-                    title: item.title,
-                    systemImage: item.systemImage,
-                    isEnglish: isEnglish,
-                    accent: accent,
-                    action: {
-                        onClose()
-                        
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                            item.action()
+                        if index != items.count - 1 {
+                            Rectangle()
+                                .fill(Color.white.opacity(0.45))
+                                .frame(height: 0.8)
+                                .padding(.horizontal, 6)
                         }
                     }
-                )
-                
-                if index != items.count - 1 {
-                    Rectangle()
-                        .fill(accent.opacity(0.18))
-                        .frame(height: 0.8)
-                        .padding(.horizontal, 10)
                 }
             }
+            .frame(maxHeight: actionsMaxHeight)
+
+            Rectangle()
+                .fill(Color.white.opacity(0.45))
+                .frame(height: 0.8)
+                .padding(.horizontal, 6)
+
+            Image(systemName: "line.3.horizontal")
+                .kmiIconSize(16)
+                .foregroundStyle(Color.white)
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: 58
+                )
+                .contentShape(Rectangle())
+                .overlay {
+                    BeltQuickMenuGestureView(
+                        onTap: onClose,
+                        onDragChanged: onDragChanged,
+                        onDragEnded: onDragEnded
+                    )
+                }
+                .accessibilityElement()
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel(
+                    isEnglish
+                        ? "Close quick menu"
+                        : "סגור תפריט מהיר"
+                )
+                .accessibilityAction {
+                    onClose()
+                }
         }
         .padding(.bottom, 7)
-        .frame(width: 196)
+        .frame(width: 60)
         .background(
             ZStack {
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color(red: 0.97, green: 0.98, blue: 0.97))
+                    .fill(accent.opacity(0.96))
 
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .fill(
@@ -5546,66 +5753,38 @@ private struct BeltScreenQuickMenuRow: View {
     
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 7) {
-                if isEnglish {
-                    menuIcon
-                    
-                    Text(title)
-                        .kmiFont(
-                            size: 11.5,
-                            weight: .heavy
-                        )
-                        .foregroundStyle(
-                            Color(
-                                red: 0.04,
-                                green: 0.19,
-                                blue: 0.12
-                            )
-                        )
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.62)
-                        .frame(
-                            maxWidth: .infinity,
-                            alignment: .leading
-                        )
-                        .multilineTextAlignment(.leading)
-                    
-                    trailingIcon
-                } else {
-                    trailingIcon
-                    
-                    Text(title)
-                        .kmiFont(
-                            size: 11.5,
-                            weight: .heavy
-                        )
-                        .foregroundStyle(
-                            Color(
-                                red: 0.04,
-                                green: 0.19,
-                                blue: 0.12
-                            )
-                        )
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.62)
-                        .frame(
-                            maxWidth: .infinity,
-                            alignment: .trailing
-                        )
-                        .multilineTextAlignment(.trailing)
-                    
-                    menuIcon
+            VStack(spacing: 2) {
+                menuIcon
+                    .frame(width: 27, height: 27)
+                    .background(
+                        Circle()
+                            .fill(Color.white.opacity(0.92))
+                    )
+
+                Text(title)
+                    .kmiFont(
+                        size: 9,
+                        weight: .heavy
+                    )
+                    .foregroundStyle(Color.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.65)
+                    .frame(maxWidth: .infinity)
+
+                if isLocked {
+                    Image(systemName: "lock.fill")
+                        .kmiIconSize(9)
+                        .foregroundStyle(Color.white)
                 }
             }
-            .environment(
-                \.layoutDirection,
-                .leftToRight
-            )
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 3)
+            .padding(.vertical, 3)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
     
     private var menuIcon: some View {

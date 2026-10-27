@@ -4,6 +4,10 @@ import Combine
 import AVFoundation
 import AudioToolbox
 
+#if canImport(FirebaseAuth)
+import FirebaseAuth
+#endif
+
 struct RandomPracticeView: View {
 
     @Environment(\.dismiss) private var dismiss
@@ -13,6 +17,13 @@ struct RandomPracticeView: View {
     let belt: Belt
     let topicTitle: String
     let items: [String]
+
+    /*
+     * לכל שם תרגיל נשמרים נושאי המקור שנמצאו עבורו.
+     * אם אותו שם שייך ליותר מנושא אחד, לא מנחשים
+     * לאיזה נושא שייכת ההערה.
+     */
+    var sourceTopicsByItem: [String: [String]] = [:]
 
     // MARK: - Settings (from picker)
     @State private var durationMinutes: Int = 1
@@ -31,8 +42,15 @@ struct RandomPracticeView: View {
     @State private var currentIndex: Int = 0
 
     // MARK: - Weighting / Status
+
+    private enum PracticeStatus {
+        case known
+        case partial
+        case unknown
+    }
+
     @State private var dontKnow: Set<String> = []
-    @State private var currentPracticeStatus: Bool? = nil
+    @State private var currentPracticeStatus: PracticeStatus? = nil
 
     private var dontKnowStorageKey: String {
         let cleanTopic = topicTitle
@@ -108,6 +126,8 @@ struct RandomPracticeView: View {
         ExerciseFavoritesStore.shared
 
     @State private var favoritesOnlyMode: Bool = false
+    @State private var showEmptyPracticeAlert = false
+    @State private var showInvalidPracticeStatusAlert = false
 
     private let favoritesKey = "practice_favorites"
 
@@ -335,6 +355,49 @@ struct RandomPracticeView: View {
         return weightedItems[currentIndex]
     }
 
+    private func sourceTopic(for item: String) -> String? {
+        if let suppliedTopics = sourceTopicsByItem[item] {
+            let cleanTopics = Set(
+                suppliedTopics
+                    .map {
+                        $0.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                    }
+                    .filter {
+                        !$0.isEmpty && $0 != "__ALL__"
+                    }
+            )
+
+            return cleanTopics.count == 1
+                ? cleanTopics.first
+                : nil
+        }
+
+        /*
+         * אם התקבלה מפה אך התרגיל אינו מופיע בה,
+         * אין מספיק מידע כדי לבחור נושא בבטחה.
+         */
+        guard sourceTopicsByItem.isEmpty else {
+            return nil
+        }
+
+        /*
+         * תאימות זמנית לקריאות שעדיין לא מעבירות
+         * את מפת נושאי המקור.
+         */
+        let fallback = topicTitle.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        guard !fallback.isEmpty,
+              fallback != "__ALL__" else {
+            return nil
+        }
+
+        return fallback
+    }
+
     private func formatTime(_ seconds: Int) -> String {
         let m = seconds / 60
         let s = seconds % 60
@@ -389,11 +452,9 @@ struct RandomPracticeView: View {
 
         guard favoritesOnlyMode else { return base }
 
-        let filtered = base.filter {
+        return base.filter {
             exerciseFavorites.contains($0)
         }
-
-        return filtered.isEmpty ? base : filtered
     }
 
     private func loadDontKnow() {
@@ -405,7 +466,9 @@ struct RandomPracticeView: View {
         UserDefaults.standard.set(Array(dontKnow).sorted(), forKey: dontKnowStorageKey)
     }
 
-    private func loadPracticeStatus(for item: String?) -> Bool? {
+    private func loadPracticeStatus(
+        for item: String?
+    ) -> PracticeStatus? {
         guard let item else { return nil }
 
         let raw = UserDefaults.standard
@@ -415,30 +478,59 @@ struct RandomPracticeView: View {
 
         switch raw {
         case "known":
-            return true
+            return .known
+
+        case "partial", "partially_known", "partiallyknown":
+            return .partial
+
         case "unknown":
-            return false
+            return .unknown
+
         default:
             return nil
         }
     }
 
-    private func savePracticeStatus(_ status: Bool?, for item: String?) {
+    private func savePracticeStatus(
+        _ status: PracticeStatus?,
+        for item: String?
+    ) {
         guard let item else { return }
 
         let key = practiceStatusKey(for: item)
+        let defaults = UserDefaults.standard
+
+        /*
+         * טוענים מחדש לפני השינוי כדי לשמור גם עדכונים
+         * שנעשו במסך החומר מאז הטעינה הקודמת.
+         */
+        dontKnow = Set(
+            defaults.stringArray(forKey: dontKnowStorageKey) ?? []
+        )
 
         switch status {
-        case true:
-            UserDefaults.standard.set("known", forKey: key)
+        case .some(.known):
+            defaults.set("known", forKey: key)
             dontKnow.remove(item)
-        case false:
-            UserDefaults.standard.set("unknown", forKey: key)
+
+        case .some(.partial):
+            defaults.set("partial", forKey: key)
             dontKnow.insert(item)
-        case nil:
-            UserDefaults.standard.removeObject(forKey: key)
+
+        case .some(.unknown):
+            defaults.set("unknown", forKey: key)
+            dontKnow.insert(item)
+
+        case .none:
+            defaults.removeObject(forKey: key)
             dontKnow.remove(item)
         }
+
+        // נשמר גם בהסרה, כדי שניתן יהיה לזהות מתי בוצעה.
+        defaults.set(
+            Date().timeIntervalSince1970,
+            forKey: "\(key).updatedAt"
+        )
 
         saveDontKnow()
     }
@@ -448,20 +540,62 @@ struct RandomPracticeView: View {
     }
 
     private func toggleCurrentPracticeStatus() {
-        let nextStatus: Bool?
+        guard let item = currentItem else {
+            return
+        }
 
-        switch currentPracticeStatus {
-        case nil:
-            nextStatus = true
-        case true:
-            nextStatus = false
-        case false:
+        let defaults = UserDefaults.standard
+        let key = practiceStatusKey(for: item)
+
+        if let storedObject = defaults.object(forKey: key) {
+            guard let storedString = storedObject as? String else {
+                showInvalidPracticeStatusAlert = true
+                return
+            }
+
+            let normalized = storedString
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            let recognizedValues: Set<String> = [
+                "known",
+                "partial",
+                "partially_known",
+                "partiallyknown",
+                "unknown",
+                "unmarked"
+            ]
+
+            guard recognizedValues.contains(normalized) else {
+                showInvalidPracticeStatusAlert = true
+                return
+            }
+        }
+
+        /*
+         * קוראים שוב לפני שינוי, למקרה שהסטטוס עודכן
+         * במסך אחר מאז הרענון האחרון.
+         */
+        let storedStatus = loadPracticeStatus(for: item)
+        let nextStatus: PracticeStatus?
+
+        switch storedStatus {
+        case .none:
+            nextStatus = .known
+
+        case .some(.known):
+            nextStatus = .partial
+
+        case .some(.partial):
+            nextStatus = .unknown
+
+        case .some(.unknown):
             nextStatus = nil
         }
 
         savePracticeStatus(
             nextStatus,
-            for: currentItem
+            for: item
         )
 
         currentPracticeStatus = nextStatus
@@ -479,11 +613,36 @@ struct RandomPracticeView: View {
         var pool: [String] = []
         pool.reserveCapacity(base.count * 3)
 
-        for it in base {
-            pool.append(it)
-            if dontKnow.contains(it) {
-                pool.append(it)
-                pool.append(it)
+        for item in base {
+            pool.append(item)
+
+            switch loadPracticeStatus(for: item) {
+            case .some(.unknown):
+                pool.append(item)
+                pool.append(item)
+
+            case .some(.known), .some(.partial):
+                break
+
+            case .none:
+                let key = practiceStatusKey(for: item)
+                let defaults = UserDefaults.standard
+
+                let storedValue = defaults.object(forKey: key)
+                let updatedAt = defaults.double(
+                    forKey: "\(key).updatedAt"
+                )
+
+                /*
+                 * משתמשים ברשימת החזרה הישנה רק אם
+                 * אין ערך סטטוס ואין זמן עדכון.
+                 */
+                if storedValue == nil,
+                   updatedAt == 0,
+                   dontKnow.contains(item) {
+                    pool.append(item)
+                    pool.append(item)
+                }
             }
         }
 
@@ -536,14 +695,22 @@ struct RandomPracticeView: View {
 
     private func startSession() {
         isExiting = false
-        sessionStarted = true
+        sessionStarted = false
         isRunning = false
 
         savePracticeSettings()
         resetTimer()
+
+        loadDontKnow()
         rebuildWeightedItems(resetIndex: true)
         refreshCurrentPracticeStatus()
 
+        guard !weightedItems.isEmpty else {
+            showEmptyPracticeAlert = true
+            return
+        }
+
+        sessionStarted = true
         isRunning = true
 
         if let currentItem {
@@ -675,80 +842,108 @@ struct RandomPracticeView: View {
 
     private var statusCircleIcon: String {
         switch currentPracticeStatus {
-        case true:
+        case .some(.known):
             return "checkmark"
-        case false:
+
+        case .some(.partial):
+            return "minus"
+
+        case .some(.unknown):
             return "xmark"
-        case nil:
+
+        case .none:
             return "circle"
         }
     }
 
     private var statusLabel: String {
         switch currentPracticeStatus {
-        case true:
+        case .some(.known):
             return tr("יודע", "Known")
-        case false:
+
+        case .some(.partial):
+            return tr("יודע חלקית", "Partially known")
+
+        case .some(.unknown):
             return tr("לא יודע", "Don't know")
-        case nil:
+
+        case .none:
             return tr("לא סומן", "Not marked")
         }
     }
 
     private var statusLabelColor: Color {
         switch currentPracticeStatus {
-        case true:
+        case .some(.known):
             return Color.green.opacity(0.92)
-        case false:
+
+        case .some(.partial):
+            return Color.orange
+
+        case .some(.unknown):
             return Color.red.opacity(0.90)
-        case nil:
+
+        case .none:
             return Color(red: 0.20, green: 0.27, blue: 0.36)
         }
     }
 
     private var statusCircleFill: Color {
         switch currentPracticeStatus {
-        case true:
+        case .some(.known):
             return Color(
                 red: 0.13,
                 green: 0.77,
                 blue: 0.37
             )
-        case false:
+
+        case .some(.partial):
+            return Color.orange
+
+        case .some(.unknown):
             return Color(
                 red: 0.86,
                 green: 0.15,
                 blue: 0.15
             )
-        case nil:
+
+        case .none:
             return Color.white
         }
     }
 
     private var statusCircleBorder: Color {
         switch currentPracticeStatus {
-        case true:
+        case .some(.known):
             return Color(
                 red: 0.09,
                 green: 0.64,
                 blue: 0.29
             )
-        case false:
+
+        case .some(.partial):
+            return Color.orange.opacity(0.8)
+
+        case .some(.unknown):
             return Color(
                 red: 0.72,
                 green: 0.11,
                 blue: 0.11
             )
-        case nil:
+
+        case .none:
             return beltColor.opacity(0.42)
         }
     }
 
     private var statusCircleIconColor: Color {
         switch currentPracticeStatus {
-        case true, false:
+        case .some(.known),
+             .some(.partial),
+             .some(.unknown):
             return Color.white
-        case nil:
+
+        case .none:
             return beltColor.opacity(0.72)
         }
     }
@@ -945,6 +1140,48 @@ struct RandomPracticeView: View {
             .onChange(of: weightedItems.count) { _, _ in
                 refreshCurrentPracticeStatus()
             }
+            .alert(
+                isEnglish
+                    ? "No exercises available"
+                    : "אין תרגילים זמינים",
+                isPresented: $showEmptyPracticeAlert
+            ) {
+                Button(
+                    isEnglish ? "OK" : "אישור",
+                    role: .cancel
+                ) {}
+            } message: {
+                Text(
+                    favoritesOnlyMode
+                        ? (
+                            isEnglish
+                                ? "There are no favorite exercises in this list."
+                                : "אין תרגילים מועדפים ברשימה זו."
+                        )
+                        : (
+                            isEnglish
+                                ? "There are no exercises available for this practice."
+                                : "אין תרגילים זמינים לתרגול זה."
+                        )
+                )
+            }
+            .alert(
+                isEnglish
+                    ? "Unable to update status"
+                    : "לא ניתן לעדכן את הסימון",
+                isPresented: $showInvalidPracticeStatusAlert
+            ) {
+                Button(
+                    isEnglish ? "OK" : "אישור",
+                    role: .cancel
+                ) {}
+            } message: {
+                Text(
+                    isEnglish
+                        ? "The saved status could not be recognized. It was not changed."
+                        : "לא ניתן לזהות את הסימון השמור. הוא לא שונה."
+                )
+            }
             .onAppear {
                 isExiting = false
 
@@ -996,13 +1233,16 @@ struct RandomPracticeView: View {
                 .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showExplanationSheet) {
+                let displayedItem =
+                    pickedSearchItem ?? currentItem ?? ""
+
                 PracticeExplanationSheet(
                     belt: belt,
                     topicTitle: topicTitle,
+                    noteSourceTopic: sourceTopic(for: displayedItem),
                     isEnglish: isEnglish,
-                    itemTitle: pickedSearchItem ?? currentItem ?? "",
+                    itemTitle: displayedItem,
                     onClose: {
-                        loadFavorites()
                         showExplanationSheet = false
                         pickedSearchItem = nil
                     }
@@ -1012,6 +1252,8 @@ struct RandomPracticeView: View {
                 .presentationDragIndicator(.visible)
                 .onDisappear {
                     loadFavorites()
+                    loadDontKnow()
+                    refreshCurrentPracticeStatus()
                 }
             }
             .sheet(isPresented: $showSearchSheet) {
@@ -1281,6 +1523,7 @@ private struct PracticeExplanationSheet: View {
 
     let belt: Belt
     let topicTitle: String
+    let noteSourceTopic: String?
     let isEnglish: Bool
     let itemTitle: String
     let onClose: () -> Void
@@ -1289,6 +1532,28 @@ private struct PracticeExplanationSheet: View {
 
     @ObservedObject private var exerciseFavorites =
         ExerciseFavoritesStore.shared
+
+    @ObservedObject private var exerciseNotes =
+        ExerciseNotesStore.shared
+
+    @State private var showNoteEditor = false
+    @State private var noteDraft = ""
+    @State private var noteOwnerUID = ""
+    @State private var noteIdentity:
+        ExerciseIdentityResolverIOS.Identity?
+
+    @State private var noteItemAtOpen = ""
+    @State private var noteTopicAtOpen = ""
+    @State private var noteSourceTopicAtOpen = ""
+    @State private var noteBeltIDAtOpen = ""
+
+    @State private var showNoteUnavailable = false
+    @State private var noteSaveFailed = false
+
+    #if canImport(FirebaseAuth)
+    @State private var noteAuthHandle:
+        AuthStateDidChangeListenerHandle?
+    #endif
 
     private var beltColor: Color { KmiBeltPalette.color(for: belt) }
 
@@ -1368,6 +1633,202 @@ private struct PracticeExplanationSheet: View {
         defaults.set(saved.sorted(), forKey: favoritesKey)
     }
 
+    private func startNoteAuthListener() {
+        #if canImport(FirebaseAuth)
+        guard noteAuthHandle == nil else {
+            return
+        }
+
+        noteAuthHandle = Auth.auth().addStateDidChangeListener {
+            _, user in
+
+            Task { @MainActor in
+                /*
+                 * מתעלמים מאירוע שהתיישן בזמן המעבר
+                 * ל־MainActor.
+                 */
+                guard Auth.auth().currentUser?.uid == user?.uid else {
+                    return
+                }
+
+                guard showNoteEditor,
+                      !noteOwnerUID.isEmpty,
+                      noteOwnerUID != user?.uid else {
+                    return
+                }
+
+                showNoteEditor = false
+                noteDraft = ""
+                noteOwnerUID = ""
+                noteIdentity = nil
+
+                noteItemAtOpen = ""
+                noteTopicAtOpen = ""
+                noteBeltIDAtOpen = ""
+
+                noteSaveFailed = false
+                showNoteUnavailable = true
+            }
+        }
+        #endif
+    }
+
+    private func stopNoteAuthListener() {
+        #if canImport(FirebaseAuth)
+        if let noteAuthHandle {
+            Auth.auth().removeStateDidChangeListener(
+                noteAuthHandle
+            )
+            self.noteAuthHandle = nil
+        }
+        #endif
+    }
+
+    private var hasPracticeNote: Bool {
+        #if canImport(FirebaseAuth)
+        guard let cleanTopic = noteSourceTopic?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !cleanTopic.isEmpty,
+              cleanTopic != "__ALL__" else {
+            return false
+        }
+
+        guard let userID = Auth.auth().currentUser?.uid,
+              !userID.trimmingCharacters(
+                  in: .whitespacesAndNewlines
+              ).isEmpty,
+              let resolved = ExerciseIdentityResolverIOS.resolve(
+                  belt: belt,
+                  topic: cleanTopic,
+                  rawItem: itemTitle
+              ),
+              let previousID = exerciseNotes.knownExerciseID(
+                  belt: belt,
+                  title: resolved.displayTitle,
+                  topicKey: cleanTopic
+              ) ?? exerciseNotes.knownExerciseID(
+                  belt: belt,
+                  title: itemTitle,
+                  topicKey: cleanTopic
+              ) else {
+            return false
+        }
+
+        var previousIDs = resolved.previousIDs
+
+        if previousID != resolved.primaryID {
+            previousIDs.insert(previousID)
+        }
+
+        let identity = ExerciseIdentityResolverIOS.Identity(
+            primaryID: resolved.primaryID,
+            displayTitle: resolved.displayTitle,
+            previousIDs: previousIDs
+        )
+
+        switch exerciseNotes.loadCompatible(
+            userID: userID,
+            beltID: belt.id,
+            identity: identity
+        ) {
+        case .found(let value):
+            return !value.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ).isEmpty
+
+        case .missing:
+            return false
+
+        case .conflict:
+            /*
+             * קיימים נתונים שדורשים בדיקה, לכן לא מציגים
+             * אותם כאילו אין כל הערה לתרגיל.
+             */
+            return true
+        }
+        #else
+        return false
+        #endif
+    }
+
+    private func openNoteEditor() {
+        #if canImport(FirebaseAuth)
+        guard let cleanTopic = noteSourceTopic?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !cleanTopic.isEmpty,
+              cleanTopic != "__ALL__" else {
+            showNoteUnavailable = true
+            return
+        }
+
+        guard let userID = Auth.auth().currentUser?.uid,
+              !userID.trimmingCharacters(
+                  in: .whitespacesAndNewlines
+              ).isEmpty,
+              let resolved = ExerciseIdentityResolverIOS.resolve(
+                  belt: belt,
+                  topic: cleanTopic,
+                  rawItem: itemTitle
+              ),
+              let previousID = exerciseNotes.knownExerciseID(
+                  belt: belt,
+                  title: resolved.displayTitle,
+                  topicKey: cleanTopic
+              ) ?? exerciseNotes.knownExerciseID(
+                  belt: belt,
+                  title: itemTitle,
+                  topicKey: cleanTopic
+              ) else {
+            showNoteUnavailable = true
+            return
+        }
+
+        var previousIDs = resolved.previousIDs
+
+        if previousID != resolved.primaryID {
+            previousIDs.insert(previousID)
+        }
+
+        let identity = ExerciseIdentityResolverIOS.Identity(
+            primaryID: resolved.primaryID,
+            displayTitle: resolved.displayTitle,
+            previousIDs: previousIDs
+        )
+
+        let loadedNote: String
+
+        switch exerciseNotes.loadCompatible(
+            userID: userID,
+            beltID: belt.id,
+            identity: identity
+        ) {
+        case .found(let value):
+            loadedNote = value
+
+        case .missing:
+            loadedNote = ""
+
+        case .conflict:
+            showNoteUnavailable = true
+            return
+        }
+
+        noteOwnerUID = userID
+        noteIdentity = identity
+        noteDraft = loadedNote
+
+        noteItemAtOpen = itemTitle
+        noteTopicAtOpen = topicTitle
+        noteSourceTopicAtOpen = cleanTopic
+        noteBeltIDAtOpen = belt.id
+
+        noteSaveFailed = false
+        showNoteEditor = true
+        #else
+        showNoteUnavailable = true
+        #endif
+    }
+
     var body: some View {
         VStack(spacing: 14) {
 
@@ -1395,6 +1856,30 @@ private struct PracticeExplanationSheet: View {
                 }
 
                 Spacer()
+
+                Button(action: openNoteEditor) {
+                    Image(
+                        systemName: hasPracticeNote
+                            ? "note.text"
+                            : "square.and.pencil"
+                    )
+                    .font(.system(size: 18, weight: .heavy))
+                    .foregroundStyle(
+                        hasPracticeNote
+                            ? beltColor
+                            : Color.black.opacity(0.65)
+                    )
+                    .frame(width: 40, height: 40)
+                    .background(
+                        Circle().fill(Color.black.opacity(0.06))
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    hasPracticeNote
+                        ? tr("עריכת הערה", "Edit note")
+                        : tr("הוספת הערה", "Add note")
+                )
 
                 Button(action: toggleFavorite) {
                     Image(systemName: isFavorite ? "star.fill" : "star")
@@ -1437,6 +1922,97 @@ private struct PracticeExplanationSheet: View {
             .padding(.horizontal, 16)
 
             Spacer(minLength: 20)
+        }
+        .onAppear {
+            startNoteAuthListener()
+        }
+        .onDisappear {
+            stopNoteAuthListener()
+        }
+        .sheet(
+            isPresented: $showNoteEditor,
+            onDismiss: {
+                noteDraft = ""
+                noteOwnerUID = ""
+                noteIdentity = nil
+
+                noteItemAtOpen = ""
+                noteTopicAtOpen = ""
+                noteSourceTopicAtOpen = ""
+                noteBeltIDAtOpen = ""
+
+                noteSaveFailed = false
+            }
+        ) {
+            ExerciseNoteSheet(
+                title: itemTitle,
+                noteText: $noteDraft,
+                isEnglish: isEnglish,
+                onSave: {
+                    noteSaveFailed = false
+
+#if canImport(FirebaseAuth)
+                    guard Auth.auth().currentUser?.uid == noteOwnerUID,
+                          belt.id == noteBeltIDAtOpen,
+                          topicTitle == noteTopicAtOpen,
+                          noteSourceTopic?.trimmingCharacters(
+                              in: .whitespacesAndNewlines
+                          ) == noteSourceTopicAtOpen,
+                          itemTitle == noteItemAtOpen,
+                          let identity = noteIdentity else {
+                        noteSaveFailed = true
+                        return
+                    }
+
+if case .conflict = exerciseNotes.loadCompatible(
+                        userID: noteOwnerUID,
+                        beltID: belt.id,
+                        identity: identity
+                    ) {
+                        noteSaveFailed = true
+                        return
+                    }
+
+                    exerciseNotes.save(
+                        noteDraft,
+                        userID: noteOwnerUID,
+                        beltID: belt.id,
+                        exerciseID: identity.primaryID
+                    )
+                    #else
+                    noteSaveFailed = true
+                    #endif
+                },
+                shouldDismissAfterSave: {
+                    !noteSaveFailed
+                }
+            )
+            .alert(
+                tr("לא ניתן לשמור את ההערה", "Unable to save note"),
+                isPresented: $noteSaveFailed
+            ) {
+                Button(tr("אישור", "OK"), role: .cancel) {}
+            } message: {
+                Text(
+                    tr(
+                        "ייתכן שהחשבון או התרגיל השתנו, או שקיימות הערות שונות. הטיוטה נשארת פתוחה ולא בוצע שינוי בהערות הקיימות.",
+                        "The account or exercise may have changed, or different notes may exist. Your draft remains open and existing notes were not changed."
+                    )
+                )
+            }
+        }
+        .alert(
+            tr("ההערה אינה זמינה", "Note unavailable"),
+            isPresented: $showNoteUnavailable
+        ) {
+            Button(tr("אישור", "OK"), role: .cancel) {}
+        } message: {
+            Text(
+                tr(
+                    "יש להתחבר ולוודא שהתרגיל מזוהה. אם קיימות הערות שונות, הן נשמרו ולא שונו.",
+                    "Sign in and make sure the exercise is recognized. If different notes exist, they were preserved and not changed."
+                )
+            )
         }
     }
 }

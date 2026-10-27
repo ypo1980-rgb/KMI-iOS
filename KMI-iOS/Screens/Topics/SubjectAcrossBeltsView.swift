@@ -108,6 +108,152 @@ final class ExerciseFavoritesStore: ObservableObject {
     }
 }
 
+/*
+ * זיהוי משותף לתרגיל ב-iOS.
+ *
+ * מבוסס על שלבי הזיהוי הראשיים של
+ * ExerciseSyncStore באנדרואיד:
+ * ניקוי, הסרת תחילית נושא, שם תצוגה ומזהה registry.
+ *
+ * הרכיב אינו קורא או משנה נתונים שמורים.
+ */
+enum ExerciseIdentityResolverIOS {
+
+    struct Identity {
+        let primaryID: String
+        let displayTitle: String
+
+        /*
+         * מזהים אפשריים ששימשו עד כה ב-iOS.
+         * אין להשתמש בהם לדריסה אוטומטית של הערה אחרת.
+         */
+        let previousIDs: Set<String>
+    }
+
+    private static func cleanText(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\u{200F}", with: "")
+            .replacingOccurrences(of: "\u{200E}", with: "")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .replacingOccurrences(
+                of: "\\s+",
+                with: " ",
+                options: .regularExpression
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func displayTitle(
+        topic: String,
+        rawItem: String
+    ) -> String {
+        let cleanTopic = cleanText(topic)
+        var cleanRaw = cleanText(rawItem)
+
+        if !cleanTopic.isEmpty,
+           cleanRaw.hasPrefix("\(cleanTopic)::") {
+            cleanRaw = String(
+                cleanRaw.dropFirst(cleanTopic.count + 2)
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if !cleanTopic.isEmpty,
+           cleanRaw.hasPrefix(cleanTopic) {
+            cleanRaw = String(
+                cleanRaw.dropFirst(cleanTopic.count)
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let separators = CharacterSet(
+                charactersIn: "-–—:"
+            )
+
+            while let first = cleanRaw.unicodeScalars.first,
+                  separators.contains(first) {
+                cleanRaw.removeFirst()
+            }
+
+            cleanRaw = cleanRaw.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+        }
+
+        let formatted = ExerciseTitleFormatter.shared
+            .displayName(raw: cleanRaw)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !formatted.isEmpty && formatted != "null" {
+            return formatted
+        }
+
+        return cleanRaw
+    }
+
+    static func resolve(
+        belt: Belt,
+        topic: String,
+        rawItem: String
+    ) -> Identity? {
+        let cleanTopic = cleanText(topic)
+        let cleanRaw = cleanText(rawItem)
+
+        guard !cleanTopic.isEmpty,
+              !cleanRaw.isEmpty else {
+            return nil
+        }
+
+        let title = displayTitle(
+            topic: cleanTopic,
+            rawItem: cleanRaw
+        )
+
+        guard !title.isEmpty else {
+            return nil
+        }
+
+        let primaryID = ExerciseIdentityRegistry.shared.idFor(
+            belt: belt,
+            hebrewTitle: title,
+            topicKey: cleanTopic
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !primaryID.isEmpty else {
+            return nil
+        }
+
+        /*
+         * המימוש הקודם של iOS העביר את השם המקורי.
+         * שומרים את המזהה המוכר שלו כמועמד לקריאה,
+         * בלי להעביר או לשנות את הנתונים בשלב הזה.
+         */
+        let previous = ExerciseIdentityRegistry.shared.resolve(
+            belt: belt,
+            hebrewTitle: cleanRaw,
+            topicKey: cleanTopic
+        )
+
+        var previousIDs = Set<String>()
+
+        if previous.isKnown {
+            let previousID = previous.id.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+            if !previousID.isEmpty && previousID != primaryID {
+                previousIDs.insert(previousID)
+            }
+        }
+
+        return Identity(
+            primaryID: primaryID,
+            displayTitle: title,
+            previousIDs: previousIDs
+        )
+    }
+}
+
 @MainActor
 final class ExerciseNotesStore: ObservableObject {
     static let shared = ExerciseNotesStore()
@@ -182,6 +328,159 @@ final class ExerciseNotesStore: ObservableObject {
         }
 
         return defaults.object(forKey: key) != nil
+    }
+
+    enum CompatibleNoteResult {
+        case missing
+        case found(String)
+        case conflict
+    }
+
+    /*
+     * בודק את המזהה הראשי ואת המזהים הקודמים של
+     * אותו משתמש וחגורה, ללא שינוי בנתונים השמורים.
+     */
+    func loadCompatible(
+        userID: String,
+        beltID: String,
+        identity: ExerciseIdentityResolverIOS.Identity
+    ) -> CompatibleNoteResult {
+        guard let primaryKey = storageKey(
+            userID: userID,
+            beltID: beltID,
+            exerciseID: identity.primaryID
+        ) else {
+            return .missing
+        }
+
+        /*
+         * אם קיים ערך במזהה הראשי, הוא מקור הקריאה.
+         * גם מחרוזת ריקה היא מחיקה מפורשת.
+         */
+        if defaults.object(forKey: primaryKey) != nil {
+            guard let value = defaults.string(
+                forKey: primaryKey
+            ) else {
+                return .conflict
+            }
+
+            return .found(value)
+        }
+
+        var previousValues = Set<String>()
+
+        for previousID in identity.previousIDs {
+            guard let key = storageKey(
+                userID: userID,
+                beltID: beltID,
+                exerciseID: previousID
+            ),
+            defaults.object(forKey: key) != nil else {
+                continue
+            }
+
+            guard let value = defaults.string(forKey: key) else {
+                return .conflict
+            }
+
+            previousValues.insert(value)
+        }
+
+        if previousValues.count > 1 {
+            return .conflict
+        }
+
+        if let value = previousValues.first {
+            return .found(value)
+        }
+
+        return .missing
+    }
+
+    /*
+     * מחזיר את הערכים הסותרים רק כאשר אפשר לקרוא
+     * את כולם כמחרוזות ואין כבר ערך במזהה הראשי.
+     *
+     * nil פירושו שאין סתירה שניתן לפתור בפעולה זו.
+     */
+    func conflictingNoteValues(
+        userID: String,
+        beltID: String,
+        identity: ExerciseIdentityResolverIOS.Identity
+    ) -> [String]? {
+        guard let primaryKey = storageKey(
+            userID: userID,
+            beltID: beltID,
+            exerciseID: identity.primaryID
+        ),
+        defaults.object(forKey: primaryKey) == nil else {
+            return nil
+        }
+
+        var values = Set<String>()
+
+        for previousID in identity.previousIDs {
+            guard let key = storageKey(
+                userID: userID,
+                beltID: beltID,
+                exerciseID: previousID
+            ) else {
+                return nil
+            }
+
+            guard let storedValue = defaults.object(
+                forKey: key
+            ) else {
+                continue
+            }
+
+            guard let value = storedValue as? String else {
+                return nil
+            }
+
+            values.insert(value)
+        }
+
+        guard values.count > 1 else {
+            return nil
+        }
+
+        return values.sorted()
+    }
+
+    /*
+     * שומר את הבחירה רק אם גרסאות ההערה לא השתנו
+     * מאז שהוצגו למשתמש. המזהים הישנים אינם נמחקים.
+     *
+     * על המסך הקורא לוודא בנפרד שהמשתמש המחובר
+     * עדיין תואם ל-userID שלפיו הוצגו הגרסאות.
+     */
+    @discardableResult
+    func resolveNoteConflict(
+        selectedValue: String,
+        expectedValues: [String],
+        userID: String,
+        beltID: String,
+        identity: ExerciseIdentityResolverIOS.Identity
+    ) -> Bool {
+        guard let currentValues = conflictingNoteValues(
+            userID: userID,
+            beltID: beltID,
+            identity: identity
+        ),
+        currentValues == expectedValues,
+        currentValues.contains(selectedValue) else {
+            return false
+        }
+
+        save(
+            selectedValue,
+            userID: userID,
+            beltID: beltID,
+            exerciseID: identity.primaryID
+        )
+
+        return true
     }
 
     func load(
@@ -381,6 +680,12 @@ struct SubjectAcrossBeltsView: View {
     @State private var activeInfoExercise: ExerciseMenuContext? = nil
     @State private var activeNoteExercise: ExerciseMenuContext? = nil
     @State private var noteText: String = ""
+    @State private var noteEditorOwnerUID: String? = nil
+    @State private var noteProblemMessage = ""
+    @State private var showNoteProblem = false
+
+    @State private var noteSaveProblemMessage = ""
+    @State private var showNoteSaveProblem = false
 
     @ObservedObject private var exerciseFavorites =
         ExerciseFavoritesStore.shared
@@ -1319,19 +1624,82 @@ struct SubjectAcrossBeltsView: View {
                 item: context.item.displayName
             )
         }
-        .sheet(item: $activeNoteExercise) { context in
+        .sheet(
+            item: $activeNoteExercise,
+            onDismiss: {
+                noteEditorOwnerUID = nil
+                noteText = ""
+                noteSaveProblemMessage = ""
+                showNoteSaveProblem = false
+            }
+        ) { context in
             ExerciseNoteSheet(
                 title: uiExerciseTitle(context.item.displayName),
                 noteText: $noteText,
                 isEnglish: isEnglish,
                 onSave: {
+                    showNoteSaveProblem = false
+                    noteSaveProblemMessage = ""
+
+                    guard let ownerUID = noteEditorOwnerUID,
+                          currentNoteUserID() == ownerUID else {
+                        noteSaveProblemMessage = tr(
+                            "החשבון השתנה. ההערה לא נשמרה.",
+                            "The account changed. The note was not saved."
+                        )
+                        showNoteSaveProblem = true
+                        return
+                    }
+
+                    if let identity = compatibleNoteIdentity(
+                        belt: context.belt,
+                        item: context.item
+                    ),
+                    case .conflict = exerciseNotes.loadCompatible(
+                        userID: ownerUID,
+                        beltID: context.belt.id,
+                        identity: identity
+                    ) {
+                        noteSaveProblemMessage = tr(
+                            "נמצאו הערות שונות לתרגיל. ההערות הקיימות לא שונו.",
+                            "Different notes were found for this exercise. Existing notes were not changed."
+                        )
+                        showNoteSaveProblem = true
+                        return
+                    }
+
                     saveNote(
                         belt: context.belt,
                         item: context.item,
                         value: noteText
                     )
+                },
+                shouldDismissAfterSave: {
+                    !showNoteSaveProblem
                 }
             )
+            .alert(
+                tr(
+                    "לא ניתן לשמור את ההערה",
+                    "Unable to save note"
+                ),
+                isPresented: $showNoteSaveProblem
+            ) {
+                Button(
+                    tr("אישור", "OK"),
+                    role: .cancel
+                ) {}
+            } message: {
+                Text(noteSaveProblemMessage)
+            }
+        }
+        .alert(
+            tr("לא ניתן לעדכן הערה", "Unable to update note"),
+            isPresented: $showNoteProblem
+        ) {
+            Button(tr("אישור", "OK"), role: .cancel) {}
+        } message: {
+            Text(noteProblemMessage)
         }
     }
 
@@ -1889,16 +2257,16 @@ struct SubjectAcrossBeltsView: View {
 
             exerciseMarks[key] = state
 
-            if state == .unmarked {
-                defaults.removeObject(forKey: key)
-                defaults.removeObject(forKey: "\(key).updatedAt")
-            } else {
-                defaults.set(state.rawValue, forKey: key)
-                defaults.set(
-                    Date().timeIntervalSince1970,
-                    forKey: "\(key).updatedAt"
-                )
-            }
+            /*
+             * שומרים גם איפוס מפורש.
+             * כך ניתן להבדיל בינו לבין תרגיל
+             * שעדיין לא נשמר עבורו סימון.
+             */
+            defaults.set(state.rawValue, forKey: key)
+            defaults.set(
+                Date().timeIntervalSince1970,
+                forKey: "\(key).updatedAt"
+            )
         }
         
         private func subjectExerciseCard(
@@ -1943,6 +2311,33 @@ struct SubjectAcrossBeltsView: View {
                     activeInfoExercise = context
                 },
                 onEditNote: {
+                    guard let userID = currentNoteUserID() else {
+                        noteProblemMessage = tr(
+                            "יש להתחבר כדי לערוך הערה.",
+                            "Sign in to edit a note."
+                        )
+                        showNoteProblem = true
+                        return
+                    }
+
+                    if let identity = compatibleNoteIdentity(
+                        belt: belt,
+                        item: item
+                    ),
+                    case .conflict = exerciseNotes.loadCompatible(
+                        userID: userID,
+                        beltID: belt.id,
+                        identity: identity
+                    ) {
+                        noteProblemMessage = tr(
+                            "נמצאו הערות שונות לתרגיל. לא בוצע שינוי בהערות.",
+                            "Different notes were found for this exercise. No notes were changed."
+                        )
+                        showNoteProblem = true
+                        return
+                    }
+
+                    noteEditorOwnerUID = userID
                     noteText = loadNote(belt: belt, item: item)
                     activeNoteExercise = context
                 },
@@ -2165,10 +2560,70 @@ struct SubjectAcrossBeltsView: View {
         )
     }
 
+    private func compatibleNoteIdentity(
+        belt: Belt,
+        item: UiItem
+    ) -> ExerciseIdentityResolverIOS.Identity? {
+        guard let sourceTopic = item.sourceTopicTitle?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sourceTopic.isEmpty,
+              let resolved = ExerciseIdentityResolverIOS.resolve(
+                belt: belt,
+                topic: sourceTopic,
+                rawItem: item.rawItem ?? item.displayName
+              ) else {
+            return nil
+        }
+
+        var previousIDs = resolved.previousIDs
+
+        let localID =
+            "subject-local:\(exerciseId(belt: belt, item: item))"
+
+        if localID != resolved.primaryID {
+            previousIDs.insert(localID)
+        }
+
+        if let previousKnownID = sharedNoteExerciseID(
+            belt: belt,
+            item: item
+        ),
+        previousKnownID != resolved.primaryID {
+            previousIDs.insert(previousKnownID)
+        }
+
+        return ExerciseIdentityResolverIOS.Identity(
+            primaryID: resolved.primaryID,
+            displayTitle: resolved.displayTitle,
+            previousIDs: previousIDs
+        )
+    }
+
     private func loadNote(
         belt: Belt,
         item: UiItem
     ) -> String {
+        guard let userID = currentNoteUserID() else {
+            return ""
+        }
+
+        if let identity = compatibleNoteIdentity(
+            belt: belt,
+            item: item
+        ) {
+            switch exerciseNotes.loadCompatible(
+                userID: userID,
+                beltID: belt.id,
+                identity: identity
+            ) {
+            case .found(let value):
+                return value
+
+            case .missing, .conflict:
+                return ""
+            }
+        }
+
         if let exerciseID = sharedNoteExerciseID(
             belt: belt,
             item: item
@@ -2202,6 +2657,24 @@ struct SubjectAcrossBeltsView: View {
         item: UiItem,
         value: String
     ) {
+        if let userID = currentNoteUserID(),
+           let identity = compatibleNoteIdentity(
+                belt: belt,
+                item: item
+           ) {
+            /*
+             * המזהים הקודמים אינם נמחקים.
+             * שמירה חדשה נכתבת למזהה הראשי בלבד.
+             */
+            exerciseNotes.save(
+                value,
+                userID: userID,
+                beltID: belt.id,
+                exerciseID: identity.primaryID
+            )
+            return
+        }
+
         if let exerciseID = sharedNoteExerciseID(
             belt: belt,
             item: item
@@ -2330,6 +2803,7 @@ struct ExerciseNoteSheet: View {
     @Binding var noteText: String
     let isEnglish: Bool
     let onSave: () -> Void
+    var shouldDismissAfterSave: () -> Bool = { true }
 
     @Environment(\.dismiss)
     private var dismiss
@@ -2422,7 +2896,10 @@ struct ExerciseNoteSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isEnglish ? "Save" : "שמור") {
                         onSave()
-                        dismiss()
+
+                        if shouldDismissAfterSave() {
+                            dismiss()
+                        }
                     }
                     .kmiTypography(.body)
                     .fontWeight(.bold)

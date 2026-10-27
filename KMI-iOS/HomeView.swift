@@ -206,6 +206,12 @@ struct HomeView: View {
 
     // Android parity: quick menu icon must always be visible on Home
     @State private var showHomeQuickMenu: Bool = false
+
+    @AppStorage("kmi.home.quickMenu.centerFraction")
+    private var homeQuickMenuCenterFraction: Double = 0.5
+
+    @State private var homeQuickMenuDragStartY: CGFloat?
+    @State private var homeQuickMenuDragY: CGFloat?
     
     // Global exercise search result
     @State private var pickedExercise: ExerciseSelection? = nil
@@ -2339,16 +2345,51 @@ struct HomeView: View {
                 ? railWidth / 2
                 : geo.size.width - railWidth / 2
 
-            let centerY = min(
-                max(
-                    visibleHeight / 2 + 8,
-                    geo.size.height / 2
-                ),
-                max(
-                    visibleHeight / 2,
-                    geo.size.height - visibleHeight / 2 - 8
-                )
+            let minCenterY = visibleHeight / 2 + 8
+
+            let maxCenterY = max(
+                minCenterY,
+                geo.size.height - visibleHeight / 2 - 8
             )
+
+            let savedFraction = min(
+                max(homeQuickMenuCenterFraction, 0),
+                1
+            )
+
+            let requestedCenterY =
+                homeQuickMenuDragY ??
+                CGFloat(savedFraction) * geo.size.height
+
+            let centerY = min(
+                max(requestedCenterY, minCenterY),
+                maxCenterY
+            )
+
+            let onHandleDrag: (CGFloat) -> Void = { translation in
+                if homeQuickMenuDragStartY == nil {
+                    homeQuickMenuDragStartY = centerY
+                }
+
+                let startY = homeQuickMenuDragStartY ?? centerY
+
+                homeQuickMenuDragY = min(
+                    max(startY + translation, minCenterY),
+                    maxCenterY
+                )
+            }
+
+            let onHandleDragEnded: () -> Void = {
+                if let finalY = homeQuickMenuDragY,
+                   geo.size.height > 0 {
+                    homeQuickMenuCenterFraction = Double(
+                        finalY / geo.size.height
+                    )
+                }
+
+                homeQuickMenuDragStartY = nil
+                homeQuickMenuDragY = nil
+            }
 
             ZStack {
                 if showHomeQuickMenu {
@@ -2358,6 +2399,8 @@ struct HomeView: View {
                             isEnglish: isEnglish,
                             accentColor: accent,
                             items: homeQuickMenuItems,
+                            onDragChanged: onHandleDrag,
+                            onDragEnded: onHandleDragEnded,
                             onClose: {
                                 withAnimation(
                                     .spring(
@@ -2399,39 +2442,55 @@ struct HomeView: View {
                     .position(x: centerX, y: centerY)
                     .transition(.opacity)
                 } else {
-                    Button {
-                        withAnimation(
-                            .spring(
-                                response: 0.25,
-                                dampingFraction: 0.90
+                    Image(systemName: "line.3.horizontal")
+                        .kmiIconSize(20)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.white)
+                        .frame(
+                            width: railWidth,
+                            height: closedHeight
+                        )
+                        .background(accent.opacity(0.96))
+                        .clipShape(
+                            UnevenRoundedRectangle(
+                                topLeadingRadius: isEnglish ? 0 : 18,
+                                bottomLeadingRadius: isEnglish ? 0 : 18,
+                                bottomTrailingRadius: isEnglish ? 18 : 0,
+                                topTrailingRadius: isEnglish ? 18 : 0
                             )
-                        ) {
-                            showHomeQuickMenu = true
+                        )
+                        .overlay {
+                            BeltQuickMenuGestureView(
+                                onTap: {
+                                    withAnimation(
+                                        .spring(
+                                            response: 0.25,
+                                            dampingFraction: 0.90
+                                        )
+                                    ) {
+                                        showHomeQuickMenu = true
+                                    }
+                                },
+                                onDragChanged: onHandleDrag,
+                                onDragEnded: onHandleDragEnded
+                            )
                         }
-                    } label: {
-                        Image(systemName: "line.3.horizontal")
-                            .kmiIconSize(20)
-                            .fontWeight(.bold)
-                            .foregroundStyle(.white)
-                            .frame(
-                                width: railWidth,
-                                height: closedHeight
-                            )
-                            .background(accent.opacity(0.96))
-                            .clipShape(
-                                UnevenRoundedRectangle(
-                                    topLeadingRadius: isEnglish ? 0 : 18,
-                                    bottomLeadingRadius: isEnglish ? 0 : 18,
-                                    bottomTrailingRadius: isEnglish ? 18 : 0,
-                                    topTrailingRadius: isEnglish ? 18 : 0
+                        .position(x: centerX, y: centerY)
+                        .accessibilityElement()
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityLabel(
+                            tr("פתח תפריט מהיר", "Open quick menu")
+                        )
+                        .accessibilityAction {
+                            withAnimation(
+                                .spring(
+                                    response: 0.25,
+                                    dampingFraction: 0.90
                                 )
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .position(x: centerX, y: centerY)
-                    .accessibilityLabel(
-                        tr("פתח תפריט מהיר", "Open quick menu")
-                    )
+                            ) {
+                                showHomeQuickMenu = true
+                            }
+                        }
                 }
             }
             .frame(
@@ -6581,6 +6640,8 @@ private struct HomePremiumQuickMenuPanel: View {
     let isEnglish: Bool
     let accentColor: Color
     let items: [HomeQuickMenuItem]
+    let onDragChanged: (CGFloat) -> Void
+    let onDragEnded: () -> Void
     let onClose: () -> Void
 
     var body: some View {
@@ -6604,27 +6665,36 @@ private struct HomePremiumQuickMenuPanel: View {
 
             separator
 
-            Button(action: onClose) {
-                Image(systemName: "line.3.horizontal")
-                    .kmiIconSize(17)
-                    .fontWeight(.bold)
-                    .foregroundStyle(.white)
-                    .frame(width: 25, height: 25)
-                    .overlay(
-                        Circle()
-                            .stroke(
-                                Color.white.opacity(0.74),
-                                lineWidth: 1.1
-                            )
+            Image(systemName: "line.3.horizontal")
+                .kmiIconSize(17)
+                .fontWeight(.bold)
+                .foregroundStyle(.white)
+                .frame(width: 25, height: 25)
+                .overlay(
+                    Circle()
+                        .stroke(
+                            Color.white.opacity(0.74),
+                            lineWidth: 1.1
+                        )
+                )
+                .frame(maxWidth: .infinity)
+                .frame(height: 58)
+                .contentShape(Rectangle())
+                .overlay {
+                    BeltQuickMenuGestureView(
+                        onTap: onClose,
+                        onDragChanged: onDragChanged,
+                        onDragEnded: onDragEnded
                     )
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 58)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(
-                isEnglish ? "Close quick menu" : "סגור תפריט מהיר"
-            )
+                }
+                .accessibilityElement()
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel(
+                    isEnglish ? "Close quick menu" : "סגור תפריט מהיר"
+                )
+                .accessibilityAction {
+                    onClose()
+                }
         }
         .padding(.horizontal, 3)
         .padding(.vertical, 5)

@@ -239,7 +239,11 @@ struct SummaryView: View {
     @State private var noteDraft = ""
     @State private var noteUserID = ""
     @State private var noteExerciseID = ""
+    @State private var noteBeltID = ""
+    @State private var noteIdentity:
+        ExerciseIdentityResolverIOS.Identity?
     @State private var showNoteUnavailable = false
+    @State private var noteSaveFailed = false
 
     @ObservedObject private var exerciseNotes =
         ExerciseNotesStore.shared
@@ -431,6 +435,63 @@ struct SummaryView: View {
             item: item,
             index: index
         )
+
+        let materialsMarkKey = "mark.\(materialsStatusID)"
+
+        let subjectMarkKey =
+            "kmi.subject.mark.\(beltId)."
+            + topicTitle.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            + "."
+            + item.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        let materialsTopicKey = coachTopicKey(
+            topicTitle: topicTitle,
+            subTopicTitle: subTopicTitle
+        )
+
+        let materialsUpdatedAtKey = [
+            "trainee_material_updated_at",
+            beltId,
+            materialsTopicKey,
+            materialsStatusID
+        ]
+        .joined(separator: "_")
+
+        /*
+         * MaterialsView שומר זמן במילישניות;
+         * מסך לפי נושא שומר זמן בשניות.
+         */
+        let materialsUpdatedAt = defaults.double(
+            forKey: materialsUpdatedAtKey
+        )
+
+        let subjectUpdatedAt = defaults.double(
+            forKey: "\(subjectMarkKey).updatedAt"
+        ) * 1_000
+
+        if defaults.object(forKey: materialsMarkKey) != nil,
+           let subjectRaw = defaults.string(forKey: subjectMarkKey),
+           materialsUpdatedAt.isFinite,
+           subjectUpdatedAt.isFinite,
+           materialsUpdatedAt > 0,
+           subjectUpdatedAt > materialsUpdatedAt {
+
+            let normalized = subjectRaw
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            if normalized == "unmarked" {
+                return nil
+            }
+
+            if let mark = SummaryMark.fromStoredValue(subjectRaw) {
+                return mark
+            }
+        }
 
         let directStringKeys = [
             "mark.\(materialsStatusID)",
@@ -1994,31 +2055,73 @@ struct SummaryView: View {
                 item: exercise.title
             )
         }
-        .sheet(item: $selectedNoteExercise) { exercise in
+        .sheet(
+            item: $selectedNoteExercise,
+            onDismiss: {
+                noteDraft = ""
+                noteUserID = ""
+                noteExerciseID = ""
+                noteBeltID = ""
+                noteIdentity = nil
+                noteSaveFailed = false
+            }
+        ) { exercise in
             ExerciseNoteSheet(
-                title: KmiEnglishTitleResolver.title(
-                    for: ExerciseTitleFormatter.shared
-                        .displayName(raw: exercise.title),
-                    isEnglish: isEnglish
-                ),
+                title: exercise.title,
                 noteText: $noteDraft,
                 isEnglish: isEnglish,
                 onSave: {
+                    noteSaveFailed = false
+
                     #if canImport(FirebaseAuth)
-                    guard Auth.auth().currentUser?.uid == noteUserID else {
-                        showNoteUnavailable = true
+                    guard Auth.auth().currentUser?.uid == noteUserID,
+                          belt.id == noteBeltID,
+                          let identity = noteIdentity,
+                          identity.primaryID == noteExerciseID else {
+                        noteSaveFailed = true
+                        return
+                    }
+
+                    if case .conflict = exerciseNotes.loadCompatible(
+                        userID: noteUserID,
+                        beltID: noteBeltID,
+                        identity: identity
+                    ) {
+                        noteSaveFailed = true
                         return
                     }
 
                     exerciseNotes.save(
                         noteDraft,
                         userID: noteUserID,
-                        beltID: belt.id,
-                        exerciseID: noteExerciseID
+                        beltID: noteBeltID,
+                        exerciseID: identity.primaryID
                     )
+                    #else
+                    noteSaveFailed = true
                     #endif
+                },
+                shouldDismissAfterSave: {
+                    !noteSaveFailed
                 }
             )
+            .alert(
+                isEnglish
+                    ? "Unable to save note"
+                    : "לא ניתן לשמור את ההערה",
+                isPresented: $noteSaveFailed
+            ) {
+                Button(
+                    isEnglish ? "OK" : "אישור",
+                    role: .cancel
+                ) {}
+            } message: {
+                Text(
+                    isEnglish
+                        ? "The account or belt may have changed, or different notes may exist. Your draft remains open and existing notes were not changed."
+                        : "ייתכן שהחשבון או החגורה השתנו, או שקיימות הערות שונות לתרגיל. הטיוטה נשארת פתוחה וההערות הקיימות לא שונו."
+                )
+            }
         }
         .alert(
             isEnglish ? "Note unavailable" : "ההערה אינה זמינה",
@@ -2028,8 +2131,8 @@ struct SummaryView: View {
         } message: {
             Text(
                 isEnglish
-                    ? "Sign in and try again. If the problem persists, the exercise may not yet be recognized."
-                    : "יש להתחבר ולנסות שוב. אם הבעיה נמשכת, ייתכן שהתרגיל עדיין אינו מזוהה."
+                    ? "The account or belt may have changed, the exercise may be unavailable, or different notes may exist for it. Existing notes were not changed."
+                    : "ייתכן שהחשבון או החגורה השתנו, שהתרגיל אינו זמין או שקיימות עבורו הערות שונות. ההערות הקיימות לא שונו."
             )
         }
         .onChange(of: percentAll) { _, _ in
@@ -3366,23 +3469,55 @@ struct SummaryView: View {
               !userID.trimmingCharacters(
                 in: .whitespacesAndNewlines
               ).isEmpty,
-              let exerciseID = exerciseNotes.knownExerciseID(
+              let resolved = ExerciseIdentityResolverIOS.resolve(
                 belt: belt,
-                title: item.title,
-                topicKey: topicTitle
+                topic: topicTitle,
+                rawItem: item.title
               ) else {
             showNoteUnavailable = true
             return
         }
 
-        noteUserID = userID
-        noteExerciseID = exerciseID
+        var previousIDs = resolved.previousIDs
 
-        noteDraft = exerciseNotes.load(
+        if let previousID = exerciseNotes.knownExerciseID(
+            belt: belt,
+            title: item.title,
+            topicKey: topicTitle
+        ),
+        previousID != resolved.primaryID {
+            previousIDs.insert(previousID)
+        }
+
+        let identity = ExerciseIdentityResolverIOS.Identity(
+            primaryID: resolved.primaryID,
+            displayTitle: resolved.displayTitle,
+            previousIDs: previousIDs
+        )
+
+        let loadedNote: String
+
+        switch exerciseNotes.loadCompatible(
             userID: userID,
             beltID: belt.id,
-            exerciseID: exerciseID
-        )
+            identity: identity
+        ) {
+        case .found(let value):
+            loadedNote = value
+
+        case .missing:
+            loadedNote = ""
+
+        case .conflict:
+            showNoteUnavailable = true
+            return
+        }
+
+        noteUserID = userID
+        noteBeltID = belt.id
+        noteExerciseID = identity.primaryID
+        noteIdentity = identity
+        noteDraft = loadedNote
 
         selectedNoteExercise = SummarySelectedExercise(
             id: item.id,

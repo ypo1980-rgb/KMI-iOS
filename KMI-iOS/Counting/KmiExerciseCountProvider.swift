@@ -9,19 +9,228 @@ struct KmiExerciseCountStats:
 
 enum KmiExerciseCountProvider {
 
-    private struct StatsKey: Hashable, Sendable {
+    /// סופר תרגילים בחגורה לפי כללי הספירה של Android.
+    nonisolated static func knownBeltExerciseCount(
+        belt: Belt
+    ) -> Int? {
+        guard !Task.isCancelled else {
+            return nil
+        }
+
+        let registry = ExerciseIdentityRegistry.shared
+
+        let knownIDs = registry.allKnown()
+            .filter { $0.belt == belt }
+            .map {
+                $0.id.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+            }
+            .filter { !$0.isEmpty }
+
+        let knownCount = Set(knownIDs).count
+
+        if knownCount > 0 {
+            return knownCount
+        }
+
+        // תאימות ל־Android כאשר אין מזהים מוכרים לחגורה.
+        func identityKey(
+            rawItem: String,
+            topicKey: String
+        ) -> String? {
+            guard !Task.isCancelled else {
+                return nil
+            }
+
+            return exerciseIdentityKey(
+                belt: belt,
+                topicTitle: topicKey,
+                rawItem: rawItem
+            )
+        }
+
+        func hardSectionCandidatesForBelt(
+            _ topicTitle: String
+        ) -> [String] {
+            hardSectionCandidates(topicTitle)
+        }
+
+        func collectHardSection(
+            _ section: HardSectionsCatalog.Section,
+            topic: String,
+            into keys: inout Set<String>
+        ) {
+            guard !Task.isCancelled else {
+                return
+            }
+
+            collectHardSectionExerciseKeys(
+                section,
+                belt: belt,
+                topicTitle: topic,
+                into: &keys
+            )
+        }
+
+        func hardSectionKeys(
+            for topic: String
+        ) -> Set<String> {
+            for candidate in hardSectionCandidatesForBelt(topic) {
+                guard !Task.isCancelled else {
+                    return []
+                }
+
+                var keys = Set<String>()
+
+                let sections = HardSectionsCatalog.shared
+                    .sectionsForSubject(subjectId: candidate) ?? []
+
+                for section in sections {
+                    collectHardSection(section, topic: topic, into: &keys)
+                }
+
+                if !keys.isEmpty {
+                    return keys
+                }
+
+                if let section = HardSectionsCatalog.shared
+                    .findAnySectionById(sectionId: candidate) {
+                    collectHardSection(section, topic: topic, into: &keys)
+                }
+
+                if !keys.isEmpty {
+                    return keys
+                }
+            }
+
+            return []
+        }
+
+        func collectSubTopic(
+            _ subTopic: ContentRepo.SubTopic,
+            parentTopic: String,
+            into keys: inout Set<String>
+        ) {
+            guard !Task.isCancelled else {
+                return
+            }
+
+            let cleanTitle = normalize(subTopic.title)
+
+            let topicKey = cleanTitle.isEmpty
+                ? parentTopic
+                : parentTopic + "__" + cleanTitle
+
+            for item in subTopic.items {
+                if let key = identityKey(
+                    rawItem: item,
+                    topicKey: topicKey
+                ) {
+                    keys.insert(key)
+                }
+            }
+
+            for child in subTopic.subTopics {
+                collectSubTopic(child, parentTopic: topicKey, into: &keys)
+            }
+        }
+
+        var exerciseKeys = Set<String>()
+        var seenTopics = Set<String>()
+
+        for rawTopic in TopicsEngine.shared.topicTitlesFor(belt: belt) {
+            guard !Task.isCancelled else {
+                return nil
+            }
+
+            let topic = normalize(rawTopic)
+
+            guard !topic.isEmpty,
+                  seenTopics.insert(topic).inserted else {
+                continue
+            }
+
+            let hardKeys = hardSectionKeys(for: topic)
+
+            if !hardKeys.isEmpty {
+                exerciseKeys.formUnion(hardKeys)
+                continue
+            }
+
+            let directItems = ContentRepo.shared.getAllItemsFor(
+                belt: belt,
+                topicTitle: topic,
+                subTopicTitle: nil
+            )
+
+            for item in directItems {
+                if let key = identityKey(
+                    rawItem: item,
+                    topicKey: topic
+                ) {
+                    exerciseKeys.insert(key)
+                }
+            }
+
+            let subTopics = ContentRepo.shared.getSubTopicsFor(
+                belt: belt,
+                topicTitle: topic
+            )
+
+            for subTopic in subTopics {
+                collectSubTopic(
+                    subTopic,
+                    parentTopic: topic,
+                    into: &exerciseKeys
+                )
+            }
+        }
+
+        guard !Task.isCancelled else {
+            return nil
+        }
+
+        return exerciseKeys.count
+    }
+
+    nonisolated static func beltExerciseCountInBackground(
+        beltId: String
+    ) async -> Int? {
+        let worker = Task.detached(priority: .userInitiated) {
+            let belts: [Belt] = [
+                .yellow, .orange, .green,
+                .blue, .brown, .black
+            ]
+
+            guard !Task.isCancelled,
+                  let belt = belts.first(where: { $0.id == beltId }) else {
+                return nil as Int?
+            }
+
+            return knownBeltExerciseCount(belt: belt)
+        }
+
+        return await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+    }
+
+    private nonisolated struct StatsKey: Hashable, Sendable {
         let beltId: String
         let topicTitle: String
         let subTopicTitle: String?
     }
 
     private final class StatsCache: @unchecked Sendable {
-        private let lock = NSLock()
+        private nonisolated let lock = NSLock()
 
-        private var values:
+        private nonisolated(unsafe) var values:
             [StatsKey: KmiExerciseCountStats] = [:]
 
-        func value(
+        nonisolated func value(
             for key: StatsKey
         ) -> KmiExerciseCountStats? {
             lock.lock()
@@ -30,7 +239,7 @@ enum KmiExerciseCountProvider {
             return values[key]
         }
 
-        func store(
+        nonisolated func store(
             _ value: KmiExerciseCountStats,
             for key: StatsKey
         ) {
@@ -127,6 +336,7 @@ enum KmiExerciseCountProvider {
 
         let hardCount =
             hardSectionExerciseCount(
+                belt: belt,
                 topicTitle: cleanTopic
             )
 
@@ -157,68 +367,72 @@ enum KmiExerciseCountProvider {
                     cleanTitle != cleanTopic
             }
 
-        let directItems =
-            uniqueNormalizedItems(
-                ContentRepo.shared
-                    .getAllItemsFor(
-                        belt: belt,
-                        topicTitle:
-                            cleanTopic,
-                        subTopicTitle:
-                            nil
-                    )
+        let directItems = ContentRepo.shared
+            .getAllItemsFor(
+                belt: belt,
+                topicTitle: cleanTopic,
+                subTopicTitle: nil
             )
 
-        var pendingSubTopics =
-            visibleSubTopics
+        var directExerciseKeys = Set<String>()
 
-        var deepSubTopicItemsCount = 0
+        for item in directItems {
+            if let key = exerciseIdentityKey(
+                belt: belt,
+                topicTitle: cleanTopic,
+                rawItem: item
+            ) {
+                directExerciseKeys.insert(key)
+            }
+        }
 
-        while !pendingSubTopics.isEmpty {
-            let current =
-                pendingSubTopics
-                    .removeFirst()
+        func collectSubTopicExerciseKeys(
+            _ subTopic: ContentRepo.SubTopic,
+            parentTopic: String,
+            into keys: inout Set<String>
+        ) {
+            let cleanTitle = normalize(subTopic.title)
 
-            var currentSubTopicItems =
-                Set<String>()
+            let topicKey = cleanTitle.isEmpty
+                ? parentTopic
+                : parentTopic + "__" + cleanTitle
 
-            for item in current.items {
-                let cleanItem =
-                    normalizeItem(
-                        item
-                    )
-
-                if !cleanItem.isEmpty {
-                    currentSubTopicItems
-                        .insert(
-                            cleanItem
-                        )
+            for item in subTopic.items {
+                if let key = exerciseIdentityKey(
+                    belt: belt,
+                    topicTitle: topicKey,
+                    rawItem: item
+                ) {
+                    keys.insert(key)
                 }
             }
 
-            /*
-             * Android מבצע distinct בכל SubTopic בנפרד,
-             * ולא על כל העץ יחד.
-             */
-            deepSubTopicItemsCount +=
-                currentSubTopicItems.count
+            for child in subTopic.subTopics {
+                collectSubTopicExerciseKeys(
+                    child,
+                    parentTopic: topicKey,
+                    into: &keys
+                )
+            }
+        }
 
-            pendingSubTopics.append(
-                contentsOf:
-                    current.subTopics
+        var subTopicExerciseKeys = Set<String>()
+
+        for subTopic in visibleSubTopics {
+            collectSubTopicExerciseKeys(
+                subTopic,
+                parentTopic: cleanTopic,
+                into: &subTopicExerciseKeys
             )
         }
 
-        let exerciseCount =
-            deepSubTopicItemsCount > 0
-                ? deepSubTopicItemsCount
-                : directItems.count
+        let exerciseCount = subTopicExerciseKeys.isEmpty
+            ? directExerciseKeys.count
+            : subTopicExerciseKeys.count
 
         return KmiExerciseCountStats(
-            subTopicCount:
-                visibleSubTopics.count,
-            exerciseCount:
-                exerciseCount
+            subTopicCount: visibleSubTopics.count,
+            exerciseCount: exerciseCount
         )
     }
 
@@ -410,34 +624,43 @@ enum KmiExerciseCountProvider {
     }
 
     private nonisolated static func hardSectionExerciseCount(
+        belt: Belt,
         topicTitle: String
     ) -> Int {
-        let candidates =
-            hardSectionCandidates(
-                topicTitle
-            )
+        let cleanTopic = normalize(topicTitle)
+        let candidates = hardSectionCandidates(cleanTopic)
 
         for candidate in candidates {
-            let sections =
-                HardSectionsCatalog.shared
-                    .sectionsForSubject(
-                        subjectId:
-                            candidate
-                    ) ?? []
+            var exerciseKeys = Set<String>()
 
-            let count =
-                sections.reduce(0) {
-                    partial,
-                    section in
+            let sections = HardSectionsCatalog.shared
+                .sectionsForSubject(subjectId: candidate) ?? []
 
-                    partial +
-                        hardSectionDeepCount(
-                            section
-                        )
-                }
+            for section in sections {
+                collectHardSectionExerciseKeys(
+                    section,
+                    belt: belt,
+                    topicTitle: cleanTopic,
+                    into: &exerciseKeys
+                )
+            }
 
-            if count > 0 {
-                return count
+            if !exerciseKeys.isEmpty {
+                return exerciseKeys.count
+            }
+
+            if let section = HardSectionsCatalog.shared
+                .findAnySectionById(sectionId: candidate) {
+                collectHardSectionExerciseKeys(
+                    section,
+                    belt: belt,
+                    topicTitle: cleanTopic,
+                    into: &exerciseKeys
+                )
+            }
+
+            if !exerciseKeys.isEmpty {
+                return exerciseKeys.count
             }
         }
 
@@ -477,10 +700,20 @@ enum KmiExerciseCountProvider {
                 "rolls_breakfalls"
 
         case "בעיטות",
-             "topic_kicks",
-             "kicks":
+             "topic_kicks":
             mappedId =
-                "kicks"
+                "topic_kicks"
+
+        case "הגנות נגד בעיטות",
+             "kicks",
+             "kicks_hard":
+            mappedId =
+                "kicks_hard"
+
+        case "מכות יד",
+             "hands_strikes":
+            mappedId =
+                "hands_strikes"
 
         default:
             mappedId = nil
@@ -504,40 +737,40 @@ enum KmiExerciseCountProvider {
         return result
     }
 
-    private nonisolated static func hardSectionDeepCount(
-        _ section:
-            HardSectionsCatalog.Section
-    ) -> Int {
-        var ownItems =
-            Set<String>()
+    private nonisolated static func collectHardSectionExerciseKeys(
+        _ section: HardSectionsCatalog.Section,
+        belt: Belt,
+        topicTitle: String,
+        into keys: inout Set<String>
+    ) {
+        guard !Task.isCancelled else {
+            return
+        }
 
-        for group in section.beltGroups {
+        for group in section.beltGroups where group.belt == belt {
             for item in group.items {
-                let cleanItem =
-                    normalizeItem(item)
+                guard !Task.isCancelled else {
+                    return
+                }
 
-                if !cleanItem.isEmpty {
-                    ownItems.insert(
-                        cleanItem
-                    )
+                if let key = exerciseIdentityKey(
+                    belt: belt,
+                    topicTitle: topicTitle,
+                    rawItem: item
+                ) {
+                    keys.insert(key)
                 }
             }
         }
 
-        let childCount =
-            section.subSections.reduce(0) {
-                partial,
-                child in
-
-                partial +
-                    hardSectionDeepCount(
-                        child
-                    )
-            }
-
-        return
-            ownItems.count +
-            childCount
+        for child in section.subSections {
+            collectHardSectionExerciseKeys(
+                child,
+                belt: belt,
+                topicTitle: topicTitle,
+                into: &keys
+            )
+        }
     }
 
     private nonisolated static func uniqueNormalizedItems(
@@ -560,11 +793,41 @@ enum KmiExerciseCountProvider {
         return result
     }
 
+    private nonisolated static func exerciseIdentityKey(
+        belt: Belt,
+        topicTitle: String,
+        rawItem: String
+    ) -> String? {
+        let cleanItem = normalizeItem(rawItem)
+
+        guard !cleanItem.isEmpty else {
+            return nil
+        }
+
+        let resolved = ExerciseIdentityRegistry.shared
+            .resolve(
+                belt: belt,
+                hebrewTitle: cleanItem,
+                topicKey: normalize(topicTitle)
+            )
+
+        let resolvedID = resolved.id
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return resolvedID.isEmpty ? cleanItem : resolvedID
+    }
+
     private nonisolated static func normalizeItem(
         _ value: String
     ) -> String {
-        normalize(value)
-            .lowercased()
+        let displayName = ExerciseTitleFormatter.shared
+            .displayName(raw: value)
+
+        let sourceName = displayName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ? value : displayName
+
+        return normalize(sourceName)
     }
 
     private nonisolated static func normalize(

@@ -220,6 +220,61 @@ enum KmiAppTheme {
             : rgb(0x410002)
     }
 
+    // צבעי פעולות התפריט המהיר בהתאם ל־Android.
+    enum QuickAction {
+        case trainingArchive
+        case freeTrainings
+        case stretching
+    }
+
+    struct QuickActionColors {
+        let background: Color
+        let content: Color
+    }
+
+    static func quickActionColors(
+        for action: QuickAction,
+        scheme: ColorScheme
+    ) -> QuickActionColors {
+        switch (scheme, action) {
+        case (.dark, .trainingArchive):
+            return QuickActionColors(
+                background: rgb(0x312E81),
+                content: rgb(0xC4B5FD)
+            )
+
+        case (.dark, .freeTrainings):
+            return QuickActionColors(
+                background: rgb(0x042F2E),
+                content: rgb(0x5EEAD4)
+            )
+
+        case (.dark, .stretching):
+            return QuickActionColors(
+                background: rgb(0x172554),
+                content: rgb(0x93C5FD)
+            )
+
+        case (_, .trainingArchive):
+            return QuickActionColors(
+                background: rgb(0xF0ECFF),
+                content: rgb(0x6D4CFF)
+            )
+
+        case (_, .freeTrainings):
+            return QuickActionColors(
+                background: rgb(0xE0F2F1),
+                content: rgb(0x00897B)
+            )
+
+        case (_, .stretching):
+            return QuickActionColors(
+                background: rgb(0xE3F2FD),
+                content: rgb(0x1976D2)
+            )
+        }
+    }
+
     private static func rgb(
         _ value: UInt32
     ) -> Color {

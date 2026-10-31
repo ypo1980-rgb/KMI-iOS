@@ -168,7 +168,7 @@ struct BeltArcPicker: View {
                 }
 
                 if snap != prevIndex {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    KmiFeedbackManager.shared.tap()
                 }
             }
     }
@@ -178,10 +178,17 @@ struct BeltArcPicker: View {
             .onChanged { v in
                 activeCircleDragIndex = index
 
-                let delta = v.translation.width / step
+                if dragStartCenter == nil {
+                    dragStartCenter = centerValue
+                }
 
-                let nextCenter = (CGFloat(index) + delta)
-                    .clamped(to: 0...CGFloat(Swift.max(0, belts.count - 1)))
+                let start = dragStartCenter ?? centerValue
+                let delta = -(v.translation.width / step)
+
+                let nextCenter = (start + delta)
+                    .clamped(
+                        to: 0...CGFloat(Swift.max(0, belts.count - 1))
+                    )
 
                 centerValue = nextCenter
             }
@@ -201,24 +208,38 @@ struct BeltArcPicker: View {
                 }
 
                 if snap != prevIndex {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    KmiFeedbackManager.shared.tap()
                 }
             }
     }
 
     private func snapToIndex(_ index: Int) {
-        let snap = index.clamped(to: 0...max(0, belts.count - 1))
-        centerValue = CGFloat(snap)
-        if belts.indices.contains(snap) {
-            selectedBelt = belts[snap]
+        guard !belts.isEmpty else {
+            return
         }
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+
+        let previousIndex = currentIndex
+        let snap = index.clamped(to: 0...belts.count - 1)
+
+        centerValue = CGFloat(snap)
+
+        guard belts.indices.contains(snap) else {
+            return
+        }
+
+        selectedBelt = belts[snap]
+
+        if snap != previousIndex {
+            KmiFeedbackManager.shared.tap()
+        }
     }
 
     private struct BeltCircle: View {
         let belt: Belt
         let isCenter: Bool
         let isEnglish: Bool
+
+        @State private var exerciseCount: Int?
 
         var body: some View {
             let fill = BeltPalette.color(for: belt).opacity(0.96)
@@ -232,15 +253,54 @@ struct BeltArcPicker: View {
                     )
 
                 if isCenter {
-                    Text(centerText(for: belt))
-                        .font(.system(size: isEnglish ? 12 : 13, weight: .bold))
-                        .lineSpacing(isEnglish ? 1 : 0)
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(textColor(for: belt))
-                        .minimumScaleFactor(0.78)
-                        .lineLimit(2)
-                        .padding(8)
+                    VStack(spacing: 2) {
+                        Text(centerText(for: belt))
+                            .font(.system(size: isEnglish ? 12 : 13, weight: .bold))
+                            .lineSpacing(isEnglish ? 1 : 0)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(textColor(for: belt))
+                            .minimumScaleFactor(0.78)
+                            .lineLimit(2)
+
+                        if let exerciseCount {
+                            Text(
+                                KmiExerciseCountProvider.countText(
+                                    stats: KmiExerciseCountStats(
+                                        subTopicCount: 0,
+                                        exerciseCount: exerciseCount
+                                    ),
+                                    isEnglish: isEnglish
+                                )
+                            )
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(
+                                textColor(for: belt).opacity(0.92)
+                            )
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        }
+                    }
+                    .padding(8)
                 }
+            }
+            .task(id: isCenter ? belt.id : "") {
+                guard isCenter else {
+                    exerciseCount = nil
+                    return
+                }
+
+                exerciseCount = nil
+
+                let count = await KmiExerciseCountProvider
+                    .beltExerciseCountInBackground(
+                        beltId: belt.id
+                    )
+
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                exerciseCount = count
             }
         }
 

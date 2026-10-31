@@ -147,20 +147,26 @@ struct BeltQuestionsByBeltView: View {
     }
     
     private func exercisesCountText(_ count: Int) -> String {
-        if isEnglish {
-            return count == 1 ? "1 exercise" : "\(count) exercises"
-        } else {
-            return count == 1 ? "תרגיל 1" : "\(count) תרגילים"
-        }
+        KmiExerciseCountProvider.countText(
+            stats: KmiExerciseCountStats(
+                subTopicCount: 0,
+                exerciseCount: count
+            ),
+            isEnglish: isEnglish
+        )
     }
     
-    private func subTopicsAndExercisesText(subTopicsCount: Int, exercisesCount: Int) -> String {
-        if isEnglish {
-            let subText = subTopicsCount == 1 ? "1 sub-topic" : "\(subTopicsCount) sub-topics"
-            return "\(subText) · \(exercisesCountText(exercisesCount))"
-        } else {
-            return "\(subTopicsCount) תתי נושאים · \(exercisesCountText(exercisesCount))"
-        }
+    private func subTopicsAndExercisesText(
+        subTopicsCount: Int,
+        exercisesCount: Int
+    ) -> String {
+        KmiExerciseCountProvider.combinedCountText(
+            stats: KmiExerciseCountStats(
+                subTopicCount: subTopicsCount,
+                exerciseCount: exercisesCount
+            ),
+            isEnglish: isEnglish
+        )
     }
     
     private func beltDisplayTitle(_ belt: Belt) -> String {
@@ -333,6 +339,8 @@ struct BeltQuestionsByBeltView: View {
          * ל-ContentRepo בכל render.
          */
         let subTitles: [String]
+
+        let generalNote: String
     }
     
     private struct TopicDetailsUi {
@@ -666,7 +674,16 @@ struct BeltQuestionsByBeltView: View {
                 linkedSubjects:
                     [],
                 subTitles:
-                    details.subTitles
+                    details.subTitles,
+                generalNote:
+                    ContentRepo.shared
+                        .getTopicGeneralNote(
+                            belt: targetBelt,
+                            topicTitle: title
+                        )?
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ) ?? ""
             )
         }
     }
@@ -743,6 +760,8 @@ struct BeltQuestionsByBeltView: View {
         title: String,
         action: () -> Void
     ) {
+        KmiFeedbackManager.shared.tap()
+
         closeQuickMenuForNavigation()
 
         let accessMode =
@@ -1538,8 +1557,9 @@ struct BeltQuestionsByBeltView: View {
             Text(
                 uiTopicTitle(title)
             )
-            .kmiTypography(
-                .cardTitle
+            .kmiFont(
+                size: 20,
+                weight: .heavy
             )
             .foregroundStyle(
                 byBeltTitleColor
@@ -1557,17 +1577,19 @@ struct BeltQuestionsByBeltView: View {
                     : .trailing
             )
             .lineLimit(2)
+            .fixedSize(
+                horizontal: false,
+                vertical: true
+            )
 
             if !cleanSubtitle.isEmpty {
 
                 Text(
                     cleanSubtitle
                 )
-                .kmiTypography(
-                    .caption
-                )
-                .fontWeight(
-                    .heavy
+                .kmiFont(
+                    size: 14,
+                    weight: .heavy
                 )
                 .foregroundStyle(
                     byBeltRowSubColor
@@ -1585,6 +1607,10 @@ struct BeltQuestionsByBeltView: View {
                         : .trailing
                 )
                 .lineLimit(2)
+                .fixedSize(
+                    horizontal: false,
+                    vertical: true
+                )
             }
         }
     }
@@ -2313,18 +2339,21 @@ struct BeltQuestionsByBeltView: View {
                 )
         }
         .onChange(
-            of:
-                effectiveLanguageCode
+            of: effectiveLanguageCode
         ) { _, _ in
-
             topicFrames.removeAll()
             expandedTopic = nil
+            quickMenuOpen = false
 
             ensureBeltTopicsCache(
-                for:
-                    selectedBelt,
-                force:
-                    true
+                for: selectedBelt
+            )
+
+            NotificationCenter.default.post(
+                name: Notification.Name(
+                    "KMI_TOP_TITLE_OVERRIDE"
+                ),
+                object: screenTitleForMode
             )
         }
         .onReceive(
@@ -3032,19 +3061,7 @@ struct BeltQuestionsByBeltView: View {
         rowMinHeight: CGFloat
     ) -> some View {
 
-        let topicGeneralNote =
-            ContentRepo.shared
-                .getTopicGeneralNote(
-                    belt:
-                        selectedBelt,
-                    topicTitle:
-                        topicTitle
-                )?
-                .trimmingCharacters(
-                    in:
-                        .whitespacesAndNewlines
-                )
-            ?? ""
+        let topicGeneralNote = entry.generalNote
 
         VStack(spacing: 0) {
 
@@ -3087,31 +3104,31 @@ struct BeltQuestionsByBeltView: View {
             minHeight:
                 rowMinHeight
         )
+        .background {
+            RoundedRectangle(
+                cornerRadius: 16,
+                style: .continuous
+            )
+            .fill(byBeltSubTopicsBackground)
+        }
+        .overlay {
+            RoundedRectangle(
+                cornerRadius: 16,
+                style: .continuous
+            )
+            .stroke(
+                byBeltSubTopicsBorder,
+                lineWidth: 0.7
+            )
+        }
         .padding(
             .horizontal,
             10
         )
         .padding(
             .vertical,
-            1
+            3
         )
-        .contentShape(
-            RoundedRectangle(
-                cornerRadius: 18,
-                style: .continuous
-            )
-        )
-        .onTapGesture {
-
-            openTopicFromByBelt(
-                topicTitle:
-                    topicTitle,
-                hasSubs:
-                    hasSubs,
-                isExpanded:
-                    isExpanded
-            )
-        }
     }
 
     @ViewBuilder
@@ -3123,7 +3140,7 @@ struct BeltQuestionsByBeltView: View {
         locked: Bool,
         generalNote: String,
         accent: Color,
-        rowMinHeight _: CGFloat
+        rowMinHeight: CGFloat
     ) -> some View {
 
         HStack(spacing: 0) {
@@ -3295,6 +3312,15 @@ struct BeltQuestionsByBeltView: View {
             .vertical,
             4
         )
+        .frame(minHeight: rowMinHeight)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            openTopicFromByBelt(
+                topicTitle: topicTitle,
+                hasSubs: hasSubs,
+                isExpanded: isExpanded
+            )
+        }
     }
 
     @ViewBuilder
@@ -3450,11 +3476,9 @@ struct BeltQuestionsByBeltView: View {
                             itemCount
                         )
                     )
-                    .kmiTypography(
-                        .caption
-                    )
-                    .fontWeight(
-                        .bold
+                    .kmiFont(
+                        size: 14,
+                        weight: .bold
                     )
                     .foregroundStyle(
                         readableBeltAccent
@@ -3565,7 +3589,7 @@ struct BeltQuestionsByBeltView: View {
         )
         .frame(
             minHeight:
-                48
+                56
         )
         .background(
             Color.clear
@@ -3602,11 +3626,15 @@ struct BeltQuestionsByBeltView: View {
                         subTitle
                     )
                 )
-                .kmiTypography(
-                    .cardTitle
+                .kmiFont(
+                    size: 18,
+                    weight: .bold
                 )
                 .foregroundStyle(
                     byBeltTitleColor
+                )
+                .multilineTextAlignment(
+                    isEnglish ? .leading : .trailing
                 )
                 .lineLimit(
                     2
@@ -3751,8 +3779,9 @@ struct BeltQuestionsByBeltView: View {
                     Text(
                         "Full topic"
                     )
-                    .kmiTypography(
-                        .cardTitle
+                    .kmiFont(
+                        size: 18,
+                        weight: .bold
                     )
                     .foregroundStyle(
                         byBeltTitleColor
@@ -3813,8 +3842,9 @@ struct BeltQuestionsByBeltView: View {
                     Text(
                         "כל הנושא"
                     )
-                    .kmiTypography(
-                        .cardTitle
+                    .kmiFont(
+                        size: 18,
+                        weight: .bold
                     )
                     .foregroundStyle(
                         byBeltTitleColor
@@ -3941,7 +3971,7 @@ struct BeltQuestionsByBeltView: View {
             maxWidth: .infinity
         )
         .frame(
-            height: 68
+            height: 56
         )
         .background(
             KmiAppTheme
@@ -3975,8 +4005,9 @@ struct BeltQuestionsByBeltView: View {
         ) {
 
             Text(title)
-                .kmiTypography(
-                    .action
+                .kmiFont(
+                    size: 18,
+                    weight: .heavy
                 )
                 .foregroundStyle(
                     KmiAppTheme
@@ -4038,25 +4069,20 @@ struct BeltQuestionsByBeltView: View {
     
     @ViewBuilder
     private var byBeltContent: some View {
+        GeometryReader { geometry in
+            let rowMinHeight: CGFloat = 64
 
-        let rowMinHeight: CGFloat =
-            54
+            let wheelClearance: CGFloat = 112
+            let cardHeaderAllowance: CGFloat = 40
 
-        let visibleRows: CGFloat =
-            6
+            let listHeight = max(
+                0,
+                geometry.size.height
+                    - wheelClearance
+                    - cardHeaderAllowance
+            )
 
-        let listHeight: CGFloat =
-            rowMinHeight
-            * visibleRows
-            + 10
-
-        let fabSize: CGFloat =
-            120
-
-        let fabClearance: CGFloat =
-            fabSize * 0.34
-
-        VStack(spacing: 0) {
+            VStack(spacing: 0) {
 
             VStack(spacing: 0) {
 
@@ -4065,8 +4091,9 @@ struct BeltQuestionsByBeltView: View {
                         ? "Topics in Belt"
                         : "נושאים בחגורה"
                 )
-                .kmiTypography(
-                    .sectionTitle
+                .kmiFont(
+                    size: 20,
+                    weight: .heavy
                 )
                 .foregroundStyle(
                     byBeltTitleColor
@@ -4205,15 +4232,8 @@ struct BeltQuestionsByBeltView: View {
 
                                     if index !=
                                         beltTopicsUi.count - 1 {
-
-                                        Divider()
-                                            .overlay(
-                                                byBeltCardBorderColor
-                                            )
-                                            .padding(
-                                                .horizontal,
-                                                18
-                                            )
+                                        Spacer()
+                                            .frame(height: 2)
                                     }
                                 }
                             }
@@ -4228,7 +4248,14 @@ struct BeltQuestionsByBeltView: View {
                         .onChange(
                             of: selectedBelt
                         ) { _, _ in
-
+                            proxy.scrollTo(
+                                "topics_top_anchor",
+                                anchor: .top
+                            )
+                        }
+                        .onChange(
+                            of: effectiveLanguageCode
+                        ) { _, _ in
                             proxy.scrollTo(
                                 "topics_top_anchor",
                                 anchor: .top
@@ -4282,10 +4309,6 @@ struct BeltQuestionsByBeltView: View {
                 .horizontal,
                 6
             )
-            .padding(
-                .bottom,
-                fabClearance + 2
-            )
         }
         .frame(
             maxWidth: .infinity,
@@ -4295,6 +4318,7 @@ struct BeltQuestionsByBeltView: View {
         .allowsHitTesting(
             !quickMenuOpen
         )
+        }
     }
    
     private var stickyHeaderOverlay: some View {

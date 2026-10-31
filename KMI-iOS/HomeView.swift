@@ -210,8 +210,16 @@ struct HomeView: View {
     @AppStorage("kmi.home.quickMenu.centerFraction")
     private var homeQuickMenuCenterFraction: Double = 0.5
 
+    @AppStorage("kmi.belt.quickMenu.bottomOffset")
+    private var sharedQuickMenuBottomOffset: Double = -1
+
     @State private var homeQuickMenuDragStartY: CGFloat?
     @State private var homeQuickMenuDragY: CGFloat?
+
+    @State private var homeQuickMenuGlowActive = false
+
+    @Environment(\.accessibilityReduceMotion)
+    private var reduceHomeQuickMenuMotion
     
     // Global exercise search result
     @State private var pickedExercise: ExerciseSelection? = nil
@@ -684,6 +692,8 @@ struct HomeView: View {
     private func runPremiumHomeAction(
         _ action: @escaping () -> Void
     ) {
+        KmiFeedbackManager.shared.tap()
+
         clearExpiredSubscriptionFlagsIfNeeded()
 
         withAnimation(
@@ -1737,7 +1747,8 @@ struct HomeView: View {
                     "ארכיון אימונים",
                     "Training Archive"
                 ) + lockSuffix,
-                systemImage: "clock.arrow.circlepath"
+                systemImage: "clock.arrow.circlepath",
+                actionType: .trainingArchive
             ) {
                 runPremiumHomeAction {
                     let sources = effectiveUpcomingTrainings.map { training in
@@ -1763,7 +1774,8 @@ struct HomeView: View {
                     "אימונים חופשיים",
                     "Free Trainings"
                 ) + lockSuffix,
-                systemImage: "plus"
+                systemImage: "plus",
+                actionType: .freeTrainings
             ) {
                 runPremiumHomeAction {
                     let branch = freeSessionsBranch
@@ -2319,15 +2331,141 @@ struct HomeView: View {
         .contentShape(Rectangle())
     }
 
+    private func homeQuickMenuHandleContentColor(
+        _ color: Color
+    ) -> Color {
+        let uiColor = UIColor(color)
+
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        guard uiColor.getRed(
+            &red,
+            green: &green,
+            blue: &blue,
+            alpha: &alpha
+        ) else {
+            return .white
+        }
+
+        func linearComponent(_ value: CGFloat) -> CGFloat {
+            if value <= 0.04045 {
+                return value / 12.92
+            }
+
+            return CGFloat(
+                pow(
+                    Double((value + 0.055) / 1.055),
+                    2.4
+                )
+            )
+        }
+
+        let luminance =
+            0.2126 * linearComponent(red) +
+            0.7152 * linearComponent(green) +
+            0.0722 * linearComponent(blue)
+
+        return luminance < 0.55 ? .white : .black
+    }
+
+    private func readableHomeQuickMenuAccent(
+        _ color: Color
+    ) -> Color {
+        let uiColor = UIColor(color)
+
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        guard uiColor.getRed(
+            &red,
+            green: &green,
+            blue: &blue,
+            alpha: &alpha
+        ) else {
+            return color
+        }
+
+        func linearComponent(_ value: CGFloat) -> CGFloat {
+            if value <= 0.04045 {
+                return value / 12.92
+            }
+
+            return CGFloat(
+                pow(
+                    Double((value + 0.055) / 1.055),
+                    2.4
+                )
+            )
+        }
+
+        let luminance =
+            0.2126 * linearComponent(red) +
+            0.7152 * linearComponent(green) +
+            0.0722 * linearComponent(blue)
+
+        let targetColor: Color
+        let amount: CGFloat
+
+        if luminance > 0.72 {
+            targetColor = colorScheme == .dark
+                ? KmiAppTheme.surface(for: colorScheme)
+                : KmiAppTheme.onSurface(for: colorScheme)
+
+            amount = 0.34
+        } else if luminance < 0.12,
+                  colorScheme == .dark {
+            targetColor = KmiAppTheme.onSurface(
+                for: colorScheme
+            )
+
+            amount = 0.38
+        } else {
+            return color
+        }
+
+        var targetRed: CGFloat = 0
+        var targetGreen: CGFloat = 0
+        var targetBlue: CGFloat = 0
+        var targetAlpha: CGFloat = 0
+
+        guard UIColor(targetColor).getRed(
+            &targetRed,
+            green: &targetGreen,
+            blue: &targetBlue,
+            alpha: &targetAlpha
+        ) else {
+            return color
+        }
+
+        return Color(
+            .sRGB,
+            red: Double(red + (targetRed - red) * amount),
+            green: Double(green + (targetGreen - green) * amount),
+            blue: Double(blue + (targetBlue - blue) * amount),
+            opacity: Double(alpha + (targetAlpha - alpha) * amount)
+        )
+    }
+
     private var quickMenuOverlay: some View {
         GeometryReader { geo in
-            let accent = KmiBeltPalette.color(
-                for: BeltFlow.nextBeltForUser(
-                    registeredBelt: resolvedBelt
+            let accent = readableHomeQuickMenuAccent(
+                KmiBeltPalette.color(
+                    for: BeltFlow.nextBeltForUser(
+                        registeredBelt: resolvedBelt
+                    )
                 )
             )
 
+            let handleContentColor =
+                homeQuickMenuHandleContentColor(accent)
+
             let railWidth: CGFloat = 46
+            let openRailWidth: CGFloat = 50.6
             let closedHeight: CGFloat = 58
             let availableHeight = max(0, geo.size.height - 16)
             let preferredPanelHeight =
@@ -2341,9 +2479,18 @@ struct HomeView: View {
             let visibleHeight =
                 showHomeQuickMenu ? panelHeight : closedHeight
 
+            // כשהתפריט פתוח, הידית נמצאת בתחתיתו.
+            let handleOffsetFromCenter = showHomeQuickMenu
+                ? max(0, (panelHeight - closedHeight) / 2)
+                : 0
+
+            let visibleWidth = showHomeQuickMenu
+                ? openRailWidth
+                : railWidth
+
             let centerX = isEnglish
-                ? railWidth / 2
-                : geo.size.width - railWidth / 2
+                ? visibleWidth / 2
+                : geo.size.width - visibleWidth / 2
 
             let minCenterY = visibleHeight / 2 + 8
 
@@ -2357,9 +2504,19 @@ struct HomeView: View {
                 1
             )
 
+            let savedHandleY: CGFloat =
+                sharedQuickMenuBottomOffset >= 0
+                    ? (
+                        geo.size.height
+                        - geo.safeAreaInsets.bottom
+                        - CGFloat(sharedQuickMenuBottomOffset)
+                        - closedHeight / 2
+                    )
+                    : CGFloat(savedFraction) * geo.size.height
+
             let requestedCenterY =
                 homeQuickMenuDragY ??
-                CGFloat(savedFraction) * geo.size.height
+                (savedHandleY - handleOffsetFromCenter)
 
             let centerY = min(
                 max(requestedCenterY, minCenterY),
@@ -2382,8 +2539,24 @@ struct HomeView: View {
             let onHandleDragEnded: () -> Void = {
                 if let finalY = homeQuickMenuDragY,
                    geo.size.height > 0 {
+                    let finalHandleY =
+                        finalY + handleOffsetFromCenter
+
                     homeQuickMenuCenterFraction = Double(
-                        finalY / geo.size.height
+                        min(
+                            max(finalHandleY / geo.size.height, 0),
+                            1
+                        )
+                    )
+
+                    let bottomOffset =
+                        geo.size.height
+                        - geo.safeAreaInsets.bottom
+                        - finalHandleY
+                        - closedHeight / 2
+
+                    sharedQuickMenuBottomOffset = Double(
+                        max(0, bottomOffset)
                     )
                 }
 
@@ -2393,6 +2566,20 @@ struct HomeView: View {
 
             ZStack {
                 if showHomeQuickMenu {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            withAnimation(
+                                .spring(
+                                    response: 0.25,
+                                    dampingFraction: 0.90
+                                )
+                            ) {
+                                showHomeQuickMenu = false
+                            }
+                        }
+                        .accessibilityHidden(true)
+
                     ScrollView(.vertical, showsIndicators: false) {
                         HomePremiumQuickMenuPanel(
                             title: tr("תפריט מהיר", "Quick Menu"),
@@ -2414,7 +2601,7 @@ struct HomeView: View {
                         )
                     }
                     .frame(
-                        width: railWidth,
+                        width: openRailWidth,
                         height: panelHeight
                     )
                     .background(accent.opacity(0.96))
@@ -2445,20 +2632,90 @@ struct HomeView: View {
                     Image(systemName: "line.3.horizontal")
                         .kmiIconSize(20)
                         .fontWeight(.bold)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(handleContentColor)
                         .frame(
-                            width: railWidth,
+                            width: 24,
                             height: closedHeight
                         )
-                        .background(accent.opacity(0.96))
-                        .clipShape(
-                            UnevenRoundedRectangle(
-                                topLeadingRadius: isEnglish ? 0 : 18,
-                                bottomLeadingRadius: isEnglish ? 0 : 18,
-                                bottomTrailingRadius: isEnglish ? 18 : 0,
-                                topTrailingRadius: isEnglish ? 18 : 0
+                        .background(
+                            LinearGradient(
+                                colors: [
+                                    accent.opacity(0.76),
+                                    accent,
+                                    accent.opacity(0.90)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
                             )
                         )
+                        .overlay(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.30),
+                                    Color.white.opacity(0.08),
+                                    Color.clear,
+                                    Color.black.opacity(0.10)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .clipShape(
+                            UnevenRoundedRectangle(
+                                topLeadingRadius: isEnglish ? 0 : 22,
+                                bottomLeadingRadius: isEnglish ? 0 : 22,
+                                bottomTrailingRadius: isEnglish ? 22 : 0,
+                                topTrailingRadius: isEnglish ? 22 : 0
+                            )
+                        )
+                        .overlay(
+                            UnevenRoundedRectangle(
+                                topLeadingRadius: isEnglish ? 0 : 22,
+                                bottomLeadingRadius: isEnglish ? 0 : 22,
+                                bottomTrailingRadius: isEnglish ? 22 : 0,
+                                topTrailingRadius: isEnglish ? 22 : 0
+                            )
+                            .stroke(
+                                handleContentColor.opacity(0.72),
+                                lineWidth: 1.25
+                            )
+                            .allowsHitTesting(false)
+                        )
+                        .frame(
+                            width: railWidth,
+                            height: closedHeight,
+                            alignment: isEnglish ? .leading : .trailing
+                        )
+                        .background(
+                            alignment: isEnglish ? .leading : .trailing
+                        ) {
+                            UnevenRoundedRectangle(
+                                topLeadingRadius: isEnglish ? 0 : 22,
+                                bottomLeadingRadius: isEnglish ? 0 : 22,
+                                bottomTrailingRadius: isEnglish ? 22 : 0,
+                                topTrailingRadius: isEnglish ? 22 : 0
+                            )
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        accent.opacity(0.62),
+                                        accent.opacity(0.22),
+                                        .clear
+                                    ],
+                                    startPoint: isEnglish ? .leading : .trailing,
+                                    endPoint: isEnglish ? .trailing : .leading
+                                )
+                            )
+                            .frame(width: 29, height: closedHeight)
+                            .opacity(
+                                reduceHomeQuickMenuMotion
+                                    ? 0.35
+                                    : (homeQuickMenuGlowActive ? 0.55 : 0.20)
+                            )
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                        }
+                        .contentShape(Rectangle())
                         .overlay {
                             BeltQuickMenuGestureView(
                                 onTap: {
@@ -2474,6 +2731,22 @@ struct HomeView: View {
                                 onDragChanged: onHandleDrag,
                                 onDragEnded: onHandleDragEnded
                             )
+                        }
+                        .onAppear {
+                            guard !reduceHomeQuickMenuMotion else {
+                                homeQuickMenuGlowActive = false
+                                return
+                            }
+
+                            withAnimation(
+                                .easeInOut(duration: 1.3)
+                                    .repeatForever(autoreverses: true)
+                            ) {
+                                homeQuickMenuGlowActive = true
+                            }
+                        }
+                        .onDisappear {
+                            homeQuickMenuGlowActive = false
                         }
                         .position(x: centerX, y: centerY)
                         .accessibilityElement()
@@ -6621,16 +6894,19 @@ private struct HomeQuickMenuItem: Identifiable {
     let id: String
     let title: String
     let systemImage: String
+    let actionType: KmiAppTheme.QuickAction
     let action: () -> Void
-    
+
     init(
         title: String,
         systemImage: String,
+        actionType: KmiAppTheme.QuickAction,
         action: @escaping () -> Void
     ) {
         self.id = title + systemImage
         self.title = title
         self.systemImage = systemImage
+        self.actionType = actionType
         self.action = action
     }
 }
@@ -6653,6 +6929,7 @@ private struct HomePremiumQuickMenuPanel: View {
                 HomePremiumQuickMenuRow(
                     title: item.title,
                     systemImage: item.systemImage,
+                    actionType: item.actionType,
                     isEnglish: isEnglish,
                     accentColor: accentColor,
                     action: item.action
@@ -6698,7 +6975,7 @@ private struct HomePremiumQuickMenuPanel: View {
         }
         .padding(.horizontal, 3)
         .padding(.vertical, 5)
-        .frame(width: 46)
+        .frame(width: 50.6)
         .background(accentColor.opacity(0.96))
         .accessibilityLabel(title)
     }
@@ -6719,6 +6996,7 @@ private struct HomePremiumQuickMenuRow: View {
 
     let title: String
     let systemImage: String
+    let actionType: KmiAppTheme.QuickAction
     let isEnglish: Bool
     let accentColor: Color
     let action: () -> Void
@@ -6746,10 +7024,11 @@ private struct HomePremiumQuickMenuRow: View {
         }
     }
 
-    private var iconColor: Color {
-        systemImage == "plus"
-            ? KmiAppTheme.secondary(for: colorScheme)
-            : KmiAppTheme.primary(for: colorScheme)
+    private var actionColors: KmiAppTheme.QuickActionColors {
+        KmiAppTheme.quickActionColors(
+            for: actionType,
+            scheme: colorScheme
+        )
     }
 
     var body: some View {
@@ -6758,18 +7037,16 @@ private struct HomePremiumQuickMenuRow: View {
                 Image(systemName: systemImage)
                     .kmiIconSize(13)
                     .fontWeight(.bold)
-                    .foregroundStyle(iconColor)
+                    .foregroundStyle(actionColors.content)
                     .frame(width: 27, height: 27)
                     .background(
                         Circle()
-                            .fill(
-                                KmiAppTheme.surface(for: colorScheme)
-                            )
+                            .fill(actionColors.background)
                     )
                     .overlay(
                         Circle()
                             .stroke(
-                                iconColor.opacity(0.28),
+                                actionColors.content.opacity(0.28),
                                 lineWidth: 1
                             )
                     )

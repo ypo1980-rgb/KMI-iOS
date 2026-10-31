@@ -7345,6 +7345,9 @@ struct MaterialsPdfItemIOS:
 
 enum MaterialsPdfGeneratorIOS {
 
+    private static let itemHeight: CGFloat = 74
+    private static let itemSpacing: CGFloat = 8
+
     static func create(
         belt: Belt,
         topicTitle: String,
@@ -7362,13 +7365,57 @@ enum MaterialsPdfGeneratorIOS {
 
         let renderer = UIGraphicsPDFRenderer(bounds: pageBounds)
 
-        let fileName = "materials_\(Int(Date().timeIntervalSince1970)).pdf"
+        let safeTopicName = topicTitle
+            .components(
+                separatedBy: CharacterSet.alphanumerics.inverted
+            )
+            .filter { !$0.isEmpty }
+            .joined(separator: "_")
+
+        let topicName = safeTopicName.isEmpty
+            ? belt.id
+            : String(safeTopicName.prefix(80))
+
+        let fileName = isEnglish
+            ? "Belt_Exercises_\(belt.id)_\(topicName).pdf"
+            : "תרגילים_לפי_חגורה_\(belt.id)_\(topicName).pdf"
+
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(fileName)
 
         try renderer.writePDF(to: fileURL) { context in
-            let firstPageCapacity = 6
-            let nextPageCapacity = 8
+            let contentBottom =
+                pageHeight - KmiPdfFooter.CONTENT_BOTTOM_PADDING
+
+            let itemAdvance = itemHeight + itemSpacing
+
+            // כרטיס הסיכום והמרווח שאחריו.
+            let firstPageItemsTop =
+                KmiPdfHeader.CONTENT_TOP + 144
+
+            // כותרת רשימת התרגילים והמרווח שאחריה.
+            let nextPageItemsTop =
+                KmiPdfHeader.CONTENT_TOP + 34
+
+            let firstPageCapacity = max(
+                1,
+                Int(
+                    (
+                        (contentBottom - firstPageItemsTop + itemSpacing)
+                            / itemAdvance
+                    ).rounded(.down)
+                )
+            )
+
+            let nextPageCapacity = max(
+                1,
+                Int(
+                    (
+                        (contentBottom - nextPageItemsTop + itemSpacing)
+                            / itemAdvance
+                    ).rounded(.down)
+                )
+            )
 
             let totalPages: Int = {
                 if items.count <= firstPageCapacity {
@@ -7391,7 +7438,7 @@ enum MaterialsPdfGeneratorIOS {
                     isEnglish: isEnglish
                 )
 
-                var currentY: CGFloat = 136
+                var currentY: CGFloat = KmiPdfHeader.CONTENT_TOP
 
                 if pageNumber == 1 {
                     currentY = drawSummary(
@@ -7485,72 +7532,14 @@ enum MaterialsPdfGeneratorIOS {
         topicTitle: String,
         isEnglish: Bool
     ) {
-        context.setFillColor(UIColor.white.cgColor)
-        context.fill(pageBounds)
-
-        let navy = UIColor(
-            red: 2 / 255,
-            green: 43 / 255,
-            blue: 74 / 255,
-            alpha: 1
-        )
-
-        context.setFillColor(navy.cgColor)
-
-        let headerPath = UIBezierPath()
-        headerPath.move(to: CGPoint(x: pageBounds.width, y: 0))
-        headerPath.addLine(to: CGPoint(x: pageBounds.width, y: 122))
-        headerPath.addLine(to: CGPoint(x: 178, y: 122))
-        headerPath.addLine(to: CGPoint(x: 238, y: 0))
-        headerPath.close()
-        headerPath.fill()
-
-        drawLogo(
+        KmiPdfHeader.draw(
             context: context,
-            center: CGPoint(x: 78, y: 58),
-            radius: 42
-        )
-
-        drawText(
-            isEnglish ? "Belt exercises" : "תרגילים לפי חגורה",
-            in: CGRect(
-                x: 250,
-                y: 28,
-                width: pageBounds.width - 284,
-                height: 38
-            ),
-            font: .systemFont(ofSize: 28, weight: .bold),
-            color: .white,
-            alignment: isEnglish ? .left : .right
-        )
-
-        drawText(
-            String(topicTitle.prefix(52)),
-            in: CGRect(
-                x: 250,
-                y: 68,
-                width: pageBounds.width - 284,
-                height: 28
-            ),
-            font: .systemFont(ofSize: 14, weight: .regular),
-            color: .white,
-            alignment: isEnglish ? .left : .right
-        )
-
-        let formatter = DateFormatter()
-        formatter.dateFormat = "dd/MM/yyyy"
-
-        drawText(
-            "\(isEnglish ? "Generated:" : "תאריך הפקה:") \(formatter.string(from: Date()))",
-            in: CGRect(
-                x: 24,
-                y: 130,
-                width: pageBounds.width - 48,
-                height: 18
-            ),
-            font: .systemFont(ofSize: 9),
-            color: UIColor(red: 80 / 255, green: 100 / 255, blue: 120 / 255, alpha: 1),
-            alignment: isEnglish ? .left : .right
+            pageWidth: pageBounds.width,
+            isEnglish: isEnglish,
+            titleHebrew: "תרגילים לפי חגורה",
+            titleEnglish: "Belt exercises",
+            subtitleHebrew: topicTitle,
+            subtitleEnglish: topicTitle
         )
     }
 
@@ -7597,11 +7586,25 @@ enum MaterialsPdfGeneratorIOS {
             reinforcementTitle
         ]
 
+        func statusParts(
+            for item: MaterialsPdfItemIOS
+        ) -> Set<String> {
+            Set(
+                item.status
+                    .components(separatedBy: " + ")
+                    .map {
+                        $0.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                    }
+                    .filter { !$0.isEmpty }
+            )
+        }
+
         let isCoachReport =
             items.contains { item in
-                coachStatusTitles.contains(
-                    item.status
-                )
+                !statusParts(for: item)
+                    .isDisjoint(with: coachStatusTitles)
             }
 
         /*
@@ -7627,22 +7630,26 @@ enum MaterialsPdfGeneratorIOS {
 
         let notTaughtCount =
             items.filter { item in
-                item.status == notTaughtTitle
+                statusParts(for: item)
+                    .contains(notTaughtTitle)
             }.count
 
         let taughtCount =
             items.filter { item in
-                item.status == taughtTitle
+                statusParts(for: item)
+                    .contains(taughtTitle)
             }.count
 
         let practicedCount =
             items.filter { item in
-                item.status == practicedTitle
+                statusParts(for: item)
+                    .contains(practicedTitle)
             }.count
 
         let reinforcementCount =
             items.filter { item in
-                item.status == reinforcementTitle
+                statusParts(for: item)
+                    .contains(reinforcementTitle)
             }.count
 
         let favoritesCount =
@@ -7763,7 +7770,10 @@ enum MaterialsPdfGeneratorIOS {
 
         for (index, stat) in stats.enumerated() {
             let row = index / 3
-            let column = index % 3
+            let logicalColumn = index % 3
+            let column = isEnglish
+                ? logicalColumn
+                : 2 - logicalColumn
 
             let rect = CGRect(
                 x: container.minX + 12 + CGFloat(column) * (boxWidth + 7),
@@ -7822,7 +7832,7 @@ enum MaterialsPdfGeneratorIOS {
             x: 24,
             y: top,
             width: pageBounds.width - 48,
-            height: 74
+            height: itemHeight
         )
 
         drawRoundedBox(
@@ -7937,9 +7947,11 @@ enum MaterialsPdfGeneratorIOS {
         drawText(
             item.status,
             in: CGRect(
-                x: textX,
+                x: isEnglish
+                    ? textX
+                    : textX + textWidth * 0.45,
                 y: rect.minY + 45,
-                width: textWidth,
+                width: textWidth * 0.55,
                 height: 18
             ),
             font: .systemFont(ofSize: 10.5, weight: .bold),
@@ -7964,10 +7976,12 @@ enum MaterialsPdfGeneratorIOS {
         drawText(
             tags.isEmpty ? "—" : tags.joined(separator: " · "),
             in: CGRect(
-                x: rect.minX + 18,
-                y: rect.minY + 48,
-                width: rect.width - 36,
-                height: 16
+                x: isEnglish
+                    ? textX + textWidth * 0.60
+                    : textX,
+                y: rect.minY + 45,
+                width: textWidth * 0.40,
+                height: 18
             ),
             font: .systemFont(ofSize: 9.5),
             color: item.isExcluded
@@ -7976,7 +7990,7 @@ enum MaterialsPdfGeneratorIOS {
             alignment: isEnglish ? .right : .left
         )
 
-        return rect.maxY + 8
+        return rect.maxY + itemSpacing
     }
 
     private static func drawFooter(
@@ -7986,61 +8000,13 @@ enum MaterialsPdfGeneratorIOS {
         totalPages: Int,
         isEnglish: Bool
     ) {
-        let footerY: CGFloat = 804
-
-        context.setStrokeColor(
-            UIColor(red: 2 / 255, green: 43 / 255, blue: 74 / 255, alpha: 1).cgColor
-        )
-        context.setLineWidth(2)
-        context.move(to: CGPoint(x: 0, y: footerY))
-        context.addLine(to: CGPoint(x: pageBounds.width, y: footerY))
-        context.strokePath()
-
-        drawLogo(
+        KmiPdfFooter.draw(
             context: context,
-            center: CGPoint(x: 38, y: footerY + 22),
-            radius: 13
-        )
-
-        drawText(
-            "Together We Protect",
-            in: CGRect(
-                x: 58,
-                y: footerY + 14,
-                width: 150,
-                height: 18
-            ),
-            font: .systemFont(ofSize: 8.5),
-            color: UIColor(red: 80 / 255, green: 100 / 255, blue: 120 / 255, alpha: 1),
-            alignment: .left
-        )
-
-        drawText(
-            isEnglish
-            ? "Page \(pageNumber) of \(totalPages)"
-            : "עמוד \(pageNumber) מתוך \(totalPages)",
-            in: CGRect(
-                x: 210,
-                y: footerY + 14,
-                width: 175,
-                height: 18
-            ),
-            font: .systemFont(ofSize: 8.5),
-            color: UIColor(red: 80 / 255, green: 100 / 255, blue: 120 / 255, alpha: 1),
-            alignment: .center
-        )
-
-        drawText(
-            "Krav Maga Israel\nwww.kmi.org.il",
-            in: CGRect(
-                x: pageBounds.width - 180,
-                y: footerY + 8,
-                width: 150,
-                height: 30
-            ),
-            font: .systemFont(ofSize: 8),
-            color: UIColor(red: 80 / 255, green: 100 / 255, blue: 120 / 255, alpha: 1),
-            alignment: .right
+            pageWidth: pageBounds.width,
+            pageHeight: pageBounds.height,
+            pageNumber: pageNumber,
+            totalPages: totalPages,
+            isEnglish: isEnglish
         )
     }
 

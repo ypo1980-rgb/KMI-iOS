@@ -2,10 +2,8 @@ import Foundation
 import CryptoKit
 import FirebaseAuth
 import FirebaseFirestore
-
 enum TrainingOverrideRepositoryError:
     LocalizedError {
-
     case missingSignedInUser
     case missingBranch
     case missingGroup
@@ -14,36 +12,27 @@ enum TrainingOverrideRepositoryError:
     case invalidNewStartTime
     case invalidNewEndTime
     case invalidDateRange
-
     var errorDescription: String? {
         switch self {
         case .missingSignedInUser:
             return "No signed-in user"
-
         case .missingBranch:
             return "Missing training branch"
-
         case .missingGroup:
             return "Missing training group"
-
         case .missingOccurrenceKey:
             return "Missing occurrence key"
-
         case .cancellationReasonTooShort:
             return "Cancellation reason is too short"
-
         case .invalidNewStartTime:
             return "Invalid new training start time"
-
         case .invalidNewEndTime:
             return "New training end time must be after start time"
-
         case .invalidDateRange:
             return "Invalid training override date range"
         }
     }
 }
-
 /*
  * שכבת הגישה המרכזית לשינויים באימונים.
  *
@@ -51,29 +40,21 @@ enum TrainingOverrideRepositoryError:
  * לתוך HomeView.
  */
 enum TrainingOverrideRepository {
-
     private static let collectionName =
         "trainingOverrides"
-
     private static let notificationStatusPending =
         "pending"
-
-    private static let sourceIOS =
-        "ios_training_override"
-
+    private static let overrideSource =
+        "android_training_override"
     private static let defaultTrainingDurationMillis:
         Int64 = 90 * 60 * 1000
-
     private static var auth: Auth {
         Auth.auth()
     }
-
     private static var firestore: Firestore {
         Firestore.firestore()
     }
-
     // MARK: - Occurrence identity
-
     /*
      * יצירת מפתח קבוע למופע אימון.
      *
@@ -87,14 +68,12 @@ enum TrainingOverrideRepository {
     ) -> String {
         let originalStartMillis =
             millis(from: training.date)
-
         let originalEndMillis =
             endMillis(
                 for: training,
                 originalStartMillis:
                     originalStartMillis
             )
-
         return buildOccurrenceKey(
             branch: branch,
             group: group,
@@ -107,7 +86,6 @@ enum TrainingOverrideRepository {
                 originalEndMillis
         )
     }
-
     static func buildOccurrenceKey(
         branch: String,
         group: String,
@@ -128,7 +106,6 @@ enum TrainingOverrideRepository {
         ]
         .joined(separator: "|")
     }
-
     /*
      * מזהה מסמך בטוח לשימוש ב־Firestore.
      */
@@ -141,7 +118,6 @@ enum TrainingOverrideRepository {
                     occurrenceKey.utf8
                 )
             )
-
         return digest.map {
             String(
                 format: "%02x",
@@ -150,9 +126,7 @@ enum TrainingOverrideRepository {
         }
         .joined()
     }
-
     // MARK: - Training occurrences
-
     static func syncTrainingOccurrence(
         training: TrainingData,
         branch: String,
@@ -169,14 +143,12 @@ enum TrainingOverrideRepository {
             )
             return
         }
-
         let cleanBranch = branch.trimmingCharacters(
             in: .whitespacesAndNewlines
         )
         let cleanGroup = group.trimmingCharacters(
             in: .whitespacesAndNewlines
         )
-
         guard !cleanBranch.isEmpty else {
             completion(
                 .failure(
@@ -185,7 +157,6 @@ enum TrainingOverrideRepository {
             )
             return
         }
-
         guard !cleanGroup.isEmpty else {
             completion(
                 .failure(
@@ -194,13 +165,11 @@ enum TrainingOverrideRepository {
             )
             return
         }
-
         let originalStartMillis = millis(from: training.date)
         let originalEndMillis = endMillis(
             for: training,
             originalStartMillis: originalStartMillis
         )
-
         let occurrenceKey = buildOccurrenceKey(
             branch: cleanBranch,
             group: cleanGroup,
@@ -210,13 +179,10 @@ enum TrainingOverrideRepository {
             originalStartMillis: originalStartMillis,
             originalEndMillis: originalEndMillis
         )
-
         let occurrenceId = documentIdForOccurrenceKey(
             occurrenceKey
         )
-
         let relevantOverride: TrainingOverride?
-
         if let activeOverride,
            activeOverride.isActive,
            activeOverride.occurrenceKey == occurrenceKey {
@@ -224,7 +190,6 @@ enum TrainingOverrideRepository {
         } else {
             relevantOverride = nil
         }
-
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = Calendar(identifier: .gregorian)
@@ -232,7 +197,6 @@ enum TrainingOverrideRepository {
             identifier: "Asia/Jerusalem"
         )
         formatter.dateFormat = "yyyy-MM-dd"
-
         let data: [String: Any] = [
             "occurrenceId": occurrenceId,
             "occurrenceKey": occurrenceKey,
@@ -262,20 +226,62 @@ enum TrainingOverrideRepository {
             "source": "android_training_occurrence",
             "updatedAt": FieldValue.serverTimestamp()
         ]
-
-        firestore
+        let reference = firestore
             .collection("trainingOccurrences")
             .document(occurrenceId)
-            .setData(data, merge: true) { error in
-                deliverResult(
-                    error: error,
-                    completion: completion
-                )
+
+        // קריאה וכתיבה אטומיות: יצירה מלאה, עדכון רק לשדות המותרים.
+        firestore.runTransaction({ transaction, errorPointer -> Any? in
+            do {
+                let existing = try transaction.getDocument(reference)
+                guard auth.currentUser?.uid == currentUser.uid else {
+                    throw TrainingOverrideRepositoryError.missingSignedInUser
+                }
+
+                if existing.exists {
+                    let stored = existing.data() ?? [:]
+                    // שדות הזהות חייבים להתאים למסמך הקיים; אין לשכתב אותם.
+                    let stringKeys = [
+                        "occurrenceId", "occurrenceKey", "branch", "group", "sessionDate"
+                    ]
+                    let sameStrings = stringKeys.allSatisfy {
+                        (stored[$0] as? String) == (data[$0] as? String)
+                    }
+                    let sameTimes = ["originalStartMillis", "originalEndMillis"].allSatisfy {
+                        (stored[$0] as? NSNumber)?.int64Value
+                            == (data[$0] as? NSNumber)?.int64Value
+                    }
+                    guard sameStrings && sameTimes else {
+                        throw NSError(
+                            domain: "TrainingOverrideRepository",
+                            code: 1,
+                            userInfo: [NSLocalizedDescriptionKey:
+                                "The stored training occurrence identity does not match."]
+                        )
+                    }
+
+                    var update: [String: Any] = [:]
+                    for key in [
+                        "effectiveStartMillis", "effectiveEndMillis", "isCancelled",
+                        "updatedByUid", "updatedAt"
+                    ] {
+                        update[key] = data[key]
+                    }
+                    transaction.updateData(update, forDocument: reference)
+                } else {
+                    transaction.setData(data, forDocument: reference)
+                }
+                return nil
+            } catch {
+                errorPointer?.pointee = error as NSError
+                return nil
             }
+        }) { _, error in
+            deliverResult(error: error, completion: completion)
+        }
     }
 
     // MARK: - Save changes
-
     static func cancelTraining(
         training: TrainingData,
         branch: String,
@@ -289,7 +295,6 @@ enum TrainingOverrideRepository {
             reason.trimmingCharacters(
                 in: .whitespacesAndNewlines
             )
-
         guard cleanReason.count >= 3 else {
             completion(
                 .failure(
@@ -299,7 +304,6 @@ enum TrainingOverrideRepository {
             )
             return
         }
-
         saveOverride(
             training: training,
             branch: branch,
@@ -312,7 +316,6 @@ enum TrainingOverrideRepository {
             completion: completion
         )
     }
-
     static func changeTrainingTime(
         training: TrainingData,
         branch: String,
@@ -333,7 +336,6 @@ enum TrainingOverrideRepository {
             )
             return
         }
-
         guard newEndMillis > newStartMillis else {
             completion(
                 .failure(
@@ -343,13 +345,11 @@ enum TrainingOverrideRepository {
             )
             return
         }
-
         let cleanReason =
             reason
                 .trimmingCharacters(
                     in: .whitespacesAndNewlines
                 )
-
         saveOverride(
             training: training,
             branch: branch,
@@ -365,7 +365,6 @@ enum TrainingOverrideRepository {
             completion: completion
         )
     }
-
     /*
      * ביטול השינוי והחזרת האימון להגדרה המקורית.
      *
@@ -394,24 +393,20 @@ enum TrainingOverrideRepository {
             )
             return
         }
-
         let occurrenceKey =
             buildOccurrenceKey(
                 training: training,
                 branch: branch,
                 group: group
             )
-
         let documentId =
             documentIdForOccurrenceKey(
                 occurrenceKey
             )
-
         let documentReference =
             firestore
                 .collection(collectionName)
                 .document(documentId)
-
         let resolvedChangedByName =
             firstNonEmpty(
                 changedByName,
@@ -419,7 +414,6 @@ enum TrainingOverrideRepository {
                 currentUser.email ?? "",
                 "מאמן"
             )
-
         let updateData: [String: Any] = [
             "isActive": false,
             "restoredByUid":
@@ -433,9 +427,8 @@ enum TrainingOverrideRepository {
             "notificationRequested": true,
             "notificationStatus":
                 notificationStatusPending,
-            "source": sourceIOS
+            "source": overrideSource
         ]
-
         documentReference.updateData(
             updateData
         ) { error in
@@ -445,9 +438,7 @@ enum TrainingOverrideRepository {
             )
         }
     }
-
     // MARK: - Real-time listeners
-
     static func listenForOccurrenceKeys(
         occurrenceKeys: Set<String>,
         onChanged:
@@ -473,54 +464,43 @@ enum TrainingOverrideRepository {
                         }
                 )
             )
-
         guard !cleanOccurrenceKeys.isEmpty else {
             DispatchQueue.main.async {
                 onChanged([:])
                 onInitialLoadFinished()
             }
-
             return TrainingOverrideListenerHandle(
                 registrations: []
             )
         }
-
         let stateQueue =
             DispatchQueue(
                 label:
                     "il.kmi.trainingOverrides.listener"
             )
-
         var overridesByOccurrenceKey:
             [String: TrainingOverride] = [:]
-
         var pendingOccurrenceKeys = Set(cleanOccurrenceKeys)
-
         let registrations =
             cleanOccurrenceKeys.map {
                 occurrenceKey in
-
                 let documentId =
                     documentIdForOccurrenceKey(
                         occurrenceKey
                     )
-
                 return firestore
                     .collection(collectionName)
                     .document(documentId)
                     .addSnapshotListener {
                         snapshot,
                         error in
-
                         if let error {
                             stateQueue.async {
                                 let didFinishInitialLoad =
                                     pendingOccurrenceKeys.remove(occurrenceKey) != nil
                                     && pendingOccurrenceKeys.isEmpty
-
                                 DispatchQueue.main.async {
                                     onError(error)
-
                                     if didFinishInitialLoad {
                                         onInitialLoadFinished()
                                     }
@@ -528,11 +508,9 @@ enum TrainingOverrideRepository {
                             }
                             return
                         }
-
                         let parsed =
                             snapshot?
                                 .toTrainingOverride()
-
                         stateQueue.async {
                             if let parsed,
                                parsed.isActive {
@@ -546,19 +524,15 @@ enum TrainingOverrideRepository {
                                             occurrenceKey
                                     )
                             }
-
                             let currentOverrides =
                                 overridesByOccurrenceKey
-
                             let didFinishInitialLoad =
                                 pendingOccurrenceKeys.remove(occurrenceKey) != nil
                                 && pendingOccurrenceKeys.isEmpty
-
                             DispatchQueue.main.async {
                                 onChanged(
                                     currentOverrides
                                 )
-
                                 if didFinishInitialLoad {
                                     onInitialLoadFinished()
                                 }
@@ -566,13 +540,11 @@ enum TrainingOverrideRepository {
                         }
                     }
             }
-
         return TrainingOverrideListenerHandle(
             registrations:
                 registrations
         )
     }
-
     /*
      * האזנה לכל השינויים בטווח תאריכים.
      *
@@ -600,12 +572,10 @@ enum TrainingOverrideRepository {
                         .invalidDateRange
                 )
             }
-
             return TrainingOverrideListenerHandle(
                 registrations: []
             )
         }
-
         let registration =
             firestore
                 .collection(collectionName)
@@ -622,14 +592,12 @@ enum TrainingOverrideRepository {
                 .addSnapshotListener {
                     snapshot,
                     error in
-
                     if let error {
                         DispatchQueue.main.async {
                             onError(error)
                         }
                         return
                     }
-
                     let overrides =
                         Dictionary(
                             uniqueKeysWithValues:
@@ -644,14 +612,12 @@ enum TrainingOverrideRepository {
                                         String,
                                         TrainingOverride
                                     )? in
-
                                     guard let override =
                                             document
                                                 .toTrainingOverride(),
                                           override.isActive else {
                                         return nil
                                     }
-
                                     return (
                                         override
                                             .occurrenceKey,
@@ -659,21 +625,17 @@ enum TrainingOverrideRepository {
                                     )
                                 }
                         )
-
                     DispatchQueue.main.async {
                         onChanged(overrides)
                     }
                 }
-
         return TrainingOverrideListenerHandle(
             registrations: [
                 registration
             ]
         )
     }
-
     // MARK: - Single read
-
     static func getOverride(
         occurrenceKey: String,
         completion:
@@ -689,7 +651,6 @@ enum TrainingOverrideRepository {
                 .trimmingCharacters(
                     in: .whitespacesAndNewlines
                 )
-
         guard !cleanOccurrenceKey.isEmpty else {
             completion(
                 .failure(
@@ -699,19 +660,16 @@ enum TrainingOverrideRepository {
             )
             return
         }
-
         let documentId =
             documentIdForOccurrenceKey(
                 cleanOccurrenceKey
             )
-
         firestore
             .collection(collectionName)
             .document(documentId)
             .getDocument {
                 snapshot,
                 error in
-
                 if let error {
                     DispatchQueue.main.async {
                         completion(
@@ -720,7 +678,6 @@ enum TrainingOverrideRepository {
                     }
                     return
                 }
-
                 let override =
                     snapshot?
                         .toTrainingOverride()
@@ -729,7 +686,6 @@ enum TrainingOverrideRepository {
                             ? $0
                             : nil
                         }
-
                 DispatchQueue.main.async {
                     completion(
                         .success(override)
@@ -737,9 +693,7 @@ enum TrainingOverrideRepository {
                 }
             }
     }
-
     // MARK: - Private save
-
     private static func saveOverride(
         training: TrainingData,
         branch: String,
@@ -767,17 +721,14 @@ enum TrainingOverrideRepository {
             )
             return
         }
-
         let cleanBranch =
             branch.trimmingCharacters(
                 in: .whitespacesAndNewlines
             )
-
         let cleanGroup =
             group.trimmingCharacters(
                 in: .whitespacesAndNewlines
             )
-
         guard !cleanBranch.isEmpty else {
             completion(
                 .failure(
@@ -787,7 +738,6 @@ enum TrainingOverrideRepository {
             )
             return
         }
-
         guard !cleanGroup.isEmpty else {
             completion(
                 .failure(
@@ -797,17 +747,14 @@ enum TrainingOverrideRepository {
             )
             return
         }
-
         let originalStartMillis =
             millis(from: training.date)
-
         let originalEndMillis =
             endMillis(
                 for: training,
                 originalStartMillis:
                     originalStartMillis
             )
-
         let occurrenceKey =
             buildOccurrenceKey(
                 branch: cleanBranch,
@@ -820,12 +767,10 @@ enum TrainingOverrideRepository {
                 originalEndMillis:
                     originalEndMillis
             )
-
         let documentId =
             documentIdForOccurrenceKey(
                 occurrenceKey
             )
-
         let cleanChangedByName =
             firstNonEmpty(
                 changedByName,
@@ -833,22 +778,18 @@ enum TrainingOverrideRepository {
                 currentUser.email ?? "",
                 "מאמן"
             )
-
         let documentReference =
             firestore
                 .collection(collectionName)
                 .document(documentId)
-
         firestore.runTransaction({
             transaction,
             errorPointer -> Any? in
-
             do {
                 let existingSnapshot =
                     try transaction.getDocument(
                         documentReference
                     )
-
                 var data: [String: Any] = [
                     "overrideId":
                         documentId,
@@ -899,9 +840,8 @@ enum TrainingOverrideRepository {
                     "notificationStatus":
                         notificationStatusPending,
                     "source":
-                        sourceIOS
+                        overrideSource
                 ]
-
                 if let newStartMillis {
                     data["newStartMillis"] =
                         newStartMillis
@@ -909,7 +849,6 @@ enum TrainingOverrideRepository {
                     data["newStartMillis"] =
                         FieldValue.delete()
                 }
-
                 if let newEndMillis {
                     data["newEndMillis"] =
                         newEndMillis
@@ -917,19 +856,16 @@ enum TrainingOverrideRepository {
                     data["newEndMillis"] =
                         FieldValue.delete()
                 }
-
                 if !existingSnapshot.exists {
                     data["createdAt"] =
                         FieldValue.serverTimestamp()
                 }
-
                 transaction.setData(
                     data,
                     forDocument:
                         documentReference,
                     merge: true
                 )
-
                 return nil
             } catch {
                 errorPointer?.pointee =
@@ -939,16 +875,13 @@ enum TrainingOverrideRepository {
         }) {
             _,
             error in
-
             deliverResult(
                 error: error,
                 completion: completion
             )
         }
     }
-
     // MARK: - Date helpers
-
     private static func millis(
         from date: Date
     ) -> Int64 {
@@ -957,7 +890,6 @@ enum TrainingOverrideRepository {
             * 1000
         )
     }
-
     private static func endMillis(
         for training: TrainingData,
         originalStartMillis: Int64
@@ -967,12 +899,10 @@ enum TrainingOverrideRepository {
                 .trimmingCharacters(
                     in: .whitespacesAndNewlines
                 )
-
         let components =
             cleanEndText.split(
                 separator: ":"
             )
-
         guard components.count == 2,
               let hour =
                 Int(components[0]),
@@ -983,7 +913,6 @@ enum TrainingOverrideRepository {
             return originalStartMillis
                 + defaultTrainingDurationMillis
         }
-
         var dateComponents =
             Calendar.current.dateComponents(
                 [
@@ -993,11 +922,9 @@ enum TrainingOverrideRepository {
                 ],
                 from: training.date
             )
-
         dateComponents.hour = hour
         dateComponents.minute = minute
         dateComponents.second = 0
-
         guard var endDate =
                 Calendar.current.date(
                     from: dateComponents
@@ -1005,10 +932,8 @@ enum TrainingOverrideRepository {
             return originalStartMillis
                 + defaultTrainingDurationMillis
         }
-
         let startDate =
             training.date
-
         /*
          * אימון שמסתיים אחרי חצות.
          */
@@ -1021,12 +946,9 @@ enum TrainingOverrideRepository {
                 )
                 ?? endDate
         }
-
         return millis(from: endDate)
     }
-
     // MARK: - Text helpers
-
     private static func normalizeIdentityPart(
         _ rawValue: String
     ) -> String {
@@ -1057,7 +979,6 @@ enum TrainingOverrideRepository {
                 )
             )
     }
-
     private static func firstNonEmpty(
         _ values: String...
     ) -> String {
@@ -1072,7 +993,6 @@ enum TrainingOverrideRepository {
             }
             ?? ""
     }
-
     private static func deliverResult(
         error: Error?,
         completion:
@@ -1091,18 +1011,14 @@ enum TrainingOverrideRepository {
         }
     }
 }
-
 // MARK: - Firestore parsing
-
 private extension DocumentSnapshot {
-
     func toTrainingOverride()
         -> TrainingOverride? {
         guard exists,
               let data = data() else {
             return nil
         }
-
         let occurrenceKey =
             (
                 data["occurrenceKey"]
@@ -1112,11 +1028,9 @@ private extension DocumentSnapshot {
             .trimmingCharacters(
                 in: .whitespacesAndNewlines
             )
-
         guard !occurrenceKey.isEmpty else {
             return nil
         }
-
         guard let type =
                 TrainingOverrideType
                     .fromFirestoreValue(
@@ -1125,7 +1039,6 @@ private extension DocumentSnapshot {
                     ) else {
             return nil
         }
-
         guard let originalStartMillis =
                 int64Value(
                     data[
@@ -1140,7 +1053,6 @@ private extension DocumentSnapshot {
                 ) else {
             return nil
         }
-
         return TrainingOverride(
             documentId:
                 documentID,
@@ -1212,26 +1124,21 @@ private extension DocumentSnapshot {
                 ?? ""
         )
     }
-
     private func int64Value(
         _ value: Any?
     ) -> Int64? {
         if let value = value as? Int64 {
             return value
         }
-
         if let value = value as? Int {
             return Int64(value)
         }
-
         if let value = value as? NSNumber {
             return value.int64Value
         }
-
         if let value = value as? Double {
             return Int64(value)
         }
-
         return nil
     }
 }

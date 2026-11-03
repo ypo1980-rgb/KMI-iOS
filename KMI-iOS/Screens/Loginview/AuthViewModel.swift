@@ -337,6 +337,11 @@ final class AuthViewModel: ObservableObject {
                 self.isSignedIn = (user != nil)
 
                 if let user {
+                    #if DEBUG && canImport(FirebaseCore) && canImport(FirebaseFirestore)
+                    Task { @MainActor [weak self] in
+                        await self?.debugFirebaseAuthorization(uid: user.uid)
+                    }
+                    #endif
                     /*
                      * טעינת הפרופיל מנוהלת באמצעות
                      * isProfileLoading.
@@ -438,6 +443,72 @@ final class AuthViewModel: ObservableObject {
     }
 
 #if canImport(FirebaseFirestore)
+
+    #if DEBUG && canImport(FirebaseCore) && canImport(FirebaseAuth)
+    // אבחון בלבד: אינו משנה הרשאות, פרופיל או מצב התחברות.
+    private func debugFirebaseAuthorization(uid: String) async {
+        guard !Task.isCancelled,
+              Auth.auth().currentUser?.uid == uid else { return }
+
+        print(
+            "KMI_AUTH_CONTEXT",
+            "uid:", uid,
+            "projectID:", FirebaseApp.app()?.options.projectID ?? "missing",
+            "anonymous:", Auth.auth().currentUser?.isAnonymous ?? false
+        )
+
+        let database = Firestore.firestore()
+        // כאן נדרשת תשובת שרת לצורכי אבחון, ולא אישור ממטמון.
+        do {
+            let document = try await database.collection("admins")
+                .document(uid)
+                .getDocument(source: .server)
+            guard !Task.isCancelled,
+                  Auth.auth().currentUser?.uid == uid else { return }
+            print(
+                "KMI_AUTH_ADMIN_SERVER",
+                "exists:", document.exists,
+                "enabled:", document.data()?["enabled"] as? Bool == true
+            )
+        } catch {
+            guard !Task.isCancelled,
+                  Auth.auth().currentUser?.uid == uid else { return }
+            let details = error as NSError
+            print(
+                "KMI_AUTH_ADMIN_SERVER_FAILED",
+                "domain:", details.domain,
+                "code:", details.code
+            )
+        }
+
+        do {
+            let document = try await database.collection("authorizedCoaches")
+                .document(uid)
+                .getDocument(source: .server)
+            guard !Task.isCancelled,
+                  Auth.auth().currentUser?.uid == uid else { return }
+            let data = document.data() ?? [:]
+            print(
+                "KMI_AUTH_COACH_SERVER",
+                "exists:", document.exists,
+                "active:", data["active"] as? Bool == true,
+                "coachRole:", data["role"] as? String == "coach",
+                "canManageAttendance:", data["canManageAttendance"] as? Bool == true,
+                "authorizedBranchGroupCount:",
+                (data["authorizedBranchGroups"] as? [String])?.count ?? 0
+            )
+        } catch {
+            guard !Task.isCancelled,
+                  Auth.auth().currentUser?.uid == uid else { return }
+            let details = error as NSError
+            print(
+                "KMI_AUTH_COACH_SERVER_FAILED",
+                "domain:", details.domain,
+                "code:", details.code
+            )
+        }
+    }
+    #endif
 
     private func hasServerCoachAccess(
         uid: String

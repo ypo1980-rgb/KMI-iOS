@@ -7880,30 +7880,55 @@ enum MaterialsPdfGeneratorIOS {
             ),
             font: .systemFont(ofSize: 13, weight: .bold),
             color: UIColor(red: 15 / 255, green: 23 / 255, blue: 42 / 255, alpha: 1),
-            alignment: isEnglish ? .left : .right
+            alignment: isEnglish ? .left : .right,
+            isEnglish: isEnglish
+        )
+
+        let selectedStatusTitles = Set(
+            item.status
+                .components(separatedBy: " + ")
+                .map {
+                    $0.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                }
+                .filter { !$0.isEmpty }
         )
 
         let statusColor: UIColor = {
-            if item.status == (
-                isEnglish ? "Known" : "יודע"
-            ) || item.status == (
-                isEnglish ? "Taught" : "נלמד"
+            if selectedStatusTitles.contains(
+                isEnglish
+                    ? "Needs reinforcement"
+                    : "נדרש חיזוק"
             ) {
                 return UIColor(
-                    red: 47 / 255,
-                    green: 155 / 255,
-                    blue: 78 / 255,
+                    red: 242 / 255,
+                    green: 140 / 255,
+                    blue: 40 / 255,
                     alpha: 1
                 )
             }
 
-            if item.status == (
+            if selectedStatusTitles.contains(
                 isEnglish ? "Practiced" : "תורגל"
             ) {
                 return UIColor(
                     red: 52 / 255,
                     green: 120 / 255,
                     blue: 212 / 255,
+                    alpha: 1
+                )
+            }
+
+            if selectedStatusTitles.contains(
+                isEnglish ? "Known" : "יודע"
+            ) || selectedStatusTitles.contains(
+                isEnglish ? "Taught" : "נלמד"
+            ) {
+                return UIColor(
+                    red: 47 / 255,
+                    green: 155 / 255,
+                    blue: 78 / 255,
                     alpha: 1
                 )
             }
@@ -7956,7 +7981,8 @@ enum MaterialsPdfGeneratorIOS {
             ),
             font: .systemFont(ofSize: 10.5, weight: .bold),
             color: statusColor,
-            alignment: isEnglish ? .left : .right
+            alignment: isEnglish ? .left : .right,
+            isEnglish: isEnglish
         )
 
         var tags: [String] = []
@@ -7987,7 +8013,8 @@ enum MaterialsPdfGeneratorIOS {
             color: item.isExcluded
             ? UIColor(red: 220 / 255, green: 38 / 255, blue: 38 / 255, alpha: 1)
             : UIColor(red: 80 / 255, green: 100 / 255, blue: 120 / 255, alpha: 1),
-            alignment: isEnglish ? .right : .left
+            alignment: isEnglish ? .right : .left,
+            isEnglish: isEnglish
         )
 
         return rect.maxY + itemSpacing
@@ -8084,11 +8111,19 @@ enum MaterialsPdfGeneratorIOS {
         in rect: CGRect,
         font: UIFont,
         color: UIColor,
-        alignment: NSTextAlignment
+        alignment: NSTextAlignment,
+        isEnglish: Bool? = nil
     ) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = alignment
         paragraph.lineBreakMode = .byTruncatingTail
+
+        if let isEnglish {
+            paragraph.baseWritingDirection =
+                KmiPdfDirection.textDirection(
+                    isEnglish: isEnglish
+                )
+        }
 
         (text as NSString).draw(
             with: rect,

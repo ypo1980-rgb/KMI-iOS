@@ -875,7 +875,19 @@ final class AttendanceRepository {
             "updatedAt": FieldValue.serverTimestamp()
         ]
 
-        try await reference.setData(data, merge: true)
+        // בעדכון קבוצה קיימת אין לכתוב מחדש את הזהות השמורה.
+        // כך גם וריאציות מקפים שמובילות לאותו groupId נשארות תואמות לכללים.
+        do {
+            try await reference.updateData([
+                "updatedAtMillis": Int64(Date().timeIntervalSince1970 * 1_000),
+                "updatedAt": FieldValue.serverTimestamp()
+            ])
+        } catch {
+            try Task.checkCancellation()
+            // יצירה ראשונה עדיין מחייבת סניף וקבוצה והרשאת שרת מתאימה.
+            // אם זו דחיית הרשאה בקבוצה קיימת, גם הכתיבה הזו תיבדק בכללים.
+            try await reference.setData(data, merge: true)
+        }
     }
 
     private enum OwnAttendanceError: Error {
@@ -1733,6 +1745,9 @@ final class AttendanceRepository {
         groupKey: String
     ) async throws -> [AttendanceMember] {
         guard let remoteMembersSource else {
+            #if DEBUG
+            print("KMI_ATTENDANCE_READ_FAILED stage: members-source-missing")
+            #endif
             throw NSError(
                 domain: "AttendanceRepository",
                 code: 7,
@@ -1772,11 +1787,18 @@ final class AttendanceRepository {
             )
         }
 
-        let members = try await remoteMembersSource.loadMembers(
-            ownerUid: owner,
-            branchName: branch,
-            groupKey: group
-        )
+        let members: [AttendanceMember]
+
+        do {
+            members = try await remoteMembersSource.loadMembers(
+                ownerUid: owner,
+                branchName: branch,
+                groupKey: group
+            )
+        } catch {
+            debugAttendanceReadFailure(stage: "members", error: error)
+            throw error
+        }
 
         try Task.checkCancellation()
 
@@ -1833,45 +1855,105 @@ final class AttendanceRepository {
         groupKey: String,
         dateIso: String
     ) async throws -> [AttendanceRecord] {
-        let snapshot = try await attendanceGroupReference(
-            branchName: branchName,
-            groupKey: groupKey
-        )
-        .collection("sessions")
-        .document(dateIso)
-        .collection("records")
-        .getDocuments()
+        let snapshot: QuerySnapshot
 
-        return snapshot.documents.compactMap {
-            document -> AttendanceRecord? in
-
-            let data = document.data()
-
-            let storedMemberId = int64Value(
-                data["memberId"]
+        do {
+            snapshot = try await attendanceGroupReference(
+                branchName: branchName,
+                groupKey: groupKey
             )
+            .collection("sessions")
+            .document(dateIso)
+            .collection("records")
+            .getDocuments()
+        } catch {
+            debugAttendanceReadFailure(stage: "records", error: error)
+            throw error
+        }
 
+        try Task.checkCancellation()
+
+        // Android: שעת האימון המעודכנת קודמת לשעה שנשמרה ברשומה.
+        let occurrenceIds = Set(snapshot.documents.compactMap { document -> String? in
+            let value = (document.data()["occurrenceId"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return value.isEmpty ? nil : value
+        })
+        var effectiveStartByOccurrenceId: [String: Int64] = [:]
+
+        for occurrenceId in occurrenceIds.sorted() {
+            try Task.checkCancellation()
+
+            // מזהה מסמך יחיד בלבד, ללא נתיב שמקורו בנתוני הרשומה.
+            guard !occurrenceId.contains("/") else { continue }
+
+            do {
+                let document = try await Firestore.firestore()
+                    .collection("trainingOccurrences")
+                    .document(occurrenceId)
+                    .getDocument()
+                let effectiveStart = int64Value(
+                    document.data()?["effectiveStartMillis"]
+                )
+
+                if effectiveStart > 0 {
+                    effectiveStartByOccurrenceId[occurrenceId] = effectiveStart
+                }
+            } catch {
+                try Task.checkCancellation()
+                // כמו Android: כשל במידע המשלים משאיר את שעת ה-fallback.
+                debugAttendanceReadFailure(stage: "occurrence-time", error: error)
+            }
+        }
+
+        try Task.checkCancellation()
+        let nowMillis = Int64(Date().timeIntervalSince1970 * 1_000)
+
+        return snapshot.documents.compactMap { document -> AttendanceRecord? in
+            let data = document.data()
+            let storedMemberId = int64Value(data["memberId"])
             let memberId = storedMemberId > 0
                 ? storedMemberId
                 : (Int64(document.documentID) ?? 0)
 
-            guard memberId > 0 else {
-                return nil
+            guard memberId > 0 else { return nil }
+
+            func statusValue(_ key: String) -> String {
+                (data[key] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             }
 
-            let rawStatus =
-                (data["coachStatus"] as? String)
-                ?? (data["status"] as? String)
-                ?? "UNKNOWN"
+            let occurrenceId = statusValue("occurrenceId")
+            let storedStart = int64Value(data["trainingStartMillis"])
+            let trainingStart = effectiveStartByOccurrenceId[occurrenceId]
+                ?? (storedStart > 0 ? storedStart : Int64.max)
+            let preferredStatus = nowMillis < trainingStart
+                ? statusValue("traineeStatus")
+                : statusValue("coachStatus")
+            let legacyStatus = statusValue("status")
+            let rawStatus = preferredStatus.isEmpty ? legacyStatus : preferredStatus
 
             return AttendanceRecord(
                 id: "\(dateIso)_\(memberId)",
                 dateIso: dateIso,
                 memberId: String(memberId),
-                status: attendanceStatus(from: rawStatus),
+                status: attendanceStatus(from: rawStatus.isEmpty ? "UNKNOWN" : rawStatus),
                 note: data["note"] as? String ?? ""
             )
         }
+    }
+
+    private func debugAttendanceReadFailure(stage: String, error: Error) {
+        #if DEBUG
+        let details = error as NSError
+        // ללא שמות, טלפונים, UID או הודעת שגיאה המכילה נתונים אישיים.
+        print(
+            "KMI_ATTENDANCE_READ_FAILED",
+            "stage:", stage,
+            "domain:", details.domain,
+            "code:", details.code
+        )
+        #endif
     }
 
     func hasSavedAttendanceReport(
@@ -1879,16 +1961,21 @@ final class AttendanceRepository {
         groupKey: String,
         dateIso: String
     ) async throws -> Bool {
-        let snapshot = try await attendanceGroupReference(
-            branchName: branchName,
-            groupKey: groupKey
-        )
-        .collection("reports")
-        .whereField("date", isEqualTo: dateIso)
-        .limit(to: 1)
-        .getDocuments()
+        do {
+            let snapshot = try await attendanceGroupReference(
+                branchName: branchName,
+                groupKey: groupKey
+            )
+            .collection("reports")
+            .whereField("date", isEqualTo: dateIso)
+            .limit(to: 1)
+            .getDocuments()
 
-        return !snapshot.documents.isEmpty
+            return !snapshot.documents.isEmpty
+        } catch {
+            debugAttendanceReadFailure(stage: "saved-report", error: error)
+            throw error
+        }
     }
 
     func loadRecords(
@@ -1997,12 +2084,15 @@ final class AttendanceRepository {
 
         let batch = Firestore.firestore().batch()
 
+        // מוודאים קיום קבוצה בלי לשכתב branch/groupKey במסמך קיים.
+        try await ensureGroupMetadata(branchName: branch, groupKey: group)
+        try Task.checkCancellation()
+        guard Auth.auth().currentUser?.uid == user.uid else {
+            throw CancellationError()
+        }
+
         var groupData = coachFields
         groupData["id"] = groupReference.documentID
-        groupData["branch"] = branch
-        groupData["groupKey"] = group
-        groupData["source"] = "ios_firestore_attendance"
-        groupData["createdAtMillis"] = now
 
         batch.setData(
             groupData,

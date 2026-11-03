@@ -1,15 +1,13 @@
 import Foundation
 import FirebaseFirestore
+import FirebaseAuth
 import CryptoKit
-
 final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
-
     func loadMembers(
         ownerUid: String,
         branchName: String,
         groupKey: String
     ) async throws -> [AttendanceMember] {
-
         /*
          * שומרים את ערכי הסניף והקבוצה לצורך החיפוש.
          * חישוב groupId מנרמל מקפים ורווחים
@@ -19,22 +17,18 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
             branchName.trimmingCharacters(
                 in: .whitespacesAndNewlines
             )
-
         let groupStorageValue =
             groupKey.trimmingCharacters(
                 in: .whitespacesAndNewlines
             )
-
         /*
          * הערכים המנורמלים משמשים רק לחיפוש
          * הגיבוי באוסף users.
          */
         let branchClean =
             normalize(branchStorageValue)
-
         let groupClean =
             normalize(groupStorageValue)
-
         guard !branchStorageValue.isEmpty,
               !groupStorageValue.isEmpty else {
             throw NSError(
@@ -46,14 +40,10 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
                 ]
             )
         }
-
-        try Task.checkCancellation()
-
+        try validateCurrentUser(ownerUid)
         let db = Firestore.firestore()
-
         var existingMembers: [AttendanceMember] = []
         var existingMemberIDsByAuthUID: [String: String] = [:]
-
         /*
          * מקור האמת המשותף ל־Android ול־iOS.
          *
@@ -69,7 +59,6 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
                     groupKey:
                         groupStorageValue
                 )
-
             let groupMembersSnapshot =
                 try await db
                     .collection(
@@ -80,37 +69,23 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
                     )
                     .collection("members")
                     .getDocuments()
-
             let groupMembers =
                 groupMembersSnapshot.documents
                     .compactMap {
                         document
                             -> AttendanceMember? in
-
                         let data =
                             document.data()
-
                         let isActive =
                             data["isActive"]
                                 as? Bool ?? true
-
                         guard isActive else {
                             return nil
                         }
-
-                        let fullName =
-                            ((data["displayName"]
-                                as? String) ??
-                             (data["fullName"]
-                                as? String) ??
-                             (data["name"]
-                                as? String) ??
-                             "")
-                                .trimmingCharacters(
-                                    in:
-                                        .whitespacesAndNewlines
-                                )
-
+                        let fullName = ["displayName", "fullName", "name"]
+                            .compactMap { data[$0] as? String }
+                            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                            .first { !$0.isEmpty } ?? ""
                         let phone =
                             ((data["phone"]
                                 as? String) ??
@@ -121,20 +96,23 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
                                     in:
                                         .whitespacesAndNewlines
                                 )
-
                         guard
                             !fullName.isEmpty ||
                             !phone.isEmpty
                         else {
                             return nil
                         }
-
-                        let memberId =
-                            firestoreIdentifier(
-                                data["id"]
-                            ) ??
-                            document.documentID
-
+                        let storedID = firestoreIdentifier(data["id"])
+                        let memberId: String
+                        if let storedID,
+                           let numericID = Int64(storedID), numericID > 0 {
+                            memberId = String(numericID)
+                        } else if let numericID = Int64(document.documentID), numericID > 0 {
+                            memberId = String(numericID)
+                        } else {
+                            // אין יצירת מזהה חלופי שעלול לנתק היסטוריה.
+                            memberId = storedID ?? document.documentID
+                        }
                         let member = AttendanceMember(
                             id: memberId,
                             fullName:
@@ -144,85 +122,103 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
                             phone: phone,
                             notes: readNotes(from: data)
                         )
-
                         let authUID =
                             (data["authUid"] as? String ?? "")
                                 .trimmingCharacters(
                                     in: .whitespacesAndNewlines
                                 )
-
                         if !authUID.isEmpty {
                             existingMemberIDsByAuthUID[authUID] =
                                 member.id
                         }
-
                         return member
                     }
-
             /*
              * שומרים את חברי הקבוצה הקיימים,
              * וממשיכים לבדוק משתמשים חסרים.
              */
             existingMembers = groupMembers
         }
-
-        /*
-         * גיבוי למידע ישן שטרם הועבר למבנה
-         * attendanceGroups.
-         */
-        let snap =
-            try await db
-                .collection("users")
-                .whereField(
-                    "role",
-                    isEqualTo: "trainee"
+        var resolvedByID: [String: AttendanceMember] = [:]
+        for member in existingMembers {
+            guard let numericID = Int64(member.id),
+                  numericID > 0 else {
+                /*
+                 * לא משנים מזהה קיים באופן אוטומטי.
+                 * נדרש בירור כדי לשמור על ההיסטוריה.
+                 */
+                throw NSError(
+                    domain: "AttendanceFirestoreMembersSource",
+                    code: 2,
+                    userInfo: [
+                        NSLocalizedDescriptionKey:
+                            "An existing attendance member has an invalid identifier."
+                    ]
                 )
+            }
+            resolvedByID[member.id] = member
+        }
+        /*
+         * users משלים חברים חסרים. כשל בו אינו מבטל
+         * רשימת חברים תקינה שכבר התקבלה מ-attendanceGroups.
+         */
+        let snap: QuerySnapshot
+        do {
+            snap = try await db
+                .collection("users")
+                .whereField("role", isEqualTo: "trainee")
                 .getDocuments()
+        } catch {
+            try validateCurrentUser(ownerUid)
+            #if DEBUG
+            let details = error as NSError
+            print(
+                "KMI_ATTENDANCE_READ_FAILED",
+                "stage: supplementary-users",
+                "domain:", details.domain,
+                "code:", details.code
+            )
+            #endif
+
+            guard !resolvedByID.isEmpty else { throw error }
+            return sortedMembers(resolvedByID)
+        }
+        try validateCurrentUser(ownerUid)
 
         let branchCandidates = branchAliases(branchClean)
         let groupCandidates = groupAliases(groupClean)
-
         let rawMembers: [(key: String, member: AttendanceMember)] = snap.documents.compactMap { doc in
             let data = doc.data()
-
             let isActive = data["isActive"] as? Bool ?? true
             guard isActive else {
                 return nil
             }
-
             let fullName =
                 ((data["fullName"] as? String) ??
                  (data["name"] as? String) ??
                  (data["displayName"] as? String) ??
                  "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-
             let email =
                 ((data["email"] as? String) ??
                  (data["emailLower"] as? String) ??
                  "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
-
             let phone =
                 ((data["phone"] as? String) ??
                  (data["phoneNumber"] as? String) ??
                  (data["phone_number"] as? String) ??
                  "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-
             guard !fullName.isEmpty || !email.isEmpty || !phone.isEmpty else {
                 return nil
             }
-
             let storedBranches = branchValues(from: data)
             let storedGroups = groupValues(from: data)
-
             let codec =
                 RegistrationFormState.BranchAssignmentsCodec.self
-
             let matchesAssignment: Bool
-
             if data[codec.firestoreKey] != nil {
                 /*
                  * כאשר קיים שיוך מפורש, הקבוצה
@@ -233,30 +229,24 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
                     data[codec.firestoreKey] as? [Any] else {
                     return nil
                 }
-
                 let assignments = codec.fromFirestoreList(objects)
-
                 matchesAssignment = assignments.contains {
                     assignment in
-
                     let branchMatches = hasSoftMatch(
                         storedValues: [
                             normalizeKey(assignment.branch)
                         ],
                         candidates: branchCandidates
                     )
-
                     let assignedGroups = assignment.groups.reduce(
                         into: Set<String>()
                     ) { result, group in
                         result.formUnion(groupAliases(group))
                     }
-
                     let groupMatches = hasSoftMatch(
                         storedValues: assignedGroups,
                         candidates: groupCandidates
                     )
-
                     return branchMatches && groupMatches
                 }
             } else {
@@ -274,25 +264,19 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
                         candidates: groupCandidates
                     )
             }
-
             guard matchesAssignment else {
                 return nil
             }
-
             let normalizedPhone = phone.filter { $0.isNumber }
-
             let uniqueKey: String = {
                 if !email.isEmpty {
                     return "email:\(email)"
                 }
-
                 if !normalizedPhone.isEmpty {
                     return "phone:\(normalizedPhone)"
                 }
-
                 return "name:\(fullName.lowercased())"
             }()
-
             return (
                 key: uniqueKey,
                 member: AttendanceMember(
@@ -303,14 +287,11 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
                 )
             )
         }
-
         var uniqueMembers: [String: AttendanceMember] = [:]
-
         for item in rawMembers {
             if let existing = uniqueMembers[item.key] {
                 let existingPhone = existing.phone.trimmingCharacters(in: .whitespacesAndNewlines)
                 let incomingPhone = item.member.phone.trimmingCharacters(in: .whitespacesAndNewlines)
-
                 if existingPhone.isEmpty && !incomingPhone.isEmpty {
                     uniqueMembers[item.key] = item.member
                 }
@@ -318,32 +299,8 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
                 uniqueMembers[item.key] = item.member
             }
         }
-
-        var resolvedByID: [String: AttendanceMember] = [:]
-
-        for member in existingMembers {
-            guard let numericID = Int64(member.id),
-                  numericID > 0 else {
-                /*
-                 * לא משנים מזהה קיים באופן אוטומטי.
-                 * נדרש בירור כדי לשמור על ההיסטוריה.
-                 */
-                throw NSError(
-                    domain: "AttendanceFirestoreMembersSource",
-                    code: 2,
-                    userInfo: [
-                        NSLocalizedDescriptionKey:
-                            "An existing attendance member has an invalid identifier."
-                    ]
-                )
-            }
-
-            resolvedByID[member.id] = member
-        }
-
         for candidate in uniqueMembers.values {
-            try Task.checkCancellation()
-
+            try validateCurrentUser(ownerUid)
             /*
              * כאן candidate.id הוא Firebase UID
              * של המשתמש שנמצא באוסף users.
@@ -353,7 +310,6 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
                resolvedByID[memberID] != nil {
                 continue
             }
-
             /*
              * ה־Repository מחפש לפי authUid ואז שם,
              * ומשתמש במזהה מספרי תואם Android.
@@ -369,17 +325,30 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
                     notes: candidate.notes,
                     authUid: candidate.id
                 )
-
             resolvedByID[resolvedMember.id] = resolvedMember
         }
+        try validateCurrentUser(ownerUid)
+        return sortedMembers(resolvedByID)
+    }
 
-        return resolvedByID.values.sorted {
-            $0.fullName.localizedCaseInsensitiveCompare(
-                $1.fullName
-            ) == .orderedAscending
+    private func validateCurrentUser(_ ownerUid: String) throws {
+        try Task.checkCancellation()
+        guard !ownerUid.isEmpty,
+              Auth.auth().currentUser?.uid == ownerUid else {
+            throw CancellationError()
         }
     }
 
+    private func sortedMembers(
+        _ members: [String: AttendanceMember]
+    ) -> [AttendanceMember] {
+        members.values.sorted {
+            let comparison = $0.fullName.localizedCaseInsensitiveCompare($1.fullName)
+            return comparison == .orderedSame
+                ? $0.id < $1.id
+                : comparison == .orderedAscending
+        }
+    }
     private func firestoreIdentifier(
         _ rawValue: Any?
     ) -> String? {
@@ -388,27 +357,21 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
                 value.trimmingCharacters(
                     in: .whitespacesAndNewlines
                 )
-
             return clean.isEmpty
                 ? nil
                 : clean
         }
-
         if let value = rawValue as? Int {
             return String(value)
         }
-
         if let value = rawValue as? Int64 {
             return String(value)
         }
-
         if let value = rawValue as? NSNumber {
             return value.stringValue
         }
-
         return nil
     }
-
     /*
      * העתק מדויק של stablePositiveLong
      * המשמש את Android ליצירת groupId.
@@ -436,30 +399,22 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
                 )
                 .lowercased()
         }
-
         let branch = normalizedIdentity(branchName)
         let group = normalizedIdentity(groupKey)
         let rawValue = "\(branch)|\(group)"
-
         let digest = SHA256.hash(
             data: Data(rawValue.utf8)
         )
-
         var value: UInt64 = 0
-
         for byte in digest.prefix(8) {
             value = (value << 8) | UInt64(byte)
         }
-
         let positiveValue =
             value & UInt64(Int64.max)
-
         let identifier =
             positiveValue == 0 ? 1 : positiveValue
-
         return "g_\(identifier)"
     }
-
     private func readNotes(from data: [String: Any]) -> String {
         ((data["attendanceNotes"] as? String) ??
          (data["coachNotes"] as? String) ??
@@ -467,7 +422,6 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
          "")
         .trimmingCharacters(in: .whitespacesAndNewlines)
     }
-
     private func normalize(_ value: String) -> String {
         value
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -476,11 +430,9 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
             .replacingOccurrences(of: "—", with: "-")
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
     }
-
     private func normalizeKey(_ value: String) -> String {
         normalize(value).lowercased()
     }
-
     private func splitTokens(_ value: String) -> [String] {
         value
             .replacingOccurrences(of: " • ", with: ",")
@@ -492,11 +444,9 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
             .map { normalize(String($0)) }
             .filter { !$0.isEmpty }
     }
-
     private func branchAliases(_ value: String) -> Set<String> {
         let clean = normalize(value)
         guard !clean.isEmpty else { return [] }
-
         return Set([
             clean,
             clean.replacingOccurrences(of: "-", with: "–"),
@@ -507,46 +457,36 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
             clean.replacingOccurrences(of: "־", with: "-")
         ].map { normalizeKey($0) }.filter { !$0.isEmpty })
     }
-
     private func groupAliases(_ value: String) -> Set<String> {
         let clean = normalize(value)
         var aliases = Set<String>()
-
         if !clean.isEmpty {
             aliases.insert(clean)
         }
-
         for token in splitTokens(clean) {
             aliases.insert(token)
         }
-
         if clean.contains("נוער") && clean.contains("בוגרים") {
             aliases.insert("נוער")
             aliases.insert("בוגרים")
             aliases.insert("נוער ובוגרים")
             aliases.insert("נוער + בוגרים")
         }
-
         if clean.localizedCaseInsensitiveContains("children") ||
             clean.localizedCaseInsensitiveContains("kids") {
             aliases.insert("ילדים")
         }
-
         if clean.localizedCaseInsensitiveContains("youth") {
             aliases.insert("נוער")
         }
-
         if clean.localizedCaseInsensitiveContains("adult") ||
             clean.localizedCaseInsensitiveContains("adults") {
             aliases.insert("בוגרים")
         }
-
         return Set(aliases.map { normalizeKey($0) }.filter { !$0.isEmpty })
     }
-
     private func branchValues(from data: [String: Any]) -> Set<String> {
         var values = Set<String>()
-
         let keys = [
             "branch",
             "activeBranch",
@@ -556,7 +496,6 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
             "selected_branch",
             "current_branch"
         ]
-
         for key in keys {
             let raw = ((data[key] as? String) ?? "")
             if splitTokens(raw).isEmpty, !normalize(raw).isEmpty {
@@ -567,18 +506,14 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
                 }
             }
         }
-
         let branches = (data["branches"] as? [String]) ?? []
         for value in branches {
             values.insert(normalizeKey(value))
         }
-
         return values
     }
-
     private func groupValues(from data: [String: Any]) -> Set<String> {
         var values = Set<String>()
-
         let keys = [
             "primaryGroup",
             "activeGroup",
@@ -595,7 +530,6 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
             "selected_groupKey",
             "current_groupKey"
         ]
-
         for key in keys {
             let raw = ((data[key] as? String) ?? "")
             if splitTokens(raw).isEmpty, !normalize(raw).isEmpty {
@@ -606,15 +540,12 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
                 }
             }
         }
-
         let groups = (data["groups"] as? [String]) ?? []
         for value in groups {
             values.formUnion(groupAliases(value))
         }
-
         return values
     }
-
     private func hasSoftMatch(
         storedValues: Set<String>,
         candidates: Set<String>
@@ -624,18 +555,15 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
                 .map { normalizeKey($0) }
                 .filter { !$0.isEmpty }
         )
-
         let requested = Set(
             candidates
                 .map { normalizeKey($0) }
                 .filter { !$0.isEmpty }
         )
-
         guard !stored.isEmpty,
               !requested.isEmpty else {
             return false
         }
-
         return !stored.isDisjoint(with: requested)
     }
 }

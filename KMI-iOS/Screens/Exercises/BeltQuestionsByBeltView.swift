@@ -3,6 +3,10 @@ import UIKit
 import Combine
 import Shared
 
+#if canImport(FirebaseAuth)
+import FirebaseAuth
+#endif
+
 // ✅ CONTENT-ONLY: אין כאן TopBar ואין כאן IconStrip ואין כאן DrawerContainer
 struct BeltQuestionsByBeltView: View {
     
@@ -1673,10 +1677,18 @@ struct BeltQuestionsByBeltView: View {
         )
     }
     
+    private struct BeltPDFStorageContext: Hashable {
+        let topicKey: String
+        let subTopicTitle: String?
+        let nestedSubTopicTitle: String?
+        let indexInsideScope: Int
+    }
+
     private struct BeltPDFSourceRow {
         let topicTitle: String
         let rawItem: String
         let indexInsideTopic: Int
+        let storageContexts: [BeltPDFStorageContext]
     }
 
     private func normalizedPDFStatusPart(
@@ -1709,39 +1721,10 @@ struct BeltQuestionsByBeltView: View {
         _ values: [String]
     ) -> [String] {
         var seen = Set<String>()
-        var result: [String] = []
 
-        for rawValue in values {
-            let cleanValue =
-                rawValue.trimmingCharacters(
-                    in:
-                        .whitespacesAndNewlines
-                )
-
-            guard !cleanValue.isEmpty else {
-                continue
-            }
-
-            let normalizedKey =
-                normalizedPDFStatusPart(
-                    cleanValue
-                )
-                .lowercased()
-
-            guard seen
-                .insert(
-                    normalizedKey
-                )
-                .inserted else {
-                continue
-            }
-
-            result.append(
-                cleanValue
-            )
+        return values.filter {
+            seen.insert($0).inserted
         }
-
-        return result
     }
 
     private func pdfSourceRows(
@@ -1784,11 +1767,49 @@ struct BeltQuestionsByBeltView: View {
                 ContentRepo.shared
                     .getAllItemsFor(
                         belt: belt,
-                        topicTitle:
-                            topicTitle,
-                        subTopicTitle:
-                            nil
+                        topicTitle: topicTitle,
+                        subTopicTitle: nil
                     )
+
+            var contextsByItem:
+                [String: [BeltPDFStorageContext]] = [:]
+
+            func recordContexts(
+                items: [String],
+                subTopicTitle: String? = nil,
+                nestedSubTopicTitle: String? = nil
+            ) {
+                var scopeParts = [topicTitle]
+
+                if let subTopicTitle {
+                    scopeParts.append(subTopicTitle)
+                }
+
+                if let nestedSubTopicTitle {
+                    scopeParts.append(nestedSubTopicTitle)
+                }
+
+                let scopeKey = scopeParts.joined(separator: "__")
+
+                for (index, rawItem) in
+                    uniquePDFItems(items).enumerated() {
+
+                    let context = BeltPDFStorageContext(
+                        topicKey: scopeKey,
+                        subTopicTitle: subTopicTitle,
+                        nestedSubTopicTitle: nestedSubTopicTitle,
+                        indexInsideScope: index
+                    )
+
+                    if !contextsByItem[rawItem, default: []]
+                        .contains(context) {
+                        contextsByItem[rawItem, default: []]
+                            .append(context)
+                    }
+                }
+            }
+
+            recordContexts(items: topicItems)
 
             for rawSubTopicTitle
                 in details.subTitles {
@@ -1806,17 +1827,65 @@ struct BeltQuestionsByBeltView: View {
                     continue
                 }
 
-                topicItems.append(
-                    contentsOf:
-                        ContentRepo.shared
-                            .getAllItemsFor(
-                                belt: belt,
-                                topicTitle:
-                                    topicTitle,
-                                subTopicTitle:
-                                    cleanSubTopicTitle
+                let nestedTitles = uniquePDFItems(
+                    ContentRepo.shared
+                        .getNestedSubTopicTitles(
+                            belt: belt,
+                            topicTitle: topicTitle,
+                            subTopicTitle: cleanSubTopicTitle
+                        )
+                        .map {
+                            $0.trimmingCharacters(
+                                in: .whitespacesAndNewlines
                             )
+                        }
+                        .filter { !$0.isEmpty }
                 )
+
+                var nestedItems: [String] = []
+
+                for nestedTitle in nestedTitles {
+                    let items = uniquePDFItems(
+                        ContentRepo.shared.getNestedItemsFor(
+                            belt: belt,
+                            topicTitle: topicTitle,
+                            subTopicTitle: cleanSubTopicTitle,
+                            nestedSubTopicTitle: nestedTitle
+                        )
+                    )
+
+                    recordContexts(
+                        items: items,
+                        subTopicTitle: cleanSubTopicTitle,
+                        nestedSubTopicTitle: nestedTitle
+                    )
+
+                    nestedItems.append(contentsOf: items)
+                }
+
+                let combinedNestedItems =
+                    uniquePDFItems(nestedItems)
+
+                let subTopicItems: [String]
+
+                if !combinedNestedItems.isEmpty {
+                    subTopicItems = combinedNestedItems
+                } else {
+                    subTopicItems = uniquePDFItems(
+                        ContentRepo.shared.getAllItemsFor(
+                            belt: belt,
+                            topicTitle: topicTitle,
+                            subTopicTitle: cleanSubTopicTitle
+                        )
+                    )
+                }
+
+                recordContexts(
+                    items: subTopicItems,
+                    subTopicTitle: cleanSubTopicTitle
+                )
+
+                topicItems.append(contentsOf: subTopicItems)
             }
 
             let uniqueItems =
@@ -1830,12 +1899,11 @@ struct BeltQuestionsByBeltView: View {
             ) in uniqueItems.enumerated() {
                 result.append(
                     BeltPDFSourceRow(
-                        topicTitle:
-                            topicTitle,
-                        rawItem:
-                            rawItem,
-                        indexInsideTopic:
-                            index
+                        topicTitle: topicTitle,
+                        rawItem: rawItem,
+                        indexInsideTopic: index,
+                        storageContexts:
+                            contextsByItem[rawItem] ?? []
                     )
                 )
             }
@@ -1848,29 +1916,72 @@ struct BeltQuestionsByBeltView: View {
         belt: Belt,
         sourceRow: BeltPDFSourceRow
     ) -> String {
-        let cleanItem =
-            normalizedPDFStatusPart(
-                sourceRow.rawItem
+        let cleanItem = normalizedPDFStatusPart(
+            sourceRow.rawItem
+        )
+
+        let defaults = UserDefaults.standard
+
+        var savedMarks:
+            [(value: String, updatedAt: Double)] = []
+
+        for context in sourceRow.storageContexts {
+            let statusID =
+                "status_\(belt.id)_\(context.topicKey)_" +
+                "\(context.indexInsideScope)_\(cleanItem)"
+
+            guard let value = defaults.string(
+                forKey: "mark.\(statusID)"
+            ) else {
+                continue
+            }
+
+            let updatedAtKey =
+                "trainee_material_updated_at_" +
+                "\(belt.id)_\(context.topicKey)_\(statusID)"
+
+            let storedTime = defaults.double(
+                forKey: updatedAtKey
             )
 
-        let statusId =
-            "status_\(belt.id)_" +
-            "\(sourceRow.topicTitle)_" +
-            "\(sourceRow.indexInsideTopic)_" +
-            cleanItem
-
-        let storedStatus =
-            UserDefaults.standard
-                .string(
-                    forKey:
-                        "mark.\(statusId)"
+            savedMarks.append(
+                (
+                    value: value,
+                    updatedAt: storedTime.isFinite
+                        ? max(0, storedTime)
+                        : 0
                 )
+            )
+        }
+
+        let latestTime = savedMarks
+            .map(\.updatedAt)
+            .max()
+
+        let latestValues = Set(
+            savedMarks
+                .filter { $0.updatedAt == latestTime }
+                .map(\.value)
+        )
+
+        if latestValues.count > 1 {
+            return isEnglish
+                ? "Conflicting marks"
+                : "סימונים סותרים"
+        }
+
+        let storedStatus = latestValues.first
 
         switch storedStatus {
         case "mastered":
             return isEnglish
                 ? "Known"
                 : "יודע"
+
+        case "partiallyKnown":
+            return isEnglish
+                ? "Partially known"
+                : "יודע חלקית"
 
         case "unknown":
             return isEnglish
@@ -1886,19 +1997,44 @@ struct BeltQuestionsByBeltView: View {
 
     private func canonicalPDFId(
         belt: Belt,
-        sourceRow: BeltPDFSourceRow
+        sourceRow: BeltPDFSourceRow,
+        context: BeltPDFStorageContext? = nil
     ) -> String {
-        let cleanItem =
-            sourceRow.rawItem
-                .trimmingCharacters(
-                    in:
-                        .whitespacesAndNewlines
-                )
+        let cleanItem = sourceRow.rawItem
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        return
-            "\(belt.id)||" +
-            "\(sourceRow.topicTitle)||" +
-            "||\(cleanItem)"
+        let subTopicTitle =
+            context?.nestedSubTopicTitle
+            ?? context?.subTopicTitle
+            ?? ""
+
+        return "\(belt.id)||\(sourceRow.topicTitle)||\(subTopicTitle)||\(cleanItem)"
+    }
+
+    private func canonicalPDFIds(
+        belt: Belt,
+        sourceRow: BeltPDFSourceRow
+    ) -> [String] {
+        guard !sourceRow.storageContexts.isEmpty else {
+            return [
+                canonicalPDFId(
+                    belt: belt,
+                    sourceRow: sourceRow
+                )
+            ]
+        }
+
+        var seen = Set<String>()
+
+        return sourceRow.storageContexts.compactMap { context in
+            let id = canonicalPDFId(
+                belt: belt,
+                sourceRow: sourceRow,
+                context: context
+            )
+
+            return seen.insert(id).inserted ? id : nil
+        }
     }
 
     private func pdfDisplayTitle(
@@ -1912,17 +2048,132 @@ struct BeltQuestionsByBeltView: View {
                     isEnglish
             )
 
+        let formattedExercise = ExerciseTitleFormatter.shared
+            .displayName(raw: sourceRow.rawItem)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let exerciseTitle = formattedExercise.isEmpty
+            ? sourceRow.rawItem
+            : formattedExercise
+
         let localizedExercise =
             KmiEnglishTitleResolver.title(
-                for:
-                    sourceRow.rawItem,
-                isEnglish:
-                    isEnglish
+                for: exerciseTitle,
+                isEnglish: isEnglish
             )
 
         return
             "\(localizedTopic) — " +
             localizedExercise
+    }
+
+    private func currentPDFNoteUserID() -> String? {
+        #if canImport(FirebaseAuth)
+        let userID = Auth.auth().currentUser?.uid
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? ""
+
+        return userID.isEmpty ? nil : userID
+        #else
+        return nil
+        #endif
+    }
+
+    private func pdfHasStoredNote(
+        belt: Belt,
+        sourceRow: BeltPDFSourceRow,
+        userID: String?
+    ) -> Bool {
+        guard let userID else {
+            return false
+        }
+
+        let notesStore = ExerciseNotesStore.shared
+
+        let localNoteIDs = canonicalPDFIds(
+            belt: belt,
+            sourceRow: sourceRow
+        )
+        .map { "materials-local:\($0)" }
+
+        let previousNoteIDs: Set<String>
+
+        if let knownID = notesStore.knownExerciseID(
+            belt: belt,
+            title: sourceRow.rawItem,
+            topicKey: sourceRow.topicTitle
+        ) {
+            previousNoteIDs = [knownID]
+        } else {
+            previousNoteIDs = Set(localNoteIDs)
+        }
+
+        guard let resolved = ExerciseIdentityResolverIOS.resolve(
+            belt: belt,
+            topic: sourceRow.topicTitle,
+            rawItem: sourceRow.rawItem
+        ) else {
+            var storedValues = Set<String>()
+
+            for exerciseID in previousNoteIDs {
+                guard notesStore.hasStoredValue(
+                    userID: userID,
+                    beltID: belt.id,
+                    exerciseID: exerciseID
+                ) else {
+                    continue
+                }
+
+                storedValues.insert(
+                    notesStore.load(
+                        userID: userID,
+                        beltID: belt.id,
+                        exerciseID: exerciseID
+                    )
+                )
+            }
+
+            guard storedValues.count == 1,
+                  let value = storedValues.first else {
+                return false
+            }
+
+            return !value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty
+        }
+
+        var previousIDs = resolved.previousIDs
+
+        previousIDs.formUnion(
+            previousNoteIDs.filter {
+                $0 != resolved.primaryID
+            }
+        )
+
+        let identity = ExerciseIdentityResolverIOS.Identity(
+            primaryID: resolved.primaryID,
+            displayTitle: resolved.displayTitle,
+            previousIDs: previousIDs
+        )
+
+        switch notesStore.loadCompatible(
+            userID: userID,
+            beltID: belt.id,
+            identity: identity
+        ) {
+        case .found(let value):
+            return !value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty
+
+        case .missing:
+            return false
+
+        case .conflict:
+            // אין לבחור גרסת הערה באופן אוטומטי בזמן ייצוא.
+            return false
+        }
     }
 
     private func materialsPDFItems(
@@ -1936,24 +2187,8 @@ struct BeltQuestionsByBeltView: View {
                 for: belt
             )
 
-        let practiceFavoriteKeys =
-            Set(
-                (
-                    defaults.stringArray(
-                        forKey:
-                            "practice_favorites"
-                    ) ?? []
-                )
-                .map {
-                    normalizedPDFStatusPart(
-                        $0
-                    )
-                    .lowercased()
-                }
-                .filter {
-                    !$0.isEmpty
-                }
-            )
+        let favoritesStore = ExerciseFavoritesStore.shared
+        let noteUserID = currentPDFNoteUserID()
 
         return sourceRows
             .enumerated()
@@ -1961,60 +2196,21 @@ struct BeltQuestionsByBeltView: View {
                 globalIndex,
                 sourceRow in
 
-                let canonicalId =
-                    canonicalPDFId(
-                        belt: belt,
-                        sourceRow:
-                            sourceRow
-                    )
+                let canonicalIDs = canonicalPDFIds(
+                    belt: belt,
+                    sourceRow: sourceRow
+                )
 
-                let normalizedRawItem =
-                    normalizedPDFStatusPart(
+                let isGlobalFavorite =
+                    favoritesStore.contains(
                         sourceRow.rawItem
                     )
-                    .lowercased()
 
-                let localizedItem =
-                    KmiEnglishTitleResolver
-                        .title(
-                            for:
-                                sourceRow
-                                    .rawItem,
-                            isEnglish:
-                                isEnglish
-                        )
-
-                let normalizedLocalizedItem =
-                    normalizedPDFStatusPart(
-                        localizedItem
-                    )
-                    .lowercased()
-
-                let isCanonicalFavorite =
-                    defaults.bool(
-                        forKey:
-                            "favorite.\(canonicalId)"
-                    )
-
-                let isPracticeFavorite =
-                    practiceFavoriteKeys
-                        .contains(
-                            normalizedRawItem
-                        ) ||
-                    practiceFavoriteKeys
-                        .contains(
-                            normalizedLocalizedItem
-                        )
-
-                let note =
-                    defaults.string(
-                        forKey:
-                            "note.\(canonicalId)"
-                    )?
-                    .trimmingCharacters(
-                        in:
-                            .whitespacesAndNewlines
-                    ) ?? ""
+                let hasStoredNote = pdfHasStoredNote(
+                    belt: belt,
+                    sourceRow: sourceRow,
+                    userID: noteUserID
+                )
 
                 return MaterialsPdfItemIOS(
                     number:
@@ -2031,15 +2227,15 @@ struct BeltQuestionsByBeltView: View {
                                 sourceRow
                         ),
                     isFavorite:
-                        isCanonicalFavorite ||
-                        isPracticeFavorite,
+                        isGlobalFavorite,
                     isExcluded:
-                        defaults.bool(
-                            forKey:
-                                "excluded.\(canonicalId)"
-                        ),
+                        canonicalIDs.contains { id in
+                            defaults.bool(
+                                forKey: "excluded.\(id)"
+                            )
+                        },
                     hasNote:
-                        !note.isEmpty
+                        hasStoredNote
                 )
             }
     }

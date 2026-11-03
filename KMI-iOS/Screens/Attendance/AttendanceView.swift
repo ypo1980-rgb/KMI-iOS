@@ -31,6 +31,11 @@ struct AttendanceView: View {
     @State
     private var isEditingSavedReport: Bool = false
 
+    @State private var reportSavedInCurrentContext = false
+    @State private var attendanceContextToken = UUID()
+    @State private var isAddingMember = false
+    @State private var isClassSelectionExpanded = false
+
     @State
     private var pendingDeleteRow: AttendanceRowUi?
 
@@ -40,20 +45,36 @@ struct AttendanceView: View {
     private let onAssistantTap: () -> Void
     private let showsInternalTopStrip: Bool
 
-    private var isEnglish: Bool {
-        let defaults = UserDefaults.standard
+    @AppStorage("kmi_app_language")
+    private var appLanguageCode: String = ""
 
-        let keys = [
-            "kmi_app_language",
-            "selected_language_code",
-            "app_language",
-            "initial_language_code",
-            "initial_language_selected_code",
-            "kmi.language.code"
+    @AppStorage("selected_language_code")
+    private var selectedLanguageCode: String = ""
+
+    @AppStorage("app_language")
+    private var appLanguageRaw: String = ""
+
+    @AppStorage("initial_language_code")
+    private var initialLanguageCode: String = ""
+
+    @AppStorage("initial_language_selected_code")
+    private var initialLanguageSelectedCode: String = ""
+
+    @AppStorage("kmi.language.code")
+    private var legacyLanguageCode: String = ""
+
+    private var isEnglish: Bool {
+        let values = [
+            appLanguageCode,
+            selectedLanguageCode,
+            appLanguageRaw,
+            initialLanguageCode,
+            initialLanguageSelectedCode,
+            legacyLanguageCode
         ]
 
-        for key in keys {
-            let value = (defaults.string(forKey: key) ?? "")
+        for rawValue in values {
+            let value = rawValue
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
 
@@ -61,9 +82,7 @@ struct AttendanceView: View {
                 return true
             }
 
-            if value == "he" ||
-                value == "hebrew" ||
-                value == "עברית" {
+            if value == "he" || value == "hebrew" || value == "עברית" {
                 return false
             }
         }
@@ -93,14 +112,27 @@ struct AttendanceView: View {
         colorScheme == .dark
     }
 
-    private var canEditAttendance: Bool {
+    private var hasSelectedAttendanceContext: Bool {
+        !vm.state.ownerUid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !vm.state.branchName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !vm.state.groupKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var isAttendanceReportSaved: Bool {
+        vm.isReportSaved || reportSavedInCurrentContext
+    }
+
+    private var isAttendanceContextReady: Bool {
+        hasSelectedAttendanceContext &&
         !vm.state.isSaving &&
         !vm.isContextLoading &&
         !vm.contextLoadFailed &&
-        (
-            !vm.isReportSaved ||
-            isEditingSavedReport
-        )
+        !isAddingMember
+    }
+
+    private var canEditAttendance: Bool {
+        isAttendanceContextReady &&
+        (!isAttendanceReportSaved || isEditingSavedReport)
     }
 
     private var primaryTextColor: Color {
@@ -200,8 +232,11 @@ struct AttendanceView: View {
 
             KmiAppBackground()
 
-            ScrollView {
-                VStack(spacing: 10) {
+            VStack(spacing: 0) {
+                attendanceModeTabs
+
+                ScrollView {
+                VStack(spacing: 8) {
                     attendanceHeroCard
 
                     if vm.contextLoadFailed {
@@ -211,7 +246,7 @@ struct AttendanceView: View {
                     attendanceSummaryCard
 
                     if isAddMemberExpanded &&
-                        !vm.isReportSaved {
+                        !isAttendanceReportSaved {
 
                         addMemberCard
                     }
@@ -247,34 +282,25 @@ struct AttendanceView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .disabled(vm.state.isSaving)
+            }
 
-            if !vm.isReportSaved {
+            if !isAttendanceReportSaved && hasSelectedAttendanceContext {
 
                 VStack {
 
                     Spacer()
 
                     HStack {
-
-                        if isEnglish {
-
-                            addMemberFloatingButton
-
-                            Spacer()
-
-                        } else {
-
-                            Spacer()
-
-                            addMemberFloatingButton
-                        }
+                        addMemberFloatingButton
+                        Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 22)
+                    .environment(\.layoutDirection, .leftToRight)
+                    .padding(.horizontal, 16)
                     .padding(.bottom, 30)
                 }
             }
 
-            if vm.state.isSaving || vm.isContextLoading {
+            if vm.state.isSaving || vm.isContextLoading || isAddingMember {
 
                 KmiLoadingOverlay()
                     .transition(.opacity)
@@ -322,7 +348,10 @@ struct AttendanceView: View {
             request["handled"] = true
             shareReport()
         }
-        .sheet(isPresented: $showShareSheet) {
+        .sheet(
+            isPresented: $showShareSheet,
+            onDismiss: { shareItems.removeAll() }
+        ) {
             AttendanceShareSheet(items: shareItems)
         }
         .sheet(isPresented: $showDatePickerSheet) {
@@ -333,11 +362,17 @@ struct AttendanceView: View {
                     showDatePickerSheet = false
                 },
                 onToday: {
+                    guard !vm.state.isSaving,
+                          !isAddingMember else { return }
+
                     draftAttendanceDate = Date()
                     vm.setDateIso(isoString(from: Date()))
                     showDatePickerSheet = false
                 },
                 onConfirm: {
+                    guard !vm.state.isSaving,
+                          !isAddingMember else { return }
+
                     vm.setDateIso(isoString(from: draftAttendanceDate))
                     showDatePickerSheet = false
                 }
@@ -358,7 +393,15 @@ struct AttendanceView: View {
             titleVisibility: .visible
         ) {
             Button(tr("מחק מתאמן", "Delete trainee"), role: .destructive) {
-                guard let row = pendingDeleteRow else { return }
+                guard canEditAttendance,
+                      let row = pendingDeleteRow,
+                      vm.state.rows.contains(where: {
+                          $0.memberId == row.memberId
+                      }) else {
+                    pendingDeleteRow = nil
+                    return
+                }
+
                 vm.removeMember(memberId: row.memberId)
                 pendingDeleteRow = nil
             }
@@ -411,8 +454,20 @@ struct AttendanceView: View {
 
         .onChange(
             of: vm.state.dateIso
-        ) { _, _ in
+        ) { oldValue, newValue in
             resetAttendanceEditingState()
+
+            let oldMonth = dateComponents(from: oldValue)
+            let newMonth = dateComponents(from: newValue)
+
+            if oldMonth.year != newMonth.year || oldMonth.month != newMonth.month,
+               let year = newMonth.year,
+               let month = newMonth.month {
+                vm.loadSummaryDaysForMonth(
+                    year: year,
+                    month1to12: month
+                )
+            }
         }
         .onChange(
             of: vm.state.branchName
@@ -426,6 +481,7 @@ struct AttendanceView: View {
         }
 
         .onAppear {
+            isClassSelectionExpanded = false
             refreshAssignedAttendanceBranches()
 
             let resolvedCoachName =
@@ -524,6 +580,8 @@ struct AttendanceView: View {
     }
 
     private func resetAttendanceEditingState() {
+        attendanceContextToken = UUID()
+        reportSavedInCurrentContext = false
         isEditingSavedReport = false
         isAddMemberExpanded = false
         pendingDeleteRow = nil
@@ -556,6 +614,7 @@ struct AttendanceView: View {
     private var addMemberFloatingButton: some View {
 
         Button {
+            guard canEditAttendance else { return }
 
             withAnimation(
                 .easeInOut(duration: 0.22)
@@ -602,7 +661,7 @@ struct AttendanceView: View {
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .disabled(vm.state.isSaving)
+        .disabled(!canEditAttendance)
         .accessibilityLabel(
             isAddMemberExpanded
                 ? tr(
@@ -618,32 +677,42 @@ struct AttendanceView: View {
 
     private var attendanceHeroCard: some View {
         let dateText = formattedDate(vm.state.dateIso)
-        let total = displayedAttendanceSummary.totalMembers
 
         return VStack(
             alignment: screenHorizontalAlignment,
-            spacing: 12
+            spacing: 6
         ) {
-            Text(
-                tr(
-                    "בחירת אימון לנוכחות",
-                    "Select attendance class"
-                )
-            )
-            .kmiFont(
-                size: 20,
-                weight: .black
-            )
-            .foregroundStyle(primaryTextColor)
-            .frame(
-                maxWidth: .infinity,
-                alignment: .center
-            )
-            .multilineTextAlignment(.center)
-            .lineLimit(2)
-            .minimumScaleFactor(0.74)
-
             Button {
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    isClassSelectionExpanded.toggle()
+                }
+            } label: {
+                Image(
+                    systemName: isClassSelectionExpanded
+                        ? "chevron.up"
+                        : "chevron.down"
+                )
+                .resizable()
+                .scaledToFit()
+                .fontWeight(.semibold)
+                .foregroundStyle(fieldIconColor)
+                .frame(width: 72, height: 22)
+                .frame(maxWidth: .infinity, minHeight: 36)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(tr("בחירת אימון", "Class selection"))
+            .accessibilityValue(isClassSelectionExpanded
+                ? tr("פתוח", "Expanded") : tr("סגור", "Collapsed"))
+
+            Divider()
+                .overlay(cardBorderColor)
+
+            if isClassSelectionExpanded {
+            Button {
+                guard !vm.state.isSaving,
+                      !isAddingMember else { return }
+
                 draftAttendanceDate =
                     dateFromIso(vm.state.dateIso)
                     ?? Date()
@@ -667,20 +736,29 @@ struct AttendanceView: View {
                 options: vm.availableBranches,
                 selectedValue: Binding(
                     get: { vm.state.branchName },
-                    set: { vm.setBranchName($0) }
+                    set: { value in
+                        guard !vm.state.isSaving,
+                              !isAddingMember,
+                              vm.availableBranches.contains(value),
+                              value != vm.state.branchName else { return }
+
+                        vm.setBranchName(value)
+                    }
                 ),
                 placeholder: tr(
                     "אין אימון בסניפים המשויכים בתאריך זה",
                     "No training at assigned branches on this date"
                 ),
                 isEnglish: isEnglish,
-                isEnabled: !vm.availableBranches.isEmpty,
+                isEnabled: !vm.availableBranches.isEmpty &&
+                    !vm.state.isSaving && !isAddingMember,
                 labelForOption: {
                     TrainingCatalogIOS.displayBranch(
                         $0,
                         isEnglish: isEnglish
                     )
-                }
+                },
+                titleInsideField: true
             )
 
             KmiPremiumDropdown(
@@ -688,156 +766,97 @@ struct AttendanceView: View {
                 options: vm.availableGroups,
                 selectedValue: Binding(
                     get: { vm.state.groupKey },
-                    set: { vm.setGroupKey($0) }
+                    set: { value in
+                        guard !vm.state.isSaving,
+                              !isAddingMember,
+                              vm.availableGroups.contains(value),
+                              value != vm.state.groupKey else { return }
+
+                        vm.setGroupKey(value)
+                    }
                 ),
                 placeholder: tr(
                     "אין קבוצות עם אימון בתאריך זה",
                     "No groups with training on this date"
                 ),
                 isEnglish: isEnglish,
-                isEnabled: !vm.availableGroups.isEmpty,
+                isEnabled: !vm.availableGroups.isEmpty &&
+                    !vm.state.isSaving && !isAddingMember,
                 labelForOption: {
                     TrainingCatalogIOS.displayGroup(
                         $0,
                         isEnglish: isEnglish
                     )
-                }
+                },
+                titleInsideField: true
             )
 
-            Text(
-                isEnglish
-                ? "The list loads by date + branch + group · trainees in class: \(total)"
-                : "הרשימה נטענת לפי תאריך + סניף + קבוצה · מתאמנים בשיעור: \(total)"
-            )
-            .kmiFont(
-                size: 12,
-                weight: .bold
-            )
-            .foregroundStyle(secondaryTextColor)
-            .frame(
-                maxWidth: .infinity,
-                alignment: screenFrameAlignment
-            )
-            .multilineTextAlignment(
-                screenTextAlignment
-            )
-            .lineLimit(3)
-            .minimumScaleFactor(0.74)
-            .padding(.top, 2)
+            }
+            Text(isEnglish
+                ? "Attendance updated: \(attendancePercentText)%"
+                : "עדכון נוכחות: \(attendancePercentText)%")
+                .kmiTypography(.action)
+                .foregroundStyle(KmiAppTheme.secondary(for: colorScheme))
+                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                .multilineTextAlignment(screenTextAlignment)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 15)
-        .background(
-            RoundedRectangle(
-                cornerRadius: 24,
-                style: .continuous
-            )
-            .fill(cardSurfaceColor)
-        )
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 24,
-                style: .continuous
-            )
-            .stroke(
-                cardBorderColor,
-                lineWidth: 1
-            )
-        )
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(cardBorderColor)
+                .frame(height: 1)
+        }
     }
     
     private func premiumSelectionField(
         label: String,
         value: String,
-        icon: String,
+        icon _: String,
         trailingIcon: String?
     ) -> some View {
         HStack(spacing: 10) {
+            if !isEnglish {
+                selectionChevron(trailingIcon)
+            }
+            VStack(alignment: isEnglish ? .leading : .trailing, spacing: 1) {
+                Text(label)
+                    .kmiTypography(.secondary)
+                    .fontWeight(.bold)
+                    .foregroundStyle(secondaryTextColor)
+                Text(value.isEmpty ? "—" : value)
+                    .kmiTypography(.action)
+                    .foregroundStyle(primaryTextColor)
+                    .multilineTextAlignment(screenTextAlignment)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
             if isEnglish {
-                fieldIcon(icon)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(label)
-                        .kmiFont(
-                            size: 11,
-                            weight: .bold
-                        )
-                        .foregroundStyle(secondaryTextColor)
-
-                    Text(value.isEmpty ? "—" : value)
-                        .kmiFont(
-                            size: 14,
-                            weight: .black
-                        )
-                        .foregroundStyle(primaryTextColor)
-                        .lineLimit(2)
-                        .truncationMode(.tail)
-                        .fixedSize(
-                            horizontal: false,
-                            vertical: true
-                        )
-                        .multilineTextAlignment(.leading)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                if let trailingIcon {
-                    Image(systemName: trailingIcon)
-                        .kmiIconSize(13)
-                        .fontWeight(.black)
-                        .foregroundStyle(fieldIconColor)
-                }
-            } else {
-                if let trailingIcon {
-                    Image(systemName: trailingIcon)
-                        .kmiIconSize(13)
-                        .fontWeight(.black)
-                        .foregroundStyle(fieldIconColor)
-                }
-
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text(label)
-                        .kmiFont(
-                            size: 11,
-                            weight: .bold
-                        )
-                        .foregroundStyle(secondaryTextColor)
-
-                    Text(value.isEmpty ? "—" : value)
-                        .kmiFont(
-                            size: 14,
-                            weight: .black
-                        )
-                        .foregroundStyle(primaryTextColor)
-                        .lineLimit(2)
-                        .truncationMode(.tail)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .multilineTextAlignment(.trailing)
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
-
-                fieldIcon(icon)
+                selectionChevron(trailingIcon)
             }
         }
         .environment(\.layoutDirection, .leftToRight)
-        .padding(.horizontal, 13)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(minHeight: 50)
         .background(fieldSurfaceColor)
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: 17,
-                style: .continuous
-            )
-        )
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 17,
-                style: .continuous
-            )
-            .stroke(
-                cardBorderColor,
-                lineWidth: 1
-            )
-        )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(cardBorderColor, lineWidth: 1)
+        }
+    }
+
+    @ViewBuilder
+    private func selectionChevron(_ name: String?) -> some View {
+        if let name {
+            Image(systemName: name)
+                .kmiIconSize(12)
+                .foregroundStyle(fieldIconColor)
+                .frame(width: 24, height: 24)
+                .background(fieldIconSurfaceColor, in: Circle())
+                .accessibilityHidden(true)
+        }
     }
 
     private func fieldIcon(_ name: String) -> some View {
@@ -898,276 +917,115 @@ struct AttendanceView: View {
         )
     }
 
-    private var attendanceSummaryCard: some View {
-        let summary = displayedAttendanceSummary
-        let pct = max(0.0, min(100.0, Double(summary.attendancePercent)))
+    private var attendancePercentText: String {
+        let rows = uniqueMembers(vm.state.rows)
+        let present = rows.filter {
+            $0.status == .present
+        }.count
 
-        return VStack(alignment: screenHorizontalAlignment, spacing: 14) {
-            HStack {
-                if isEnglish {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(
-                            tr(
-                                "סיכום נוכחות",
-                                "Attendance summary"
-                            )
-                        )
-                        .kmiFont(
-                            size: 18,
-                            weight: .heavy
-                        )
-                        .foregroundStyle(primaryTextColor)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.74)
+        let percent = rows.isEmpty
+            ? 0.0
+            : Double(present) * 100.0 / Double(rows.count)
 
-                        Text(
-                            tr(
-                                "נתוני היום הנוכחי",
-                                "Current class data"
-                            )
-                        )
-                        .kmiFont(
-                            size: 12,
-                            weight: .semibold
-                        )
-                        .foregroundStyle(secondaryTextColor)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.74)
-                    }
-
-                    Spacer()
-
-                    Image(systemName: "chart.bar.fill")
-                        .kmiIconSize(17)
-                        .fontWeight(.heavy)
-                        .accessibilityHidden(true)
-                        .foregroundStyle(
-                            KmiAppTheme.secondary(
-                                for: colorScheme
-                            )
-                        )
-                } else {
-                    Image(systemName: "chart.bar.fill")
-                        .kmiIconSize(17)
-                        .fontWeight(.heavy)
-                        .accessibilityHidden(true)
-                        .foregroundStyle(
-                            KmiAppTheme.secondary(
-                                for: colorScheme
-                            )
-                        )
-
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 3) {
-                        Text(
-                            tr(
-                                "סיכום נוכחות",
-                                "Attendance summary"
-                            )
-                        )
-                        .kmiFont(
-                            size: 18,
-                            weight: .heavy
-                        )
-                        .foregroundStyle(primaryTextColor)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.74)
-
-                        Text(
-                            tr(
-                                "נתוני היום הנוכחי",
-                                "Current class data"
-                            )
-                        )
-                        .kmiFont(
-                            size: 12,
-                            weight: .semibold
-                        )
-                        .foregroundStyle(secondaryTextColor)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.74)
-                    }
-                }
-            }
-            .environment(
-                \.layoutDirection,
-                .leftToRight
-            )
-
-            VStack(alignment: screenHorizontalAlignment, spacing: 8) {
-                HStack(alignment: .firstTextBaseline) {
-                    if isEnglish {
-                        Text(
-                            tr(
-                                "אחוז נוכחות",
-                                "Attendance rate"
-                            )
-                        )
-                        .kmiFont(
-                            size: 13,
-                            weight: .heavy
-                        )
-                        .foregroundStyle(
-                            KmiAppTheme.secondary(
-                                for: colorScheme
-                            )
-                        )
-
-                        Spacer()
-
-                        Text("\(summary.attendancePercent)%")
-                            .kmiFont(
-                                size: 28,
-                                weight: .black
-                            )
-                            .foregroundStyle(primaryTextColor)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.72)
-                    } else {
-                        Text("\(summary.attendancePercent)%")
-                            .kmiFont(
-                                size: 28,
-                                weight: .black
-                            )
-                            .foregroundStyle(primaryTextColor)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.72)
-
-                        Spacer()
-
-                        Text(
-                            tr(
-                                "אחוז נוכחות",
-                                "Attendance rate"
-                            )
-                        )
-                        .kmiFont(
-                            size: 13,
-                            weight: .heavy
-                        )
-                        .foregroundStyle(
-                            KmiAppTheme.secondary(
-                                for: colorScheme
-                            )
-                        )
-                    }
-                }
-                .environment(
-                    \.layoutDirection,
-                    .leftToRight
-                )
-
-                ProgressView(
-                    value: pct,
-                    total: 100
-                )
-                .progressViewStyle(.linear)
-                .tint(
-                    KmiAppTheme.secondary(
-                        for: colorScheme
-                    )
-                )
-                .background(
-                    KmiAppTheme.outlineVariant(
-                        for: colorScheme
-                    )
-                    .opacity(0.72)
-                )
-                .clipShape(Capsule())
-                .accessibilityLabel(
-                    tr(
-                        "אחוז נוכחות",
-                        "Attendance rate"
-                    )
-                )
-                .accessibilityValue(
-                    "\(summary.attendancePercent)%"
-                )
-            }
-            .padding(14)
-            .background(elevatedSurfaceColor)
-            .clipShape(
-                RoundedRectangle(
-                    cornerRadius: 18,
-                    style: .continuous
-                )
-            )
-            .overlay(
-                RoundedRectangle(
-                    cornerRadius: 18,
-                    style: .continuous
-                )
-                .stroke(
-                    cardBorderColor,
-                    lineWidth: 1
-                )
-            )
-
-            HStack(spacing: 10) {
-                statPill(
-                    title: tr("סה״כ", "Total"),
-                    value: "\(summary.totalMembers)",
-                    tint: KmiAppTheme.secondary(
-                        for: colorScheme
-                    )
-                )
-
-                statPill(
-                    title: tr("הגיעו", "Present"),
-                    value: summary.presentLabel,
-                    tint: KmiAppTheme.success(
-                        for: colorScheme
-                    )
-                )
-
-                statPill(
-                    title: tr("לא הגיעו", "Absent"),
-                    value: summary.absentLabel,
-                    tint: KmiAppTheme.error(
-                        for: colorScheme
-                    )
-                )
-            }
-
-            HStack(spacing: 10) {
-                statPill(
-                    title: tr("מוצדקים", "Excused"),
-                    value: summary.excusedLabel,
-                    tint: KmiAppTheme.secondary(
-                        for: colorScheme
-                    )
-                )
-
-                statPill(
-                    title: tr("לא סומנו", "Not marked"),
-                    value: summary.unknownLabel,
-                    tint: KmiAppTheme.onSurfaceVariant(
-                        for: colorScheme
-                    )
-                )
-            }
-        }
-        .padding(16)
-        .background(cardSurfaceColor)
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 22,
-                style: .continuous
-            )
-            .stroke(
-                cardBorderColor,
-                lineWidth: 1
-            )
-        )
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: 22,
-                style: .continuous
-            )
+        return String(
+            format: "%.1f",
+            locale: Locale(identifier: "en_US_POSIX"),
+            percent
         )
     }
-    
+
+    private var attendanceSummaryCard: some View {
+        let summary = displayedAttendanceSummary
+        return VStack(alignment: screenHorizontalAlignment, spacing: 12) {
+            Text(tr("נוכחות ממוצעת של הקבוצה בשיעור זה", "Group attendance for this class"))
+                .kmiTypography(.sectionTitle)
+                .fontWeight(.heavy)
+                .foregroundStyle(primaryTextColor)
+                .multilineTextAlignment(screenTextAlignment)
+                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+
+            HStack(spacing: 8) {
+                if isEnglish {
+                    attendanceSummaryValue(title: "Total", value: String(summary.totalMembers))
+                    attendanceSummaryValue(title: "Present", value: summary.presentLabel)
+                    attendanceSummaryValue(title: "Absent", value: summary.absentLabel)
+                } else {
+                    attendanceSummaryValue(title: "נעדרו", value: summary.absentLabel)
+                    attendanceSummaryValue(title: "הגיעו", value: summary.presentLabel)
+                    attendanceSummaryValue(title: "סה״כ", value: String(summary.totalMembers))
+                }
+            }
+            .environment(\.layoutDirection, .leftToRight)
+
+            Text(
+                tr(
+                    "נוכחות: \(attendancePercentText)%",
+                    "Attendance: \(attendancePercentText)%"
+                )
+            )
+                .kmiTypography(.action)
+                .foregroundStyle(KmiAppTheme.secondary(for: colorScheme))
+                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                .multilineTextAlignment(screenTextAlignment)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 16)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(cardBorderColor)
+                .frame(height: 1)
+        }
+    }
+
+    private func attendanceSummaryValue(title: String, value: String) -> some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .kmiTypography(.metric)
+                .foregroundStyle(primaryTextColor)
+            Text(title)
+                .kmiTypography(.action)
+                .foregroundStyle(secondaryTextColor)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var attendanceModeTabs: some View {
+        HStack(spacing: 0) {
+            NavigationLink {
+                AttendanceGroupStatsView(
+                    ownerUid: vm.state.ownerUid,
+                    initialBranchName: vm.state.branchName,
+                    initialGroupKey: vm.state.groupKey
+                )
+            } label: {
+                Text(tr("סטטיסטיקה", "Statistics"))
+                    .frame(maxWidth: .infinity, minHeight: 56)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!isAttendanceContextReady)
+
+            Rectangle()
+                .fill(KmiAppTheme.sectionHeaderContentColor.opacity(0.5))
+                .frame(width: 1, height: 28)
+
+            Text(tr("בחירת אימון", "Class selection"))
+                .frame(maxWidth: .infinity, minHeight: 56)
+                .overlay(alignment: .bottom) {
+                    Capsule()
+                        .fill(KmiAppTheme.sectionHeaderContentColor)
+                        .frame(width: 64, height: 3)
+                        .padding(.bottom, 4)
+                }
+                .accessibilityAddTraits(.isSelected)
+        }
+        .kmiTypography(.action)
+        .foregroundStyle(KmiAppTheme.sectionHeaderContentColor)
+        .environment(\.layoutDirection, .leftToRight)
+        .background(KmiAppTheme.sectionHeaderBrush)
+    }
+
     private var addMemberCard: some View {
         VStack(alignment: screenHorizontalAlignment, spacing: 12) {
             HStack {
@@ -1261,7 +1119,11 @@ struct AttendanceView: View {
 
             attendanceTextField(tr("שם מלא", "Full name"), text: $newMemberName)
 
-            attendanceTextField(tr("טלפון", "Phone"), text: $newMemberPhone)
+            attendanceTextField(
+                tr("טלפון", "Phone"),
+                text: $newMemberPhone,
+                isPhone: true
+            )
                 .keyboardType(.phonePad)
                 .textContentType(.telephoneNumber)
                 .autocorrectionDisabled()
@@ -1270,12 +1132,25 @@ struct AttendanceView: View {
             attendanceTextField(tr("הערות", "Notes"), text: $newMemberNotes)
 
             Button {
+                guard canEditAttendance,
+                      !newMemberName.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                      ).isEmpty else {
+                    return
+                }
+
+                let submittedContextToken = attendanceContextToken
+                isAddingMember = true
+
                 vm.addMember(
                     fullName: newMemberName,
                     phone: newMemberPhone,
                     notes: newMemberNotes,
                     completion: { succeeded in
-                        guard succeeded else {
+                        isAddingMember = false
+
+                        guard attendanceContextToken == submittedContextToken,
+                              succeeded else {
                             return
                         }
 
@@ -1374,176 +1249,39 @@ struct AttendanceView: View {
     }
 
     private var membersCard: some View {
-        let displayedRows = uniqueMembers(vm.state.rows)
+        let rows = uniqueMembers(vm.state.rows)
 
-        return VStack(
-            alignment: screenHorizontalAlignment,
-            spacing: 12
-        ) {
-            HStack {
-                if isEnglish {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(
-                            tr(
-                                "רשימת מתאמנים",
-                                "Trainee list"
-                            )
-                        )
-                        .kmiFont(
-                            size: 18,
-                            weight: .heavy
-                        )
-                        .foregroundStyle(primaryTextColor)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.74)
-
-                        Text(
-                            displayedRows.isEmpty
-                                ? tr(
-                                    "אין מתאמנים עדיין",
-                                    "No trainees yet"
-                                )
-                                : tr(
-                                    "סמן נוכחות לכל מתאמן",
-                                    "Mark attendance for each trainee"
-                                )
-                        )
-                        .kmiFont(
-                            size: 12,
-                            weight: .semibold
-                        )
-                        .foregroundStyle(secondaryTextColor)
-                        .lineLimit(3)
-                        .minimumScaleFactor(0.74)
-                    }
-
-                    Spacer()
-
-                    Image(systemName: "person.3.fill")
-                        .kmiIconSize(17)
-                        .fontWeight(.heavy)
-                        .accessibilityHidden(true)
-                        .foregroundStyle(
-                            KmiAppTheme.secondary(
-                                for: colorScheme
-                            )
-                        )
-                } else {
-                    Image(systemName: "person.3.fill")
-                        .kmiIconSize(17)
-                        .fontWeight(.heavy)
-                        .accessibilityHidden(true)
-                        .foregroundStyle(
-                            KmiAppTheme.secondary(
-                                for: colorScheme
-                            )
-                        )
-
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 3) {
-                        Text(
-                            tr(
-                                "רשימת מתאמנים",
-                                "Trainee list"
-                            )
-                        )
-                        .kmiFont(
-                            size: 18,
-                            weight: .heavy
-                        )
-                        .foregroundStyle(primaryTextColor)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.74)
-
-                        Text(
-                            displayedRows.isEmpty
-                                ? tr(
-                                    "אין מתאמנים עדיין",
-                                    "No trainees yet"
-                                )
-                                : tr(
-                                    "סמן נוכחות לכל מתאמן",
-                                    "Mark attendance for each trainee"
-                                )
-                        )
-                        .kmiFont(
-                            size: 12,
-                            weight: .semibold
-                        )
-                        .foregroundStyle(secondaryTextColor)
-                        .lineLimit(3)
-                        .minimumScaleFactor(0.74)
-                    }
-                }
-            }
-            .environment(\.layoutDirection, .leftToRight)
-
-            if displayedRows.isEmpty {
+        return VStack(spacing: 0) {
+            if rows.isEmpty {
                 Text(
                     tr(
-                        "לא נוספו מתאמנים לסניף ולקבוצה שנבחרו.",
-                        "No trainees were added for the selected branch and group."
+                        "אין מתאמנים בקבוצה שנבחרה",
+                        "No trainees in the selected group"
                     )
                 )
-                .kmiFont(
-                    size: 14,
-                    weight: .semibold
-                )
+                .kmiTypography(.body)
                 .foregroundStyle(secondaryTextColor)
+                .multilineTextAlignment(screenTextAlignment)
                 .frame(
                     maxWidth: .infinity,
                     alignment: screenFrameAlignment
                 )
-                .multilineTextAlignment(screenTextAlignment)
-                .lineLimit(4)
-                .minimumScaleFactor(0.74)
-                .padding(.vertical, 10)
+                .padding(.vertical, 16)
             } else {
+                ForEach(
+                    Array(rows.enumerated()),
+                    id: \.element.id
+                ) { index, row in
+                    memberRow(row, demoIndex: index)
 
-                VStack(spacing: 10) {
-
-                    ForEach(
-                        Array(
-                            displayedRows.enumerated()
-                        ),
-                        id: \.element.id
-                    ) { index, row in
-
-                        memberRow(
-                            row,
-                            demoIndex: index
-                        )
+                    if index < rows.count - 1 {
+                        Rectangle()
+                            .fill(cardBorderColor)
+                            .frame(height: 1)
                     }
                 }
             }
-
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 14)
-        .background(
-            RoundedRectangle(
-                cornerRadius: 24,
-                style: .continuous
-            )
-            .fill(cardSurfaceColor)
-        )
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 24,
-                style: .continuous
-            )
-            .stroke(
-                cardBorderColor,
-                lineWidth: 1
-            )
-        )
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: 24,
-                style: .continuous
-            )
-        )
     }
 
     private var actionsCard: some View {
@@ -1648,6 +1386,7 @@ struct AttendanceView: View {
                     secondaryActionButton(icon: "chart.bar.xaxis", title: tr("סטטיסטיקה", "Stats"))
                 }
                 .buttonStyle(.plain)
+                .disabled(!isAttendanceContextReady)
 
                 Button {
                     shareReport()
@@ -1655,22 +1394,30 @@ struct AttendanceView: View {
                     secondaryActionButton(icon: "square.and.arrow.up", title: tr("שתף", "Share"))
                 }
                 .buttonStyle(.plain)
+                .disabled(!isAttendanceContextReady || showShareSheet)
             }
 
             Button {
 
-                guard !vm.state.isSaving else {
+                guard isAttendanceContextReady else {
                     return
                 }
 
-                if vm.isReportSaved &&
+                if isAttendanceReportSaved &&
                     !isEditingSavedReport {
 
                     isEditingSavedReport = true
 
                 } else {
+                    let submittedContextToken = attendanceContextToken
+
                     vm.saveReport(
                         onSaved: {
+                            guard attendanceContextToken == submittedContextToken else {
+                                return
+                            }
+
+                            reportSavedInCurrentContext = true
                             isEditingSavedReport = false
                         }
                     )
@@ -1682,7 +1429,7 @@ struct AttendanceView: View {
 
                     Image(
                         systemName:
-                            vm.isReportSaved &&
+                            isAttendanceReportSaved &&
                             !isEditingSavedReport
                         ? "pencil.circle.fill"
                         : "checkmark.circle.fill"
@@ -1698,7 +1445,7 @@ struct AttendanceView: View {
                                 "Saving..."
                             )
                             : (
-                                vm.isReportSaved &&
+                                isAttendanceReportSaved &&
                                 !isEditingSavedReport
                                     ? tr(
                                         "עריכת דיווח",
@@ -1718,7 +1465,7 @@ struct AttendanceView: View {
                     .minimumScaleFactor(0.72)
                 }
                 .foregroundStyle(
-                    vm.isReportSaved &&
+                    isAttendanceReportSaved &&
                     !isEditingSavedReport
                         ? KmiAppTheme.onSecondary(
                             for: colorScheme
@@ -1731,7 +1478,7 @@ struct AttendanceView: View {
                 .frame(minHeight: 52)
                 .padding(.horizontal, 12)
                 .background(
-                    vm.isReportSaved &&
+                    isAttendanceReportSaved &&
                     !isEditingSavedReport
                         ? KmiAppTheme.secondary(
                             for: colorScheme
@@ -1753,7 +1500,7 @@ struct AttendanceView: View {
                     )
                     .stroke(
                         (
-                            vm.isReportSaved &&
+                            isAttendanceReportSaved &&
                             !isEditingSavedReport
                                 ? KmiAppTheme.onSecondary(
                                     for: colorScheme
@@ -1769,15 +1516,11 @@ struct AttendanceView: View {
             }
             .buttonStyle(.plain)
             .disabled(
-                vm.state.isSaving ||
-                vm.isContextLoading ||
-                vm.contextLoadFailed
+                !isAttendanceContextReady
             )
             .opacity(
                 (
-                    vm.state.isSaving ||
-                    vm.isContextLoading ||
-                    vm.contextLoadFailed
+                    !isAttendanceContextReady
                 )
                     ? 0.65
                     : 1
@@ -1830,322 +1573,153 @@ struct AttendanceView: View {
         _ row: AttendanceRowUi,
         demoIndex: Int
     ) -> some View {
+        let mappedName = TraineeDisplayNameMapper.displayName(
+            realName: row.memberName.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ),
+            stableKey: row.memberId,
+            demoIndex: demoIndex,
+            isEnglish: isEnglish
+        )
 
-        let realName =
-            row.memberName
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-
-        let mappedName =
-            TraineeDisplayNameMapper.displayName(
-                realName: realName,
-                stableKey: row.memberId,
-                demoIndex: demoIndex,
-                isEnglish: isEnglish
-            )
-
-        let cleanName =
-            mappedName.isEmpty
-                ? tr(
-                    "מתאמן ללא שם",
-                    "Unnamed trainee"
-                )
-                : mappedName
-
-        let cleanPhone =
-            row.phone
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
+        let name = mappedName.isEmpty
+            ? tr("מתאמן ללא שם", "Unnamed trainee")
+            : mappedName
 
         return VStack(
             alignment: screenHorizontalAlignment,
-            spacing: 10
+            spacing: 8
         ) {
-            HStack(alignment: .center, spacing: 10) {
-                if isEnglish {
-                    traineeAvatar(row)
+            Text(name)
+                .kmiTypography(.sectionTitle)
+                .fontWeight(.heavy)
+                .foregroundStyle(primaryTextColor)
+                .multilineTextAlignment(screenTextAlignment)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: screenFrameAlignment
+                )
 
+            HStack(alignment: .center, spacing: 12) {
+                HStack(spacing: 10) {
                     NavigationLink {
-
                         AttendanceStatsView(
                             ownerUid: vm.state.ownerUid,
                             branchName: vm.state.branchName,
                             groupKey: vm.state.groupKey,
                             memberId: row.memberId,
-                            memberName: cleanName
+                            memberName: name
                         )
-
                     } label: {
-
-                        VStack(
-                            alignment: .leading,
-                            spacing: 3
-                        ) {
-                            Text(
-                                cleanName.isEmpty
-                                    ? tr(
-                                        "מתאמן ללא שם",
-                                        "Unnamed trainee"
-                                    )
-                                    : cleanName
-                            )
-                            .kmiTypography(.cardTitle)
-                            .fontWeight(.black)
-                            .foregroundStyle(primaryTextColor)
-                            .lineLimit(2)
-                            .truncationMode(.tail)
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(
-                                horizontal: false,
-                                vertical: true
-                            )
-                            .frame(
-                                maxWidth: .infinity,
-                                alignment: .leading
-                            )
-
-                            if !cleanPhone.isEmpty {
-                                Text(cleanPhone)
-                                    .kmiFont(
-                                        size: 11.5,
-                                        weight: .semibold
-                                    )
-                                    .foregroundStyle(secondaryTextColor)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.74)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            } else {
-                                Text(
-                                    tr(
-                                        "לחץ לפתיחת סטטיסטיקה",
-                                        "Tap for statistics"
-                                    )
+                        Image(systemName: "chart.bar.fill")
+                            .kmiIconSize(18)
+                            .foregroundStyle(
+                                KmiAppTheme.tertiary(
+                                    for: colorScheme
                                 )
-                                .kmiFont(
-                                    size: 11.5,
-                                    weight: .semibold
-                                )
-                                .foregroundStyle(secondaryTextColor)
-                                .lineLimit(2)
-                                .minimumScaleFactor(0.72)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
+                            )
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        tr("סטטיסטיקת מתאמן", "Trainee statistics")
+                    )
 
-                    deleteMemberButton(row)
-                } else {
-                    deleteMemberButton(row)
-
-                    NavigationLink {
-
-                        AttendanceStatsView(
-                            ownerUid: vm.state.ownerUid,
-                            branchName: vm.state.branchName,
-                            groupKey: vm.state.groupKey,
-                            memberId: row.memberId,
-                            memberName: cleanName
-                        )
-
+                    Button {
+                        guard canEditAttendance else { return }
+                        pendingDeleteRow = row
                     } label: {
-
-                        VStack(
-                            alignment: .trailing,
-                            spacing: 3
-                        ) {
-                            Text(
-                                cleanName.isEmpty
-                                    ? tr(
-                                        "מתאמן ללא שם",
-                                        "Unnamed trainee"
-                                    )
-                                    : cleanName
-                            )
-                            .kmiTypography(.cardTitle)
-                            .fontWeight(.black)
-                            .foregroundStyle(primaryTextColor)
-                            .lineLimit(2)
-                            .truncationMode(.tail)
-                            .multilineTextAlignment(.trailing)
-                            .fixedSize(
-                                horizontal: false,
-                                vertical: true
-                            )
-                            .frame(
-                                maxWidth: .infinity,
-                                alignment: .trailing
-                            )
-
-                            if !cleanPhone.isEmpty {
-                                Text(cleanPhone)
-                                    .kmiFont(
-                                        size: 11.5,
-                                        weight: .semibold
-                                    )
-                                    .foregroundStyle(secondaryTextColor)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.74)
-                                    .frame(maxWidth: .infinity, alignment: .trailing)
-                            } else {
-                                Text(
-                                    tr(
-                                        "לחץ לפתיחת סטטיסטיקה",
-                                        "Tap for statistics"
-                                    )
+                        Image(systemName: "trash.fill")
+                            .kmiIconSize(18)
+                            .foregroundStyle(
+                                KmiAppTheme.warning(
+                                    for: colorScheme
                                 )
-                                .kmiFont(
-                                    size: 11.5,
-                                    weight: .semibold
-                                )
-                                .foregroundStyle(secondaryTextColor)
-                                .lineLimit(2)
-                                .minimumScaleFactor(0.72)
-                                    .frame(maxWidth: .infinity, alignment: .trailing)
-                            }
-                        }
+                            )
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-
-                    traineeAvatar(row)
-                }
-            }
-            .environment(
-                \.layoutDirection,
-                .leftToRight
-            )
-
-            HStack(spacing: 6) {
-                statusButton(
-                    title: tr("הגיע", "Present"),
-                    icon: "checkmark.circle.fill",
-                    selected: row.status == .present,
-                    selectedColor: Color(
-                        red: 34.0 / 255.0,
-                        green: 197.0 / 255.0,
-                        blue: 94.0 / 255.0
+                    .disabled(!canEditAttendance)
+                    .accessibilityLabel(
+                        tr("מחיקת מתאמן", "Delete trainee")
                     )
-                ) {
-                    toggleAttendanceStatus(
+                }
+
+                Spacer(minLength: 0)
+
+                VStack(spacing: 7) {
+                    attendanceRowStatusButton(
                         row: row,
-                        targetStatus: .present
-                    )
-                }
-
-                statusButton(
-                    title: tr("לא הגיע", "Absent"),
-                    icon: "xmark.circle.fill",
-                    selected: row.status == .absent,
-                    selectedColor: Color(
-                        red: 239.0 / 255.0,
-                        green: 68.0 / 255.0,
-                        blue: 68.0 / 255.0
-                    )
-                ) {
-                    toggleAttendanceStatus(
-                        row: row,
-                        targetStatus: .absent
-                    )
-                }
-
-                statusButton(
-                    title: tr("נקה", "Clear"),
-                    icon: "minus.circle.fill",
-                    selected: row.status == .unknown,
-                    selectedColor: KmiAppTheme.onSurfaceVariant(
-                        for: colorScheme
-                    )
-                ) {
-                    vm.setAttendanceStatus(
-                        memberId: row.memberId,
-                        status: .unknown
-                    )
-                }
-            }
-            .allowsHitTesting(
-                canEditAttendance
-            )
-            .opacity(
-                canEditAttendance
-                    ? 1
-                    : 0.68
-            )
-
-            TextField(
-                tr(
-                    "הערת נוכחות",
-                    "Attendance note"
-                ),
-                text: Binding(
-                    get: {
-                        row.attendanceNote
-                    },
-                    set: {
-                        vm.setAttendanceNote(
-                            memberId: row.memberId,
-                            note: $0
+                        title: tr("הגיע", "Present"),
+                        status: .present,
+                        color: KmiAppTheme.success(
+                            for: colorScheme
                         )
-                    }
-                ),
-                axis: .vertical
-            )
-            .kmiFont(
-                size: 12.5,
-                weight: .semibold
-            )
-            .foregroundStyle(primaryTextColor)
-            .lineLimit(1...4)
-            .disabled(
-                !canEditAttendance
-            )
-            .opacity(
-                canEditAttendance
-                    ? 1
-                    : 0.72
-            )
-            .padding(.horizontal, 10)
-            .padding(.vertical, 10)
-            .background(fieldSurfaceColor)
-            .clipShape(
-                RoundedRectangle(
-                    cornerRadius: 13,
-                    style: .continuous
-                )
-            )
-            .overlay(
-                RoundedRectangle(
-                    cornerRadius: 13,
-                    style: .continuous
-                )
-                .stroke(
-                    cardBorderColor,
-                    lineWidth: 1
-                )
-            )
-            .multilineTextAlignment(screenTextAlignment)
+                    )
+
+                    attendanceRowStatusButton(
+                        row: row,
+                        title: tr("לא הגיע", "Absent"),
+                        status: .absent,
+                        color: KmiAppTheme.error(
+                            for: colorScheme
+                        )
+                    )
+                }
+                .frame(maxWidth: 180)
+            }
+            .environment(\.layoutDirection, .leftToRight)
         }
-        .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(
-                cornerRadius: 22,
-                style: .continuous
+    }
+
+    private func attendanceRowStatusButton(
+        row: AttendanceRowUi,
+        title: String,
+        status: AttendanceStatus,
+        color: Color
+    ) -> some View {
+        let selected = row.status == status
+
+        return Button {
+            toggleAttendanceStatus(
+                row: row,
+                targetStatus: status
             )
-            .fill(elevatedSurfaceColor)
-        )
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 22,
-                style: .continuous
-            )
-            .stroke(
-                KmiAppTheme.outlineVariant(
-                    for: colorScheme
-                ),
-                lineWidth: 1
-            )
+        } label: {
+            Text(title)
+                .kmiTypography(.action)
+                .foregroundStyle(
+                    KmiAppTheme.onSurface(for: .dark)
+                )
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 36)
+                .background(
+                    selected
+                        ? color
+                        : KmiAppTheme.surface(for: .dark),
+                    in: Capsule()
+                )
+                .overlay {
+                    Capsule()
+                        .stroke(cardBorderColor, lineWidth: 1)
+                }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(!canEditAttendance)
+        .accessibilityLabel(title)
+        .accessibilityValue(
+            selected
+                ? tr("נבחר", "Selected")
+                : tr("לא נבחר", "Not selected")
         )
     }
 
@@ -2258,13 +1832,7 @@ struct AttendanceView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: "checkmark")
-                    .kmiIconSize(12)
-                    .fontWeight(.heavy)
-                    .opacity(selected ? 1 : 0)
-                    .accessibilityHidden(true)
-
+            HStack(spacing: 0) {
                 Text(title)
                     .kmiTypography(.caption)
                     .fontWeight(.heavy)
@@ -2361,7 +1929,8 @@ struct AttendanceView: View {
 
     private func attendanceTextField(
         _ placeholder: String,
-        text: Binding<String>
+        text: Binding<String>,
+        isPhone: Bool = false
     ) -> some View {
         TextField(
             placeholder,
@@ -2373,6 +1942,7 @@ struct AttendanceView: View {
             weight: .semibold
         )
         .foregroundStyle(primaryTextColor)
+        .accessibilityLabel(placeholder)
         .lineLimit(1...4)
         .padding(.horizontal, 12)
         .padding(.vertical, 11)
@@ -2393,7 +1963,11 @@ struct AttendanceView: View {
                 lineWidth: 1
             )
         )
-        .multilineTextAlignment(screenTextAlignment)
+        .multilineTextAlignment(
+            isPhone || isEnglish ? .leading : .trailing
+        )
+        .environment(\.layoutDirection, .leftToRight)
+        .disabled(!canEditAttendance)
     }
 
     private func secondaryActionButton(
@@ -2477,6 +2051,7 @@ struct AttendanceView: View {
 
     private func shareReport() {
         guard !vm.state.isSaving,
+              !isAddingMember,
               !showShareSheet else {
             return
         }
@@ -2493,9 +2068,12 @@ struct AttendanceView: View {
             return
         }
 
-        guard !vm.state.branchName
+        guard !vm.state.ownerUid
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty,
+              !vm.state.branchName
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty,
               !vm.state.groupKey
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .isEmpty else {
@@ -3169,8 +2747,8 @@ struct AttendanceView: View {
         )
         output.dateFormat =
             isEnglish
-                ? "EEEE, MMM d, yyyy"
-                : "EEEE, d MMM yyyy"
+                ? "EEE · MM/dd/yy"
+                : "EEEE · d.M.yy"
 
         guard let date = dateFromIso(iso) else {
             return iso

@@ -266,6 +266,7 @@ struct KmiPremiumDropdown: View {
 
     var onSelected: ((String) -> Void)? = nil
     var labelForOption: (String) -> String = { $0 }
+    var titleInsideField: Bool = false
 
     private var displayedValue: String {
         let cleanValue =
@@ -299,21 +300,23 @@ struct KmiPremiumDropdown: View {
             alignment: isEnglish ? .leading : .trailing,
             spacing: 6
         ) {
-            Text(title)
-                .kmiFont(
-                    size: 13,
-                    weight: .bold
-                )
-                .foregroundStyle(
-                    KmiAppTheme.onSurfaceVariant(
-                        for: colorScheme
+            if !titleInsideField {
+                Text(title)
+                    .kmiFont(
+                        size: 13,
+                        weight: .bold
                     )
-                )
-                .multilineTextAlignment(textAlignment)
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: frameAlignment
-                )
+                    .foregroundStyle(
+                        KmiAppTheme.onSurfaceVariant(
+                            for: colorScheme
+                        )
+                    )
+                    .multilineTextAlignment(textAlignment)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: frameAlignment
+                    )
+            }
 
             Menu {
                 ForEach(options, id: \.self) { option in
@@ -407,29 +410,52 @@ struct KmiPremiumDropdown: View {
     }
 
     private var valueLabel: some View {
-        Text(displayedValue)
-            .kmiFont(
-                size: 16,
-                weight: hasSelection
-                    ? .bold
-                    : .medium
-            )
-            .foregroundStyle(
-                hasSelection
-                    ? KmiAppTheme.onSurface(
-                        for: colorScheme
+        VStack(
+            alignment: isEnglish ? .leading : .trailing,
+            spacing: titleInsideField ? 1 : 0
+        ) {
+            if titleInsideField {
+                Text(title)
+                    .kmiTypography(.secondary)
+                    .fontWeight(.bold)
+                    .foregroundStyle(
+                        KmiAppTheme.onSurfaceVariant(
+                            for: colorScheme
+                        )
                     )
-                    : KmiAppTheme.onSurfaceVariant(
-                        for: colorScheme
+                    .multilineTextAlignment(textAlignment)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: frameAlignment
                     )
-            )
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
-            .multilineTextAlignment(textAlignment)
-            .frame(
-                maxWidth: .infinity,
-                alignment: frameAlignment
-            )
+            }
+
+            Text(displayedValue)
+                .kmiFont(
+                    size: titleInsideField ? 15 : 16,
+                    weight: hasSelection ? .bold : .medium
+                )
+                .foregroundStyle(
+                    hasSelection
+                        ? KmiAppTheme.onSurface(
+                            for: colorScheme
+                        )
+                        : KmiAppTheme.onSurfaceVariant(
+                            for: colorScheme
+                        )
+                )
+                .lineLimit(titleInsideField ? 2 : 1)
+                .minimumScaleFactor(
+                    titleInsideField ? 1 : 0.8
+                )
+                .multilineTextAlignment(textAlignment)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: frameAlignment
+                )
+        }
+        .padding(.vertical, titleInsideField ? 6 : 0)
     }
 
     private var dropdownIcon: some View {

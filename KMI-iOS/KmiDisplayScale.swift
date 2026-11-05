@@ -252,6 +252,30 @@ enum KmiTypography {
         )
     }
 
+    /// כותרת נושא ראשי במסכי חומרי הלימוד.
+    static func topicTitle(scale: CGFloat) -> Font {
+        .system(
+            size: 20 * scale,
+            weight: .heavy
+        )
+    }
+
+    /// כותרת תת־נושא במסכי חומרי הלימוד.
+    static func subTopicTitle(scale: CGFloat) -> Font {
+        .system(
+            size: 18 * scale,
+            weight: .bold
+        )
+    }
+
+    /// ספירת תתי־נושאים ותרגילים.
+    static func topicCount(scale: CGFloat) -> Font {
+        .system(
+            size: 14 * scale,
+            weight: .heavy
+        )
+    }
+
     /// מספר או נתון מרכזי בכרטיסי סיכום וסטטיסטיקה.
     static func metric(
         scale: CGFloat
@@ -274,6 +298,9 @@ enum KmiTypographyRole {
     case action
     case caption
     case metric
+    case topicTitle
+    case subTopicTitle
+    case topicCount
 
     func font(
         scale: CGFloat
@@ -316,6 +343,21 @@ enum KmiTypographyRole {
 
         case .metric:
             return KmiTypography.metric(
+                scale: scale
+            )
+
+        case .topicTitle:
+            return KmiTypography.topicTitle(
+                scale: scale
+            )
+
+        case .subTopicTitle:
+            return KmiTypography.subTopicTitle(
+                scale: scale
+            )
+
+        case .topicCount:
+            return KmiTypography.topicCount(
                 scale: scale
             )
         }

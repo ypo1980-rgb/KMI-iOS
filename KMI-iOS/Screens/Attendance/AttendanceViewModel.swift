@@ -32,12 +32,19 @@ final class AttendanceViewModel: ObservableObject {
     @Published
     private(set) var availableGroups: [String] = []
     private var allAssignedBranches: [String] = []
+    private var assignedGroupsByBranch: [String: Set<String>]?
     private var hasResolvedAssignedBranches = false
-    private var pendingAssignedBranches: [String]?
+    private var pendingAssignments: (
+        branches: [String],
+        groupsByBranch: [String: [String]]?
+    )?
     private var displayedMonthKey: [String]?
     private var needsDefaultGroupSelection = false
     private var preferredDefaultGroup = ""
-    func setAssignedBranches(_ branches: [String]) {
+    func setAssignedBranches(
+        _ branches: [String],
+        groupsByBranch: [String: [String]]? = nil
+    ) {
         var seen = Set<String>()
         let cleanBranches = branches
             .map {
@@ -48,12 +55,29 @@ final class AttendanceViewModel: ObservableObject {
             .filter {
                 !$0.isEmpty && seen.insert($0).inserted
             }
+        // nil preserves compatibility until the screen supplies full assignments.
+        // An explicit empty map grants no branch/group options.
+        let cleanGroups: [String: Set<String>]? = groupsByBranch.map { assignments in
+            var result: [String: Set<String>] = [:]
+            for (branch, groups) in assignments {
+                let branchKey = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !branchKey.isEmpty else { continue }
+                let groupNames = groups
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                result[branchKey, default: []].formUnion(groupNames)
+            }
+            return result
+        }
         /*
          * שינוי שיוכים שמגיע בזמן כתיבה
          * יטופל לאחר סיום הפעולה.
          */
         if state.isSaving {
-            pendingAssignedBranches = cleanBranches
+            pendingAssignments = (
+                branches: cleanBranches,
+                groupsByBranch: groupsByBranch
+            )
             return
         }
         /*
@@ -61,21 +85,26 @@ final class AttendanceViewModel: ObservableObject {
          * טוענת מחדש ואינה מוחקת סימונים בעריכה.
          */
         if hasResolvedAssignedBranches,
-           Set(cleanBranches) == Set(allAssignedBranches) {
+           Set(cleanBranches) == Set(allAssignedBranches),
+           cleanGroups == assignedGroupsByBranch {
             return
         }
         hasResolvedAssignedBranches = true
         allAssignedBranches = cleanBranches
+        assignedGroupsByBranch = cleanGroups
         refreshScheduleOptions()
         reloadCurrentContext()
     }
     private func finishSavingOperation() {
         state.isSaving = false
-        guard let pending = pendingAssignedBranches else {
+        guard let pending = pendingAssignments else {
             return
         }
-        pendingAssignedBranches = nil
-        setAssignedBranches(pending)
+        pendingAssignments = nil
+        setAssignedBranches(
+            pending.branches,
+            groupsByBranch: pending.groupsByBranch
+        )
     }
     private func hasScheduledTraining(
         branch: String,
@@ -104,8 +133,14 @@ final class AttendanceViewModel: ObservableObject {
         ) != nil
     }
     private func refreshScheduleOptions() {
-        availableBranches = allAssignedBranches.filter {
-            hasScheduledTraining(branch: $0)
+        availableBranches = allAssignedBranches.filter { branch in
+            if let assignedGroupsByBranch {
+                let groups = assignedGroupsByBranch[branch] ?? []
+                return groups.contains { group in
+                    hasScheduledTraining(branch: branch, group: group)
+                }
+            }
+            return hasScheduledTraining(branch: branch)
         }
         let preferredBranch = state.branchName.trimmed()
         state.branchName =
@@ -128,6 +163,10 @@ final class AttendanceViewModel: ObservableObject {
             .filter {
                 !$0.isEmpty &&
                 seenGroups.insert($0).inserted
+            }
+            .filter { group in
+                guard let assignedGroupsByBranch else { return true }
+                return assignedGroupsByBranch[state.branchName]?.contains(group) == true
             }
             .filter {
                 hasScheduledTraining(

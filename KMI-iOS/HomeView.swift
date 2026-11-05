@@ -2994,38 +2994,23 @@ struct HomeView: View {
             let cg = context.cgContext
 
             let navy = UIColor(
-                red: 2/255,
-                green: 43/255,
-                blue: 74/255,
-                alpha: 1
+                KmiAppTheme.onSecondaryContainer(for: .light)
             )
 
             let blue = UIColor(
-                red: 12/255,
-                green: 78/255,
-                blue: 130/255,
-                alpha: 1
+                KmiAppTheme.secondary(for: .light)
             )
 
             let lightBlue = UIColor(
-                red: 234/255,
-                green: 246/255,
-                blue: 255/255,
-                alpha: 1
+                KmiAppTheme.surfaceVariant(for: .light)
             )
 
             let softBlue = UIColor(
-                red: 244/255,
-                green: 250/255,
-                blue: 255/255,
-                alpha: 1
+                KmiAppTheme.surface(for: .light)
             )
 
             let borderBlue = UIColor(
-                red: 191/255,
-                green: 213/255,
-                blue: 232/255,
-                alpha: 1
+                KmiAppTheme.outlineVariant(for: .light)
             )
 
             var pageNumber = 0
@@ -3064,10 +3049,7 @@ struct HomeView: View {
             beginReportPage()
 
             let textDark = UIColor(
-                red: 15/255,
-                green: 23/255,
-                blue: 42/255,
-                alpha: 1
+                KmiAppTheme.onSurface(for: .light)
             )
 
             func pdfParagraphStyle(
@@ -3656,18 +3638,8 @@ struct HomeView: View {
 
                     drawRoundedRectangle(
                         cancellationRect,
-                        fillColor: UIColor(
-                            red: 255/255,
-                            green: 247/255,
-                            blue: 237/255,
-                            alpha: 1
-                        ),
-                        strokeColor: UIColor(
-                            red: 249/255,
-                            green: 115/255,
-                            blue: 22/255,
-                            alpha: 0.35
-                        )
+                        fillColor: UIColor(KmiAppTheme.warningContainer(for: .light)),
+                        strokeColor: UIColor(KmiAppTheme.warning(for: .light)).withAlphaComponent(0.35)
                     )
 
                     let cancellationStyle =
@@ -3684,12 +3656,7 @@ struct HomeView: View {
                             .font: UIFont.boldSystemFont(
                                 ofSize: 10.5
                             ),
-                            .foregroundColor: UIColor(
-                                red: 154/255,
-                                green: 52/255,
-                                blue: 18/255,
-                                alpha: 1
-                            ),
+                            .foregroundColor: UIColor(KmiAppTheme.onWarningContainer(for: .light)),
                             .paragraphStyle:
                                 cancellationStyle
                         ]
@@ -3826,10 +3793,8 @@ struct HomeView: View {
     
     private func emptyBlock(message: String) -> some View {
         Text(message)
-            .kmiFont(
-                size: 18,
-                weight: .heavy
-            )
+            .kmiTypography(.sectionTitle)
+            .fontWeight(.heavy)
             .foregroundStyle(
                 KmiAppTheme.onSurface(for: colorScheme)
             )
@@ -3886,10 +3851,8 @@ private struct HomeAbroadBranchNotice: View {
                 "Training schedule is not available for international branches this week"
             )
         )
-        .kmiFont(
-            size: 18,
-            weight: .heavy
-        )
+        .kmiTypography(.sectionTitle)
+        .fontWeight(.heavy)
         .foregroundStyle(
             KmiAppTheme.onSurface(for: colorScheme)
         )
@@ -4404,17 +4367,13 @@ private struct HomeTrainingCardAndroidStyle: View {
                     : "שעת האימון שונתה"
                 )
             )
-            .kmiFont(
-                size: 12,
-                weight: .black
-            )
+            .kmiTypography(.secondary)
+            .fontWeight(.black)
 
             if !overrideMessage.isEmpty {
                 Text(overrideMessage)
-                    .kmiFont(
-                        size: 10.5,
-                        weight: .semibold
-                    )
+                    .kmiTypography(.caption)
+                    .fontWeight(.semibold)
                     .multilineTextAlignment(.center)
             }
         }
@@ -4735,10 +4694,8 @@ private struct HomeTrainingCardAndroidStyle: View {
         }()
 
         return Text(title)
-            .kmiFont(
-                size: 12,
-                weight: .bold
-            )
+            .kmiTypography(.secondary)
+            .fontWeight(.bold)
             .foregroundStyle(contentColor)
             .multilineTextAlignment(.center)
             .lineLimit(1)
@@ -4782,7 +4739,8 @@ private struct HomeTrainingCardAndroidStyle: View {
                 ? "Training cancelled due to holiday"
                 : "האימון מבוטל עקב חג"
         )
-        .kmiFont(size: 12, weight: .bold)
+        .kmiTypography(.secondary)
+        .fontWeight(.bold)
         .foregroundStyle(contentColor)
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
@@ -4839,7 +4797,8 @@ private struct HomeTrainingCardAndroidStyle: View {
 
                 if !groupAndCoachLine.isEmpty {
                     Text(groupAndCoachLine)
-                        .kmiFont(size: 12, weight: .semibold)
+                        .kmiTypography(.secondary)
+                        .fontWeight(.semibold)
                         .foregroundStyle(
                             isCancelledByCoach || isCancelledByHoliday
                                 ? KmiAppTheme.onErrorContainer(for: colorScheme)
@@ -4853,7 +4812,8 @@ private struct HomeTrainingCardAndroidStyle: View {
 
                 if !dateLine.isEmpty {
                     Text(dateLine)
-                        .kmiFont(size: 12.4, weight: .bold)
+                        .kmiTypography(.secondary)
+                        .fontWeight(.bold)
                         .foregroundStyle(
                             isCancelledByCoach || isCancelledByHoliday
                                 ? KmiAppTheme.onErrorContainer(for: colorScheme)
@@ -5057,8 +5017,9 @@ private struct HomeTrainingCardAndroidStyle: View {
                     Image(
                         systemName: "calendar.badge.clock"
                     )
-                    .kmiIconSize(23)
-                    .fontWeight(.bold)
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.medium)
                     .foregroundStyle(
                         KmiAppTheme.primary(
                             for: colorScheme
@@ -5187,7 +5148,8 @@ private struct HomeTrainingCardAndroidStyle: View {
                             "Loading attendance…"
                         )
                     )
-                    .kmiFont(size: 12, weight: .semibold)
+                    .kmiTypography(.secondary)
+                    .fontWeight(.semibold)
                     .foregroundStyle(
                         KmiAppTheme.onSurfaceVariant(
                             for: colorScheme
@@ -5202,7 +5164,8 @@ private struct HomeTrainingCardAndroidStyle: View {
                             "Unable to load attendance."
                         )
                     )
-                    .kmiFont(size: 12, weight: .semibold)
+                    .kmiTypography(.secondary)
+                    .fontWeight(.semibold)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(
                         KmiAppTheme.onSurfaceVariant(
@@ -5219,7 +5182,8 @@ private struct HomeTrainingCardAndroidStyle: View {
                                 "Try again"
                             )
                         )
-                        .kmiFont(size: 12, weight: .bold)
+                        .kmiTypography(.secondary)
+                        .fontWeight(.bold)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(
@@ -5233,7 +5197,8 @@ private struct HomeTrainingCardAndroidStyle: View {
                                 "Expected attendance"
                             )
                         )
-                        .kmiFont(size: 12, weight: .bold)
+                        .kmiTypography(.secondary)
+                        .fontWeight(.bold)
                         .foregroundStyle(
                             KmiAppTheme.onSurface(for: colorScheme)
                         )
@@ -5306,7 +5271,8 @@ private struct HomeTrainingCardAndroidStyle: View {
                                         "Saving choice…"
                                     )
                                 )
-                                .kmiFont(size: 11, weight: .semibold)
+                                .kmiTypography(.caption)
+                                .fontWeight(.semibold)
                             } else if timeline.date >= attendanceStartDate {
                                 Text(
                                     attendanceText(
@@ -5314,7 +5280,8 @@ private struct HomeTrainingCardAndroidStyle: View {
                                         "Choices can be changed until training starts."
                                     )
                                 )
-                                .kmiFont(size: 11, weight: .semibold)
+                                .kmiTypography(.caption)
+                                .fontWeight(.semibold)
                             }
                         }
                         .foregroundStyle(
@@ -5330,7 +5297,8 @@ private struct HomeTrainingCardAndroidStyle: View {
                             "Trainee membership could not be resolved."
                         )
                     )
-                    .kmiFont(size: 12, weight: .semibold)
+                    .kmiTypography(.secondary)
+                    .fontWeight(.semibold)
                     .foregroundStyle(
                         KmiAppTheme.onSurfaceVariant(for: colorScheme)
                     )
@@ -5351,10 +5319,12 @@ private struct HomeTrainingCardAndroidStyle: View {
         } label: {
             VStack(spacing: 2) {
                 Text("\(count)")
-                    .kmiFont(size: 16, weight: .black)
+                    .kmiTypography(.metric)
+                    .fontWeight(.black)
 
                 Text(title)
-                    .kmiFont(size: 10, weight: .bold)
+                    .kmiTypography(.caption)
+                    .fontWeight(.bold)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .foregroundStyle(
@@ -5399,7 +5369,8 @@ private struct HomeTrainingCardAndroidStyle: View {
         return VStack(spacing: 0) {
             HStack(spacing: 12) {
                 Text("\(title) · \(members.count)")
-                    .kmiFont(size: 18, weight: .bold)
+                    .kmiTypography(.sectionTitle)
+                    .fontWeight(.bold)
                     .frame(
                         maxWidth: .infinity,
                         alignment: .leading
@@ -5409,7 +5380,9 @@ private struct HomeTrainingCardAndroidStyle: View {
                     selectedForecastList = nil
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
+                        .resizable()
+                        .scaledToFit()
+                        .kmiIconSize(.large)
                 }
                 .accessibilityLabel(
                     attendanceText("סגור", "Close")
@@ -5426,7 +5399,8 @@ private struct HomeTrainingCardAndroidStyle: View {
                         "No trainees in this list"
                     )
                 )
-                .kmiFont(size: 14, weight: .regular)
+                .kmiTypography(.body)
+                .fontWeight(.regular)
                 .frame(
                     maxWidth: .infinity,
                     maxHeight: .infinity
@@ -5451,7 +5425,8 @@ private struct HomeTrainingCardAndroidStyle: View {
                                             : member.name
                                     )
                             )
-                            .kmiFont(size: 15, weight: .medium)
+                            .kmiTypography(.body)
+                            .fontWeight(.medium)
                             .frame(
                                 maxWidth: .infinity,
                                 alignment: .leading
@@ -5494,7 +5469,8 @@ private struct HomeTrainingCardAndroidStyle: View {
             saveAttendanceChoice(status)
         } label: {
             Text(title)
-                .kmiFont(size: 13, weight: .bold)
+                .kmiTypography(.action)
+                .fontWeight(.bold)
                 .multilineTextAlignment(.center)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -5750,8 +5726,9 @@ private struct HomeTrainingCardAndroidStyle: View {
     private var navigationIcon: some View {
 
         Image(systemName: "location.north.fill")
-            .kmiIconSize(19)
-            .fontWeight(.black)
+            .resizable()
+            .scaledToFit()
+            .kmiIconSize(.small)
             .foregroundStyle(
                 KmiAppTheme.primary(
                     for: colorScheme
@@ -5824,10 +5801,8 @@ private struct HomeTrainingCardAndroidStyle: View {
                     )
                     : addressText
             )
-            .kmiFont(
-                size: 10.5,
-                weight: .semibold
-            )
+            .kmiTypography(.caption)
+            .fontWeight(.semibold)
             .foregroundStyle(
                 KmiAppTheme.onSurfaceVariant(for: colorScheme)
             )
@@ -5994,10 +5969,8 @@ private struct WeekHeaderPill: View {
                     spacing: 1 * displayScale
                 ) {
                     Text(title)
-                        .kmiFont(
-                            size: 14,
-                            weight: .bold
-                        )
+                        .kmiTypography(.action)
+                        .fontWeight(.bold)
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                         .foregroundStyle(
@@ -6010,10 +5983,8 @@ private struct WeekHeaderPill: View {
                         .multilineTextAlignment(.center)
 
                     Text(subtitle)
-                        .kmiFont(
-                            size: 12,
-                            weight: .regular
-                        )
+                        .kmiTypography(.secondary)
+                        .fontWeight(.regular)
                         .foregroundStyle(
                             KmiAppTheme.sectionHeaderContentColor
                                 .opacity(0.92)
@@ -6108,10 +6079,8 @@ private struct CoachMessagesCard: View {
             spacing: 6
         ) {
             Text(title)
-                .kmiFont(
-                    size: 14.2,
-                    weight: .heavy
-                )
+                .kmiTypography(.cardTitle)
+                .fontWeight(.heavy)
                 .foregroundStyle(
                     KmiAppTheme.onSurface(
                         for: colorScheme
@@ -6143,10 +6112,8 @@ private struct CoachMessagesCard: View {
                             }
                             
                             Text(coachName)
-                                .kmiFont(
-                                    size: 17,
-                                    weight: .black
-                                )
+                                .kmiTypography(.sectionTitle)
+                                .fontWeight(.black)
                                 .foregroundStyle(
                                     KmiAppTheme.primary(
                                         for: colorScheme
@@ -6172,10 +6139,8 @@ private struct CoachMessagesCard: View {
                         )
                         
                         Text(message)
-                            .kmiFont(
-                                size: 15,
-                                weight: .semibold
-                            )
+                            .kmiTypography(.body)
+                            .fontWeight(.semibold)
                             .foregroundStyle(
                                 HomeVisualTheme.primaryText(
                                     for: colorScheme
@@ -6193,10 +6158,8 @@ private struct CoachMessagesCard: View {
                         
                         if !branchGroupLine.isEmpty {
                             Text(branchGroupLine)
-                                .kmiFont(
-                                    size: 12.3,
-                                    weight: .semibold
-                                )
+                                .kmiTypography(.secondary)
+                                .fontWeight(.semibold)
                                 .foregroundStyle(
                                     HomeVisualTheme.secondaryText(
                                         for: colorScheme
@@ -6217,10 +6180,8 @@ private struct CoachMessagesCard: View {
                             VStack(spacing: 3) {
                                 if !sentAtText.isEmpty {
                                     Text(sentAtText)
-                                        .kmiFont(
-                                            size: 11.4,
-                                            weight: .bold
-                                        )
+                                        .kmiTypography(.caption)
+                                        .fontWeight(.bold)
                                         .foregroundStyle(
                                             KmiAppTheme.onSurfaceVariant(
                                                 for: colorScheme
@@ -6238,10 +6199,8 @@ private struct CoachMessagesCard: View {
                                 
                                 if hasMessages {
                                     Text(openRecentText)
-                                        .kmiFont(
-                                            size: 12,
-                                            weight: .black
-                                        )
+                                        .kmiTypography(.secondary)
+                                        .fontWeight(.black)
                                         .foregroundStyle(
                                             KmiAppTheme.primary(
                                                 for: colorScheme
@@ -6333,10 +6292,9 @@ private struct CoachMessagesCard: View {
                 )
 
             Image(systemName: "person.fill")
-                .kmiFont(
-                    size: 17,
-                    weight: .bold
-                )
+                .resizable()
+                .scaledToFit()
+                .kmiIconSize(.small)
                 .foregroundStyle(
                     KmiAppTheme.primary(
                         for: colorScheme
@@ -6354,16 +6312,13 @@ private struct CoachMessagesCard: View {
                     ? "Messages"
                     : "הודעות"
             )
-            .kmiFont(
-                size: 12,
-                weight: .black
-            )
+            .kmiTypography(.secondary)
+            .fontWeight(.black)
 
             Image(systemName: "envelope.fill")
-                .kmiFont(
-                    size: 10,
-                    weight: .black
-                )
+                .resizable()
+                .scaledToFit()
+                .kmiIconSize(.tiny)
         }
         .foregroundStyle(
             KmiAppTheme.primary(
@@ -6450,10 +6405,8 @@ private struct CoachMessagesCard: View {
                                             ? "Unable to load or update messages. Please try again."
                                             : "לא ניתן לטעון או לעדכן הודעות כרגע. נסה שוב."
                                     )
-                                    .kmiFont(
-                                        size: 14,
-                                        weight: .semibold
-                                    )
+                                    .kmiTypography(.action)
+                                    .fontWeight(.semibold)
                                     .foregroundStyle(
                                         KmiAppTheme.onSurface(
                                             for: colorScheme
@@ -6467,10 +6420,8 @@ private struct CoachMessagesCard: View {
                                                 ? "Try again"
                                                 : "נסה שוב"
                                         )
-                                        .kmiFont(
-                                            size: 14,
-                                            weight: .bold
-                                        )
+                                        .kmiTypography(.action)
+                                        .fontWeight(.bold)
                                     }
                                     .buttonStyle(.plain)
                                     .foregroundStyle(
@@ -6489,10 +6440,9 @@ private struct CoachMessagesCard: View {
                                 Image(
                                     systemName: "envelope.fill"
                                 )
-                                .kmiFont(
-                                    size: 22,
-                                    weight: .bold
-                                )
+                                .resizable()
+                                .scaledToFit()
+                                .kmiIconSize(.medium)
                                 .foregroundStyle(
                                     KmiAppTheme.primary(
                                         for: colorScheme
@@ -6505,10 +6455,8 @@ private struct CoachMessagesCard: View {
                                         ? "No messages right now."
                                         : "אין הודעות כרגע."
                                 )
-                                .kmiFont(
-                                    size: 16,
-                                    weight: .bold
-                                )
+                                .kmiTypography(.body)
+                                .fontWeight(.bold)
                                 .foregroundStyle(
                                     KmiAppTheme.onSurfaceVariant(
                                         for: colorScheme
@@ -6566,10 +6514,8 @@ private struct CoachMessagesCard: View {
                                                     : "עדכון אימון",
                                                 systemImage: "calendar.badge.clock"
                                             )
-                                            .kmiFont(
-                                                size: 12,
-                                                weight: .semibold
-                                            )
+                                            .kmiTypography(.secondary)
+                                            .fontWeight(.semibold)
                                             .foregroundStyle(
                                                 KmiAppTheme.onSurfaceVariant(
                                                     for: colorScheme
@@ -6580,10 +6526,8 @@ private struct CoachMessagesCard: View {
                                                 isEnglish ? "Read" : "נקראה",
                                                 systemImage: "checkmark.circle.fill"
                                             )
-                                            .kmiFont(
-                                                size: 12,
-                                                weight: .semibold
-                                            )
+                                            .kmiTypography(.secondary)
+                                            .fontWeight(.semibold)
                                             .foregroundStyle(
                                                 KmiAppTheme.onSurfaceVariant(
                                                     for: colorScheme
@@ -6600,10 +6544,8 @@ private struct CoachMessagesCard: View {
                                                     systemImage:
                                                         "envelope.open"
                                                 )
-                                                .kmiFont(
-                                                    size: 12,
-                                                    weight: .bold
-                                                )
+                                                .kmiTypography(.secondary)
+                                                .fontWeight(.bold)
                                             }
                                             .buttonStyle(.plain)
                                             .foregroundStyle(
@@ -6625,10 +6567,8 @@ private struct CoachMessagesCard: View {
                                                         : "מחק",
                                                     systemImage: "trash"
                                                 )
-                                                .kmiFont(
-                                                    size: 12,
-                                                    weight: .bold
-                                                )
+                                                .kmiTypography(.secondary)
+                                                .fontWeight(.bold)
                                             }
                                             .buttonStyle(.plain)
                                             .foregroundStyle(
@@ -6671,7 +6611,8 @@ private struct CoachMessagesCard: View {
                 ) {
                     Button(action: onClose) {
                         Text(isEnglish ? "Close" : "סגור")
-                            .kmiFont(size: 14, weight: .heavy)
+                            .kmiTypography(.action)
+                            .fontWeight(.heavy)
                             .foregroundStyle(
                                 KmiAppTheme.primary(for: colorScheme)
                             )
@@ -6765,7 +6706,8 @@ private struct CoachMessageHistoryCard: View {
                                 isEnglish: isEnglish
                             )
                     )
-                        .kmiFont(size: 17, weight: .heavy)
+                        .kmiTypography(.sectionTitle)
+                        .fontWeight(.heavy)
                         .foregroundStyle(
                             KmiAppTheme.onSurface(for: colorScheme)
                         )
@@ -6799,7 +6741,8 @@ private struct CoachMessageHistoryCard: View {
                 }
 
                 Text(message.text)
-                    .kmiFont(size: 16, weight: .bold)
+                    .kmiTypography(.body)
+                    .fontWeight(.bold)
                     .foregroundStyle(
                         KmiAppTheme.onSurface(for: colorScheme)
                     )
@@ -6809,7 +6752,8 @@ private struct CoachMessageHistoryCard: View {
                 
                 if !branchGroupLine.isEmpty {
                     Text(branchGroupLine)
-                        .kmiFont(size: 12, weight: .semibold)
+                        .kmiTypography(.secondary)
+                        .fontWeight(.semibold)
                         .foregroundStyle(
                             KmiAppTheme.onSurfaceVariant(for: colorScheme)
                         )
@@ -6829,11 +6773,14 @@ private struct CoachMessageHistoryCard: View {
                 if !timeText.isEmpty {
                     HStack(alignment: .top, spacing: 5) {
                         Image(systemName: "calendar")
-                            .kmiFont(size: 11, weight: .bold)
+                            .resizable()
+                            .scaledToFit()
+                            .kmiIconSize(.tiny)
                             .accessibilityHidden(true)
 
                         Text(timeText)
-                            .kmiFont(size: 11.5, weight: .bold)
+                            .kmiTypography(.caption)
+                            .fontWeight(.bold)
                             .fixedSize(horizontal: false, vertical: true)
                             .multilineTextAlignment(textAlignment)
                     }
@@ -6873,7 +6820,9 @@ private struct CoachMessageHistoryCard: View {
     
     private var coachIcon: some View {
         Image(systemName: "person.fill")
-            .kmiFont(size: 14, weight: .bold)
+            .resizable()
+            .scaledToFit()
+            .kmiIconSize(.tiny)
             .foregroundStyle(
                 KmiAppTheme.onSecondaryContainer(for: colorScheme)
             )
@@ -6943,8 +6892,9 @@ private struct HomePremiumQuickMenuPanel: View {
             separator
 
             Image(systemName: "line.3.horizontal")
-                .kmiIconSize(17)
-                .fontWeight(.bold)
+                .resizable()
+                .scaledToFit()
+                .kmiIconSize(.small)
                 .foregroundStyle(.white)
                 .frame(width: 25, height: 25)
                 .overlay(
@@ -6955,7 +6905,7 @@ private struct HomePremiumQuickMenuPanel: View {
                         )
                 )
                 .frame(maxWidth: .infinity)
-                .frame(height: 58)
+                .frame(minHeight: 58)
                 .contentShape(Rectangle())
                 .overlay {
                     BeltQuickMenuGestureView(
@@ -7035,8 +6985,9 @@ private struct HomePremiumQuickMenuRow: View {
         Button(action: action) {
             VStack(spacing: 2) {
                 Image(systemName: systemImage)
-                    .kmiIconSize(13)
-                    .fontWeight(.bold)
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.tiny)
                     .foregroundStyle(actionColors.content)
                     .frame(width: 27, height: 27)
                     .background(
@@ -7053,7 +7004,8 @@ private struct HomePremiumQuickMenuRow: View {
                     .accessibilityHidden(true)
 
                 Text(displayTitle)
-                    .kmiFont(size: 9, weight: .bold)
+                    .kmiTypography(.caption)
+                    .fontWeight(.bold)
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
@@ -7063,7 +7015,9 @@ private struct HomePremiumQuickMenuRow: View {
 
                 if isLocked {
                     Image(systemName: "lock.fill")
-                        .kmiIconSize(10)
+                        .resizable()
+                        .scaledToFit()
+                        .kmiIconSize(.tiny)
                         .foregroundStyle(.white)
                         .accessibilityHidden(true)
                 }
@@ -7178,10 +7132,9 @@ private struct ModernHomeQuickFab: View {
                         ? "xmark"
                         : "line.3.horizontal"
             )
-            .kmiFont(
-                size: 20,
-                weight: .heavy
-            )
+            .resizable()
+            .scaledToFit()
+            .kmiIconSize(.medium)
             .foregroundStyle(
                 accentContentColor
             )

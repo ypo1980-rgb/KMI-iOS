@@ -443,8 +443,9 @@ struct KmiFloatingQuickMenu: View {
         } label: {
             VStack(spacing: 2) {
                 Image(systemName: item.systemImage)
-                    .kmiIconSize(13)
-                    .fontWeight(.bold)
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.tiny)
                     .foregroundStyle(tint)
                     .frame(width: 27, height: 27)
                     .background(
@@ -463,7 +464,8 @@ struct KmiFloatingQuickMenu: View {
                     .accessibilityHidden(true)
 
                 Text(title)
-                    .kmiFont(size: 9, weight: .bold)
+                    .kmiTypography(.caption)
+                    .fontWeight(.bold)
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
@@ -476,7 +478,9 @@ struct KmiFloatingQuickMenu: View {
 
                 if locked {
                     Image(systemName: "lock.fill")
-                        .kmiIconSize(10)
+                        .resizable()
+                        .scaledToFit()
+                        .kmiIconSize(.tiny)
                         .foregroundStyle(.white)
                         .accessibilityHidden(true)
                 }
@@ -513,8 +517,9 @@ struct KmiFloatingQuickMenu: View {
             }
         } label: {
             Image(systemName: "line.3.horizontal")
-                .kmiIconSize(isExpanded ? 17 : 20)
-                .fontWeight(.bold)
+                .resizable()
+                .scaledToFit()
+                .kmiIconSize(.small)
                 .foregroundStyle(.white)
                 .frame(width: 25, height: 25)
                 .overlay {
@@ -743,11 +748,13 @@ struct KmiTopBar: View {
     
     var body: some View {
         let hasRole = !localizedRoleLabel.isEmpty
-        let barHeight: CGFloat = hasRole ? 68 : 64
+        let baseHeight: CGFloat = hasRole ? 68 : 64
+        let barHeight = baseHeight * max(1, displayScale)
 
         return ZStack {
             Text(localizedTitle)
                 .kmiTypography(.screenTitle)
+                .accessibilityAddTraits(.isHeader)
                 .foregroundStyle(resolvedTitleColor)
                 .lineLimit(2)
                 .minimumScaleFactor(0.68)
@@ -787,8 +794,10 @@ struct KmiTopBar: View {
                                 systemName:
                                     "arrow.counterclockwise"
                             )
-                            .kmiIconSize(22)
-                            .fontWeight(.bold)
+                            .resizable()
+                            .scaledToFit()
+                            .kmiIconSize(.medium)
+                            .accessibilityHidden(true)
                             .foregroundStyle(
                                 KmiAppTheme.secondary(
                                     for: colorScheme
@@ -798,7 +807,7 @@ struct KmiTopBar: View {
                         .frame(width: 32, height: 32)
                         .frame(
                             width: 44,
-                            height: 34,
+                            height: 44,
                             alignment: .top
                         )
                         .contentShape(Rectangle())
@@ -811,13 +820,18 @@ struct KmiTopBar: View {
                     .accessibilityLabel(isEnglish ? "Back" : "חזור")
                     } else {
                         Color.clear
-                            .frame(width: 44, height: 34)
+                            .frame(width: 44, height: 44)
                     }
 
                     if hasRole {
                         Text(localizedRoleLabel)
-                            .kmiFont(size: 12, weight: .bold)
-                            .foregroundStyle(.white)
+                            .kmiTypography(.secondary)
+                            .fontWeight(.bold)
+                            .foregroundStyle(
+                                isCoachRole
+                                    ? KmiAppTheme.onPrimary(for: colorScheme)
+                                    : KmiAppTheme.onSecondary(for: colorScheme)
+                            )
                             .lineLimit(1)
                             .minimumScaleFactor(0.82)
                             .padding(.horizontal, 7)
@@ -920,7 +934,8 @@ struct KmiTopBar: View {
                 Text(rightText)
                     .kmiTypography(.caption)
                     .foregroundStyle(secondaryTitleColor)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.trailing)
                     .frame(
                         maxWidth: .infinity,
                         maxHeight: .infinity,
@@ -946,6 +961,7 @@ struct KmiRootLayout<Content: View>: View {
     @EnvironmentObject private var auth: AuthViewModel
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.kmiFontScale) private var displayScale
 
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
@@ -1322,7 +1338,10 @@ struct KmiRootLayout<Content: View>: View {
     }
 
     private var globalTopBarHeight: CGFloat {
-        globalRoleBadgeText.isEmpty ? 64 : 68
+        let baseHeight: CGFloat =
+            globalRoleBadgeText.isEmpty ? 64 : 68
+
+        return baseHeight * max(1, displayScale)
     }
 
     private var topBarBackground: some View {
@@ -1985,8 +2004,9 @@ struct KmiRootLayout<Content: View>: View {
                 .allowsHitTesting(false)
 
             Image(systemName: systemImage)
-                .kmiIconSize(16)
-                .fontWeight(.black)
+                .resizable()
+                .scaledToFit()
+                .kmiIconSize(.small)
                 .foregroundStyle(.white)
                 .rotationEffect(
                     .degrees(
@@ -2134,11 +2154,12 @@ struct KmiRootLayout<Content: View>: View {
                     }
                 } label: {
                     Image(systemName: "chevron.up")
-                        .kmiIconSize(16)
-                        .fontWeight(.black)
+                        .resizable()
+                        .scaledToFit()
+                        .kmiIconSize(.small)
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 28)
+                        .frame(minHeight: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -2193,7 +2214,7 @@ struct KmiRootLayout<Content: View>: View {
         .frame(width: 52)
         .frame(
             height: min(
-                CGFloat(globalRailItems.count) * 58 + 41,
+                CGFloat(globalRailItems.count) * 58 + 57,
                 440
             )
         )
@@ -2237,8 +2258,9 @@ struct KmiRootLayout<Content: View>: View {
                     )
 
                 Image(systemName: globalRailSystemIcon(item))
-                    .kmiIconSize(13)
-                    .fontWeight(.bold)
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.tiny)
                     .foregroundStyle(
                         isEnabled
                             ? tint
@@ -2251,16 +2273,13 @@ struct KmiRootLayout<Content: View>: View {
             .accessibilityHidden(true)
 
             Text(globalRailTitle(item))
-                .kmiFont(
-                    size: item == .stats && !isEnglish ? 8 : 9,
-                    weight: .bold
-                )
-                .foregroundStyle(
-                    Color.white.opacity(itemAlpha)
-                )
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
+                .kmiTypography(.caption)
+                .fontWeight(.bold)
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .minimumScaleFactor(0.80)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
         }
         .opacity(itemAlpha)

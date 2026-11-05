@@ -241,7 +241,7 @@ struct AdminUsersView: View {
                     "Loading users from the server..."
                 )
             )
-            .kmiFont(size: 15, weight: .bold)
+            .kmiTypography(.cardTitle)
             .foregroundStyle(secondaryTextColor)
             .multilineTextAlignment(.center)
         }
@@ -256,7 +256,9 @@ struct AdminUsersView: View {
                 systemName:
                     "person.crop.circle.badge.questionmark"
             )
-            .font(.system(size: 42, weight: .bold))
+            .resizable()
+            .scaledToFit()
+            .kmiIconSize(.extraLarge)
             .foregroundStyle(
                 isDarkMode
                     ? Color.white.opacity(0.92)
@@ -269,7 +271,7 @@ struct AdminUsersView: View {
                     "No matching users found"
                 )
             )
-            .kmiFont(size: 18, weight: .heavy)
+            .kmiTypography(.sectionTitle)
             .foregroundStyle(primaryTextColor)
             .multilineTextAlignment(.center)
 
@@ -279,7 +281,7 @@ struct AdminUsersView: View {
                     "Try changing the search or filters"
                 )
             )
-            .kmiFont(size: 14, weight: .semibold)
+            .kmiTypography(.body)
             .foregroundStyle(secondaryTextColor)
             .multilineTextAlignment(.center)
 
@@ -292,7 +294,7 @@ struct AdminUsersView: View {
                         "Clear filters"
                     )
                 )
-                .kmiFont(size: 14, weight: .heavy)
+                .kmiTypography(.action)
                 .foregroundStyle(
                     isDarkMode
                         ? Color.black.opacity(0.88)
@@ -379,7 +381,7 @@ struct AdminUsersView: View {
             spacing: 10
         ) {
             Text(title)
-                .kmiFont(size: 16, weight: .black)
+                .kmiTypography(.sectionTitle)
                 .foregroundStyle(sectionTitleColor)
                 .frame(
                     maxWidth: .infinity,
@@ -390,7 +392,7 @@ struct AdminUsersView: View {
 
             if users.isEmpty {
                 Text(emptyMessage)
-                    .kmiFont(size: 13, weight: .semibold)
+                    .kmiTypography(.secondary)
                     .foregroundStyle(secondaryTextColor)
                     .frame(
                         maxWidth: .infinity,
@@ -450,7 +452,7 @@ struct AdminUsersView: View {
                     "Questions for review (UNLIKE)"
                 )
             )
-            .kmiFont(size: 16, weight: .black)
+            .kmiTypography(.sectionTitle)
             .foregroundStyle(sectionTitleColor)
             .frame(
                 maxWidth: .infinity,
@@ -465,7 +467,7 @@ struct AdminUsersView: View {
                     "Questions where the assistant response was marked as not helpful — for review and content improvement."
                 )
             )
-            .kmiFont(size: 12.5, weight: .semibold)
+            .kmiTypography(.secondary)
             .foregroundStyle(secondaryTextColor)
             .frame(
                 maxWidth: .infinity,
@@ -516,7 +518,7 @@ struct AdminUsersView: View {
             spacing: 4
         ) {
             Text("• \(item.question)")
-                .kmiFont(size: 12.5, weight: .bold)
+                .kmiTypography(.body)
                 .foregroundStyle(primaryTextColor)
                 .frame(
                     maxWidth: .infinity,
@@ -532,7 +534,7 @@ struct AdminUsersView: View {
 
             if !meta.isEmpty {
                 Text(meta)
-                    .kmiFont(size: 11, weight: .semibold)
+                    .kmiTypography(.caption)
                     .foregroundStyle(secondaryTextColor)
                     .frame(
                         maxWidth: .infinity,
@@ -574,7 +576,7 @@ struct AdminUsersView: View {
                     "User management"
                 )
             )
-            .kmiFont(size: 24, weight: .black)
+            .kmiTypography(.screenTitle)
             .foregroundStyle(primaryTextColor)
             .frame(
                 maxWidth: .infinity,
@@ -589,7 +591,7 @@ struct AdminUsersView: View {
                     "Real users from Firestore"
                 )
             )
-            .kmiFont(size: 14, weight: .bold)
+            .kmiTypography(.secondary)
             .foregroundStyle(secondaryTextColor)
             .frame(
                 maxWidth: .infinity,
@@ -658,7 +660,9 @@ struct AdminUsersView: View {
             systemName:
                 "exclamationmark.triangle.fill"
         )
-        .font(.system(size: 16, weight: .heavy))
+        .resizable()
+        .scaledToFit()
+        .kmiIconSize(.small)
         .foregroundStyle(
             isDarkMode
                 ? Color(
@@ -679,7 +683,7 @@ struct AdminUsersView: View {
         _ message: String
     ) -> some View {
         Text(message)
-            .kmiFont(size: 13, weight: .semibold)
+            .kmiTypography(.secondary)
             .foregroundStyle(
                 isDarkMode
                     ? Color(
@@ -797,7 +801,9 @@ struct AdminUsersView: View {
     ) -> some View {
         VStack(spacing: 5) {
             Image(systemName: icon)
-                .font(.system(size: 15, weight: .heavy))
+                .resizable()
+                .scaledToFit()
+                .kmiIconSize(.small)
                 .foregroundStyle(
                     Color(
                         red: 0.08,
@@ -808,13 +814,13 @@ struct AdminUsersView: View {
                 .frame(minHeight: 18)
 
             Text(value)
-                .kmiFont(size: 18, weight: .black)
+                .kmiTypography(.metric)
                 .foregroundStyle(primaryTextColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
 
             Text(title)
-                .kmiFont(size: 10.5, weight: .bold)
+                .kmiTypography(.caption)
                 .foregroundStyle(secondaryTextColor)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
@@ -876,7 +882,7 @@ struct AdminUsersView: View {
                     "User filters"
                 )
             )
-            .kmiFont(size: 15, weight: .black)
+            .kmiTypography(.sectionTitle)
             .foregroundStyle(primaryTextColor)
             .frame(
                 maxWidth: .infinity,
@@ -1079,7 +1085,7 @@ struct AdminUsersView: View {
 
         return Button(action: action) {
             Text(title)
-                .kmiFont(size: 12.5, weight: .heavy)
+                .kmiTypography(.action)
                 .foregroundStyle(chipTextColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)
@@ -1147,7 +1153,7 @@ struct AdminUsersView: View {
                     "Gender distribution"
                 )
             )
-            .kmiFont(size: 15, weight: .black)
+            .kmiTypography(.sectionTitle)
             .foregroundStyle(sectionTitleColor)
             .frame(
                 maxWidth: .infinity,
@@ -1227,7 +1233,7 @@ struct AdminUsersView: View {
                     "Belt distribution"
                 )
             )
-            .kmiFont(size: 15, weight: .black)
+            .kmiTypography(.sectionTitle)
             .foregroundStyle(sectionTitleColor)
             .frame(
                 maxWidth: .infinity,
@@ -1328,13 +1334,13 @@ struct AdminUsersView: View {
             Text(
                 value.map { "\($0)" } ?? "…"
             )
-            .kmiFont(size: 12.5, weight: .black)
+            .kmiTypography(.caption)
             .foregroundStyle(primaryTextColor)
             .lineLimit(1)
             .minimumScaleFactor(0.72)
 
             Text(title)
-                .kmiFont(size: 10.5, weight: .bold)
+                .kmiTypography(.caption)
                 .foregroundStyle(secondaryTextColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.68)
@@ -1383,13 +1389,13 @@ struct AdminUsersView: View {
                     ? "…"
                     : "\(item.count)"
             )
-            .kmiFont(size: 11.5, weight: .black)
+            .kmiTypography(.caption)
             .foregroundStyle(primaryTextColor)
             .lineLimit(1)
             .minimumScaleFactor(0.70)
 
             Text(item.label)
-                .kmiFont(size: 10, weight: .bold)
+                .kmiTypography(.caption)
                 .foregroundStyle(secondaryTextColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.62)
@@ -1403,7 +1409,9 @@ struct AdminUsersView: View {
         HStack(spacing: 10) {
             if isEnglish {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 15, weight: .semibold))
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.small)
                     .foregroundStyle(fieldIconColor)
 
                 searchTextField
@@ -1411,7 +1419,9 @@ struct AdminUsersView: View {
                 searchTextField
 
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 15, weight: .semibold))
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.small)
                     .foregroundStyle(fieldIconColor)
             }
         }
@@ -1450,7 +1460,7 @@ struct AdminUsersView: View {
             ),
             text: $searchText
         )
-        .kmiFont(size: 15, weight: .medium)
+        .kmiTypography(.body)
         .foregroundStyle(fieldTextColor)
         .multilineTextAlignment(
             isEnglish ? .leading : .trailing
@@ -1469,13 +1479,17 @@ struct AdminUsersView: View {
                 userTexts(user)
 
                 Image(systemName: rowChevronName)
-                    .font(.system(size: 13, weight: .bold))
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.tiny)
                     .foregroundStyle(fieldIconColor)
                     .frame(width: 18)
 
             } else {
                 Image(systemName: rowChevronName)
-                    .font(.system(size: 13, weight: .bold))
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.tiny)
                     .foregroundStyle(fieldIconColor)
                     .frame(width: 18)
 
@@ -1532,7 +1546,7 @@ struct AdminUsersView: View {
             HStack(spacing: 8) {
                 if isEnglish {
                     Text(user.fullName)
-                        .kmiFont(size: 17, weight: .heavy)
+                        .kmiTypography(.cardTitle)
                         .foregroundStyle(primaryTextColor)
                         .lineLimit(2)
                         .minimumScaleFactor(0.75)
@@ -1548,7 +1562,7 @@ struct AdminUsersView: View {
                     roleBadge(user.role)
 
                     Text(user.fullName)
-                        .kmiFont(size: 17, weight: .heavy)
+                        .kmiTypography(.cardTitle)
                         .foregroundStyle(primaryTextColor)
                         .lineLimit(2)
                         .minimumScaleFactor(0.75)
@@ -1571,7 +1585,7 @@ struct AdminUsersView: View {
                 .isEmpty {
 
                 Text(user.email)
-                    .kmiFont(size: 13, weight: .medium)
+                    .kmiTypography(.secondary)
                     .foregroundStyle(secondaryTextColor)
                     .frame(
                         maxWidth: .infinity,
@@ -1595,7 +1609,7 @@ struct AdminUsersView: View {
                         ? "Phone: \(user.phone)"
                         : "טלפון: \(user.phone)"
                 )
-                .kmiFont(size: 12.5, weight: .medium)
+                .kmiTypography(.secondary)
                 .foregroundStyle(secondaryTextColor)
                 .frame(
                     maxWidth: .infinity,
@@ -1613,7 +1627,7 @@ struct AdminUsersView: View {
                     isEnglish: isEnglish
                 )
             )
-            .kmiFont(size: 12.5, weight: .semibold)
+            .kmiTypography(.secondary)
             .foregroundStyle(secondaryTextColor)
             .frame(
                 maxWidth: .infinity,
@@ -1629,7 +1643,7 @@ struct AdminUsersView: View {
             )
 
             Text(userMetaLine(user))
-                .kmiFont(size: 12, weight: .bold)
+                .kmiTypography(.secondary)
                 .foregroundStyle(secondaryTextColor)
                 .frame(
                     maxWidth: .infinity,
@@ -1659,10 +1673,12 @@ struct AdminUsersView: View {
     ) -> some View {
         HStack(spacing: 5) {
             Image(systemName: roleIcon(role))
-                .font(.system(size: 10, weight: .black))
+                .resizable()
+                .scaledToFit()
+                .kmiIconSize(.tiny)
 
             Text(roleTextForUi(role))
-                .kmiFont(size: 11, weight: .black)
+                .kmiTypography(.caption)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }

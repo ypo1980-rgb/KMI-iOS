@@ -12,11 +12,14 @@ private extension String {
 }
 
 private struct MyProfileBranchEntry: Identifiable {
-    let id = UUID()
     let branch: String
     let address: String
     let group: String
     let coach: String
+
+    var id: [String] {
+        [branch, address, group, coach]
+    }
 }
 
 private struct MyProfileFirestoreInfo {
@@ -85,11 +88,10 @@ struct MyProfileView: View {
         [RegistrationFormState.BranchAssignment] = []
 
     @State private var isLoadingFirestoreProfile: Bool = false
-
+    @State private var profileLoadError: String?
+    @State private var profileLoadRequestID = UUID()
     @State private var showProfileShareSheet = false
-
     @State private var profileShareItems: [Any] = []
-
     @State private var profileShareErrorMessage: String?
 
     private var profilePrimaryTextColor: Color {
@@ -485,15 +487,33 @@ struct MyProfileView: View {
     }
 
     private var displayedEmail: String {
-        resolvedEmail.isEmpty ? "—" : resolvedEmail
+        guard !resolvedEmail.isEmpty else {
+            return "—"
+        }
+
+        return demoPrivacy.isEnabled
+            ? tr("מוסתר במצב הדגמה", "Hidden in demo mode")
+            : resolvedEmail
     }
 
     private var displayedPhone: String {
-        resolvedPhone.isEmpty ? "—" : resolvedPhone
+        guard !resolvedPhone.isEmpty else {
+            return "—"
+        }
+
+        return demoPrivacy.isEnabled
+            ? tr("מוסתר במצב הדגמה", "Hidden in demo mode")
+            : resolvedPhone
     }
 
     private var displayedUsername: String {
-        resolvedUsername.isEmpty ? "—" : resolvedUsername
+        guard !resolvedUsername.isEmpty else {
+            return "—"
+        }
+
+        return demoPrivacy.isEnabled
+            ? tr("מוסתר במצב הדגמה", "Hidden in demo mode")
+            : resolvedUsername
     }
 
     private var displayedBelt: String {
@@ -588,6 +608,10 @@ struct MyProfileView: View {
         .onAppear {
             loadFirestoreProfileIfNeeded()
         }
+        .onDisappear {
+            profileLoadRequestID = UUID()
+            isLoadingFirestoreProfile = false
+        }
         .onReceive(
             NotificationCenter.default.publisher(
                 for: Notification.Name(
@@ -653,15 +677,7 @@ struct MyProfileView: View {
     // MARK: - Background
 
     private var profileBackground: some View {
-        LinearGradient(
-            colors:
-                KmiAppTheme.screenBackgroundColors(
-                    for: colorScheme
-                ),
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
+        KmiAppBackground()
     }
     
     // MARK: - Main card
@@ -680,6 +696,52 @@ struct MyProfileView: View {
                     height:
                         14
                 )
+
+            if let profileLoadError {
+                VStack(
+                    alignment: profileStackAlignment,
+                    spacing: 8
+                ) {
+                    Text(profileLoadError)
+                        .kmiTypography(.secondary)
+                        .foregroundStyle(
+                            KmiAppTheme.onErrorContainer(
+                                for: colorScheme
+                            )
+                        )
+                        .multilineTextAlignment(profileTextAlignment)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Button {
+                        loadFirestoreProfileIfNeeded()
+                    } label: {
+                        Text(tr("נסה שוב", "Try again"))
+                            .kmiTypography(.action)
+                            .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(
+                        KmiAppTheme.onErrorContainer(
+                            for: colorScheme
+                        )
+                    )
+                    .disabled(isLoadingFirestoreProfile)
+                }
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: profileFrameAlignment
+                )
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(
+                            KmiAppTheme.errorContainer(
+                                for: colorScheme
+                            )
+                        )
+                )
+                .padding(.bottom, 12)
+            }
 
             profileInfoSections
 
@@ -742,29 +804,28 @@ struct MyProfileView: View {
              */
             headerTextBlock(
                 alignment:
-                    .trailing,
+                    isEnglish ? .leading : .trailing,
                 frameAlignment:
-                    .trailing,
+                    isEnglish ? .leading : .trailing,
                 textAlignment:
-                    .trailing
+                    isEnglish ? .leading : .trailing
             )
             .frame(
-                width:
-                    170,
+                maxWidth: .infinity,
                 alignment:
-                    .trailing
+                    isEnglish ? .leading : .trailing
             )
+            .layoutPriority(1)
         }
-        .frame(
-            maxWidth:
-                .infinity,
-            alignment:
-                .center
+        .padding(
+            .horizontal,
+            isEnglish ? 16 : 24
         )
         .frame(
-            height:
-                68
+            maxWidth: .infinity,
+            alignment: .center
         )
+        .frame(minHeight: 68)
         .background(
             KmiAppTheme
                 .sectionHeaderBrush
@@ -789,21 +850,14 @@ struct MyProfileView: View {
             Text(
                 displayedUserName
             )
-            .kmiFont(
-                size:
-                    24,
-                weight:
-                    .heavy
-            )
+            .kmiTypography(.metric)
+            .fontWeight(.heavy)
             .foregroundStyle(
-                Color.white
+                KmiAppTheme.sectionHeaderContentColor
             )
-            .lineLimit(
-                1
-            )
-            .minimumScaleFactor(
-                0.72
-            )
+            .lineLimit(2)
+            .minimumScaleFactor(0.85)
+            .fixedSize(horizontal: false, vertical: true)
             .frame(
                 maxWidth:
                     .infinity,
@@ -813,20 +867,16 @@ struct MyProfileView: View {
             .multilineTextAlignment(
                 textAlignment
             )
+            .accessibilityAddTraits(.isHeader)
 
             Text(
                 displayedBelt
             )
-            .kmiFont(
-                size:
-                    15,
-                weight:
-                    .semibold
-            )
+            .kmiTypography(.cardTitle)
+            .fontWeight(.semibold)
             .foregroundStyle(
-                Color.white.opacity(
-                    0.90
-                )
+                KmiAppTheme.sectionHeaderContentColor
+                    .opacity(0.90)
             )
             .lineLimit(
                 1
@@ -860,10 +910,8 @@ struct MyProfileView: View {
                     "Edit profile"
                 )
             )
-            .kmiFont(
-                size: 16,
-                weight: .heavy
-            )
+            .kmiTypography(.action)
+            .fontWeight(.heavy)
             .foregroundStyle(
                 KmiAppTheme.sectionHeaderContentColor
             )
@@ -952,7 +1000,8 @@ struct MyProfileView: View {
             spacing: 3
         ) {
             Text(label)
-                .kmiFont(size: 13, weight: .medium)
+                .kmiTypography(.secondary)
+                .fontWeight(.medium)
                 .foregroundStyle(profileSecondaryTextColor)
                 .frame(
                     maxWidth: .infinity,
@@ -967,10 +1016,8 @@ struct MyProfileView: View {
                     ? "—"
                     : value
             )
-            .kmiFont(
-                size: 15,
-                weight: .heavy
-            )
+            .kmiTypography(.cardTitle)
+            .fontWeight(.heavy)
             .foregroundStyle(profilePrimaryTextColor)
             .frame(
                 maxWidth: .infinity,
@@ -979,8 +1026,6 @@ struct MyProfileView: View {
             .multilineTextAlignment(
                 profileTextAlignment
             )
-            .lineLimit(4)
-            .minimumScaleFactor(0.72)
             .fixedSize(
                 horizontal: false,
                 vertical: true
@@ -1017,14 +1062,15 @@ struct MyProfileView: View {
     ) -> some View {
         VStack(alignment: profileStackAlignment, spacing: 8) {
             Text(label)
-                .kmiFont(size: 13, weight: .medium)
+                .kmiTypography(.secondary)
+                .fontWeight(.medium)
                 .foregroundStyle(profileSecondaryTextColor)
                 .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                 .multilineTextAlignment(profileTextAlignment)
 
             if entries.isEmpty {
                 Text("—")
-                    .kmiFont(size: 15, weight: .bold)
+                    .kmiTypography(.cardTitle)
                     .foregroundStyle(profilePrimaryTextColor)
                     .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                     .multilineTextAlignment(profileTextAlignment)
@@ -1052,19 +1098,17 @@ struct MyProfileView: View {
                                 )
                                 .ifBlankDash()
                         )
-                        .kmiFont(
-                            size:
-                                15,
-                            weight:
-                                .heavy
-                        )
+                        .kmiTypography(.cardTitle)
+                        .fontWeight(.heavy)
                         .foregroundStyle(
                             profileAccentTextColor
                         )
                             .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                             .multilineTextAlignment(profileTextAlignment)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.78)
+                            .fixedSize(
+                                horizontal: false,
+                                vertical: true
+                            )
 
                         Text(
                             TrainingCatalogIOS
@@ -1075,12 +1119,8 @@ struct MyProfileView: View {
                                 )
                                 .ifBlankDash()
                         )
-                        .kmiFont(
-                            size:
-                                14,
-                            weight:
-                                .semibold
-                        )
+                        .kmiTypography(.body)
+                        .fontWeight(.semibold)
                         .foregroundStyle(
                             profileSecondaryTextColor
                         )
@@ -1096,7 +1136,8 @@ struct MyProfileView: View {
                             .frame(height: 4)
 
                         Text(tr("קבוצה:", "Group:"))
-                            .kmiFont(size: 13, weight: .medium)
+                            .kmiTypography(.secondary)
+                            .fontWeight(.medium)
                             .foregroundStyle(profileSecondaryTextColor)
                             .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                             .multilineTextAlignment(profileTextAlignment)
@@ -1121,12 +1162,8 @@ struct MyProfileView: View {
                                 )
                                 .ifBlankDash()
                         )
-                        .kmiFont(
-                            size:
-                                14,
-                            weight:
-                                .heavy
-                        )
+                        .kmiTypography(.body)
+                        .fontWeight(.heavy)
                         .foregroundStyle(
                             profilePrimaryTextColor
                         )
@@ -1137,13 +1174,22 @@ struct MyProfileView: View {
                             .frame(height: 2)
 
                         Text(tr("מאמן:", "Coach:"))
-                            .kmiFont(size: 13, weight: .medium)
+                            .kmiTypography(.secondary)
+                            .fontWeight(.medium)
                             .foregroundStyle(profileSecondaryTextColor)
                             .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                             .multilineTextAlignment(profileTextAlignment)
 
-                        Text(entry.coach.ifBlankDash())
-                            .kmiFont(size: 14, weight: .heavy)
+                        Text(
+                            demoPrivacy.isEnabled
+                                ? tr("מאמן", "Coach")
+                                : TrainingCatalogIOS.displayCoach(
+                                    entry.coach,
+                                    isEnglish: isEnglish
+                                ).ifBlankDash()
+                        )
+                            .kmiTypography(.body)
+                            .fontWeight(.heavy)
                             .foregroundStyle(profilePrimaryTextColor)
                             .frame(maxWidth: .infinity, alignment: profileFrameAlignment)
                             .multilineTextAlignment(profileTextAlignment)
@@ -1247,12 +1293,8 @@ struct MyProfileView: View {
                     "Password recovery"
                 )
             )
-            .kmiFont(
-                size:
-                    15,
-                weight:
-                    .heavy
-            )
+            .kmiTypography(.cardTitle)
+            .fontWeight(.heavy)
             .foregroundStyle(
                 profileAccentTextColor
             )
@@ -1269,6 +1311,8 @@ struct MyProfileView: View {
                 .vertical,
                 8
             )
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(
             .plain
@@ -1311,10 +1355,8 @@ struct MyProfileView: View {
                     "Training toward belt"
                 )
             )
-            .kmiFont(
-                size: 13,
-                weight: .bold
-            )
+            .kmiTypography(.secondary)
+            .fontWeight(.bold)
             .foregroundStyle(
                 profileSecondaryTextColor
             )
@@ -1325,7 +1367,8 @@ struct MyProfileView: View {
             .multilineTextAlignment(
                 profileTextAlignment
             )
-            .lineLimit(1)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 10) {
                 if isEnglish {
@@ -1341,30 +1384,40 @@ struct MyProfileView: View {
                     .accessibilityHidden(true)
 
                     Text(displayedNextBelt)
-                        .kmiFont(
-                            size: 18,
-                            weight: .heavy
-                        )
+                        .kmiTypography(.sectionTitle)
+                        .fontWeight(.heavy)
                         .foregroundStyle(
                             profileAccentTextColor
                         )
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.80)
+                        .multilineTextAlignment(
+                            profileTextAlignment
+                        )
+                        .lineLimit(2)
+                        .fixedSize(
+                            horizontal: false,
+                            vertical: true
+                        )
+                        .layoutPriority(1)
 
                     Spacer(minLength: 0)
                 } else {
                     Spacer(minLength: 0)
 
                     Text(displayedNextBelt)
-                        .kmiFont(
-                            size: 18,
-                            weight: .heavy
-                        )
+                        .kmiTypography(.sectionTitle)
+                        .fontWeight(.heavy)
                         .foregroundStyle(
                             profileAccentTextColor
                         )
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.80)
+                        .multilineTextAlignment(
+                            profileTextAlignment
+                        )
+                        .lineLimit(2)
+                        .fixedSize(
+                            horizontal: false,
+                            vertical: true
+                        )
+                        .layoutPriority(1)
 
                     Image(
                         profileBeltImageName(
@@ -1413,7 +1466,8 @@ struct MyProfileView: View {
 
     @MainActor
     private func shareProfilePDF() {
-        guard !showProfileShareSheet else {
+        guard !showProfileShareSheet,
+              profileShareItems.isEmpty else {
             return
         }
 
@@ -1483,6 +1537,12 @@ struct MyProfileView: View {
                             .filter {
                                 !$0.isEmpty
                             }
+                            .map {
+                                TrainingCatalogIOS.displayGroup(
+                                    $0,
+                                    isEnglish: isEnglish
+                                )
+                            }
                             .joined(
                                 separator:
                                     ", "
@@ -1490,12 +1550,16 @@ struct MyProfileView: View {
                             .ifBlankDash()
 
                     return [
-                        entry.branch
-                            .ifBlankDash(),
-                        entry.address
-                            .ifBlankDash(),
+                        TrainingCatalogIOS.displayBranch(
+                            entry.branch,
+                            isEnglish: isEnglish
+                        ).ifBlankDash(),
+                        TrainingCatalogIOS.displayAddress(
+                            entry.address,
+                            isEnglish: isEnglish
+                        ).ifBlankDash(),
                         "\(tr("קבוצה", "Group")): \(groups)",
-                        "\(tr("מאמן", "Coach")): \(entry.coach.ifBlankDash())"
+                        "\(tr("מאמן", "Coach")): \(demoPrivacy.isEnabled ? tr("מאמן", "Coach") : TrainingCatalogIOS.displayCoach(entry.coach, isEnglish: isEnglish).ifBlankDash())"
                     ]
                     .joined(
                         separator:
@@ -1760,10 +1824,7 @@ struct MyProfileView: View {
                             ),
                             font: labelFont,
                             color: UIColor(
-                                red: 0.30,
-                                green: 0.35,
-                                blue: 0.42,
-                                alpha: 1
+                                KmiAppTheme.onSurfaceVariant(for: .light)
                             )
                         )
 
@@ -1779,10 +1840,7 @@ struct MyProfileView: View {
                             ),
                             font: valueFont,
                             color: UIColor(
-                                red: 0.09,
-                                green: 0.13,
-                                blue: 0.20,
-                                alpha: 1
+                                KmiAppTheme.onSurface(for: .light)
                             )
                         )
 
@@ -1790,10 +1848,7 @@ struct MyProfileView: View {
 
                         cg.setStrokeColor(
                             UIColor(
-                                red: 0.82,
-                                green: 0.86,
-                                blue: 0.90,
-                                alpha: 1
+                                KmiAppTheme.outlineVariant(for: .light)
                             )
                             .cgColor
                         )
@@ -1846,21 +1901,45 @@ struct MyProfileView: View {
             return
         }
 
+        let requestID = UUID()
+        profileLoadRequestID = requestID
+        profileLoadError = nil
         isLoadingFirestoreProfile = true
 
         Firestore.firestore()
             .collection("users")
             .document(uid)
-            .getDocument { snapshot, _ in
+            .getDocument { snapshot, error in
                 DispatchQueue.main.async {
+                    guard profileLoadRequestID == requestID else {
+                        return
+                    }
+
                     defer {
                         isLoadingFirestoreProfile = false
                     }
 
+                    guard Auth.auth().currentUser?.uid == uid else {
+                        return
+                    }
+
+                    guard error == nil else {
+                        profileLoadError = tr(
+                            "לא ניתן לעדכן את הפרופיל כרגע. הפרטים הזמינים נשארו מוצגים.",
+                            "The profile could not be updated. Available details remain displayed."
+                        )
+                        return
+                    }
+
                     guard
-                        let data = snapshot?.data(),
-                        snapshot?.exists == true
+                        let snapshot,
+                        snapshot.exists,
+                        let data = snapshot.data()
                     else {
+                        profileLoadError = tr(
+                            "לא נמצא מסמך פרופיל. הפרטים הזמינים נשארו מוצגים.",
+                            "No profile document was found. Available details remain displayed."
+                        )
                         return
                     }
 

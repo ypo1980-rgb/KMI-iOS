@@ -343,6 +343,8 @@ struct MaterialsView: View {
     @State private var excluded: Set<String> = []
     @State private var marks: [String: RowMark?] = [:]
 
+    @State private var rowsCache: [String: [ExerciseRow]] = [:]
+
     /*
      * זמן העדכון האחרון של סטטוס המתאמן.
      *
@@ -566,18 +568,20 @@ struct MaterialsView: View {
 
             if let openedNestedSubTopic,
                !openedNestedSubTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                let nestedItems = ContentRepo.shared.getNestedItemsFor(
+                return ContentRepo.shared.getNestedItemsFor(
                     belt: belt,
                     topicTitle: cleanRootTopic,
                     subTopicTitle: cleanParentSubTopic,
                     nestedSubTopicTitle: openedNestedSubTopic
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                 )
-                .removingDuplicatesKeepingOrder()
-
-                if !nestedItems.isEmpty {
-                    return nestedItems
+                .map {
+                    $0.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
+                .filter {
+                    !$0.isEmpty
+                }
+                .removingDuplicatesKeepingOrder()
             }
 
             let nestedTitles = ContentRepo.shared.getNestedSubTopicTitles(
@@ -662,7 +666,25 @@ struct MaterialsView: View {
         .removingDuplicatesKeepingOrder()
     }
 
+    private var rowsCacheKey: String {
+        "\(scopeKey)||\(effectiveLanguageCode)"
+    }
+
     private var rows: [ExerciseRow] {
+        rowsCache[rowsCacheKey] ?? []
+    }
+
+    private func ensureRowsCache() {
+        let key = rowsCacheKey
+
+        guard rowsCache[key] == nil else {
+            return
+        }
+
+        rowsCache[key] = buildRows()
+    }
+
+    private func buildRows() -> [ExerciseRow] {
         var seenStatusIds = Set<String>()
 
         return materialItems
@@ -1022,8 +1044,12 @@ struct MaterialsView: View {
                     )
 
                 ScrollView {
-                    VStack(spacing: 0) {
-                        if rows.isEmpty {
+                    LazyVStack(spacing: 7) {
+                        if rowsCache[rowsCacheKey] == nil {
+                            KmiLoadingOverlay()
+                                .frame(height: 160)
+                                .clipped()
+                        } else if rows.isEmpty {
                             MaterialsEmptyStateView(
                                 belt: belt,
                                 title: headerTitle,
@@ -1191,7 +1217,6 @@ struct MaterialsView: View {
             }
 
             speechSynth.delegate = speechDelegate
-            loadState()
             startNoteAuthListener()
         }
         .onDisappear {
@@ -1213,7 +1238,15 @@ struct MaterialsView: View {
         .onChange(of: scopeKey) { _, _ in
             showNoteConflictChoices = false
             noteConflictContext = nil
+        }
+        .task(id: rowsCacheKey) {
+            await Task.yield()
 
+            guard !Task.isCancelled else {
+                return
+            }
+
+            ensureRowsCache()
             loadState()
         }
         .onReceive(exerciseNotes.$revision) { _ in
@@ -1348,23 +1381,36 @@ struct MaterialsView: View {
             )
         }
         .sheet(item: $selectedInfoRow) { row in
-            MaterialsInfoSheet(
-                title: row.displayName,
-                text: explanationText(for: row),
-                isFavorite: isFavorite(row),
-                isSpeaking: isSpeakingExplanation,
+            ExerciseExplanationDialog(
+                belt: belt,
+                topic: materialRootTopic,
+                item: row.rawItem,
+                branch: "",
+                groupKey: "",
                 isEnglish: isEnglish,
-                accentColor: BeltPaletteByMaterials.color(for: belt),
-                onClose: {
-                    speechSynth.stopSpeaking(at: .immediate)
-                    isSpeakingExplanation = false
-                    selectedInfoRow = nil
-                },
+                favoriteBinding: Binding(
+                    get: {
+                        isFavorite(row)
+                    },
+                    set: { newValue in
+                        if newValue != isFavorite(row) {
+                            toggleFavorite(row)
+                        }
+                    }
+                ),
                 onToggleFavorite: {
                     toggleFavorite(row)
                 },
-                onSpeak: {
-                    toggleSpeak(explanationText(for: row))
+                speakingBinding: Binding(
+                    get: {
+                        isSpeakingExplanation
+                    },
+                    set: {
+                        isSpeakingExplanation = $0
+                    }
+                ),
+                onSpeak: { text in
+                    toggleSpeak(text)
                 },
                 onEditNote: {
                     guard canOpenNote(for: row) else {
@@ -1395,6 +1441,10 @@ struct MaterialsView: View {
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
+            .onDisappear {
+                speechSynth.stopSpeaking(at: .immediate)
+                isSpeakingExplanation = false
+            }
         }
         .sheet(
             item: $selectedNoteRow,
@@ -3360,6 +3410,16 @@ struct MaterialsView: View {
     }
 
     private func createAndShareMaterialsPdf() {
+        guard rowsCache[rowsCacheKey] != nil else {
+            showToast(
+                tr(
+                    "רשימת התרגילים בטעינה. נסה שוב בעוד רגע.",
+                    "Exercises are loading. Please try again shortly."
+                )
+            )
+            return
+        }
+
         let pdfItems = rows.enumerated().map { index, row in
             MaterialsPdfItemIOS(
                 number: index + 1,
@@ -3612,25 +3672,33 @@ struct MaterialsView: View {
 }
 
 private struct MaterialsToastView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let message: String
 
     var body: some View {
         Text(message)
-            .kmiFont(size: 13.5, weight: .bold)
-            .foregroundStyle(Color.white)
+            .kmiTypography(.action)
+            .foregroundStyle(
+                KmiAppTheme.onSurface(for: colorScheme)
+            )
             .multilineTextAlignment(.center)
-            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 16)
             .padding(.vertical, 11)
             .background(
                 Capsule()
-                    .fill(Color(red: 0.12, green: 0.16, blue: 0.24).opacity(0.94))
+                    .fill(
+                        KmiAppTheme.surface(for: colorScheme)
+                    )
             )
             .overlay(
                 Capsule()
-                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                    .stroke(
+                        KmiAppTheme.outlineVariant(for: colorScheme),
+                        lineWidth: 1
+                    )
             )
-            .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 5)
     }
 }
 
@@ -4488,9 +4556,7 @@ struct MaterialsExerciseRow: View {
                         systemName:
                             "star.fill",
                         color:
-                            Color.orange.opacity(
-                                0.90
-                            )
+                            KmiAppTheme.warning(for: colorScheme)
                     )
                 }
                 
@@ -4501,9 +4567,7 @@ struct MaterialsExerciseRow: View {
                         systemName:
                             "note.text",
                         color:
-                            Color.blue.opacity(
-                                0.84
-                            )
+                            KmiAppTheme.secondary(for: colorScheme)
                     )
                 }
                 
@@ -4514,9 +4578,7 @@ struct MaterialsExerciseRow: View {
                         systemName:
                             "minus.circle.fill",
                         color:
-                            Color.gray.opacity(
-                                0.82
-                            )
+                            KmiAppTheme.onSurfaceVariant(for: colorScheme)
                     )
                 }
                 
@@ -4529,9 +4591,7 @@ struct MaterialsExerciseRow: View {
                         systemName:
                             "minus.circle.fill",
                         color:
-                            Color.gray.opacity(
-                                0.82
-                            )
+                            KmiAppTheme.onSurfaceVariant(for: colorScheme)
                     )
                 }
                 
@@ -4542,9 +4602,7 @@ struct MaterialsExerciseRow: View {
                         systemName:
                             "note.text",
                         color:
-                            Color.blue.opacity(
-                                0.84
-                            )
+                            KmiAppTheme.secondary(for: colorScheme)
                     )
                 }
                 
@@ -4555,9 +4613,7 @@ struct MaterialsExerciseRow: View {
                         systemName:
                             "star.fill",
                         color:
-                            Color.orange.opacity(
-                                0.90
-                            )
+                            KmiAppTheme.warning(for: colorScheme)
                     )
                 }
                 
@@ -4650,50 +4706,23 @@ struct MaterialsExerciseRow: View {
         systemName: String,
         color: Color
     ) -> some View {
-        
-        HStack(
-            spacing:
-                3
-        ) {
-            
-            Image(
-                systemName:
-                    systemName
-            )
-            .kmiIconSize(
-                10
-            )
-            
-            Text(
-                text
-            )
-            .kmiTypography(
-                .caption
-            )
-            .fontWeight(
-                .heavy
-            )
-            .lineLimit(
-                1
-            )
+        HStack(spacing: 3) {
+            Image(systemName: systemName)
+                .resizable()
+                .scaledToFit()
+                .kmiIconSize(.tiny)
+
+            Text(text)
+                .kmiTypography(.caption)
+                .fontWeight(.heavy)
+                .lineLimit(1)
         }
-        .foregroundStyle(
-            Color.white
-        )
-        .padding(
-            .horizontal,
-            7
-        )
-        .padding(
-            .vertical,
-            4
-        )
+        .foregroundStyle(color)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
         .background {
-            
             Capsule()
-                .fill(
-                    color
-                )
+                .fill(color.opacity(0.14))
         }
     }
     
@@ -5219,49 +5248,20 @@ private struct MaterialsCoachStatusSelector:
     }
 
     private func color(
-        for status:
-            MaterialsView.CoachMaterialStatus
+        for status: MaterialsView.CoachMaterialStatus
     ) -> Color {
-
         switch status {
-
         case .taught:
-
-            return Color(
-                red:
-                    47 / 255,
-                green:
-                    155 / 255,
-                blue:
-                    78 / 255
-            )
+            return KmiAppTheme.success(for: colorScheme)
 
         case .practiced:
-
-            return KmiAppTheme
-                .primary(
-                    for:
-                        colorScheme
-                )
+            return KmiAppTheme.primary(for: colorScheme)
 
         case .needsReinforcement:
-
-            return Color(
-                red:
-                    185 / 255,
-                green:
-                    107 / 255,
-                blue:
-                    18 / 255
-            )
+            return KmiAppTheme.warning(for: colorScheme)
 
         case .notTaught:
-
-            return KmiAppTheme
-                .onSurfaceVariant(
-                    for:
-                        colorScheme
-                )
+            return KmiAppTheme.onSurfaceVariant(for: colorScheme)
         }
     }
 
@@ -5520,44 +5520,17 @@ private struct MaterialsTraineeStatusSelector:
     }
 
     private func color(
-        for status:
-            MaterialsView.RowMark
+        for status: MaterialsView.RowMark
     ) -> Color {
-
         switch status {
-
         case .mastered:
-
-            return Color(
-                red:
-                    47 / 255,
-                green:
-                    155 / 255,
-                blue:
-                    78 / 255
-            )
+            return KmiAppTheme.success(for: colorScheme)
 
         case .partiallyKnown:
-
-            return Color(
-                red:
-                    185 / 255,
-                green:
-                    107 / 255,
-                blue:
-                    18 / 255
-            )
+            return KmiAppTheme.warning(for: colorScheme)
 
         case .unknown:
-
-            return Color(
-                red:
-                    198 / 255,
-                green:
-                    79 / 255,
-                blue:
-                    85 / 255
-            )
+            return KmiAppTheme.error(for: colorScheme)
         }
     }
 
@@ -6227,6 +6200,9 @@ struct MaterialsInfoSheet:
     @Environment(\.colorScheme)
     private var colorScheme
 
+    @Environment(\.kmiFontScale)
+    private var fontScale
+
     let title: String
     let text: String
     let isFavorite: Bool
@@ -6291,7 +6267,9 @@ struct MaterialsInfoSheet:
 
                     Text(
                         materialsFormattedExplanation(
-                            text
+                            text,
+                            colorScheme: colorScheme,
+                            fontScale: fontScale
                         )
                     )
                     .kmiTypography(
@@ -6667,13 +6645,10 @@ private struct MaterialsInfoActionButton:
                     8
             ) {
 
-                Image(
-                    systemName:
-                        systemName
-                )
-                .kmiIconSize(
-                    14
-                )
+                Image(systemName: systemName)
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.tiny)
 
                 Text(
                     title
@@ -6691,13 +6666,10 @@ private struct MaterialsInfoActionButton:
             .foregroundStyle(
                 contentColor
             )
+            .padding(.vertical, 12)
             .frame(
-                maxWidth:
-                    .infinity
-            )
-            .frame(
-                height:
-                    48
+                maxWidth: .infinity,
+                minHeight: 48
             )
             .background {
 
@@ -6976,14 +6948,10 @@ private struct MaterialsActionButton:
             ) {
 
                 if let systemImage {
-
-                    Image(
-                        systemName:
-                            systemImage
-                    )
-                    .kmiIconSize(
-                        15
-                    )
+                    Image(systemName: systemImage)
+                        .resizable()
+                        .scaledToFit()
+                        .kmiIconSize(.small)
                 }
 
                 Text(
@@ -7005,13 +6973,10 @@ private struct MaterialsActionButton:
             .foregroundStyle(
                 contentColor
             )
+            .padding(.vertical, 10)
             .frame(
-                maxWidth:
-                    .infinity
-            )
-            .frame(
-                height:
-                    44
+                maxWidth: .infinity,
+                minHeight: 44
             )
             .background {
 
@@ -7057,7 +7022,9 @@ private struct MaterialsActionButton:
 }
 
 private func materialsFormattedExplanation(
-    _ source: String
+    _ source: String,
+    colorScheme: ColorScheme,
+    fontScale: CGFloat
 ) -> AttributedString {
 
     var result =
@@ -7118,7 +7085,7 @@ private func materialsFormattedExplanation(
                     red
 
                 color =
-                    .red
+                    KmiAppTheme.error(for: colorScheme)
 
                 closingTag =
                     redEnd
@@ -7129,14 +7096,7 @@ private func materialsFormattedExplanation(
                     blue
 
                 color =
-                    Color(
-                        red:
-                            0.10,
-                        green:
-                            0.42,
-                        blue:
-                            0.92
-                    )
+                    KmiAppTheme.secondary(for: colorScheme)
 
                 closingTag =
                     blueEnd
@@ -7151,7 +7111,7 @@ private func materialsFormattedExplanation(
                 red
 
             color =
-                .red
+                KmiAppTheme.error(for: colorScheme)
 
             closingTag =
                 redEnd
@@ -7165,14 +7125,7 @@ private func materialsFormattedExplanation(
                 blue
 
             color =
-                Color(
-                    red:
-                        0.10,
-                    green:
-                        0.42,
-                    blue:
-                        0.92
-                )
+                KmiAppTheme.secondary(for: colorScheme)
 
             closingTag =
                 blueEnd
@@ -7260,14 +7213,9 @@ private func materialsFormattedExplanation(
             .foregroundColor =
                 color
 
-        highlighted
-            .font =
-                .system(
-                    size:
-                        16.2,
-                    weight:
-                        .bold
-                )
+        highlighted.font =
+            KmiTypography.body(scale: fontScale)
+                .weight(.bold)
 
         result.append(
             highlighted
@@ -7458,7 +7406,7 @@ enum MaterialsPdfGeneratorIOS {
                             height: 24
                         ),
                         font: .systemFont(ofSize: 17, weight: .bold),
-                        color: UIColor(red: 12 / 255, green: 78 / 255, blue: 130 / 255, alpha: 1),
+                        color: UIColor(KmiAppTheme.secondary(for: .light)),
                         alignment: .center
                     )
 
@@ -7749,7 +7697,7 @@ enum MaterialsPdfGeneratorIOS {
         drawRoundedBox(
             context: context,
             rect: container,
-            fill: UIColor(red: 234 / 255, green: 246 / 255, blue: 1, alpha: 1),
+            fill: UIColor(KmiAppTheme.surfaceVariant(for: .light)),
             stroke: UIColor(red: 191 / 255, green: 213 / 255, blue: 232 / 255, alpha: 1)
         )
 
@@ -7785,8 +7733,8 @@ enum MaterialsPdfGeneratorIOS {
             drawRoundedBox(
                 context: context,
                 rect: rect,
-                fill: UIColor(red: 244 / 255, green: 250 / 255, blue: 1, alpha: 1),
-                stroke: UIColor(red: 191 / 255, green: 213 / 255, blue: 232 / 255, alpha: 1),
+                fill: UIColor(KmiAppTheme.surface(for: .light)),
+                stroke: UIColor(KmiAppTheme.outlineVariant(for: .light)),
                 radius: 9
             )
 
@@ -7799,7 +7747,7 @@ enum MaterialsPdfGeneratorIOS {
                     height: 13
                 ),
                 font: .systemFont(ofSize: 12, weight: .bold),
-                color: UIColor(red: 2 / 255, green: 43 / 255, blue: 74 / 255, alpha: 1),
+                color: UIColor(KmiAppTheme.onSurface(for: .light)),
                 alignment: .center
             )
 
@@ -7860,7 +7808,7 @@ enum MaterialsPdfGeneratorIOS {
             "\(item.number)",
             in: numberRect.offsetBy(dx: 0, dy: 6),
             font: .systemFont(ofSize: 11, weight: .bold),
-            color: .white,
+            color: UIColor(KmiAppTheme.onSecondary(for: .light)),
             alignment: .center
         )
 
@@ -7879,7 +7827,7 @@ enum MaterialsPdfGeneratorIOS {
                 height: 30
             ),
             font: .systemFont(ofSize: 13, weight: .bold),
-            color: UIColor(red: 15 / 255, green: 23 / 255, blue: 42 / 255, alpha: 1),
+            color: UIColor(KmiAppTheme.onSurface(for: .light)),
             alignment: isEnglish ? .left : .right,
             isEnglish: isEnglish
         )
@@ -7897,27 +7845,15 @@ enum MaterialsPdfGeneratorIOS {
 
         let statusColor: UIColor = {
             if selectedStatusTitles.contains(
-                isEnglish
-                    ? "Needs reinforcement"
-                    : "נדרש חיזוק"
+                isEnglish ? "Needs reinforcement" : "נדרש חיזוק"
             ) {
-                return UIColor(
-                    red: 242 / 255,
-                    green: 140 / 255,
-                    blue: 40 / 255,
-                    alpha: 1
-                )
+                return UIColor(KmiAppTheme.warning(for: .light))
             }
 
             if selectedStatusTitles.contains(
                 isEnglish ? "Practiced" : "תורגל"
             ) {
-                return UIColor(
-                    red: 52 / 255,
-                    green: 120 / 255,
-                    blue: 212 / 255,
-                    alpha: 1
-                )
+                return UIColor(KmiAppTheme.primary(for: .light))
             }
 
             if selectedStatusTitles.contains(
@@ -7925,47 +7861,23 @@ enum MaterialsPdfGeneratorIOS {
             ) || selectedStatusTitles.contains(
                 isEnglish ? "Taught" : "נלמד"
             ) {
-                return UIColor(
-                    red: 47 / 255,
-                    green: 155 / 255,
-                    blue: 78 / 255,
-                    alpha: 1
-                )
+                return UIColor(KmiAppTheme.success(for: .light))
             }
 
             if item.status == (
-                isEnglish
-                    ? "Partially known"
-                    : "יודע חלקית"
+                isEnglish ? "Partially known" : "יודע חלקית"
             ) {
-                return UIColor(
-                    red: 185 / 255,
-                    green: 107 / 255,
-                    blue: 18 / 255,
-                    alpha: 1
-                )
+                return UIColor(KmiAppTheme.warning(for: .light))
             }
 
             if item.status == (
-                isEnglish
-                    ? "Needs reinforcement"
-                    : "נדרש חיזוק"
-            ) || item.status == (
                 isEnglish ? "Unknown" : "לא יודע"
             ) {
-                return UIColor(
-                    red: 242 / 255,
-                    green: 140 / 255,
-                    blue: 40 / 255,
-                    alpha: 1
-                )
+                return UIColor(KmiAppTheme.error(for: .light))
             }
 
             return UIColor(
-                red: 80 / 255,
-                green: 100 / 255,
-                blue: 120 / 255,
-                alpha: 1
+                KmiAppTheme.onSurfaceVariant(for: .light)
             )
         }()
 
@@ -8011,8 +7923,8 @@ enum MaterialsPdfGeneratorIOS {
             ),
             font: .systemFont(ofSize: 9.5),
             color: item.isExcluded
-            ? UIColor(red: 220 / 255, green: 38 / 255, blue: 38 / 255, alpha: 1)
-            : UIColor(red: 80 / 255, green: 100 / 255, blue: 120 / 255, alpha: 1),
+            ? UIColor(KmiAppTheme.error(for: .light))
+            : UIColor(KmiAppTheme.onSurfaceVariant(for: .light)),
             alignment: isEnglish ? .right : .left,
             isEnglish: isEnglish
         )
@@ -8034,55 +7946,6 @@ enum MaterialsPdfGeneratorIOS {
             pageNumber: pageNumber,
             totalPages: totalPages,
             isEnglish: isEnglish
-        )
-    }
-
-    private static func drawLogo(
-        context: CGContext,
-        center: CGPoint,
-        radius: CGFloat
-    ) {
-        let navy = UIColor(
-            red: 2 / 255,
-            green: 43 / 255,
-            blue: 74 / 255,
-            alpha: 1
-        )
-
-        context.setFillColor(navy.cgColor)
-        context.fillEllipse(
-            in: CGRect(
-                x: center.x - radius,
-                y: center.y - radius,
-                width: radius * 2,
-                height: radius * 2
-            )
-        )
-
-        context.setFillColor(UIColor.white.cgColor)
-        context.fillEllipse(
-            in: CGRect(
-                x: center.x - radius + 4,
-                y: center.y - radius + 4,
-                width: (radius - 4) * 2,
-                height: (radius - 4) * 2
-            )
-        )
-
-        drawText(
-            "KAMI",
-            in: CGRect(
-                x: center.x - radius,
-                y: center.y - radius * 0.28,
-                width: radius * 2,
-                height: radius * 0.60
-            ),
-            font: .systemFont(
-                ofSize: max(radius * 0.42, 7),
-                weight: .bold
-            ),
-            color: navy,
-            alignment: .center
         )
     }
 

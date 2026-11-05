@@ -5,6 +5,9 @@ struct AttendanceGroupStatsView: View {
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("kmi_app_language") private var appLanguageCode = "he"
     @State private var reportsTask: Task<Void, Never>?
+    @State private var deletionTask: Task<Void, Never>?
+    @State private var isDeletingReports = false
+    @State private var showDeleteError = false
     @State private var requestID = UUID()
     @State private var didFailLoading = false
     @State private var expandedMonths: Set<String> = []
@@ -63,12 +66,12 @@ struct AttendanceGroupStatsView: View {
         ownerUid: String,
         initialBranchName: String = "",
         initialGroupKey: String = "",
-        repository: AttendanceRepository = .shared
+        repository: AttendanceRepository? = nil
     ) {
         self.ownerUid = ownerUid
         self.initialBranchName = initialBranchName
         self.initialGroupKey = initialGroupKey
-        self.repository = repository
+        self.repository = repository ?? .shared
         _branchName = State(initialValue: initialBranchName)
         _groupKey = State(initialValue: initialGroupKey)
     }
@@ -83,12 +86,13 @@ struct AttendanceGroupStatsView: View {
                         .environment(\.layoutDirection, .leftToRight)
                     reportsToolbarCard
                         .environment(\.layoutDirection, .leftToRight)
-                        .disabled(isLoadingReports || didFailLoading || reports.isEmpty)
+                        .disabled(isLoadingReports || isDeletingReports || didFailLoading || reports.isEmpty)
                     if didFailLoading {
                         loadingErrorCard
                             .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
                     }
                     reportsCard
+                        .disabled(isDeletingReports)
                         .environment(\.layoutDirection, .leftToRight)
                 }
                 .padding(.horizontal, 16)
@@ -98,7 +102,7 @@ struct AttendanceGroupStatsView: View {
             }
         }
         .overlay {
-            if isLoadingReports {
+            if isLoadingReports || isDeletingReports {
                 KmiLoadingOverlay()
             }
         }
@@ -139,11 +143,24 @@ struct AttendanceGroupStatsView: View {
                 )
             )
         }
+        .alert(
+            tr("מחיקת הדו״חות לא הושלמה", "Report deletion was not completed"),
+            isPresented: $showDeleteError
+        ) {
+            Button(tr("אישור", "OK"), role: .cancel) { }
+        } message: {
+            Text(tr(
+                "ייתכן שחלק מהדו״חות נמחקו. הרשימה נטענת מחדש; בדוק אותה לפני ניסיון נוסף.",
+                "Some reports may have been deleted. The list is being refreshed; review it before trying again."
+            ))
+        }
         .onAppear {
             syncIncomingFilters()
             reload()
         }
         .onDisappear {
+            deletionTask?.cancel()
+            isDeletingReports = false
             reportsTask?.cancel()
             requestID = UUID()
             isLoadingReports = false
@@ -657,6 +674,8 @@ struct AttendanceGroupStatsView: View {
         return "סה״כ \(report.totalMembers) · הגיעו \(report.presentCount) · \(report.percentPresent)%"
     }
     private func reload() {
+        deletionTask?.cancel()
+        isDeletingReports = false
         reportsTask?.cancel()
         let currentRequest = UUID()
         requestID = currentRequest
@@ -711,7 +730,12 @@ struct AttendanceGroupStatsView: View {
                 }
                 try Task.checkCancellation()
                 guard requestID == currentRequest else { return }
-                reports = mergeReports(local: localReports, remote: remoteReports)
+                // A successful query defines which saved reports still exist.
+                // Do not resurrect remotely deleted reports from the local cache.
+                reports = mergeReports(
+                    local: localReports.filter { days.contains($0.dateIso) },
+                    remote: remoteReports
+                )
                 summary = makeSummary(from: reports)
                 isLoadingReports = false
             } catch {
@@ -798,30 +822,55 @@ struct AttendanceGroupStatsView: View {
         return formatter.string(from: date)
     }
     private func deleteSelectedReports() {
-        guard !isLoadingReports, !didFailLoading else { return }
-        guard !selectedReportIds.isEmpty else {
+        guard !isLoadingReports, !isDeletingReports, !didFailLoading else { return }
+        let dates = reports
+            .filter { selectedReportIds.contains($0.id) }
+            .map { $0.dateIso }
+        guard !dates.isEmpty else {
             deleteMode = false
             showDeleteConfirm = false
             return
         }
-        let cleanBranch = branchName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        let reportsToDelete = reports.filter { selectedReportIds.contains($0.id) }
-        for report in reportsToDelete {
-            repository.deleteReport(
-                ownerUid: ownerUid,
-                branchName: cleanBranch,
-                groupKey: cleanGroup,
-                dateIso: report.dateIso
-            )
-        }
-        selectedReportIds.removeAll()
-        deleteMode = false
+
+        let requestOwner = ownerUid
+        let requestBranch = branchName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let deletionRequest = requestID
+        let deletedDates = Set(dates)
         showDeleteConfirm = false
-        reload()
+        showDeleteError = false
+        isDeletingReports = true
+
+        deletionTask = Task { @MainActor in
+            do {
+                try await repository.deleteSavedReportsFromFirestore(
+                    ownerUid: requestOwner,
+                    branchName: requestBranch,
+                    groupKey: requestGroup,
+                    dateIsos: dates
+                )
+                try Task.checkCancellation()
+                guard requestID == deletionRequest else { return }
+
+                // Update visible totals only after Firestore confirms deletion.
+                reports.removeAll { deletedDates.contains($0.dateIso) }
+                summary = makeSummary(from: reports)
+                selectedReportIds.removeAll()
+                deleteMode = false
+                isDeletingReports = false
+                deletionTask = nil
+                reload()
+            } catch {
+                guard requestID == deletionRequest, !Task.isCancelled else { return }
+                isDeletingReports = false
+                deletionTask = nil
+                reload()
+                showDeleteError = true
+            }
+        }
     }
     private func resetAllReports() {
-        guard !isLoadingReports, !didFailLoading else { return }
+        guard !isLoadingReports, !isDeletingReports, !didFailLoading else { return }
         let cleanBranch = branchName.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
         for report in reports {

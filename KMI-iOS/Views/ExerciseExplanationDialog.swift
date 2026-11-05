@@ -11,6 +11,12 @@ struct ExerciseExplanationDialog: View {
     let groupKey: String
     let isEnglish: Bool
 
+    var favoriteBinding: Binding<Bool>? = nil
+    var onToggleFavorite: (() -> Void)? = nil
+    var speakingBinding: Binding<Bool>? = nil
+    var onSpeak: ((String) -> Void)? = nil
+    var onEditNote: (() -> Void)? = nil
+
     @Environment(\.dismiss)
     private var dismiss
 
@@ -97,7 +103,11 @@ struct ExerciseExplanationDialog: View {
     }
 
     private var isFavorite: Bool {
-        favorites.contains(normalizedItemId)
+        if let favoriteBinding {
+            return favoriteBinding.wrappedValue
+        }
+
+        return favorites.contains(normalizedItemId)
     }
 
     private var documentId: String {
@@ -211,8 +221,8 @@ struct ExerciseExplanationDialog: View {
                     .kmiFont(size: 17, weight: .heavy)
                     .foregroundStyle(
                         isFavorite
-                            ? Color.yellow
-                            : secondaryTextColor
+                        ? KmiAppTheme.warning(for: colorScheme)
+                        : secondaryTextColor
                     )
                     .frame(width: 40, height: 40)
                     .background(
@@ -230,6 +240,66 @@ struct ExerciseExplanationDialog: View {
                     ? tr("הסר מהמועדפים", "Remove from favorites")
                     : tr("הוסף למועדפים", "Add to favorites")
             )
+
+            if let onSpeak {
+                Button {
+                    onSpeak(explanationText)
+                } label: {
+                    Image(
+                        systemName: speakingBinding?.wrappedValue == true
+                            ? "stop.circle.fill"
+                            : "speaker.wave.2.fill"
+                    )
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.small)
+                    .foregroundStyle(accentColor)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .background(
+                        Circle()
+                            .fill(secondaryCardColor)
+                    )
+                    .overlay {
+                        Circle()
+                            .stroke(borderColor, lineWidth: 1)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(
+                    isLoading ||
+                    explanationText.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    ).isEmpty
+                )
+                .accessibilityLabel(
+                    speakingBinding?.wrappedValue == true
+                        ? tr("עצור הקראה", "Stop reading")
+                        : tr("הקרא הסבר", "Read explanation")
+                )
+            }
+
+            if let onEditNote {
+                Button(action: onEditNote) {
+                    Image(systemName: "note.text")
+                        .resizable()
+                        .scaledToFit()
+                        .kmiIconSize(.small)
+                        .foregroundStyle(accentColor)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .background(
+                            Circle()
+                                .fill(secondaryCardColor)
+                        )
+                        .overlay {
+                            Circle()
+                                .stroke(borderColor, lineWidth: 1)
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    tr("עריכת הערה אישית", "Edit personal note")
+                )
+            }
 
             Button {
                 draftText = explanationText
@@ -621,6 +691,16 @@ struct ExerciseExplanationDialog: View {
     }
 
     private func toggleFavorite() {
+        if let onToggleFavorite {
+            onToggleFavorite()
+            return
+        }
+
+        if let favoriteBinding {
+            favoriteBinding.wrappedValue.toggle()
+            return
+        }
+
         if favorites.contains(normalizedItemId) {
             favorites.remove(normalizedItemId)
         } else {

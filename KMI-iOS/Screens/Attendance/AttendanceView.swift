@@ -518,6 +518,9 @@ struct AttendanceView: View {
         .onChange(of: auth.userBranch) { _, _ in
             refreshAssignedAttendanceBranches()
         }
+        .onChange(of: auth.userGroup) { _, _ in
+            refreshAssignedAttendanceBranches()
+        }
         
         .onChange(of: auth.userFullName) { _, newValue in
             let clean = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -592,22 +595,50 @@ struct AttendanceView: View {
     }
 
     private func refreshAssignedAttendanceBranches() {
-        let assignedBranches =
-            auth.userBranchAssignments.map(\.branch)
+        var branches: [String] = []
+        var groupsByBranch: [String: [String]] = [:]
 
-        let fallbackBranch =
-            auth.userBranch.trimmingCharacters(
+        for assignment in auth.userBranchAssignments {
+            let branch = assignment.branch.trimmingCharacters(
                 in: .whitespacesAndNewlines
             )
 
-        vm.setAssignedBranches(
-            assignedBranches.isEmpty
-                ? (
-                    fallbackBranch.isEmpty
-                        ? []
-                        : [fallbackBranch]
+            guard !branch.isEmpty else { continue }
+
+            if !branches.contains(branch) {
+                branches.append(branch)
+            }
+
+            for rawGroup in assignment.groups {
+                let group = rawGroup.trimmingCharacters(
+                    in: .whitespacesAndNewlines
                 )
-                : assignedBranches
+
+                guard !group.isEmpty else { continue }
+
+                if !groupsByBranch[branch, default: []].contains(group) {
+                    groupsByBranch[branch, default: []].append(group)
+                }
+            }
+        }
+
+        if auth.userBranchAssignments.isEmpty {
+            let branch = auth.userBranch.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            let group = auth.userGroup.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+            if !branch.isEmpty && !group.isEmpty {
+                branches = [branch]
+                groupsByBranch[branch] = [group]
+            }
+        }
+
+        vm.setAssignedBranches(
+            branches,
+            groupsByBranch: groupsByBranch
         )
     }
 

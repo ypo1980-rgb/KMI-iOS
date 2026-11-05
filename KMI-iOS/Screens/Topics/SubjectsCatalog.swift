@@ -112,7 +112,7 @@ enum TopicsBySubjectRegistry {
         SubjectTopic(
             id: "hands_all",
             titleHeb: "עבודת ידיים",
-            description: "מכות יד + מכות מרפק + מכות במקל / רובה",
+            description: "מכות יד + מכות מרפק",
             belts: [
                 .yellow,
                 .orange,
@@ -141,8 +141,7 @@ enum TopicsBySubjectRegistry {
             ],
             subTopics: [
                 "מכות יד",
-                "מכות מרפק",
-                "מכות במקל / רובה"
+                "מכות מרפק"
             ]
         ),
 
@@ -192,7 +191,7 @@ enum TopicsBySubjectRegistry {
         SubjectTopic(
             id: "hands_stick_rifle",
             titleHeb: "מכות במקל / רובה",
-            description: "תרגילי מכות במקל וברובה מתוך עבודת ידיים",
+            description: "תרגילי מכות במקל וברובה",
             belts: [
                 .green,
                 .black
@@ -206,8 +205,7 @@ enum TopicsBySubjectRegistry {
                     "מכות במקל קצר"
                 ]
             ],
-            subTopicHint: "מקל",
-            parentId: "hands_all"
+            subTopicHint: "מקל"
         ),
 
         // ================== בלימות וגלגולים ==================
@@ -433,35 +431,54 @@ enum TopicsBySubjectRegistry {
             belts: releasesBelts,
             topicsByBelt: releasesTopicsByBelt,
             subTopics: [
-                "שחרור מתפיסות ידיים / שיער / חולצה",
+                "שחרור מתפיסות ידיים",
+                "שחרור מתפיסות שיער",
+                "שחרור מתפיסות חולצה",
                 "שחרור מחניקות",
+                "שחרור מתפיסת נלסון",
                 "שחרור מחביקות"
             ]
         ),
 
-        // ================== שחרור מתפיסות ==================
+        // ================== שחרורים מתפיסות ==================
         SubjectTopic(
-            id: "releases_hands_hair_shirt",
-            titleHeb: "שחרור מתפיסות ידיים / שיער / חולצה",
-            description: "תפיסות ידיים, תפיסות שיער ואחיזות חולצה",
+            id: "releases_hands",
+            titleHeb: "שחרור מתפיסות ידיים",
+            description: "שחרורים מתפיסות ידיים וזרועות",
             belts: releasesBelts,
             topicsByBelt: releasesTopicsByBelt,
-            parentId: "releases",
-            includeItemKeywords: [
-                "תפיס",
-                "אחיז",
-                "אוחז",
-                "חולצ",
-                "חולצה",
-                "שיער"
-            ],
-            excludeItemKeywords: [
-                "חניק",
-                "חביק",
-                "אקדח",
-                "סכין",
-                "מקל"
-            ]
+            subTopicHint: "שחרור מתפיסות ידיים",
+            parentId: "releases"
+        ),
+
+        SubjectTopic(
+            id: "releases_hair",
+            titleHeb: "שחרור מתפיסות שיער",
+            description: "שחרורים מתפיסות שיער",
+            belts: releasesBelts,
+            topicsByBelt: releasesTopicsByBelt,
+            subTopicHint: "שחרור מתפיסות שיער",
+            parentId: "releases"
+        ),
+
+        SubjectTopic(
+            id: "releases_shirt",
+            titleHeb: "שחרור מתפיסות חולצה",
+            description: "שחרורים מתפיסות חולצה",
+            belts: releasesBelts,
+            topicsByBelt: releasesTopicsByBelt,
+            subTopicHint: "שחרור מתפיסות חולצה",
+            parentId: "releases"
+        ),
+
+        SubjectTopic(
+            id: "releases_nelson",
+            titleHeb: "שחרור מתפיסת נלסון",
+            description: "שחרור מתפיסת נלסון",
+            belts: releasesBelts,
+            topicsByBelt: releasesTopicsByBelt,
+            subTopicHint: "שחרור מתפיסת נלסון",
+            parentId: "releases"
         ),
 
         // ================== שחרור מחניקות ==================

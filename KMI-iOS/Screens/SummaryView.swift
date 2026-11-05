@@ -82,7 +82,7 @@ private struct SummarySelectedExercise: Identifiable, Hashable {
     let title: String
 }
 
-struct SummaryRowItem: Identifiable {
+struct SummaryRowItem: Identifiable, Equatable {
     let id: String
     let title: String
     let subTopicTitle: String?
@@ -103,7 +103,7 @@ struct SummaryRowItem: Identifiable {
         Set<SummaryCoachStatus>
 }
 
-struct SummaryTopicBlock: Identifiable {
+struct SummaryTopicBlock: Identifiable, Equatable {
     let id: String
     let title: String
     let items: [SummaryRowItem]
@@ -215,15 +215,11 @@ struct SummaryView: View {
     }
 
     private var summaryPrimaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.94)
-            : Color.black.opacity(0.84)
+        KmiAppTheme.onSurface(for: colorScheme)
     }
 
     private var summarySecondaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.64)
-            : Color.black.opacity(0.56)
+        KmiAppTheme.onSurfaceVariant(for: colorScheme)
     }
 
     @State private var showProgressCard: Bool = false
@@ -261,6 +257,7 @@ struct SummaryView: View {
      * ממצב שבו באמת אין מספיק נתונים.
      */
     @State private var comparisonHasError: Bool = false
+    @State private var comparisonRequestID = UUID()
 
     /*
      * נתוני הקבוצות של המאמן נטענים דרך
@@ -1224,7 +1221,36 @@ struct SummaryView: View {
         )
     }
 
+    private var summaryCurrentUserID: String {
+        #if canImport(FirebaseAuth)
+        return Auth.auth().currentUser?.uid ?? ""
+        #else
+        return ""
+        #endif
+    }
+
+    private func invalidateComparisonRequest() {
+        comparisonRequestID = UUID()
+        isComparisonLoading = false
+
+        // בקשת קבוצות שטרם הסתיימה אינה נחשבת לנתונים טעונים.
+        if !coachGroupProgressLoaded {
+            coachGroupProgress = nil
+            coachGroupProgressHasError = false
+        }
+    }
+
     private func loadCoachGroupProgress() {
+        guard effectiveIsCoach, showComparisonCard else {
+            return
+        }
+
+        let requestID = UUID()
+        comparisonRequestID = requestID
+
+        let requestedRoleID = summaryRoleId
+        let requestedBeltID = belt.id
+        let requestedUserID = summaryCurrentUserID
 
         coachGroupProgressLoaded =
             false
@@ -1241,12 +1267,19 @@ struct SummaryView: View {
 
                 let result =
                     try await UserProgressRepository
-                        .loadCoachGroupsBeltProgress(
-                            beltId:
-                                belt.id
-                        )
+                    .loadCoachGroupsBeltProgress(
+                        beltId:
+                            requestedBeltID
+                    )
 
                 await MainActor.run {
+                    guard comparisonRequestID == requestID,
+                          summaryRoleId == requestedRoleID,
+                          belt.id == requestedBeltID,
+                          summaryCurrentUserID == requestedUserID,
+                          showComparisonCard else {
+                        return
+                    }
 
                     coachGroupProgress =
                         result
@@ -1266,6 +1299,13 @@ struct SummaryView: View {
                  * הופכים שגיאת טעינה ל"אין נתונים".
                  */
                 await MainActor.run {
+                    guard comparisonRequestID == requestID,
+                          summaryRoleId == requestedRoleID,
+                          belt.id == requestedBeltID,
+                          summaryCurrentUserID == requestedUserID,
+                          showComparisonCard else {
+                        return
+                    }
 
                     coachGroupProgress =
                         nil
@@ -1379,11 +1419,23 @@ struct SummaryView: View {
             return
         }
 
-        comparisonHasError =
-            false
+        guard !effectiveIsCoach, showComparisonCard else {
+            return
+        }
 
-        isComparisonLoading =
-            true
+        let requestID = UUID()
+        comparisonRequestID = requestID
+
+        let requestedRoleID = summaryRoleId
+        let requestedBeltID = belt.id
+        let requestedUserID = summaryCurrentUserID
+
+        let requestedKnownPercent = percentAll
+        let requestedKnownCount = doneCount
+        let requestedTotalCount = totalCount
+
+        comparisonHasError = false
+        isComparisonLoading = true
 
         Task {
 
@@ -1395,26 +1447,35 @@ struct SummaryView: View {
                  */
                 try await UserProgressRepository
                     .saveUserProgress(
-                        beltId:
-                            belt.id,
-                        knownPercent:
-                            percentAll,
-                        knownCount:
-                            doneCount,
-                        totalCount:
-                            totalCount
+                        beltId: requestedBeltID,
+                        knownPercent: requestedKnownPercent,
+                        knownCount: requestedKnownCount,
+                        totalCount: requestedTotalCount
                     )
+
+                guard comparisonRequestID == requestID,
+                      summaryRoleId == requestedRoleID,
+                      belt.id == requestedBeltID,
+                      summaryCurrentUserID == requestedUserID,
+                      showComparisonCard else {
+                    return
+                }
 
                 let comparison =
                     try await UserProgressRepository
                         .loadBeltComparison(
-                            beltId:
-                                belt.id,
-                            userKnownPercent:
-                                percentAll
+                            beltId: requestedBeltID,
+                            userKnownPercent: requestedKnownPercent
                         )
 
                 await MainActor.run {
+                    guard comparisonRequestID == requestID,
+                          summaryRoleId == requestedRoleID,
+                          belt.id == requestedBeltID,
+                          summaryCurrentUserID == requestedUserID,
+                          showComparisonCard else {
+                        return
+                    }
 
                     comparisonTraineesCount =
                         comparison?
@@ -1445,6 +1506,13 @@ struct SummaryView: View {
                  * למשתמש כ-Exception גולמי.
                  */
                 await MainActor.run {
+                    guard comparisonRequestID == requestID,
+                          summaryRoleId == requestedRoleID,
+                          belt.id == requestedBeltID,
+                          summaryCurrentUserID == requestedUserID,
+                          showComparisonCard else {
+                        return
+                    }
 
                     comparisonTraineesCount =
                         0
@@ -1585,14 +1653,9 @@ struct SummaryView: View {
                                     style: .continuous
                                 )
                                 .fill(
-                                    isDarkMode
-                                        ? Color(
-                                            red: 0.055,
-                                            green: 0.075,
-                                            blue: 0.125
-                                        )
-                                        .opacity(0.98)
-                                        : Color.white.opacity(0.96)
+                                    KmiAppTheme.surface(
+                                        for: colorScheme
+                                    ).opacity(0.98)
                                 )
                             )
                             .overlay(
@@ -1601,9 +1664,9 @@ struct SummaryView: View {
                                     style: .continuous
                                 )
                                 .stroke(
-                                    isDarkMode
-                                        ? Color.white.opacity(0.12)
-                                        : Color.black.opacity(0.07),
+                                    KmiAppTheme.outlineVariant(
+                                        for: colorScheme
+                                    ),
                                     lineWidth: 1
                                 )
                             )
@@ -1634,10 +1697,8 @@ struct SummaryView: View {
                                             showProgressCard = false
                                         } label: {
                                             Image(systemName: "xmark")
-                                                .kmiFont(
-                                                    size: 13,
-                                                    weight: .black
-                                                )
+                                                .kmiIconSize(13)
+                                                .fontWeight(.black)
                                                 .foregroundStyle(
                                                     summarySecondaryTextColor
                                                 )
@@ -1645,9 +1706,9 @@ struct SummaryView: View {
                                                 .background(
                                                     Circle()
                                                         .fill(
-                                                            isDarkMode
-                                                                ? Color.white.opacity(0.10)
-                                                                : Color.black.opacity(0.06)
+                                                            KmiAppTheme.surfaceVariant(
+                                                                for: colorScheme
+                                                            )
                                                         )
                                                 )
                                         }
@@ -1660,10 +1721,8 @@ struct SummaryView: View {
                                             "Progress meter"
                                         )
                                     )
-                                    .kmiFont(
-                                        size: 22,
-                                        weight: .black
-                                    )
+                                    .kmiTypography(.sectionTitle)
+                                    .fontWeight(.black)
                                     .foregroundStyle(
                                         summaryPrimaryTextColor
                                     )
@@ -1901,10 +1960,8 @@ struct SummaryView: View {
                                             "No summary data to display"
                                         )
                                     )
-                                    .kmiFont(
-                                        size: 20,
-                                        weight: .heavy
-                                    )
+                                    .kmiTypography(.sectionTitle)
+                                    .fontWeight(.heavy)
                                     .foregroundStyle(
                                         summaryPrimaryTextColor
                                     )
@@ -1915,10 +1972,8 @@ struct SummaryView: View {
                                             "There are no exercises to display for the current belt yet"
                                         )
                                     )
-                                    .kmiFont(
-                                        size: 15,
-                                        weight: .semibold
-                                    )
+                                    .kmiTypography(.body)
+                                    .fontWeight(.semibold)
                                     .foregroundStyle(
                                         summarySecondaryTextColor
                                     )
@@ -2135,12 +2190,16 @@ struct SummaryView: View {
                     : "ייתכן שהחשבון או החגורה השתנו, שהתרגיל אינו זמין או שקיימות עבורו הערות שונות. ההערות הקיימות לא שונו."
             )
         }
+        .onChange(of: showComparisonCard) { _, isPresented in
+            if !isPresented {
+                invalidateComparisonRequest()
+            }
+        }
+        .onDisappear {
+            invalidateComparisonRequest()
+        }
         .onChange(of: percentAll) { _, _ in
             postSummaryTopTitleOverride()
-
-            DispatchQueue.main.async {
-                postSummaryTopTitleOverride()
-            }
         }
         .onReceive(
             NotificationCenter.default.publisher(
@@ -2157,6 +2216,8 @@ struct SummaryView: View {
             if !loadedSummaryRoleId.isEmpty,
                loadedSummaryRoleId
                 != currentRoleId {
+
+                invalidateComparisonRequest()
 
                 showProgressCard = false
                 showComparisonCard = false
@@ -2181,20 +2242,21 @@ struct SummaryView: View {
                 currentRoleId
 
             /*
-             * מרענן פעם אחת את מטמון הסיכום וקורא
-             * רק את הסימונים של התפקיד הפעיל.
+             * בודקים את הסימונים העדכניים, אך מעדכנים
+             * ושומרים רק כאשר תוכן הסיכום השתנה.
              */
             marksRevision &+= 1
-            isSummaryLoading = true
 
             DispatchQueue.main.async {
-                cachedBlocks =
-                    buildSummaryBlocks()
+                let updatedBlocks = buildSummaryBlocks()
 
-                isSummaryLoading = false
+                guard updatedBlocks != cachedBlocks else {
+                    return
+                }
+
+                cachedBlocks = updatedBlocks
 
                 postSummaryTopTitleOverride()
-
                 saveCalculatedProgress()
             }
         }
@@ -2383,24 +2445,7 @@ struct SummaryView: View {
     }
 
     private func beltAccentForSummary() -> Color {
-        switch belt {
-        case .white:
-            return Color.gray.opacity(0.80)
-        case .yellow:
-            return Color(red: 0.95, green: 0.82, blue: 0.18)
-        case .orange:
-            return Color(red: 0.96, green: 0.62, blue: 0.16)
-        case .green:
-            return Color(red: 0.22, green: 0.76, blue: 0.35)
-        case .blue:
-            return Color(red: 0.22, green: 0.52, blue: 0.92)
-        case .brown:
-            return Color(red: 0.57, green: 0.38, blue: 0.24)
-        case .black:
-            return Color(red: 0.42, green: 0.42, blue: 0.46)
-        default:
-            return Color.black.opacity(0.45)
-        }
+        KmiBeltPalette.color(for: belt)
     }
     
     // MARK: - UI pieces
@@ -2876,12 +2921,8 @@ struct SummaryView: View {
                 Text(
                     value
                 )
-                .kmiFont(
-                    size:
-                        20,
-                    weight:
-                        .black
-                )
+                .kmiTypography(.metric)
+                .fontWeight(.black)
                 .foregroundStyle(
                     colorScheme == .dark
                         ? Color.white
@@ -2891,20 +2932,12 @@ struct SummaryView: View {
                 Text(
                     title
                 )
-                .kmiFont(
-                    size:
-                        11,
-                    weight:
-                        .bold
-                )
+                .kmiTypography(.caption)
+                .fontWeight(.bold)
                 .foregroundStyle(
-                    colorScheme == .dark
-                        ? Color.white.opacity(
-                            0.74
-                        )
-                        : Color.black.opacity(
-                            0.58
-                        )
+                    KmiAppTheme.onSurfaceVariant(
+                        for: colorScheme
+                    )
                 )
                 .lineLimit(
                     2
@@ -2920,10 +2953,8 @@ struct SummaryView: View {
                 maxWidth:
                     .infinity
             )
-            .frame(
-                height:
-                    72
-            )
+            .padding(.vertical, 8)
+            .frame(minHeight: 72)
             .background {
 
                 RoundedRectangle(
@@ -2962,21 +2993,15 @@ struct SummaryView: View {
         }
 
         private var primaryTextColor: Color {
-            isDarkMode
-                ? Color.white.opacity(0.94)
-                : Color(red: 0.12, green: 0.17, blue: 0.24)
+            KmiAppTheme.onSurface(for: colorScheme)
         }
 
         private var secondaryTextColor: Color {
-            isDarkMode
-                ? Color.white.opacity(0.68)
-                : Color.black.opacity(0.58)
+            KmiAppTheme.onSurfaceVariant(for: colorScheme)
         }
 
         private var messageSurfaceColor: Color {
-            isDarkMode
-                ? Color.white.opacity(0.08)
-                : Color.white.opacity(0.72)
+            KmiAppTheme.surfaceVariant(for: colorScheme)
         }
 
         private func tr(
@@ -3113,31 +3138,30 @@ struct SummaryView: View {
         private var colorScheme
 
         private var titleColor: Color {
-            colorScheme == .dark
-                ? Color.white.opacity(0.76)
-                : Color(red: 0.25, green: 0.34, blue: 0.42)
+            KmiAppTheme.onSurfaceVariant(for: colorScheme)
         }
 
         var body: some View {
             VStack(spacing: 5) {
                 Text(value)
-                    .kmiFont(
-                        size: 20,
-                        weight: .black
-                    )
+                    .kmiTypography(.metric)
+                    .fontWeight(.black)
                     .foregroundStyle(tint)
 
                 Text(title)
-                    .kmiFont(
-                        size: 14,
-                        weight: .black
-                    )
+                    .kmiTypography(.secondary)
+                    .fontWeight(.black)
                     .foregroundStyle(titleColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.74)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .fixedSize(
+                        horizontal: false,
+                        vertical: true
+                    )
             }
+            .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
-            .frame(height: 76)
+            .frame(minHeight: 76)
             .background(
                 RoundedRectangle(
                     cornerRadius: 16,
@@ -3182,59 +3206,44 @@ struct SummaryView: View {
         }
 
         private var ringSurfaceColor: Color {
-            isDarkMode
-                ? Color(
-                    red: 0.075,
-                    green: 0.095,
-                    blue: 0.145
-                )
-                : Color.white.opacity(0.98)
+            KmiAppTheme.surface(for: colorScheme)
         }
 
         private var ringPrimaryTextColor: Color {
-            isDarkMode
-                ? Color.white.opacity(0.94)
-                : Color(red: 0.12, green: 0.17, blue: 0.24)
+            KmiAppTheme.onSurface(for: colorScheme)
         }
 
         private var ringSecondaryTextColor: Color {
-            isDarkMode
-                ? Color.white.opacity(0.62)
-                : Color.black.opacity(0.55)
+            KmiAppTheme.onSurfaceVariant(for: colorScheme)
         }
 
-        private var donePart: CGFloat {
-            guard totalCount > 0 else { return 0 }
-            return CGFloat(doneCount) / CGFloat(totalCount)
-        }
-
-        private var partiallyKnownPart: CGFloat {
+        private func normalizedPart(_ count: Int) -> CGFloat {
             guard totalCount > 0 else {
                 return 0
             }
 
-            return CGFloat(
-                partiallyKnownCount
-            ) / CGFloat(
-                totalCount
+            return min(
+                max(CGFloat(count) / CGFloat(totalCount), 0),
+                1
+            )
+        }
+
+        private var donePart: CGFloat {
+            normalizedPart(doneCount)
+        }
+
+        private var partiallyKnownPart: CGFloat {
+            min(
+                normalizedPart(partiallyKnownCount),
+                1 - donePart
             )
         }
 
         private var notDonePart: CGFloat {
-            guard totalCount > 0 else {
-                return 0
-            }
-
-            return CGFloat(
-                notDoneCount
-            ) / CGFloat(
-                totalCount
+            min(
+                normalizedPart(notDoneCount),
+                max(1 - donePart - partiallyKnownPart, 0)
             )
-        }
-
-        private var remainingPart: CGFloat {
-            guard totalCount > 0 else { return 1 }
-            return CGFloat(remainingCount) / CGFloat(totalCount)
         }
 
         var body: some View {
@@ -3251,14 +3260,15 @@ struct SummaryView: View {
                     )
 
                 Circle()
-                    .trim(from: 0, to: max(remainingPart, 0.001))
                     .stroke(
-                        isDarkMode
-                            ? Color.white.opacity(0.18)
-                            : Color(red: 0.85, green: 0.85, blue: 0.89),
-                        style: StrokeStyle(lineWidth: 16, lineCap: .round)
+                        KmiAppTheme.outlineVariant(
+                            for: colorScheme
+                        ).opacity(0.78),
+                        style: StrokeStyle(
+                            lineWidth: 16,
+                            lineCap: .round
+                        )
                     )
-                    .rotationEffect(.degrees(-90))
 
                 Circle()
                     .trim(
@@ -3268,13 +3278,8 @@ struct SummaryView: View {
                             donePart
                     )
                     .stroke(
-                        Color(
-                            red:
-                                0.30,
-                            green:
-                                0.69,
-                            blue:
-                                0.31
+                        KmiAppTheme.success(
+                            for: colorScheme
                         ),
                         style:
                             StrokeStyle(
@@ -3302,13 +3307,8 @@ struct SummaryView: View {
                             )
                     )
                     .stroke(
-                        Color(
-                            red:
-                                242 / 255,
-                            green:
-                                140 / 255,
-                            blue:
-                                40 / 255
+                        KmiAppTheme.warning(
+                            for: colorScheme
                         ),
                         style:
                             StrokeStyle(
@@ -3338,13 +3338,8 @@ struct SummaryView: View {
                             )
                     )
                     .stroke(
-                        Color(
-                            red:
-                                0.90,
-                            green:
-                                0.22,
-                            blue:
-                                0.21
+                        KmiAppTheme.error(
+                            for: colorScheme
                         ),
                         style:
                             StrokeStyle(
@@ -3366,11 +3361,11 @@ struct SummaryView: View {
 
                 VStack(spacing: 5) {
                     Text("\(percent)%")
-                        .kmiFont(
-                            size: 25,
-                            weight: .black
-                        )
+                        .kmiTypography(.metric)
+                        .fontWeight(.black)
                         .foregroundStyle(ringPrimaryTextColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.80)
 
                     Text(
                         isCoach
@@ -3385,16 +3380,10 @@ struct SummaryView: View {
                                 : "סומנו"
                             )
                     )
-                    .kmiFont(
-                        size: 14,
-                        weight: .black
-                    )
+                    .kmiTypography(.secondary)
+                    .fontWeight(.black)
                     .foregroundStyle(
-                        Color(
-                            red: 0.30,
-                            green: 0.69,
-                            blue: 0.31
-                        )
+                        KmiAppTheme.success(for: colorScheme)
                     )
 
                     Text(
@@ -3402,11 +3391,11 @@ struct SummaryView: View {
                         ? "\(doneCount + partiallyKnownCount + notDoneCount) of \(totalCount)"
                         : "\(doneCount + partiallyKnownCount + notDoneCount) מתוך \(totalCount)"
                     )
-                    .kmiFont(
-                        size: 13,
-                        weight: .bold
-                    )
+                    .kmiTypography(.caption)
+                    .fontWeight(.bold)
                     .foregroundStyle(ringSecondaryTextColor)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
                 }
             }
         }
@@ -3420,35 +3409,25 @@ struct SummaryView: View {
             Text(
                 title
             )
-            .kmiFont(
-                size:
-                    10,
-                weight:
-                    .black
-            )
+            .kmiTypography(.caption)
+            .fontWeight(.black)
             .foregroundStyle(
                 tint
             )
             .multilineTextAlignment(
                 .center
             )
-            .lineLimit(
-                1
-            )
-            .minimumScaleFactor(
-                0.58
-            )
-            .allowsTightening(
-                true
+            .lineLimit(2)
+            .fixedSize(
+                horizontal: false,
+                vertical: true
             )
             .frame(
                 maxWidth:
                     .infinity
             )
-            .frame(
-                height:
-                    44
-            )
+            .padding(.vertical, 6)
+            .frame(minHeight: 44)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(tint.opacity(0.12))
@@ -3548,48 +3527,14 @@ struct SummaryView: View {
         }
 
         private var primaryTextColor: Color {
-            isDarkMode
-                ? Color.white.opacity(0.94)
-                : Color.black.opacity(0.84)
+            KmiAppTheme.onSurface(for: colorScheme)
         }
 
         private var cardColors: [Color] {
-
-            if isDarkMode {
-
-                return [
-                    Color(
-                        red:
-                            0.09,
-                        green:
-                            0.12,
-                        blue:
-                            0.19
-                    ),
-                    beltAccent.opacity(
-                        0.13
-                    ),
-                    Color(
-                        red:
-                            0.08,
-                        green:
-                            0.11,
-                        blue:
-                            0.18
-                    )
-                ]
-            }
-
-            return [
-                Color.white.opacity(
-                    0.96
-                ),
-                beltAccent.opacity(
-                    0.16
-                ),
-                Color.white.opacity(
-                    0.94
-                )
+            [
+                KmiAppTheme.surface(for: colorScheme),
+                beltAccent.opacity(isDarkMode ? 0.13 : 0.16),
+                KmiAppTheme.surfaceVariant(for: colorScheme)
             ]
         }
         
@@ -3978,12 +3923,8 @@ struct SummaryView: View {
                         ? "chevron.up"
                         : "chevron.down"
                 )
-                .kmiFont(
-                    size:
-                        15,
-                    weight:
-                        .black
-                )
+                .kmiIconSize(15)
+                .fontWeight(.black)
                 .foregroundStyle(
                     tint
                 )
@@ -4017,9 +3958,7 @@ struct SummaryView: View {
         private var colorScheme
 
         private var rowTextColor: Color {
-            colorScheme == .dark
-                ? Color.white.opacity(0.88)
-                : Color.black.opacity(0.78)
+            KmiAppTheme.onSurface(for: colorScheme)
         }
         
         private var frameAlignment: Alignment {
@@ -4029,51 +3968,40 @@ struct SummaryView: View {
         }
 
         private func coachStatusColor(
-            _ status:
-                SummaryCoachStatus
+            _ status: SummaryCoachStatus
         ) -> Color {
-
             switch status {
-
             case .notTaught:
-                return Color(
-                    red:
-                        0.54,
-                    green:
-                        0.58,
-                    blue:
-                        0.62
+                return KmiAppTheme.onSurfaceVariant(
+                    for: colorScheme
                 )
-
             case .taught:
-                return Color(
-                    red:
-                        0.95,
-                    green:
-                        0.63,
-                    blue:
-                        0.38
+                return KmiAppTheme.warning(
+                    for: colorScheme
                 )
-
             case .practiced:
-                return Color(
-                    red:
-                        0.18,
-                    green:
-                        0.61,
-                    blue:
-                        0.31
+                return KmiAppTheme.success(
+                    for: colorScheme
                 )
-
             case .needsReinforcement:
-                return Color(
-                    red:
-                        0.20,
-                    green:
-                        0.47,
-                    blue:
-                        0.83
+                return KmiAppTheme.secondary(
+                    for: colorScheme
                 )
+            }
+        }
+
+        private func coachStatusContentColor(
+            _ status: SummaryCoachStatus
+        ) -> Color {
+            switch status {
+            case .notTaught:
+                return KmiAppTheme.surface(for: colorScheme)
+            case .taught:
+                return KmiAppTheme.onWarning(for: colorScheme)
+            case .practiced:
+                return KmiAppTheme.onSuccess(for: colorScheme)
+            case .needsReinforcement:
+                return KmiAppTheme.onSecondary(for: colorScheme)
             }
         }
 
@@ -4301,13 +4229,11 @@ struct SummaryView: View {
                             ? "star.fill"
                             : "star"
                     )
-                    .kmiFont(
-                        size: 18,
-                        weight: .semibold
-                    )
+                    .kmiIconSize(18)
+                    .fontWeight(.semibold)
                     .foregroundStyle(
                         exerciseFavorites.contains(title)
-                            ? Color.orange
+                            ? KmiAppTheme.warning(for: colorScheme)
                             : rowTextColor
                     )
                     .frame(width: 36, height: 44)
@@ -4326,10 +4252,8 @@ struct SummaryView: View {
 
                 Button(action: onEditNote) {
                     Image(systemName: "note.text")
-                        .kmiFont(
-                            size: 18,
-                            weight: .semibold
-                        )
+                        .kmiIconSize(18)
+                        .fontWeight(.semibold)
                         .foregroundStyle(rowTextColor)
                         .frame(width: 36, height: 44)
                         .contentShape(Rectangle())
@@ -4347,10 +4271,8 @@ struct SummaryView: View {
                             isEnglish: isEnglish
                         )
                     )
-                    .kmiFont(
-                        size: 16,
-                        weight: .semibold
-                    )
+                    .kmiTypography(.body)
+                    .fontWeight(.semibold)
                         .foregroundStyle(rowTextColor)
                         .frame(
                             maxWidth: .infinity,
@@ -4360,6 +4282,10 @@ struct SummaryView: View {
                             isEnglish
                                 ? .leading
                                 : .trailing
+                        )
+                        .fixedSize(
+                            horizontal: false,
+                            vertical: true
                         )
                         .contentShape(Rectangle())
                 }
@@ -4430,14 +4356,10 @@ struct SummaryView: View {
                             status
                         )
                     )
-                    .kmiFont(
-                        size:
-                            15,
-                        weight:
-                            .heavy
-                    )
+                    .kmiTypography(.body)
+                    .fontWeight(.heavy)
                     .foregroundStyle(
-                        Color.white
+                        coachStatusContentColor(status)
                     )
                 }
 
@@ -4446,12 +4368,8 @@ struct SummaryView: View {
                         status
                     )
                 )
-                .kmiFont(
-                    size:
-                        9,
-                    weight:
-                        .heavy
-                )
+                .kmiTypography(.caption)
+                .fontWeight(.heavy)
                 .foregroundStyle(
                     color
                 )

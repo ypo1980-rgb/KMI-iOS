@@ -284,14 +284,17 @@ final class AppNavModel: ObservableObject {
         }
 
         /*
-         * מעבר למסך החגורה אינו מפעיל
-         * טעינה אוטומטית עם זמן המתנה קבוע.
-         * טעינות מפורשות נשארות מנוהלות
-         * באמצעות beginLoading / endLoading.
+         * מסכי התרגילים מנהלים את תצוגת הטעינה
+         * לפי מוכנות הנתונים שלהם.
+         * אין להוסיף מעליהם טעינת מעבר אוטומטית.
          */
-        if case .beltQuestionsByBelt = route {
+        switch route {
+        case .beltQuestionsByBelt, .beltQuestionsByTopic:
             path.append(route)
             return
+
+        default:
+            break
         }
 
         let transitionID = UUID()

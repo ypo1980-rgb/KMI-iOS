@@ -80,12 +80,12 @@ struct AdminGateView: View {
                 .scaleEffect(1.15)
 
             Text(tr("בודק הרשאות מנהל...", "Checking admin permissions..."))
-                .font(.system(size: 18, weight: .heavy))
+                .kmiTypography(.sectionTitle)
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
 
             Text(tr("רק מנהלים מורשים יכולים להיכנס למסך הזה.", "Only authorized admins can access this screen."))
-                .font(.system(size: 14, weight: .semibold))
+                .kmiTypography(.body)
                 .foregroundStyle(.white.opacity(0.72))
                 .multilineTextAlignment(.center)
         }
@@ -116,7 +116,7 @@ struct AdminGateView: View {
             }
 
             Text(tr("המסך הזה זמין רק למנהלים מורשים. אם לדעתך אמורה להיות לך גישה, פנה למנהל המערכת.", "This screen is available only to authorized admins. If you believe you should have access, contact the system administrator."))
-                .font(.system(size: 14, weight: .semibold))
+                .kmiTypography(.body)
                 .foregroundStyle(.white.opacity(0.74))
                 .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
                 .multilineTextAlignment(screenTextAlignment)
@@ -138,7 +138,9 @@ struct AdminGateView: View {
 
     private var lockIcon: some View {
         Image(systemName: "lock.fill")
-            .font(.system(size: 26, weight: .black))
+            .resizable()
+            .scaledToFit()
+            .kmiIconSize(.large)
             .foregroundStyle(Color(red: 1.0, green: 0.70, blue: 0.70))
             .frame(width: 48, height: 48)
             .background(
@@ -154,13 +156,13 @@ struct AdminGateView: View {
     private var blockedTitleTexts: some View {
         VStack(alignment: isEnglish ? .leading : .trailing, spacing: 4) {
             Text(tr("אין הרשאת מנהל", "No admin access"))
-                .font(.system(size: 22, weight: .black))
+                .kmiTypography(.screenTitle)
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
                 .multilineTextAlignment(screenTextAlignment)
 
             Text(tr("הגישה למסך נחסמה", "Access to this screen is blocked"))
-                .font(.system(size: 13, weight: .bold))
+                .kmiTypography(.secondary)
                 .foregroundStyle(.white.opacity(0.68))
                 .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
                 .multilineTextAlignment(screenTextAlignment)

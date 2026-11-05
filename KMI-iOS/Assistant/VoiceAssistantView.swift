@@ -1,6 +1,5 @@
 import SwiftUI
 import Shared
-
 // ✅ CONTENT-ONLY:
 // המסך הזה נפתח מתוך ContentView שכבר עוטף אותו ב-KmiRootLayout.
 // אסור לעטוף כאן שוב ב-KmiRootLayout, אחרת יופיעו פעמיים TopBar + IconStrip.
@@ -10,22 +9,16 @@ struct VoiceAssistantView: View {
         trainingDataSource:
             CurrentUserAssistantTrainingDataSource()
     )
-
     @StateObject private var speechRecognizer =
         KmiSpeechRecognizer()
-
     @AppStorage("kmi_app_language")
     private var kmiAppLanguageCode: String = "he"
-
     @AppStorage("selected_language_code")
     private var selectedLanguageCode: String = "he"
-
     private let tts = AssistantTtsManager.shared
-
     @State private var inputText: String = ""
     @State private var didIntroSpeak: Bool = false
     @State private var lastAutomaticallySubmittedText: String = ""
-
     private var isEnglish: Bool {
         let languageValues = [
             kmiAppLanguageCode,
@@ -37,15 +30,12 @@ struct VoiceAssistantView: View {
             )
             .lowercased()
         }
-
         return languageValues.contains("en") ||
             languageValues.contains("english")
     }
-
     private var speechLocaleIdentifier: String {
         isEnglish ? "en-US" : "he-IL"
     }
-
     var body: some View {
         ZStack {
             LinearGradient(
@@ -58,17 +48,13 @@ struct VoiceAssistantView: View {
                 endPoint: .bottom
             )
             .ignoresSafeArea()
-
             VStack(spacing: 10) {
                 headerCard
                     .padding(.top, 4)
-
                 if logic.selectedMode == nil {
                     modePickerCard
                 }
-
                 messagesCard
-
                 if logic.selectedMode != nil {
                     inputBar
                         .padding(.bottom, 4)
@@ -101,7 +87,6 @@ struct VoiceAssistantView: View {
             speechRecognizer.cancelListening()
         }
     }
-
     private var headerCard: some View {
         HStack(spacing: 12) {
             if logic.selectedMode != nil {
@@ -109,7 +94,9 @@ struct VoiceAssistantView: View {
                     returnToAssistantHome()
                 } label: {
                     Image(systemName: "arrow.left.arrow.right")
-                        .font(.system(size: 16, weight: .bold))
+                        .resizable()
+                        .scaledToFit()
+                        .kmiIconSize(.small)
                         .foregroundStyle(.white)
                         .frame(width: 42, height: 42)
                         .background(
@@ -135,19 +122,17 @@ struct VoiceAssistantView: View {
                 Color.clear
                     .frame(width: 42, height: 42)
             }
-
             Spacer(minLength: 4)
-
             Text(subtitleForMode)
-                .font(.system(size: 18, weight: .heavy))
+                .kmiTypography(.sectionTitle)
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
-
             Spacer(minLength: 4)
-
             Image(systemName: "wand.and.stars")
-                .font(.system(size: 21, weight: .bold))
+                .resizable()
+                .scaledToFit()
+                .kmiIconSize(.medium)
                 .foregroundStyle(.white)
                 .frame(width: 48, height: 48)
                 .background(
@@ -183,7 +168,6 @@ struct VoiceAssistantView: View {
             y: 4
         )
     }
-
     private var subtitleForMode: String {
         guard let selectedMode =
                 logic.selectedMode else {
@@ -192,20 +176,17 @@ struct VoiceAssistantView: View {
                 "Choose a topic to begin"
             )
         }
-
         switch selectedMode {
         case .exercise:
             return tr(
                 "מצב: מידע / הסבר על תרגיל",
                 "Mode: Exercise information / explanation"
             )
-
         case .trainings:
             return tr(
                 "מצב: מידע על אימונים",
                 "Mode: Training information"
             )
-
         case .kmiMaterial:
             return tr(
                 "מצב: חומר ק.מ.י",
@@ -213,7 +194,6 @@ struct VoiceAssistantView: View {
             )
         }
     }
-
     private var modePickerCard: some View {
         VStack(spacing: 12) {
             modeButton(
@@ -245,7 +225,6 @@ struct VoiceAssistantView: View {
             y: 5
         )
     }
-
     private func modeButton(
         title: String,
         icon: String,
@@ -253,14 +232,12 @@ struct VoiceAssistantView: View {
     ) -> some View {
         let isSelected =
             logic.selectedMode == mode
-
         return Button {
             logic.setMode(mode)
             inputText = ""
             lastAutomaticallySubmittedText = ""
             speechRecognizer.cancelListening()
             tts.stop()
-
             switch mode {
             case .exercise:
                 tts.speak(
@@ -287,7 +264,9 @@ struct VoiceAssistantView: View {
         } label: {
             HStack(spacing: 14) {
                 Image(systemName: icon)
-                    .font(.system(size: 20, weight: .bold))
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.medium)
                     .foregroundStyle(
                         isSelected
                         ? .white
@@ -302,9 +281,8 @@ struct VoiceAssistantView: View {
                                 : Color(red: 0.95, green: 0.92, blue: 1.0)
                             )
                     )
-
                 Text(title)
-                    .font(.system(size: 19, weight: .heavy))
+                    .kmiTypography(.cardTitle)
                     .frame(maxWidth: .infinity, alignment: .center)
             }
             .environment(\.layoutDirection, .rightToLeft)
@@ -314,7 +292,7 @@ struct VoiceAssistantView: View {
                 : Color(red: 0.10, green: 0.12, blue: 0.19)
             )
             .padding(.horizontal, 16)
-            .frame(height: 72)
+            .frame(minHeight: 72)
             .background(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .fill(
@@ -355,7 +333,6 @@ struct VoiceAssistantView: View {
         }
         .buttonStyle(.plain)
     }
-
     private var messagesCard: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
@@ -368,12 +345,11 @@ struct VoiceAssistantView: View {
                                 .id(message.id)
                         }
                     }
-
                     if logic.isThinking {
                         HStack {
                             Spacer()
                             Text(tr("חושב…", "Thinking…"))
-                                .font(.system(size: 14, weight: .semibold))
+                                .kmiTypography(.secondary)
                                 .foregroundStyle(.white.opacity(0.9))
                         }
                     }
@@ -391,7 +367,6 @@ struct VoiceAssistantView: View {
             }
         }
     }
-
     private var emptyState: some View {
         VStack(spacing: 12) {
             if logic.selectedMode == nil {
@@ -402,30 +377,20 @@ struct VoiceAssistantView: View {
                     )
             } else {
                 Image(systemName: "sparkles")
-                    .font(
-                        .system(
-                            size: 24,
-                            weight: .bold
-                        )
-                    )
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.large)
                     .foregroundStyle(
                         Color(red: 0.43, green: 0.25, blue: 0.95)
                     )
             }
-
             Text(emptyText)
-                .font(
-                    .system(
-                        size: 15,
-                        weight: .semibold
-                    )
-                )
+                .kmiTypography(.body)
                 .foregroundStyle(
                     Color(red: 0.25, green: 0.22, blue: 0.42)
                 )
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 10)
-
             if !suggestedQuestions.isEmpty {
                 VStack(spacing: 8) {
                     ForEach(
@@ -440,20 +405,11 @@ struct VoiceAssistantView: View {
                                     systemName:
                                         "sparkle.magnifyingglass"
                                 )
-                                .font(
-                                    .system(
-                                        size: 12,
-                                        weight: .bold
-                                    )
-                                )
-
+                                .resizable()
+                                .scaledToFit()
+                                .kmiIconSize(.tiny)
                                 Text(question)
-                                    .font(
-                                        .system(
-                                            size: 13,
-                                            weight: .bold
-                                        )
-                                    )
+                                    .kmiTypography(.action)
                                     .lineLimit(2)
                                     .multilineTextAlignment(
                                         .center
@@ -487,20 +443,17 @@ struct VoiceAssistantView: View {
             minHeight: logic.selectedMode == nil ? 190 : 220
         )
     }
-
     private var assistantLogo: some View {
         Image("kami_logo")
             .interpolation(.high)
             .resizable()
             .scaledToFit()
     }
-
     private var suggestedQuestions: [String] {
         guard let selectedMode =
                 logic.selectedMode else {
             return []
         }
-
         switch selectedMode {
         case .exercise:
             return [
@@ -513,7 +466,6 @@ struct VoiceAssistantView: View {
                     "Explain a knife-threat defense"
                 )
             ]
-
         case .trainings:
             return [
                 tr(
@@ -525,7 +477,6 @@ struct VoiceAssistantView: View {
                     "Where is the training?"
                 )
             ]
-
         case .kmiMaterial:
             return [
                 tr(
@@ -539,24 +490,20 @@ struct VoiceAssistantView: View {
             ]
         }
     }
-
     private var emptyText: String {
         guard let selectedMode =
                 logic.selectedMode else {
             return tr(
                 """
                 בחר אחד משלושת הנושאים למעלה.
-
                 לאחר הבחירה אפשר לכתוב שאלה או להשתמש במיקרופון.
                 """,
                 """
                 Choose one of the three topics above.
-
                 After choosing, type a question or use the microphone.
                 """
             )
         }
-
         switch selectedMode {
         case .exercise:
             return tr("""
@@ -590,7 +537,6 @@ struct VoiceAssistantView: View {
             """)
         }
     }
-
     private func messageBubble(
         _ message: AiMessage
     ) -> some View {
@@ -598,7 +544,6 @@ struct VoiceAssistantView: View {
             if message.fromUser {
                 Spacer(minLength: 34)
             }
-
             VStack(
                 alignment:
                     message.fromUser
@@ -611,12 +556,7 @@ struct VoiceAssistantView: View {
                         message.text
                     )
                 )
-                .font(
-                    .system(
-                        size: 15,
-                        weight: .semibold
-                    )
-                )
+                .kmiTypography(.body)
                 .foregroundStyle(
                     message.fromUser
                     ? .white
@@ -632,7 +572,6 @@ struct VoiceAssistantView: View {
                         ? .leading
                         : .trailing
                 )
-
                 if !message.fromUser {
                     assistantMessageActions(message)
                 }
@@ -680,14 +619,12 @@ struct VoiceAssistantView: View {
                 x: 0,
                 y: 2
             )
-
             if !message.fromUser {
                 Spacer(minLength: 18)
             }
         }
         .frame(maxWidth: .infinity)
     }
-
     private func assistantMessageActions(
         _ message: AiMessage
     ) -> some View {
@@ -696,7 +633,6 @@ struct VoiceAssistantView: View {
                 .overlay(
                     Color.purple.opacity(0.12)
                 )
-
             HStack(spacing: 8) {
                 messageActionButton(
                     title: tr(
@@ -709,16 +645,13 @@ struct VoiceAssistantView: View {
                         sanitizeAssistantMarkup(
                             message.text
                         )
-
                     guard !cleanText.isEmpty else {
                         return
                     }
-
                     speechRecognizer.cancelListening()
                     tts.stop()
                     tts.speak(cleanText)
                 }
-
                 messageActionButton(
                     title: tr(
                         "שאלת המשך",
@@ -728,18 +661,14 @@ struct VoiceAssistantView: View {
                 ) {
                     inputText = ""
                     lastAutomaticallySubmittedText = ""
-
                     tts.stop()
-
                     if speechRecognizer.isListening {
                         speechRecognizer.stopListening()
                     } else {
                         toggleSpeechRecognition()
                     }
                 }
-
                 Spacer(minLength: 2)
-
                 feedbackButton(
                     message: message,
                     feedback: .like,
@@ -749,7 +678,6 @@ struct VoiceAssistantView: View {
                         "Helpful answer"
                     )
                 )
-
                 feedbackButton(
                     message: message,
                     feedback: .unlike,
@@ -762,7 +690,6 @@ struct VoiceAssistantView: View {
             }
         }
     }
-
     private func messageActionButton(
         title: String,
         icon: String,
@@ -771,27 +698,18 @@ struct VoiceAssistantView: View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Image(systemName: icon)
-                    .font(
-                        .system(
-                            size: 11,
-                            weight: .bold
-                        )
-                    )
-
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.tiny)
                 Text(title)
-                    .font(
-                        .system(
-                            size: 11,
-                            weight: .bold
-                        )
-                    )
+                    .kmiTypography(.caption)
                     .lineLimit(1)
             }
             .foregroundStyle(
                 Color.purple.opacity(0.88)
             )
             .padding(.horizontal, 9)
-            .frame(height: 30)
+            .frame(minHeight: 30)
             .background(
                 Capsule()
                     .fill(
@@ -801,7 +719,6 @@ struct VoiceAssistantView: View {
         }
         .buttonStyle(.plain)
     }
-
     private func feedbackButton(
         message: AiMessage,
         feedback: AssistantFeedback,
@@ -810,7 +727,6 @@ struct VoiceAssistantView: View {
     ) -> some View {
         let isSelected =
             message.feedback == feedback
-
         return Button {
             logic.setFeedback(
                 messageID: message.id,
@@ -818,12 +734,9 @@ struct VoiceAssistantView: View {
             )
         } label: {
             Image(systemName: icon)
-                .font(
-                    .system(
-                        size: 13,
-                        weight: .bold
-                    )
-                )
+                .resizable()
+                .scaledToFit()
+                .kmiIconSize(.tiny)
                 .foregroundStyle(
                     isSelected
                     ? .white
@@ -847,22 +760,18 @@ struct VoiceAssistantView: View {
             isSelected ? .isSelected : []
         )
     }
-
     private func feedbackColor(
         _ feedback: AssistantFeedback
     ) -> Color {
         switch feedback {
         case .like:
             return Color.green.opacity(0.82)
-
         case .unlike:
             return Color.red.opacity(0.82)
-
         case .none:
             return Color.purple.opacity(0.72)
         }
     }
-
     private var inputBar: some View {
         VStack(spacing: 8) {
             if speechRecognizer.isListening ||
@@ -870,14 +779,14 @@ struct VoiceAssistantView: View {
                 speechRecognizer.errorMessage != nil {
                 recognitionStatus
             }
-
             if speechRecognizer.alternatives.count > 1 {
                 alternativesRow
             }
-
             HStack(spacing: 10) {
                 Image(systemName: "waveform")
-                    .font(.system(size: 21, weight: .bold))
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.medium)
                     .foregroundStyle(
                         Color(red: 0.43, green: 0.25, blue: 0.95)
                     )
@@ -885,7 +794,6 @@ struct VoiceAssistantView: View {
                         .variableColor.iterative,
                         isActive: speechRecognizer.isListening
                     )
-
                 TextField(
                     tr(
                         "כתוב שאלה…",
@@ -893,7 +801,7 @@ struct VoiceAssistantView: View {
                     ),
                     text: $inputText
                 )
-                .font(.system(size: 15, weight: .semibold))
+                .kmiTypography(.body)
                 .foregroundStyle(
                     Color(red: 0.15, green: 0.14, blue: 0.24)
                 )
@@ -907,7 +815,6 @@ struct VoiceAssistantView: View {
                 .onSubmit {
                     send()
                 }
-
                 if !inputText
                     .trimmingCharacters(
                         in: .whitespacesAndNewlines
@@ -917,7 +824,9 @@ struct VoiceAssistantView: View {
                         send()
                     } label: {
                         Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 31, weight: .bold))
+                            .resizable()
+                            .scaledToFit()
+                            .kmiIconSize(.extraLarge)
                             .foregroundStyle(
                                 Color(
                                     red: 0.43,
@@ -931,7 +840,6 @@ struct VoiceAssistantView: View {
                         tr("שלח שאלה", "Send question")
                     )
                 }
-
                 Button {
                     toggleSpeechRecognition()
                 } label: {
@@ -941,7 +849,9 @@ struct VoiceAssistantView: View {
                             ? "stop.fill"
                             : "mic.fill"
                     )
-                    .font(.system(size: 20, weight: .bold))
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.medium)
                     .foregroundStyle(
                         speechRecognizer.isListening
                         ? .white
@@ -1014,7 +924,6 @@ struct VoiceAssistantView: View {
         .padding(.horizontal, 2)
         .padding(.vertical, 6)
     }
-
     private var voiceInputStatusText: String {
         if speechRecognizer.isListening {
             return tr(
@@ -1022,38 +931,36 @@ struct VoiceAssistantView: View {
                 "Listening… the question will be sent automatically"
             )
         }
-
         if speechRecognizer.isProcessing {
             return tr(
                 "מעבד את הדיבור…",
                 "Processing speech…"
             )
         }
-
         return tr(
             "לחץ על המיקרופון ואמור את הבקשה",
             "Tap the microphone and say your request"
         )
     }
-
     private var recognitionStatus: some View {
         HStack(spacing: 8) {
             if speechRecognizer.isListening {
                 ProgressView()
                     .tint(.white)
-
                 Text(tr("מקשיב… בסיום הדיבור השאלה תישלח אוטומטית", "Listening… your question will be sent automatically"))
             } else if speechRecognizer.isProcessing {
                 ProgressView()
                     .tint(.white)
-
                 Text(tr("מעבד את הדיבור…", "Processing speech…"))
             } else if let error = speechRecognizer.errorMessage {
                 Image(systemName: "exclamationmark.triangle.fill")
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.tiny)
                 Text(error)
             }
         }
-        .font(.system(size: 12, weight: .semibold))
+        .kmiTypography(.secondary)
         .foregroundStyle(
             speechRecognizer.errorMessage == nil
             ? Color(red: 0.34, green: 0.25, blue: 0.62)
@@ -1062,7 +969,6 @@ struct VoiceAssistantView: View {
         .frame(maxWidth: .infinity, alignment: .center)
         .multilineTextAlignment(.center)
     }
-
     private var alternativesRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -1074,7 +980,7 @@ struct VoiceAssistantView: View {
                         send(alternative)
                     } label: {
                         Text(alternative)
-                            .font(.system(size: 12, weight: .semibold))
+                            .kmiTypography(.secondary)
                             .foregroundStyle(
                                 Color(red: 0.43, green: 0.25, blue: 0.95)
                             )
@@ -1093,23 +999,18 @@ struct VoiceAssistantView: View {
             }
         }
     }
-
     private func toggleSpeechRecognition() {
         if speechRecognizer.isListening {
             speechRecognizer.stopListening()
             return
         }
-
         tts.stop()
-
         // מאפשר לומר שוב גם את אותה שאלה בהאזנה חדשה.
         lastAutomaticallySubmittedText = ""
-
         speechRecognizer.requestPermissions { granted in
             guard granted else {
                 return
             }
-
             speechRecognizer.startListening(
                 localeIdentifier:
                     speechLocaleIdentifier
@@ -1117,12 +1018,10 @@ struct VoiceAssistantView: View {
                 let cleanText = recognizedText.trimmingCharacters(
                     in: .whitespacesAndNewlines
                 )
-
                 guard !cleanText.isEmpty,
                       cleanText != lastAutomaticallySubmittedText else {
                     return
                 }
-
                 /*
                  * המיקרופון פעיל גם לפני בחירה ידנית.
                  * במקרה כזה נבחר אוטומטית המצב המתאים לשאלה.
@@ -1134,14 +1033,12 @@ struct VoiceAssistantView: View {
                         )
                     )
                 }
-
                 inputText = cleanText
                 lastAutomaticallySubmittedText = cleanText
                 send(cleanText)
             }
         }
     }
-
     private func inferredAssistantMode(
         from spokenText: String
     ) -> AssistantMode {
@@ -1150,7 +1047,6 @@ struct VoiceAssistantView: View {
                 in: .whitespacesAndNewlines
             )
             .lowercased()
-
         let trainingKeywords = [
             "אימון",
             "אימונים",
@@ -1168,13 +1064,11 @@ struct VoiceAssistantView: View {
             "when",
             "where"
         ]
-
         if trainingKeywords.contains(
             where: { normalized.contains($0) }
         ) {
             return .trainings
         }
-
         let materialKeywords = [
             "חומר קמי",
             "חומר ק.מ.י",
@@ -1188,16 +1082,13 @@ struct VoiceAssistantView: View {
             "topic",
             "belt material"
         ]
-
         if materialKeywords.contains(
             where: { normalized.contains($0) }
         ) {
             return .kmiMaterial
         }
-
         return .exercise
     }
-
     private func send(
         _ explicitText: String? = nil
     ) {
@@ -1206,37 +1097,28 @@ struct VoiceAssistantView: View {
                 "בחר קודם נושא: תרגיל, אימונים או חומר ק.מ.י.",
                 "First choose a topic: exercises, training, or KMI material."
             )
-
             tts.stop()
             tts.speak(prompt)
             return
         }
-
         let trimmed = (explicitText ?? inputText)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-
         speechRecognizer.cancelListening()
         tts.stop()
-
         let answer = logic.sendQuestion(trimmed)
         inputText = ""
-
         let cleanAnswer = sanitizeAssistantMarkup(answer)
         if !cleanAnswer.isEmpty {
             tts.speak(cleanAnswer)
         }
     }
-
     private func returnToAssistantHome() {
         speechRecognizer.cancelListening()
         tts.stop()
-
         inputText = ""
         lastAutomaticallySubmittedText = ""
-
         logic.resetToModeSelection()
-
         tts.speak(
             tr(
                 "בחר נושא חדש כדי להמשיך.",
@@ -1244,23 +1126,19 @@ struct VoiceAssistantView: View {
             )
         )
     }
-
     private func tr(_ he: String, _ en: String) -> String {
         isEnglish ? en : he
     }
-
     /// מנקה את תגיות העיצוב הפנימיות בדיוק לפני הצגה והקראה.
     /// כך תגיות כמו `[RED_BOLD]` או `[[/BOLD]]` אינן מגיעות למשתמש.
     private func sanitizeAssistantMarkup(_ source: String) -> String {
         var result = source
-
         let patterns = [
             #"(?i)\[\[\s*/?\s*RED_BOLD\s*\]\]"#,
             #"(?i)\[\s*/?\s*RED_BOLD\s*\]"#,
             #"(?i)\[\[\s*/?\s*BOLD\s*\]\]"#,
             #"(?i)\[\[\s*/?\s*RED\s*\]\]"#
         ]
-
         for pattern in patterns {
             result = result.replacingOccurrences(
                 of: pattern,
@@ -1268,19 +1146,16 @@ struct VoiceAssistantView: View {
                 options: .regularExpression
             )
         }
-
         result = result.replacingOccurrences(
             of: #"[ \t]+\n"#,
             with: "\n",
             options: .regularExpression
         )
-
         result = result.replacingOccurrences(
             of: #"\n{3,}"#,
             with: "\n\n",
             options: .regularExpression
         )
-
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

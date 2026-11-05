@@ -2499,6 +2499,80 @@ final class AttendanceRepository {
             .delete()
     }
 
+    /// Deletes the saved summaries for selected training dates.
+    /// Session records and group members remain intact, matching Android report deletion.
+    /// The current statistics view identifies reports by date, so all saved summaries
+    /// for each selected date are removed together.
+    func deleteSavedReportsFromFirestore(
+        ownerUid: String,
+        branchName: String,
+        groupKey: String,
+        dateIsos: [String]
+    ) async throws {
+        let owner = ownerUid.trimmingCharacters(in: .whitespacesAndNewlines)
+        let branch = branchName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let group = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let dates = Set(dateIsos.map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        })
+
+        guard !dates.isEmpty else { return }
+        guard !owner.isEmpty,
+              Auth.auth().currentUser?.uid == owner,
+              !branch.isEmpty,
+              !group.isEmpty,
+              dates.allSatisfy({ Self.date(fromIso: $0) != nil }) else {
+            throw NSError(
+                domain: "AttendanceRepository",
+                code: 7,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "Invalid attendance report deletion context."
+                ]
+            )
+        }
+
+        let reportsReference = attendanceGroupReference(
+            branchName: branch,
+            groupKey: group
+        ).collection("reports")
+
+        for dateIso in dates.sorted() {
+            // Limit each commit and query. Server reads are intentional for deletion:
+            // an incomplete cached result must not be treated as successful removal.
+            while true {
+                try Task.checkCancellation()
+                guard Auth.auth().currentUser?.uid == owner else {
+                    throw CancellationError()
+                }
+
+                let snapshot = try await reportsReference
+                    .whereField("date", isEqualTo: dateIso)
+                    .limit(to: 200)
+                    .getDocuments(source: .server)
+
+                try Task.checkCancellation()
+                guard Auth.auth().currentUser?.uid == owner else {
+                    throw CancellationError()
+                }
+                guard !snapshot.documents.isEmpty else { break }
+
+                let batch = Firestore.firestore().batch()
+                for document in snapshot.documents {
+                    batch.deleteDocument(document.reference)
+                }
+                try await batch.commit()
+            }
+
+            // Update the cache only after the selected date has been removed remotely.
+            store.deleteReport(
+                ownerUid: owner,
+                branchName: branch,
+                groupKey: group,
+                dateIso: dateIso
+            )
+        }
+    }
+
     // MARK: - Stats / Reports
 
     func reportsLastYear(

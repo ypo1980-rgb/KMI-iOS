@@ -805,6 +805,15 @@ struct SubjectAcrossBeltsView: View {
         case "releases", "releases_root":
             return "releases"
 
+        case "releases_hands",
+             "releases_hair",
+             "releases_shirt",
+             "releases_chokes",
+             "releases_nelson",
+             "releases_hugs",
+             "releases_hands_hair_shirt":
+            return subject.id
+
         // עבודת ידיים אינה נפתרת דרך HardSectionsCatalog.
         // היא ממשיכה למסלול SubjectItemsResolver,
         // שהוא מקור הרשימה החוצה־חגורות שמוצגת בפועל.
@@ -1089,7 +1098,11 @@ struct SubjectAcrossBeltsView: View {
             return sectionDirectlyMatchesForcedSelection(sec, forcedClean: forcedClean)
         }()
 
-        let items = HardSectionsCatalog.shared.itemsFor(sec, belt: belt)
+        // מקטע אב מכיל את תרגילי הילדים באופן מצטבר.
+        // התרגילים יתווספו בהמשך דרך כל תת־מקטע בנפרד.
+        let items: [String] = sec.subSections.isEmpty
+            ? HardSectionsCatalog.shared.itemsFor(sec, belt: belt)
+            : []
 
         if shouldIncludeCurrentSection, !items.isEmpty {
             let uiItems = items.map { raw in
@@ -1486,6 +1499,33 @@ struct SubjectAcrossBeltsView: View {
                             if !secs.isEmpty {
 
                                 VStack(spacing: 12) {
+
+                                    HStack {
+                                        Text(beltTitleText(belt))
+                                            .kmiTypography(.sectionTitle)
+                                            .fontWeight(.heavy)
+
+                                        Spacer(minLength: 8)
+
+                                        Text(
+                                            exercisesCountText(
+                                                secs.reduce(0) {
+                                                    $0 + $1.items.count
+                                                }
+                                            )
+                                        )
+                                        .kmiTypography(.secondary)
+                                        .fontWeight(.bold)
+                                    }
+                                    .foregroundStyle(
+                                        KmiAppTheme.sectionHeaderContentColor
+                                    )
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 10)
+                                    .frame(maxWidth: .infinity)
+                                    .background(
+                                        KmiAppTheme.sectionHeaderBrush
+                                    )
 
                                     VStack(spacing: 10) {
                                         ForEach(secs) { sec in

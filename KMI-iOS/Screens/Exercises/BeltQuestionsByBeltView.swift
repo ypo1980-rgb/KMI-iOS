@@ -1561,10 +1561,7 @@ struct BeltQuestionsByBeltView: View {
             Text(
                 uiTopicTitle(title)
             )
-            .kmiFont(
-                size: 20,
-                weight: .heavy
-            )
+            .kmiTypography(.topicTitle)
             .foregroundStyle(
                 byBeltTitleColor
             )
@@ -1591,10 +1588,7 @@ struct BeltQuestionsByBeltView: View {
                 Text(
                     cleanSubtitle
                 )
-                .kmiFont(
-                    size: 14,
-                    weight: .heavy
-                )
+                .kmiTypography(.topicCount)
                 .foregroundStyle(
                     byBeltRowSubColor
                 )
@@ -3672,10 +3666,7 @@ struct BeltQuestionsByBeltView: View {
                             itemCount
                         )
                     )
-                    .kmiFont(
-                        size: 14,
-                        weight: .bold
-                    )
+                    .kmiTypography(.topicCount)
                     .foregroundStyle(
                         readableBeltAccent
                     )
@@ -3750,12 +3741,7 @@ struct BeltQuestionsByBeltView: View {
                             itemCount
                         )
                     )
-                    .kmiTypography(
-                        .caption
-                    )
-                    .fontWeight(
-                        .bold
-                    )
+                    .kmiTypography(.topicCount)
                     .foregroundStyle(
                         readableBeltAccent
                     )
@@ -3822,10 +3808,7 @@ struct BeltQuestionsByBeltView: View {
                         subTitle
                     )
                 )
-                .kmiFont(
-                    size: 18,
-                    weight: .bold
-                )
+                .kmiTypography(.subTopicTitle)
                 .foregroundStyle(
                     byBeltTitleColor
                 )
@@ -3896,9 +3879,7 @@ struct BeltQuestionsByBeltView: View {
                         subTitle
                     )
                 )
-                .kmiTypography(
-                    .cardTitle
-                )
+                .kmiTypography(.subTopicTitle)
                 .foregroundStyle(
                     byBeltTitleColor
                 )
@@ -3975,10 +3956,7 @@ struct BeltQuestionsByBeltView: View {
                     Text(
                         "Full topic"
                     )
-                    .kmiFont(
-                        size: 18,
-                        weight: .bold
-                    )
+                    .kmiTypography(.subTopicTitle)
                     .foregroundStyle(
                         byBeltTitleColor
                     )
@@ -4038,10 +4016,7 @@ struct BeltQuestionsByBeltView: View {
                     Text(
                         "כל הנושא"
                     )
-                    .kmiFont(
-                        size: 18,
-                        weight: .bold
-                    )
+                    .kmiTypography(.subTopicTitle)
                     .foregroundStyle(
                         byBeltTitleColor
                     )

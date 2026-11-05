@@ -303,6 +303,7 @@ private enum ByTopicScreenMemoryCache {
     }
 }
 
+@MainActor
 struct BeltQuestionsByTopicView: View {
 
     let belt: Belt
@@ -412,10 +413,29 @@ struct BeltQuestionsByTopicView: View {
     }
 
     @State private var expandedMainTopicId: String? = nil
+    @State private var isKnifeSubtopicsExpanded = false
     @State private var pickedAcrossBeltsSubject: SubjectTopic? = nil
 
     @State private var isTopicsScreenVisible = false
     @State private var isPreparingTopicsPDF = false
+    @State private var topicsPDFTask: Task<Void, Never>?
+    @State private var preparedCountsContext: String?
+    @State private var showPracticeMenu = false
+    @State private var pendingPracticeSelection: PracticeSelection?
+
+    private enum PracticeSelection {
+        case random(Belt)
+        case finalExam(Belt)
+        case topic(Belt, String)
+    }
+
+    private var countsContext: String {
+        "\(belt.id)::\(effectiveLanguageCode)"
+    }
+
+    private var areTopicCountsReady: Bool {
+        didLoadMainTopics && preparedCountsContext == countsContext
+    }
     @State private var topicsPDFRequestID = UUID()
     @State private var topicsPDFURL: URL?
     @State private var showTopicsPDFShare = false
@@ -1042,6 +1062,11 @@ struct BeltQuestionsByTopicView: View {
         var seenMainTopicIds =
             Set<String>()
 
+        let hasGroupedHands = out.contains {
+            normalizedSubjectId($0.id) == "hands_root"
+                && $0.subjects.count > 1
+        }
+
         return out.filter {
             topic in
 
@@ -1051,6 +1076,17 @@ struct BeltQuestionsByTopicView: View {
                 )
 
             guard !cleanId.isEmpty else {
+                return false
+            }
+
+            let cleanTitle = topic.titleHeb
+                .replacingOccurrences(of: "\u{200F}", with: "")
+                .replacingOccurrences(of: "\u{200E}", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if hasGroupedHands,
+               cleanId != "hands_root",
+               cleanTitle == "עבודת ידיים" {
                 return false
             }
 
@@ -1249,7 +1285,7 @@ struct BeltQuestionsByTopicView: View {
                 maxWidth:
                     .infinity,
                 minHeight:
-                    54
+                    64
             )
             .background {
                 RoundedRectangle(
@@ -1282,11 +1318,9 @@ struct BeltQuestionsByTopicView: View {
                         style: .continuous
                     )
                     .fill(
-                        colorScheme == .dark
-                            ? KmiAppTheme.surfaceVariant(
-                                for: colorScheme
-                            )
-                            : Color.white.opacity(0.92)
+                        KmiAppTheme.surface(
+                            for: colorScheme
+                        ).opacity(0.92)
                     )
                 }
                 .overlay {
@@ -1313,9 +1347,7 @@ struct BeltQuestionsByTopicView: View {
             ) {
 
                 Text(title)
-                    .kmiTypography(
-                        .cardTitle
-                    )
+                    .kmiTypography(.topicTitle)
                     .foregroundStyle(
                         titleColor
                     )
@@ -1341,12 +1373,7 @@ struct BeltQuestionsByTopicView: View {
                     !top.isEmpty {
 
                     Text(top)
-                        .kmiTypography(
-                            .caption
-                        )
-                        .fontWeight(
-                            .heavy
-                        )
+                        .kmiTypography(.topicCount)
                         .foregroundStyle(
                             accent
                         )
@@ -1359,18 +1386,14 @@ struct BeltQuestionsByTopicView: View {
                         .multilineTextAlignment(
                             textAlignment
                         )
-                        .lineLimit(1)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Text(
                     subtitleBottom
                 )
-                .kmiTypography(
-                    .caption
-                )
-                .fontWeight(
-                    .bold
-                )
+                .kmiTypography(.topicCount)
                 .foregroundStyle(
                     secondaryTextColor
                 )
@@ -1383,7 +1406,8 @@ struct BeltQuestionsByTopicView: View {
                 .multilineTextAlignment(
                     textAlignment
                 )
-                .lineLimit(1)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
 
@@ -1544,6 +1568,7 @@ struct BeltQuestionsByTopicView: View {
             belts: Array(topicsByBelt.keys),
             topicsByBelt: topicsByBelt,
             subTopicHint: subTopicHint,
+            parentId: "defenses",
             includeItemKeywords: includeItemKeywords,
             requireAllItemKeywords: requireAllItemKeywords,
             excludeItemKeywords: excludeItemKeywords
@@ -1627,6 +1652,14 @@ struct BeltQuestionsByTopicView: View {
                     "סכין",
                     "מקל"
                 ]
+            ),
+            syntheticSubject(
+                id: "submachine_gun_defense",
+                titleHeb: "הגנות נגד איום תת-מקלע",
+                topicsByBelt: [
+                    .black: ["הגנות"]
+                ],
+                subTopicHint: "תת-מקלע"
             ),
             syntheticSubject(
                 id: "multiple_attackers_defense",
@@ -1934,78 +1967,38 @@ struct BeltQuestionsByTopicView: View {
 
         switch topicId {
         case "defense_root", "defenses_root", "defenses":
-            return Color(
-                red: 124.0 / 255.0,
-                green: 92.0 / 255.0,
-                blue: 255.0 / 255.0
-            )
+            return KmiAppTheme.exerciseTopicAccent(.defenses)
 
         case "releases":
-            return Color(
-                red: 25.0 / 255.0,
-                green: 167.0 / 255.0,
-                blue: 224.0 / 255.0
-            )
+            return KmiAppTheme.exerciseTopicAccent(.releases)
 
         case "hands_root", "hands_all":
-            return Color(
-                red: 22.0 / 255.0,
-                green: 179.0 / 255.0,
-                blue: 154.0 / 255.0
-            )
+            return KmiAppTheme.exerciseTopicAccent(.hands)
 
         case "rolls_breakfalls", "topic_breakfalls_rolls":
-            return Color(
-                red: 184.0 / 255.0,
-                green: 135.0 / 255.0,
-                blue: 70.0 / 255.0
-            )
+            return KmiAppTheme.exerciseTopicAccent(.breakfalls)
 
         case "topic_ready_stance":
-            return Color(
-                red: 89.0 / 255.0,
-                green: 185.0 / 255.0,
-                blue: 111.0 / 255.0
-            )
+            return KmiAppTheme.exerciseTopicAccent(.readyStance)
 
         case "topic_ground_prep":
-            return Color(
-                red: 208.0 / 255.0,
-                green: 90.0 / 255.0,
-                blue: 160.0 / 255.0
-            )
+            return KmiAppTheme.exerciseTopicAccent(.groundPreparation)
 
         case "topic_kavaler", "kavaler":
-            return Color(
-                red: 240.0 / 255.0,
-                green: 154.0 / 255.0,
-                blue: 42.0 / 255.0
-            )
+            return KmiAppTheme.exerciseTopicAccent(.kavaler)
 
         case "kicks", "topic_kicks":
-            return Color(
-                red: 59.0 / 255.0,
-                green: 130.0 / 255.0,
-                blue: 246.0 / 255.0
-            )
+            return KmiAppTheme.exerciseTopicAccent(.kicks)
 
         case "releases_hugs":
-            return Color(
-                red: 91.0 / 255.0,
-                green: 108.0 / 255.0,
-                blue: 255.0 / 255.0
-            )
+            return KmiAppTheme.exerciseTopicAccent(.hugReleases)
 
         default:
             break
         }
 
         guard let subject = topic.subjects.first else {
-            return Color(
-                red: 124.0 / 255.0,
-                green: 92.0 / 255.0,
-                blue: 255.0 / 255.0
-            )
+            return KmiAppTheme.exerciseTopicAccent(.defenses)
         }
 
         let id = subject.id
@@ -2016,22 +2009,18 @@ struct BeltQuestionsByTopicView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         if id.contains("knife") || title.contains("סכין") {
-            return Color.orange.opacity(0.88)
+            return KmiAppTheme.exerciseSubtopicAccent(.knife, scheme: colorScheme)
         }
 
         if id.contains("gun") || title.contains("אקדח") {
-            return Color.red.opacity(0.82)
+            return KmiAppTheme.exerciseSubtopicAccent(.gun, scheme: colorScheme)
         }
 
         if id.contains("stick") || title.contains("מקל") {
-            return Color.brown.opacity(0.82)
+            return KmiAppTheme.exerciseSubtopicAccent(.stick, scheme: colorScheme)
         }
 
-        return Color(
-            red: 124.0 / 255.0,
-            green: 92.0 / 255.0,
-            blue: 255.0 / 255.0
-        )
+        return KmiAppTheme.exerciseTopicAccent(.defenses)
     }
 
     private func displayTitle(for topic: MainTopic) -> String {
@@ -2322,6 +2311,28 @@ struct BeltQuestionsByTopicView: View {
     private func displayedExerciseCount(
         for subject: SubjectTopic
     ) -> Int {
+        if subject.parentId == "releases"
+            || subject.parentId == "defenses"
+            || subject.id == "rolls_breakfalls"
+            || subject.id == "topic_breakfalls_rolls"
+            || subject.id == "kicks"
+            || subject.id == "topic_kicks" {
+            return SubjectAcrossBeltsView.resolvedExerciseCount(
+                subject: subject,
+                forcedSectionTitle: nil
+            )
+        }
+        if ["hands_strikes", "hands_elbows", "hands_stick_rifle"]
+            .contains(subject.id) {
+            let count = uniqueExerciseCount(
+                in: resolvedSections(for: subject)
+            )
+
+            if count > 0 {
+                return count
+            }
+        }
+
         let cleanSubjectTitle =
             subject.titleHeb
                 .trimmingCharacters(
@@ -2612,6 +2623,57 @@ struct BeltQuestionsByTopicView: View {
     private func displayedTopicStats(
         for topic: MainTopic
     ) -> KmiExerciseCountStats {
+        if ["defense_root", "defenses_root", "defenses"]
+            .contains(topic.id) {
+            return KmiExerciseCountStats(
+                subTopicCount: topic.subjects.count,
+                exerciseCount: topic.subjects.reduce(0) {
+                    $0 + cachedDisplayedExerciseCount(for: $1)
+                }
+            )
+        }
+        if topic.id == "rolls_breakfalls"
+            || topic.id == "topic_breakfalls_rolls"
+            || topic.id == "kicks"
+            || topic.id == "topic_kicks" {
+            return KmiExerciseCountStats(
+                subTopicCount: 0,
+                exerciseCount: topic.subjects.reduce(0) {
+                    $0 + cachedDisplayedExerciseCount(for: $1)
+                }
+            )
+        }
+        if topic.id == "releases" {
+            return KmiExerciseCountStats(
+                subTopicCount: topic.subjects.count,
+                exerciseCount: topic.subjects.reduce(0) {
+                    $0 + cachedDisplayedExerciseCount(for: $1)
+                }
+            )
+        }
+        if topic.id == "hands_root" {
+            let sections = topic.subjects.flatMap {
+                resolvedSections(for: $0)
+            }
+
+            let resolvedCount = uniqueExerciseCount(
+                in: sections
+            )
+
+            let total = resolvedCount > 0
+                ? resolvedCount
+                : topic.subjects.reduce(0) {
+                    $0 + cachedDisplayedExerciseCount(for: $1)
+                }
+
+            return KmiExerciseCountStats(
+                subTopicCount: topic.subjects.count > 1
+                    ? topic.subjects.count
+                    : 0,
+                exerciseCount: total
+            )
+        }
+
         let stats = KmiExerciseCountProvider.topicStats(
             belt: belt,
             topicTitle: topic.titleHeb
@@ -2712,7 +2774,17 @@ struct BeltQuestionsByTopicView: View {
 
                 let count: Int
 
-                if stats.exerciseCount > 0 {
+                if subject.parentId == "releases"
+                    || subject.parentId == "defenses"
+                    || subject.id == "rolls_breakfalls"
+                    || subject.id == "topic_breakfalls_rolls"
+                    || subject.id == "kicks"
+                    || subject.id == "topic_kicks" {
+                    count = displayedExerciseCount(for: subject)
+                } else if ["hands_strikes", "hands_elbows", "hands_stick_rifle"]
+                    .contains(subject.id) {
+                    count = displayedExerciseCount(for: subject)
+                } else if stats.exerciseCount > 0 {
                     count = stats.exerciseCount
                 } else {
                     await Task.yield()
@@ -2774,6 +2846,8 @@ struct BeltQuestionsByTopicView: View {
 
             await Task.yield()
         }
+        guard isCurrentRequest() else { return }
+        preparedCountsContext = "\(requestedBeltId)::\(requestedLanguageCode)"
     }
 
     private func clearTopicCountCaches() {
@@ -2819,7 +2893,8 @@ struct BeltQuestionsByTopicView: View {
     }
 
     private func openSubjectFromInlineList(
-        _ subject: SubjectTopic
+        _ subject: SubjectTopic,
+        selectedSectionID: String? = nil
     ) {
 
         triggerTapHaptic()
@@ -2837,23 +2912,20 @@ struct BeltQuestionsByTopicView: View {
                     subject
             )
 
-        let forcedSectionTitle:
-            String?
+        let forcedSectionTitle: String?
 
-        if sections.count == 1 {
-
-            forcedSectionTitle =
-                sections.first?
-                    .title
-                    .trimmingCharacters(
-                        in:
-                            .whitespacesAndNewlines
-                    )
-
+        if let selectedSectionID {
+            forcedSectionTitle = selectedSectionID
+        } else if subject.id == "releases_hands_hair_shirt" {
+            forcedSectionTitle = nil
+        } else if sections.count == 1 {
+            forcedSectionTitle = sections.first?
+                .title
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
         } else {
-
-            forcedSectionTitle =
-                nil
+            forcedSectionTitle = nil
         }
 
         /*
@@ -2918,8 +2990,10 @@ struct BeltQuestionsByTopicView: View {
                             .subscriptionPlans
                         )
 
+                    } else if subject.id == "knife_defense" {
+                        triggerTapHaptic()
+                        isKnifeSubtopicsExpanded.toggle()
                     } else {
-
                         openSubjectFromInlineList(
                             subject
                         )
@@ -2937,6 +3011,11 @@ struct BeltQuestionsByTopicView: View {
                     )
                 }
                 .buttonStyle(.plain)
+
+                if subject.id == "knife_defense",
+                   isKnifeSubtopicsExpanded {
+                    knifeSubtopicsContent(for: subject)
+                }
 
                 if
                     subject.id !=
@@ -3070,6 +3149,7 @@ struct BeltQuestionsByTopicView: View {
         .environment(\.layoutDirection, .leftToRight)
         .padding(.horizontal, 10)
         .padding(.vertical, 10)
+        .frame(minHeight: 56)
         .contentShape(Rectangle())
     }
 
@@ -3123,6 +3203,7 @@ struct BeltQuestionsByTopicView: View {
         .environment(\.layoutDirection, .leftToRight)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
+        .frame(minHeight: 56)
         .background(
             RoundedRectangle(
                 cornerRadius: 15,
@@ -3144,15 +3225,116 @@ struct BeltQuestionsByTopicView: View {
         )
     }
 
+    private func knifeSubsections()
+        -> [HardSectionsCatalog.Section] {
+        let roots = HardSectionsCatalog.shared
+            .sectionsForSubject(subjectId: "knife_defense") ?? []
+
+        return roots.flatMap { section in
+            section.subSections.isEmpty
+                ? [section]
+                : section.subSections
+        }
+    }
+
+    private func knifeSectionExerciseCount(
+        _ section: HardSectionsCatalog.Section
+    ) -> Int {
+        let belts: [Belt] = [
+            .yellow, .orange, .green,
+            .blue, .brown, .black
+        ]
+
+        return belts.reduce(0) {
+            $0 + HardSectionsCatalog.shared
+                .itemsFor(section, belt: $1).count
+        }
+    }
+
+    private func knifeSubtopicsContent(
+        for subject: SubjectTopic
+    ) -> some View {
+        VStack(spacing: 0) {
+            ForEach(knifeSubsections(), id: \.id) { section in
+                Button {
+                    openSubjectFromInlineList(
+                        subject,
+                        selectedSectionID: section.id
+                    )
+                } label: {
+                    VStack(
+                        alignment: isEnglish ? .leading : .trailing,
+                        spacing: 4
+                    ) {
+                        Text(
+                            KmiEnglishTitleResolver.title(
+                                for: section.title,
+                                isEnglish: isEnglish
+                            )
+                        )
+                        .kmiTypography(.subTopicTitle)
+                        .foregroundStyle(
+                            KmiAppTheme.onSurface(for: colorScheme)
+                        )
+                        .fixedSize(
+                            horizontal: false,
+                            vertical: true
+                        )
+
+                        Text(
+                            exercisesCountText(
+                                knifeSectionExerciseCount(section)
+                            )
+                        )
+                        .kmiTypography(.topicCount)
+                        .foregroundStyle(
+                            KmiAppTheme.exerciseTopicAccent(.defenses)
+                        )
+                    }
+                    .multilineTextAlignment(
+                        isEnglish ? .leading : .trailing
+                    )
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: 56,
+                        alignment: isEnglish ? .leading : .trailing
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(
+                cornerRadius: 14,
+                style: .continuous
+            )
+            .fill(KmiAppTheme.surface(for: colorScheme))
+        )
+        .overlay(
+            RoundedRectangle(
+                cornerRadius: 14,
+                style: .continuous
+            )
+            .stroke(
+                KmiAppTheme.outlineVariant(for: colorScheme),
+                lineWidth: 1
+            )
+        )
+        .padding(.horizontal, 8)
+        .padding(.bottom, 8)
+    }
+
     private func inlineSubTopicText(
         subject: SubjectTopic,
         isEnglish: Bool
     ) -> some View {
 
         let subjectAccent =
-            accentForTopicSubject(
-                subject
-            )
+            KmiAppTheme.exerciseTopicAccent(.defenses)
 
         let countKey = subjectCountCacheKey(
             for: subject
@@ -3165,9 +3347,14 @@ struct BeltQuestionsByTopicView: View {
         let countLabel: String
 
         if let preparedCount {
-            countLabel = exercisesCountText(
-                preparedCount
-            )
+            if subject.id == "knife_defense" {
+                let subtopicCount = knifeSubsections().count
+                countLabel = isEnglish
+                    ? "\(subtopicCount) sub-topics · \(exercisesCountText(preparedCount))"
+                    : "\(subtopicCount) תתי נושאים · \(exercisesCountText(preparedCount))"
+            } else {
+                countLabel = exercisesCountText(preparedCount)
+            }
         } else {
             countLabel = tr(
                 "מחשב מספר תרגילים…",
@@ -3189,9 +3376,7 @@ struct BeltQuestionsByTopicView: View {
                     subject
                 )
             )
-            .kmiTypography(
-                .cardTitle
-            )
+            .kmiTypography(.subTopicTitle)
             .foregroundStyle(
                 KmiAppTheme
                     .onSurface(
@@ -3217,17 +3402,8 @@ struct BeltQuestionsByTopicView: View {
             .fixedSize(horizontal: false, vertical: true)
 
             Text(countLabel)
-            .kmiTypography(
-                .caption
-            )
-            .fontWeight(
-                .heavy
-            )
-            .foregroundStyle(
-                colorScheme == .dark
-                    ? KmiAppTheme.onSurfaceVariant(for: colorScheme)
-                    : subjectAccent
-            )
+            .kmiTypography(.topicCount)
+            .foregroundStyle(subjectAccent)
             .frame(
                 maxWidth:
                     .infinity,
@@ -3356,23 +3532,23 @@ struct BeltQuestionsByTopicView: View {
         let title = subject.titleHeb.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if id.contains("internal") || title.contains("פנימ") {
-            return Color.green.opacity(0.82)
+            return KmiAppTheme.exerciseSubtopicAccent(.internalDefense, scheme: colorScheme)
         }
 
         if id.contains("external") || title.contains("חיצונ") {
-            return Color.blue.opacity(0.82)
+            return KmiAppTheme.exerciseSubtopicAccent(.externalDefense, scheme: colorScheme)
         }
 
         if id.contains("kick") || title.contains("בעיטה") {
-            return Color.orange.opacity(0.85)
+            return KmiAppTheme.exerciseSubtopicAccent(.kicks, scheme: colorScheme)
         }
 
         if id.contains("release") || title.contains("שחרור") || title.contains("חביקה") {
-            return Color.blue.opacity(0.72)
+            return KmiAppTheme.exerciseSubtopicAccent(.releases, scheme: colorScheme)
         }
 
         if id.contains("hand") || id.contains("punch") || title.contains("יד") || title.contains("מרפק") {
-            return Color.red.opacity(0.78)
+            return KmiAppTheme.exerciseSubtopicAccent(.hands, scheme: colorScheme)
         }
 
         return accentForTopic(
@@ -3433,19 +3609,28 @@ struct BeltQuestionsByTopicView: View {
     }
     
     private var topicQuickMenuActions: [KmiQuickMenuAction] {
-        [
+        var actions: [KmiQuickMenuAction] = [
             KmiQuickMenuAction(
-                id: "lists",
-                titleHe: "רשימות",
-                titleEn: "Lists",
-                systemImage: "list.bullet",
-                iconTint: Color(
-                    red: 109.0 / 255.0,
-                    green: 76.0 / 255.0,
-                    blue: 1
-                ),
+                id: "weak-points",
+                titleHe: "נקודות תורפה",
+                titleEn: "Weak Points",
+                systemImage: "exclamationmark.triangle.fill",
+                iconTint: KmiAppTheme.warning(for: colorScheme),
                 action: {
                     triggerTapHaptic()
+                    showQuickActionsDialog = false
+                    nav.push(.weakPoints(belt: belt))
+                }
+            ),
+            KmiQuickMenuAction(
+                id: "lists",
+                titleHe: "כל הרשימות",
+                titleEn: "All Lists",
+                systemImage: "list.bullet",
+                iconTint: KmiAppTheme.secondary(for: colorScheme),
+                action: {
+                    triggerTapHaptic()
+                    showQuickActionsDialog = false
                     nav.push(.allLists(belt: belt))
                 }
             ),
@@ -3454,45 +3639,66 @@ struct BeltQuestionsByTopicView: View {
                 titleHe: "תרגול",
                 titleEn: "Practice",
                 systemImage: "figure.martial.arts",
-                iconTint: Color(
-                    red: 0,
-                    green: 137.0 / 255.0,
-                    blue: 123.0 / 255.0
-                ),
+                iconTint: KmiAppTheme.success(for: colorScheme),
                 action: {
                     triggerTapHaptic()
-                    nav.push(
-                        .practice(
-                            belt: belt,
-                            topicTitle: "__ALL__"
-                        )
-                    )
+                    showQuickActionsDialog = false
+                    showPracticeMenu = true
                 }
             ),
             KmiQuickMenuAction(
-                id: "summary",
-                titleHe: "מסך\nסיכום",
-                titleEn: "Summary",
-                systemImage: "doc.text",
-                iconTint: Color(
-                    red: 25.0 / 255.0,
-                    green: 118.0 / 255.0,
-                    blue: 210.0 / 255.0
-                ),
+                id: "voice",
+                titleHe: "עוזר קולי",
+                titleEn: "Voice Assistant",
+                systemImage: "mic.fill",
+                iconTint: KmiAppTheme.secondary(for: colorScheme),
                 action: {
                     triggerTapHaptic()
-                    nav.push(
-                        .summary(
-                            belt: belt,
-                            topic: nil,
-                            subTopic: nil
-                        )
-                    )
+                    showQuickActionsDialog = false
+                    nav.push(.voiceAssistant)
                 }
             )
         ]
+
+        // Use the supplied navigation callback for the PDF library.
+        // The global Share action separately exports this screen's topic counts.
+        if let onOpenPdfMaterials {
+            actions.append(
+                KmiQuickMenuAction(
+                    id: "pdf-materials",
+                    titleHe: "חומרי PDF",
+                    titleEn: "PDF Materials",
+                    systemImage: "doc.richtext.fill",
+                    iconTint: KmiAppTheme.secondary(for: colorScheme),
+                    action: {
+                        triggerTapHaptic()
+                        showQuickActionsDialog = false
+                        onOpenPdfMaterials(belt)
+                    }
+                )
+            )
+        }
+        return actions
     }
-    
+
+    private func openPendingPracticeSelection() {
+        guard let selection = pendingPracticeSelection else { return }
+        pendingPracticeSelection = nil
+        guard isTopicsScreenVisible else { return }
+        guard !isQuickActionLocked else {
+            nav.push(.subscriptionPlans)
+            return
+        }
+        switch selection {
+        case .random(let selectedBelt):
+            nav.push(.practice(belt: selectedBelt, topicTitle: "__ALL__"))
+        case .finalExam(let selectedBelt):
+            nav.push(.beltFinalExam(belt: selectedBelt))
+        case .topic(let selectedBelt, let topicTitle):
+            nav.push(.practice(belt: selectedBelt, topicTitle: topicTitle))
+        }
+    }
+
     private var isQuickActionLocked: Bool {
 
         let _ =
@@ -3630,8 +3836,7 @@ struct BeltQuestionsByTopicView: View {
                     maxHeight:
                         .infinity
                 )
-                .padding(.leading, isSelected ? 38 : 0)
-                .padding(.trailing, isSelected ? 0 : 38)
+                .padding(.horizontal, 12)
 
             if isSelected {
 
@@ -3647,11 +3852,7 @@ struct BeltQuestionsByTopicView: View {
                     .frame(
                         height: 3
                     )
-                    .padding(
-                        .horizontal,
-                        58
-                    )
-                    .offset(x: 19)
+                    .padding(.horizontal, 28)
                     .padding(
                         .bottom,
                         4
@@ -3722,7 +3923,7 @@ struct BeltQuestionsByTopicView: View {
 
     private var topicsRowsContent: some View {
         ScrollView(.vertical, showsIndicators: true) {
-            VStack(spacing: 6) {
+            LazyVStack(spacing: 6) {
                 ForEach(
                     mainTopics,
                     id: \.id
@@ -3733,7 +3934,7 @@ struct BeltQuestionsByTopicView: View {
                     )
                 }
 
-                if mainTopics.isEmpty {
+                if didLoadMainTopics && areTopicCountsReady && mainTopics.isEmpty {
                     emptyTopicsMessage
                 }
             }
@@ -3798,11 +3999,13 @@ struct BeltQuestionsByTopicView: View {
     private func shareTopicsPDF() {
         guard isTopicsScreenVisible,
               !isPreparingTopicsPDF,
+              !showPracticeMenu,
               !showTopicsPDFShare else {
             return
         }
 
         guard didLoadMainTopics,
+              areTopicCountsReady,
               !mainTopics.isEmpty else {
             topicsPDFError = tr(
                 "יש להמתין לטעינת הנושאים לפני השיתוף.",
@@ -3818,9 +4021,13 @@ struct BeltQuestionsByTopicView: View {
         topicsPDFRequestID = requestID
         isPreparingTopicsPDF = true
 
-        Task { @MainActor in
+        topicsPDFTask?.cancel()
+        topicsPDFTask = Task { @MainActor in
             defer {
-                isPreparingTopicsPDF = false
+                if topicsPDFRequestID == requestID {
+                    isPreparingTopicsPDF = false
+                    topicsPDFTask = nil
+                }
             }
 
             await rebuildTopicCountCaches()
@@ -3829,7 +4036,8 @@ struct BeltQuestionsByTopicView: View {
                   topicsPDFRequestID == requestID,
                   isTopicsScreenVisible,
                   belt.id == requestedBeltID,
-                  effectiveLanguageCode == requestedLanguage else {
+                  effectiveLanguageCode == requestedLanguage,
+                  areTopicCountsReady else {
                 return
             }
 
@@ -3844,6 +4052,14 @@ struct BeltQuestionsByTopicView: View {
             topicsPDFURL = url
             showTopicsPDFShare = true
         }
+    }
+
+    @MainActor
+    private func cancelTopicsPDFPreparation() {
+        topicsPDFRequestID = UUID()
+        topicsPDFTask?.cancel()
+        topicsPDFTask = nil
+        isPreparingTopicsPDF = false
     }
 
     @MainActor
@@ -3896,13 +4112,17 @@ struct BeltQuestionsByTopicView: View {
 
                 let titleAttributes: [NSAttributedString.Key: Any] = [
                     .font: UIFont.boldSystemFont(ofSize: 14),
-                    .foregroundColor: UIColor.black,
+                    .foregroundColor: UIColor(
+                        KmiAppTheme.onSurface(for: .light)
+                    ),
                     .paragraphStyle: style
                 ]
 
                 let subtitleAttributes: [NSAttributedString.Key: Any] = [
                     .font: UIFont.systemFont(ofSize: 11),
-                    .foregroundColor: UIColor.darkGray,
+                    .foregroundColor: UIColor(
+                        KmiAppTheme.onSurfaceVariant(for: .light)
+                    ),
                     .paragraphStyle: style
                 ]
 
@@ -4149,10 +4369,8 @@ struct BeltQuestionsByTopicView: View {
                 "No topics to display"
             )
         )
-        .kmiFont(
-            size: 16,
-            weight: .semibold
-        )
+        .kmiTypography(.body)
+        .fontWeight(.semibold)
         .foregroundStyle(
             KmiAppTheme.onSurfaceVariant(for: colorScheme)
         )
@@ -4161,7 +4379,6 @@ struct BeltQuestionsByTopicView: View {
             maxWidth: .infinity,
             alignment: .center
         )
-        .multilineTextAlignment(.center)
         .padding(.vertical, 14)
     }
 
@@ -4189,7 +4406,9 @@ struct BeltQuestionsByTopicView: View {
             topicsScreenContent
             quickRailLayer
 
-            if !didLoadMainTopics || isPreparingTopicsPDF {
+            if !didLoadMainTopics
+                || !areTopicCountsReady
+                || isPreparingTopicsPDF {
                 KmiLoadingOverlay()
                     .zIndex(100)
             }
@@ -4218,13 +4437,41 @@ struct BeltQuestionsByTopicView: View {
             shareTopicsPDF()
         }
         .sheet(
+            isPresented: $showPracticeMenu,
+            onDismiss: { openPendingPracticeSelection() }
+        ) {
+            KmiPracticeMenuSheet(
+                defaultBelt: belt,
+                canUseExtras: !isQuickActionLocked,
+                isEnglish: isEnglish,
+                onRandomPractice: { selectedBelt in
+                    pendingPracticeSelection = .random(selectedBelt)
+                    showPracticeMenu = false
+                },
+                onFinalExam: { selectedBelt in
+                    pendingPracticeSelection = .finalExam(selectedBelt)
+                    showPracticeMenu = false
+                },
+                onPracticeByTopic: { selectedBelt, topicTitle in
+                    pendingPracticeSelection = .topic(selectedBelt, topicTitle)
+                    showPracticeMenu = false
+                },
+                onDismiss: {
+                    pendingPracticeSelection = nil
+                    showPracticeMenu = false
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(
             isPresented: $showTopicsPDFShare,
             onDismiss: {
                 topicsPDFURL = nil
             }
         ) {
             if let url = topicsPDFURL {
-                ByTopicPDFShareSheet(url: url)
+                KmiShareSheet(items: [url])
             }
         }
         .alert(
@@ -4246,7 +4493,9 @@ struct BeltQuestionsByTopicView: View {
         }
         .onDisappear {
             isTopicsScreenVisible = false
-            topicsPDFRequestID = UUID()
+            cancelTopicsPDFPreparation()
+            pendingPracticeSelection = nil
+            showPracticeMenu = false
             showQuickActionsDialog = false
         }
         .task(id: "\(belt.id)::\(effectiveLanguageCode)") {
@@ -4281,7 +4530,7 @@ struct BeltQuestionsByTopicView: View {
         .onChange(
             of: belt
         ) { _, newValue in
-            
+            cancelTopicsPDFPreparation()
             clearTopicCountCaches()
 
             expandedMainTopicId = nil
@@ -4306,6 +4555,7 @@ struct BeltQuestionsByTopicView: View {
         .onChange(
             of: effectiveLanguageCode
         ) { _, _ in
+            cancelTopicsPDFPreparation()
             clearTopicCountCaches()
             showQuickActionsDialog = false
             postTopicTopTitleOverride()
@@ -4669,42 +4919,42 @@ private struct SubjectSectionsListView: View {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if t.contains("פנימ") {
-            return Color.green.opacity(0.82)
+            return KmiAppTheme.exerciseSubtopicAccent(.internalDefense, scheme: colorScheme)
         }
 
         if t.contains("חיצונ") {
-            return Color.blue.opacity(0.82)
+            return KmiAppTheme.exerciseSubtopicAccent(.externalDefense, scheme: colorScheme)
         }
 
         if t.contains("סכין") {
-            return Color.orange.opacity(0.88)
+            return KmiAppTheme.exerciseSubtopicAccent(.knife, scheme: colorScheme)
         }
 
         if t.contains("אקדח") {
-            return Color.red.opacity(0.82)
+            return KmiAppTheme.exerciseSubtopicAccent(.gun, scheme: colorScheme)
         }
 
         if t.contains("מקל") || t.contains("רובה") {
-            return Color.brown.opacity(0.82)
+            return KmiAppTheme.exerciseSubtopicAccent(.stick, scheme: colorScheme)
         }
 
         if t.contains("שחרורים") || t.contains("שחרור") || t.contains("חביקות") {
-            return Color.blue.opacity(0.72)
+            return KmiAppTheme.exerciseSubtopicAccent(.releases, scheme: colorScheme)
         }
 
         if t.contains("בעיטות") || t.contains("בעיטה") {
-            return Color.orange.opacity(0.85)
+            return KmiAppTheme.exerciseSubtopicAccent(.kicks, scheme: colorScheme)
         }
 
         if t.contains("אגרופים") || t.contains("אגרוף") || t.contains("ידיים") || t.contains("יד") || t.contains("מרפק") {
-            return Color.red.opacity(0.78)
+            return KmiAppTheme.exerciseSubtopicAccent(.hands, scheme: colorScheme)
         }
 
         if t.contains("בלימות") || t.contains("גלגולים") {
-            return Color.purple.opacity(0.78)
+            return KmiAppTheme.exerciseSubtopicAccent(.breakfalls, scheme: colorScheme)
         }
 
-        return Color.black.opacity(0.25)
+        return KmiAppTheme.exerciseSubtopicAccent(.fallback, scheme: colorScheme)
     }
 
     private func symbolForSection(_ section: HardSectionsCatalog.Section) -> String {
@@ -4919,10 +5169,8 @@ private struct SubjectSectionsListView: View {
             Text(
                 uiSubjectTitle(subject)
             )
-            .kmiFont(
-                size: 22,
-                weight: .heavy
-            )
+            .kmiTypography(.screenTitle)
+            .fontWeight(.heavy)
             .foregroundStyle(
                 KmiAppTheme.onSurface(for: colorScheme)
             )
@@ -4948,10 +5196,8 @@ private struct SubjectSectionsListView: View {
                     "Choose a sub-topic"
                 )
             )
-            .kmiFont(
-                size: 13,
-                weight: .bold
-            )
+            .kmiTypography(.secondary)
+            .fontWeight(.bold)
             .foregroundStyle(
                 KmiAppTheme.onSurfaceVariant(for: colorScheme)
             )
@@ -5066,22 +5312,4 @@ private struct SubjectSectionsListView: View {
         .navigationTitle(uiSubjectTitle(subject))
         .navigationBarTitleDisplayMode(.inline)
     }
-}
-
-private struct ByTopicPDFShareSheet: UIViewControllerRepresentable {
-    let url: URL
-
-    func makeUIViewController(
-        context: Context
-    ) -> UIActivityViewController {
-        UIActivityViewController(
-            activityItems: [url],
-            applicationActivities: nil
-        )
-    }
-
-    func updateUIViewController(
-        _ uiViewController: UIActivityViewController,
-        context: Context
-    ) {}
 }

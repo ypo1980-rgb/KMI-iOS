@@ -220,7 +220,88 @@ enum KmiAppTheme {
             : rgb(0x410002)
     }
 
+    // צבעי קטגוריות התרגילים.
+    enum ExerciseTopicAccent {
+        case defenses
+        case releases
+        case hands
+        case breakfalls
+        case readyStance
+        case groundPreparation
+        case kavaler
+        case kicks
+        case hugReleases
+    }
+
+    static func exerciseTopicAccent(
+        _ topic: ExerciseTopicAccent
+    ) -> Color {
+        switch topic {
+        case .defenses:
+            return rgb(0x7C5CFF)
+        case .releases:
+            return rgb(0x19A7E0)
+        case .hands:
+            return rgb(0x16B39A)
+        case .breakfalls:
+            return rgb(0xB88746)
+        case .readyStance:
+            return rgb(0x59B96F)
+        case .groundPreparation:
+            return rgb(0xD05AA0)
+        case .kavaler:
+            return rgb(0xF09A2A)
+        case .kicks:
+            return rgb(0x3B82F6)
+        case .hugReleases:
+            return rgb(0x5B6CFF)
+        }
+    }
+
+    // צבעי תתי־נושאים, לפי המיפוי הקיים.
+    enum ExerciseSubtopicAccent {
+        case internalDefense
+        case externalDefense
+        case knife
+        case gun
+        case stick
+        case releases
+        case kicks
+        case hands
+        case breakfalls
+        case fallback
+    }
+
+    static func exerciseSubtopicAccent(
+        _ topic: ExerciseSubtopicAccent,
+        scheme: ColorScheme
+    ) -> Color {
+        switch topic {
+        case .internalDefense:
+            return Color.green.opacity(0.82)
+        case .externalDefense:
+            return Color.blue.opacity(0.82)
+        case .knife:
+            return Color.orange.opacity(0.88)
+        case .gun:
+            return Color.red.opacity(0.82)
+        case .stick:
+            return Color.brown.opacity(0.82)
+        case .releases:
+            return Color.blue.opacity(0.72)
+        case .kicks:
+            return Color.orange.opacity(0.85)
+        case .hands:
+            return Color.red.opacity(0.78)
+        case .breakfalls:
+            return Color.purple.opacity(0.78)
+        case .fallback:
+            return onSurface(for: scheme).opacity(0.25)
+        }
+    }
+
     // צבעי פעולות התפריט המהיר בהתאם ל־Android.
+
     enum QuickAction {
         case trainingArchive
         case freeTrainings

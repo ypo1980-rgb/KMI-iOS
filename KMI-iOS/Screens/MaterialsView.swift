@@ -1059,7 +1059,7 @@ struct MaterialsView: View {
                             .padding(.top, 18)
                             .padding(.bottom, 18)
                         } else {
-                            ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
+                            ForEach(rows) { row in
                                 MaterialsExerciseRow(
                                     title: row.displayName,
                                     beltColor:
@@ -1135,24 +1135,8 @@ struct MaterialsView: View {
                                     }
                                 )
 
-                                if idx != rows.count - 1 {
-                                    Rectangle()
-                                        .fill(
-                                            KmiAppTheme
-                                                .outlineVariant(
-                                                    for:
-                                                        colorScheme
-                                                )
-                                        )
-                                        .frame(
-                                            height:
-                                                1
-                                        )
-                                        .padding(
-                                            .horizontal,
-                                            14
-                                        )
-                                }
+                                Color.clear
+                                    .frame(height: 7)
                             }
                         }
                     }
@@ -1163,40 +1147,6 @@ struct MaterialsView: View {
                 }
                 .background(
                     KmiAppBackground()
-                )
-
-                MaterialsBottomBar(
-                    belt: belt,
-                    isEnglish: isEnglish,
-                    isPracticeLocked: isPracticeLocked,
-                    onPractice: {
-                        if isPracticeLocked {
-                            onOpenSubscription()
-                        } else {
-                            /*
-                             * כמו באנדרואיד, מסך התרגול מקבל
-                             * את הנושא המקורי שהמשתמש פתח.
-                             */
-                            onPractice(
-                                belt,
-                                topicUi
-                            )
-                        }
-                    },
-                    onSummary: {
-                        /*
-                         * התאמה לחתימה באנדרואיד:
-                         * onSummary(belt, topicUi, subTopicFilter)
-                         */
-                        onSummary(
-                            belt,
-                            topicUi,
-                            subTopicUi
-                        )
-                    },
-                    onReset: {
-                        showResetConfirmation = true
-                    }
                 )
             }
 

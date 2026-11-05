@@ -101,18 +101,15 @@ struct BeltQuestionsByBeltView: View {
         case .yellow
             where colorScheme == .light:
 
-            return Color(
-                red: 201.0 / 255.0,
-                green: 138.0 / 255.0,
-                blue: 0.0 / 255.0
+            return KmiAppTheme.warning(
+                for: colorScheme
             )
 
         default:
 
-            return BeltPaletteByBeltScreen
-                .color(
-                    for: selectedBelt
-                )
+            return KmiBeltPalette.color(
+                for: selectedBelt
+            )
         }
     }
 
@@ -810,11 +807,6 @@ struct BeltQuestionsByBeltView: View {
                 ? "Voice Assistant"
                 : "עוזר קולי"
 
-        let pdfTitle =
-            isEnglish
-                ? "PDF Materials"
-                : "חומרי PDF"
-
         return [
 
             BeltScreenQuickMenuItem(
@@ -916,22 +908,6 @@ struct BeltQuestionsByBeltView: View {
                     nav.push(
                         .voiceAssistant
                     )
-                }
-            },
-
-            BeltScreenQuickMenuItem(
-                title:
-                    pdfTitle,
-                systemImage:
-                    "doc.richtext.fill"
-            ) {
-
-                runLockedQuickMenuAction(
-                    title:
-                        pdfTitle
-                ) {
-
-                    createAndSharePDF()
                 }
             }
         ]
@@ -2353,11 +2329,9 @@ struct BeltQuestionsByBeltView: View {
                 isEnglish:
                     isEnglish,
                 accent:
-                    BeltPaletteByBeltScreen
-                        .color(
-                            for:
-                                quickMenuBelt
-                        ),
+                    KmiBeltPalette.color(
+                        for: quickMenuBelt
+                    ),
                 items:
                     beltScreenQuickMenuItems,
                 onClose: {
@@ -2841,11 +2815,14 @@ struct BeltQuestionsByBeltView: View {
         .navigationDestination(item: $selectedSubjectSectionRoute) { (route: BeltQuestionsByBeltView.SubjectSectionExerciseRoute) in
             SubjectExercisesView(route: route)
         }
-        .navigationDestination(item: $pickedExercise) { selection in
-            ExerciseDetailView(
+        .sheet(item: $pickedExercise) { selection in
+            ExerciseExplanationDialog(
                 belt: selection.belt,
-                topicTitle: selection.topicTitle,
-                item: selection.item
+                topic: selection.topicTitle,
+                item: selection.item,
+                branch: "",
+                groupKey: "",
+                isEnglish: isEnglish
             )
         }
         .sheet(
@@ -4176,10 +4153,8 @@ struct BeltQuestionsByBeltView: View {
         ) {
 
             Text(title)
-                .kmiFont(
-                    size: 18,
-                    weight: .heavy
-                )
+                .kmiTypography(.action)
+                .fontWeight(.heavy)
                 .foregroundStyle(
                     KmiAppTheme
                         .sectionHeaderContentColor
@@ -4262,10 +4237,8 @@ struct BeltQuestionsByBeltView: View {
                         ? "Topics in Belt"
                         : "נושאים בחגורה"
                 )
-                .kmiFont(
-                    size: 20,
-                    weight: .heavy
-                )
+                .kmiTypography(.sectionTitle)
+                .fontWeight(.heavy)
                 .foregroundStyle(
                     byBeltTitleColor
                 )
@@ -4573,578 +4546,9 @@ struct BeltQuestionsByBeltView: View {
         }
     }
     
-    // MARK: - Belt Palette + Wheel4
-    // ✅ Rename to avoid "Invalid redeclaration of BeltPalette"
-    private enum BeltPaletteByBeltScreen {
-        static let white  = Color(red: 0.92, green: 0.92, blue: 0.92)
-        static let yellow = Color(red: 0.98, green: 0.85, blue: 0.18)
-        static let orange = Color(red: 0.98, green: 0.64, blue: 0.15)
-        static let green  = Color(red: 0.18, green: 0.80, blue: 0.44)
-        static let blue   = Color(red: 0.18, green: 0.52, blue: 0.95)
-        static let brown  = Color(red: 0.55, green: 0.34, blue: 0.23)
-        static let black  = Color(red: 0.10, green: 0.10, blue: 0.12)
-        
-        static func color(for belt: Belt) -> Color {
-            switch belt {
-            case .white:  return white
-            case .yellow: return yellow
-            case .orange: return orange
-            case .green:  return green
-            case .blue:   return blue
-            case .brown:  return brown
-            case .black:  return black
-            default:      return orange
-            }
-        }
-        
-        static var ringColors: [Color] {
-            [white, yellow, orange, green, blue, brown, black]
-        }
-    }
-    
-    
     // MARK: - Subject pill
     // Moved to BeltQuestionsSharedComponents.swift
-    
-    // MARK: - Floating quick menu overlay
-    
-    private struct BeltQuickMenuOverlay: View {
-        @Binding var isPresented: Bool
-        
-        let isEnglish: Bool
-        let isByTopicMode: Bool
-        let beltTitle: String
-        let beltFill: Color
-        
-        let onWeakPoints: () -> Void
-        let onAllLists: () -> Void
-        let onPractice: () -> Void
-        let onSummary: () -> Void
-        let onVoice: () -> Void
-        
-        let onFinalExam: () -> Void
-        let onInternalExam: (() -> Void)?
-        
-        private var isOpen: Bool { isPresented }
-        
-        private func isMenuItemLocked(_ title: String) -> Bool {
-            LockedContentPolicy.shouldShowLock(
-                accessMode: LockedContentPolicy.currentAccessMode(),
-                title: title
-            )
-        }
-        
-        var body: some View {
-            ZStack(alignment: .bottom) {
-                
-                if isOpen {
-                    Color.black.opacity(isByTopicMode ? 0.16 : 0.08)
-                        .ignoresSafeArea()
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            close()
-                        }
-                        .transition(.opacity)
-                        .zIndex(1)
-                }
-                
-                if isByTopicMode {
-                    byTopicBottomBar
-                        .zIndex(3)
-                } else {
-                    byBeltAndroidStyleMenu
-                        .zIndex(3)
-                }
-            }
-            .ignoresSafeArea(edges: .bottom)
-            .environment(\.layoutDirection, .leftToRight)
-            .animation(.spring(response: 0.28, dampingFraction: 0.90), value: isPresented)
-        }
-        
-        // MARK: - By Belt — Android style
-        
-        private var byBeltAndroidStyleMenu: some View {
-            GeometryReader { geo in
-                let safeBottom = geo.safeAreaInsets.bottom
-                let isCompactHeight = geo.size.height < 760
-                
-                let popupBottom: CGFloat = {
-                    let base = isCompactHeight ? geo.size.height * 0.245 : geo.size.height * 0.258
-                    return max(190 + safeBottom, min(226 + safeBottom, base))
-                }()
-                
-                let fabBottom: CGFloat = {
-                    let base = isCompactHeight ? geo.size.height * 0.126 : geo.size.height * 0.130
-                    return max(94 + safeBottom, min(112 + safeBottom, base))
-                }()
-                
-                ZStack {
-                    if isOpen {
-                        androidPopupCard
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                            .padding(.horizontal, isCompactHeight ? 58 : 54)
-                            .padding(.bottom, popupBottom)
-                            .transition(
-                                .scale(scale: 0.94, anchor: .bottom)
-                                .combined(with: .opacity)
-                            )
-                    }
-
-                    // באנדרואיד אין כפתור סגירה ירוק נפרד בצד בזמן שהתפריט פתוח.
-                    // כשהתפריט סגור מציגים רק את כפתור הפתיחה.
-                    if !isOpen {
-                        let fabTrailing = max(34, min(44, geo.size.width * 0.105))
-                        
-                        byBeltFabButton
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                            .padding(.trailing, fabTrailing)
-                            .padding(.bottom, fabBottom)
-                    }
-                }
-                .frame(width: geo.size.width, height: geo.size.height)
-            }
-        }
-        
-        private var androidPopupCard: some View {
-            VStack(spacing: 0) {
-                HStack(spacing: 10) {
-                    Button {
-                        close()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .kmiFont(
-                                size: 13,
-                                weight: .bold
-                            )
-                            .foregroundStyle(beltFill.opacity(0.86))
-                            .frame(width: 28, height: 28)
-                            .background(
-                                Circle()
-                                    .fill(beltFill.opacity(0.10))
-                            )
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    
-                    Spacer(minLength: 0)
-                    
-                    Text(
-                        isEnglish
-                            ? "Quick Menu"
-                            : "תפריט מהיר"
-                    )
-                    .kmiFont(
-                        size: 19.5,
-                        weight: .black
-                    )
-                    .foregroundStyle(
-                        beltFill.opacity(0.92)
-                    )
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.68)
-                }
-                .padding(.horizontal, 15)
-                .padding(.top, 9)
-                .padding(.bottom, 2)
-                
-                VStack(spacing: 0) {
-                    androidMenuRow(
-                        title: isEnglish ? "Weak Points" : "נקודות תורפה",
-                        systemImage: "exclamationmark.triangle",
-                        showsLock: isMenuItemLocked(isEnglish ? "Weak Points" : "נקודות תורפה"),
-                        action: onWeakPoints
-                    )
-                    
-                    androidDivider
-                    
-                    androidMenuRow(
-                        title: isEnglish ? "All Lists" : "כל הרשימות",
-                        systemImage: "list.bullet",
-                        showsLock: isMenuItemLocked(isEnglish ? "All Lists" : "כל הרשימות"),
-                        action: onAllLists
-                    )
-                    
-                    androidDivider
-                    
-                    androidMenuRow(
-                        title: isEnglish ? "Practice" : "תרגול",
-                        systemImage: "figure.walk",
-                        showsLock: isMenuItemLocked(isEnglish ? "Practice" : "תרגול"),
-                        action: onPractice
-                    )
-                    
-                    androidDivider
-                    
-                    androidMenuRow(
-                        title: isEnglish ? "Summary" : "מסך סיכום",
-                        systemImage: "doc.text",
-                        showsLock: isMenuItemLocked(isEnglish ? "Summary" : "מסך סיכום"),
-                        action: onSummary
-                    )
-                    
-                    androidDivider
-                    
-                    androidMenuRow(
-                        title: isEnglish ? "Voice Assistant" : "עוזר קולי",
-                        systemImage: "mic",
-                        showsLock: false,
-                        action: onVoice
-                    )
-                    
-                    androidDivider
-                    
-                    androidMenuRow(
-                        title: isEnglish ? "Final Exam" : "מבחן מסכם",
-                        systemImage: "checkmark.seal",
-                        showsLock: isMenuItemLocked(isEnglish ? "Final Exam" : "מבחן מסכם"),
-                        action: onFinalExam
-                    )
-                    
-                    if let onInternalExam {
-                        androidDivider
-                        
-                        androidMenuRow(
-                            title: isEnglish ? "Internal Exam" : "מבחן פנימי",
-                            systemImage: "person.badge.key",
-                            showsLock: false,
-                            action: onInternalExam
-                        )
-                    }
-                }
-                .padding(.horizontal, 11)
-                .padding(.bottom, 10)
-            }
-            .frame(maxWidth: 258)
-            .background(
-                RoundedRectangle(cornerRadius: 21, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.white,
-                                Color(red: 0.98, green: 0.98, blue: 0.96),
-                                Color.white
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 21, style: .continuous)
-                    .stroke(beltFill.opacity(0.42), lineWidth: 1.05)
-            )
-            .shadow(color: Color.black.opacity(0.20), radius: 14, x: 0, y: 8)
-        }
-        
-        private var androidDivider: some View {
-            Rectangle()
-                .fill(beltFill.opacity(0.16))
-                .frame(height: 1)
-                .padding(.leading, 12)
-                .padding(.trailing, 12)
-        }
-        
-        private func androidMenuRow(
-            title: String,
-            systemImage: String,
-            showsLock: Bool,
-            action: @escaping () -> Void
-        ) -> some View {
-            Button {
-                closeThen(action)
-            } label: {
-                HStack(spacing: 9) {
-                    if isEnglish {
-                        ZStack {
-                            Circle()
-                                .fill(beltFill.opacity(0.12))
-                                .frame(width: 28, height: 28)
-                                .overlay(
-                                    Circle()
-                                        .stroke(beltFill.opacity(0.28), lineWidth: 1)
-                                )
-
-                            Image(systemName: systemImage)
-                                .kmiFont(
-                                    size: 12.5,
-                                    weight: .bold
-                                )
-                                .foregroundStyle(
-                                    beltFill.opacity(0.86)
-                                )
-                        }
-
-                        Text(title)
-                            .kmiFont(
-                                size: 18.5,
-                                weight: .black
-                            )
-                            .foregroundStyle(
-                                beltFill.opacity(0.92)
-                            )
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.64)
-                            .frame(
-                                maxWidth: .infinity,
-                                alignment: .leading
-                            )
-
-                        Image(
-                            systemName:
-                                showsLock
-                                ? "lock.fill"
-                                : "chevron.right"
-                        )
-                        .kmiFont(
-                            size:
-                                showsLock
-                                ? 13
-                                : 12,
-                            weight: .bold
-                        )
-                        .foregroundStyle(
-                            beltFill.opacity(0.88)
-                        )
-                        .frame(width: 24)
-                    } else {
-                        Image(
-                            systemName:
-                                showsLock
-                                ? "lock.fill"
-                                : "chevron.left"
-                        )
-                        .kmiFont(
-                            size:
-                                showsLock
-                                ? 13
-                                : 12,
-                            weight: .bold
-                        )
-                        .foregroundStyle(
-                            beltFill.opacity(0.88)
-                        )
-                        .frame(width: 24)
-
-                        Text(title)
-                            .kmiFont(
-                                size: 18.5,
-                                weight: .black
-                            )
-                            .foregroundStyle(
-                                beltFill.opacity(0.92)
-                            )
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.64)
-                            .frame(
-                                maxWidth: .infinity,
-                                alignment: .trailing
-                            )
-
-                        ZStack {
-                            Circle()
-                                .fill(beltFill.opacity(0.12))
-                                .frame(width: 28, height: 28)
-                                .overlay(
-                                    Circle()
-                                        .stroke(beltFill.opacity(0.28), lineWidth: 1)
-                                )
-
-                            Image(systemName: systemImage)
-                                .kmiFont(
-                                    size: 12.5,
-                                    weight: .bold
-                                )
-                                .foregroundStyle(
-                                    beltFill.opacity(0.86)
-                                )
-                        }
-                    }
-                }
-                .environment(
-                    \.layoutDirection,
-                    .leftToRight
-                )
-                .frame(minHeight: 43)
-                .padding(.vertical, 2)
-                .padding(.horizontal, 8)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        }
-        
-        private var byBeltFabButton: some View {
-            Button {
-                toggle()
-            } label: {
-                Image(
-                    systemName:
-                        isOpen
-                        ? "xmark"
-                        : "line.3.horizontal"
-                )
-                .kmiFont(
-                    size: 21,
-                    weight: .black
-                )
-                .foregroundStyle(.white)
-                .frame(width: 62, height: 62)
-                    .background(
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        beltFill.opacity(0.98),
-                                        beltFill.opacity(0.78)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                    )
-                    .overlay(
-                        Circle()
-                            .stroke(Color.white.opacity(0.74), lineWidth: 2.5)
-                    )
-                    .overlay(
-                        Circle()
-                            .stroke(beltFill.opacity(0.34), lineWidth: 4.5)
-                            .blur(radius: 0.30)
-                    )
-                    .shadow(color: beltFill.opacity(0.32), radius: 8, x: 0, y: 3)
-                    .shadow(color: Color.black.opacity(0.16), radius: 6, x: 0, y: 3)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-        }
-        
-        // MARK: - By Topic — bottom bar
-        
-        private var byTopicBottomBar: some View {
-            GeometryReader { geo in
-                let safeBottom = geo.safeAreaInsets.bottom
-                let isCompactHeight = geo.size.height < 760
-                let bottomPadding = max(72 + safeBottom, min(92 + safeBottom, geo.size.height * (isCompactHeight ? 0.095 : 0.105)))
-                
-                VStack(spacing: 12) {
-                    
-                    if isOpen {
-                        VStack(spacing: 10) {
-                            androidMenuRow(
-                                title: isEnglish ? "Weak Points" : "נקודות תורפה",
-                                systemImage: "exclamationmark.triangle",
-                                showsLock: isMenuItemLocked(isEnglish ? "Weak Points" : "נקודות תורפה"),
-                                action: onWeakPoints
-                            )
-                            
-                            androidMenuRow(
-                                title: isEnglish ? "Practice" : "תרגול",
-                                systemImage: "figure.walk",
-                                showsLock: isMenuItemLocked(isEnglish ? "Practice" : "תרגול"),
-                                action: onPractice
-                            )
-                            
-                            androidMenuRow(
-                                title: isEnglish ? "Voice Assistant" : "עוזר קולי",
-                                systemImage: "mic",
-                                showsLock: false,
-                                action: onVoice
-                            )
-                        }
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                .fill(Color.white.opacity(0.96))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                .stroke(beltFill.opacity(0.22), lineWidth: 1)
-                        )
-                        .padding(.horizontal, 18)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-                    
-                    Button {
-                        toggle()
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(
-                                systemName:
-                                    isOpen
-                                    ? "xmark"
-                                    : "line.3.horizontal"
-                            )
-                            .kmiFont(
-                                size: 17,
-                                weight: .black
-                            )
-                            
-                            Text(
-                                isEnglish
-                                    ? "Quick View"
-                                    : "מבט מהיר"
-                            )
-                            .kmiFont(
-                                size: 17,
-                                weight: .black
-                            )
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.70)
-                        }
-                        .foregroundStyle(beltFill)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 58)
-                        .background(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            beltFill.opacity(0.10),
-                                            Color.white.opacity(0.98),
-                                            beltFill.opacity(0.05)
-                                        ],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                )
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(beltFill.opacity(0.22), lineWidth: 1)
-                        )
-                        .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 18)
-                    .padding(.bottom, bottomPadding)
-                }
-                .frame(width: geo.size.width, height: geo.size.height, alignment: .bottom)
-            }
-        }
-        
-        // MARK: - Actions
-        
-        private func toggle() {
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.90)) {
-                isPresented.toggle()
-            }
-        }
-        
-        private func closeThen(_ action: @escaping () -> Void) {
-            close()
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                action()
-            }
-        }
-        
-        private func close() {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.95)) {
-                isPresented = false
-            }
-        }
-    }
-    
+     
     // MARK: - Belt topic sub-topics
     // Moved to BeltTopicSubTopicsView.swift
     
@@ -5957,10 +5361,8 @@ private struct BeltScreenQuickMenuRow: View {
                     )
 
                 Text(title)
-                    .kmiFont(
-                        size: 9,
-                        weight: .heavy
-                    )
+                    .kmiTypography(.caption)
+                    .fontWeight(.heavy)
                     .foregroundStyle(Color.white)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
@@ -5984,10 +5386,8 @@ private struct BeltScreenQuickMenuRow: View {
     
     private var menuIcon: some View {
         Image(systemName: systemImage)
-            .kmiFont(
-                size: 12,
-                weight: .bold
-            )
+            .kmiIconSize(12)
+            .fontWeight(.bold)
             .foregroundStyle(
                 accent.opacity(0.92)
             )
@@ -6008,13 +5408,8 @@ private struct BeltScreenQuickMenuRow: View {
                     : "chevron.left"
                 )
         )
-        .kmiFont(
-            size:
-                isLocked
-                ? 11.5
-                : 10.5,
-            weight: .heavy
-        )
+        .kmiIconSize(isLocked ? 11.5 : 10.5)
+        .fontWeight(.heavy)
         .foregroundStyle(
             isLocked
                 ? Color.orange.opacity(0.92)

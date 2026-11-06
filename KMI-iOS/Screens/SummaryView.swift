@@ -3373,7 +3373,10 @@ struct SummaryView: View {
                 },
                 shouldDismissAfterSave: {
                     !noteSaveFailed
-                }
+                },
+                accentColor: KmiBeltPalette.color(
+                    for: belt
+                )
             )
             .alert(
                 isEnglish

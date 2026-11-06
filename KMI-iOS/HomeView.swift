@@ -168,6 +168,12 @@ struct HomeView: View {
         isInitialTrainingsLoadPending || isWaitingForTrainingProfile
     }
 
+    private var isHomeContentLoading: Bool {
+        isHomeTrainingsLoading ||
+        isLoadingTrainingOverrides ||
+        messageCenterVm.isLoading
+    }
+
     @State private var goVoiceAssistant: Bool = false
     @State private var goMonthly: Bool = false
     @State private var goCard: Bool = false
@@ -1940,31 +1946,38 @@ struct HomeView: View {
                         .padding(.bottom, 28)
                     }
                     .frame(maxHeight: .infinity)
-                    .overlay {
-                        if isHomeTrainingsLoading {
-                            KmiLoadingOverlay()
-                        }
-                    }
                 }
+                .opacity(isHomeContentLoading ? 0 : 1)
+                .allowsHitTesting(!isHomeContentLoading)
+                .accessibilityHidden(isHomeContentLoading)
             }
         .safeAreaInset(
             edge: .bottom,
             spacing: 0
         ) {
-            VStack(spacing: 0) {
-                bottomBeltSelectionButton
-            }
-            .background(
-                HomeVisualTheme.bottomSurface(
-                    for: colorScheme
+            if !isHomeContentLoading {
+                VStack(spacing: 0) {
+                    bottomBeltSelectionButton
+                }
+                .background(
+                    HomeVisualTheme.bottomSurface(
+                        for: colorScheme
+                    )
+                    .ignoresSafeArea(edges: .bottom)
                 )
-                .ignoresSafeArea(edges: .bottom)
-            )
+            }
         }
                 .overlay(
                     alignment: .topLeading
                 ) {
-                    quickMenuOverlay
+                    if !isHomeContentLoading {
+                        quickMenuOverlay
+                    }
+                }
+                .overlay {
+                    if isHomeContentLoading {
+                        KmiLoadingOverlay()
+                    }
                 }
 
                 )
@@ -4694,14 +4707,14 @@ private struct HomeTrainingCardAndroidStyle: View {
         }()
 
         return Text(title)
-            .kmiTypography(.secondary)
+            .kmiTypography(.body)
             .fontWeight(.bold)
             .foregroundStyle(contentColor)
             .multilineTextAlignment(.center)
-            .lineLimit(1)
-            .minimumScaleFactor(0.72)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 5)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
             .background(
                 Capsule()
                     .fill(backgroundColor)
@@ -4767,17 +4780,18 @@ private struct HomeTrainingCardAndroidStyle: View {
     }
 
     var body: some View {
-        VStack(spacing: 4) {
-            VStack(spacing: 2) {
+        VStack(spacing: 8) {
+            VStack(spacing: 4) {
                 Text(branchTitle)
-                    .kmiTypography(.cardTitle)
+                    .kmiTypography(.sectionTitle)
+                    .fontWeight(.black)
                     .foregroundStyle(
                         isCancelledByCoach || isCancelledByHoliday
                             ? KmiAppTheme.onErrorContainer(for: colorScheme)
                             : HomeVisualTheme.primaryText(for: colorScheme)
                     )
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, isCoach ? 36 : 0)
@@ -4797,7 +4811,7 @@ private struct HomeTrainingCardAndroidStyle: View {
 
                 if !groupAndCoachLine.isEmpty {
                     Text(groupAndCoachLine)
-                        .kmiTypography(.secondary)
+                        .kmiTypography(.body)
                         .fontWeight(.semibold)
                         .foregroundStyle(
                             isCancelledByCoach || isCancelledByHoliday
@@ -4812,7 +4826,7 @@ private struct HomeTrainingCardAndroidStyle: View {
 
                 if !dateLine.isEmpty {
                     Text(dateLine)
-                        .kmiTypography(.secondary)
+                        .kmiTypography(.body)
                         .fontWeight(.bold)
                         .foregroundStyle(
                             isCancelledByCoach || isCancelledByHoliday
@@ -4923,7 +4937,7 @@ private struct HomeTrainingCardAndroidStyle: View {
             attendanceContent
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity)
         .background {
             TimelineView(
@@ -5314,7 +5328,28 @@ private struct HomeTrainingCardAndroidStyle: View {
         title: String,
         category: ForecastList
     ) -> some View {
-        Button {
+        let background: Color
+        let foreground: Color
+        let border: Color
+
+        switch category {
+        case .coming:
+            background = KmiAppTheme.successContainer(for: colorScheme)
+            foreground = KmiAppTheme.onSuccessContainer(for: colorScheme)
+            border = KmiAppTheme.success(for: colorScheme)
+
+        case .notComing:
+            background = KmiAppTheme.errorContainer(for: colorScheme)
+            foreground = KmiAppTheme.onErrorContainer(for: colorScheme)
+            border = KmiAppTheme.error(for: colorScheme)
+
+        case .noResponse:
+            background = KmiAppTheme.surfaceVariant(for: colorScheme)
+            foreground = KmiAppTheme.onSurfaceVariant(for: colorScheme)
+            border = KmiAppTheme.outlineVariant(for: colorScheme)
+        }
+
+        return Button {
             selectedForecastList = category
         } label: {
             VStack(spacing: 2) {
@@ -5323,23 +5358,30 @@ private struct HomeTrainingCardAndroidStyle: View {
                     .fontWeight(.black)
 
                 Text(title)
-                    .kmiTypography(.caption)
+                    .kmiTypography(.secondary)
                     .fontWeight(.bold)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .foregroundStyle(
-                KmiAppTheme.onSurface(for: colorScheme)
-            )
+            .foregroundStyle(foreground)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 7)
+            .padding(.vertical, 12)
             .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(
-                        KmiAppTheme.surfaceVariant(
-                            for: colorScheme
-                        )
-                    )
+                RoundedRectangle(
+                    cornerRadius: 12,
+                    style: .continuous
+                )
+                .fill(background)
             )
+            .overlay {
+                RoundedRectangle(
+                    cornerRadius: 12,
+                    style: .continuous
+                )
+                .strokeBorder(
+                    border.opacity(0.45),
+                    lineWidth: 1
+                )
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -5460,10 +5502,27 @@ private struct HomeTrainingCardAndroidStyle: View {
         enabled: Bool
     ) -> some View {
         let selected = attendanceChoice == status
-        let statusColor =
-            status == .present
-                ? KmiAppTheme.success(for: colorScheme)
-                : KmiAppTheme.error(for: colorScheme)
+        let isPresent = status == .present
+
+        let statusColor = isPresent
+            ? KmiAppTheme.success(for: colorScheme)
+            : KmiAppTheme.error(for: colorScheme)
+
+        let containerColor = isPresent
+            ? KmiAppTheme.successContainer(for: colorScheme)
+            : KmiAppTheme.errorContainer(for: colorScheme)
+
+        let foregroundColor: Color
+
+        if selected {
+            foregroundColor = isPresent
+                ? KmiAppTheme.onSuccess(for: colorScheme)
+                : KmiAppTheme.onError(for: colorScheme)
+        } else {
+            foregroundColor = isPresent
+                ? KmiAppTheme.onSuccessContainer(for: colorScheme)
+                : KmiAppTheme.onErrorContainer(for: colorScheme)
+        }
 
         return Button {
             saveAttendanceChoice(status)
@@ -5474,45 +5533,29 @@ private struct HomeTrainingCardAndroidStyle: View {
                 .multilineTextAlignment(.center)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .foregroundStyle(
-                    selected
-                        ? (
-                            status == .present
-                                ? KmiAppTheme.onSuccess(for: colorScheme)
-                                : KmiAppTheme.onError(for: colorScheme)
-                        )
-                        : KmiAppTheme.onSurface(for: colorScheme)
-                )
+                .foregroundStyle(foregroundColor)
                 .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .background(
-                RoundedRectangle(
-                    cornerRadius: 16,
-                    style: .continuous
-                )
-                    .fill(
-                        selected
-                            ? statusColor
-                            : KmiAppTheme.surfaceVariant(for: colorScheme)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(
+                    RoundedRectangle(
+                        cornerRadius: 16,
+                        style: .continuous
                     )
-            )
-            .overlay(
-                RoundedRectangle(
-                    cornerRadius: 16,
-                    style: .continuous
+                    .fill(
+                        selected ? statusColor : containerColor
+                    )
                 )
-                    .stroke(
-                        selected
-                            ? (
-                                status == .present
-                                    ? KmiAppTheme.success(for: colorScheme)
-                                    : KmiAppTheme.error(for: colorScheme)
-                            )
-                            : KmiAppTheme.outlineVariant(for: colorScheme),
+                .overlay {
+                    RoundedRectangle(
+                        cornerRadius: 16,
+                        style: .continuous
+                    )
+                    .strokeBorder(
+                        statusColor.opacity(selected ? 1 : 0.55),
                         lineWidth: selected ? 1.5 : 1
                     )
-            )
+                }
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
@@ -5778,7 +5821,8 @@ private struct HomeTrainingCardAndroidStyle: View {
                     ? "Navigate"
                     : "ניווט"
             )
-            .kmiTypography(.action)
+            .kmiTypography(.cardTitle)
+            .fontWeight(.bold)
             .foregroundStyle(
                 KmiAppTheme.onSurface(
                     for: colorScheme
@@ -5799,10 +5843,10 @@ private struct HomeTrainingCardAndroidStyle: View {
                             ? "No address"
                             : "אין כתובת"
                     )
-                    : addressText
-            )
-            .kmiTypography(.caption)
-            .fontWeight(.semibold)
+                : addressText
+        )
+        .kmiTypography(.body)
+        .fontWeight(.semibold)
             .foregroundStyle(
                 KmiAppTheme.onSurfaceVariant(for: colorScheme)
             )

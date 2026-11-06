@@ -9,8 +9,13 @@ struct InternalExamView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var auth: AuthViewModel
-    @StateObject private var coach = CoachService.shared
+    @ObservedObject private var coach = CoachService.shared
     @State private var currentBelt: Belt
+    @State private var selectedExamBranch = ""
+    @State private var selectedExamGroup = ""
+    @State private var isSavingExamDraft = false
+    @State private var isCheckingExamDraft = false
+    @State private var showLegacyExamImport = false
     @State private var traineeName: String = ""
     @State private var isTypingNewTraineeName = false
     @State private var recentTrainees: [String] = []
@@ -38,6 +43,7 @@ struct InternalExamView: View {
 
     @State private var marksMap: [String: Int] = [:]
     @State private var expandedTopic: String? = nil
+    @State private var expandedExamSubTopic: Int? = nil
 
     @State private var examShareItems: [Any] = []
     @State private var showExamShareSheet = false
@@ -53,8 +59,18 @@ struct InternalExamView: View {
         _currentBelt = State(initialValue: belt)
     }
 
+    @State private var selectedSavedTraineeName: String? = nil
+
     private var shouldShowContinueExamButton: Bool {
-        !marksMap.isEmpty || !pendingLoadedDraft.isEmpty
+        let name = traineeName.trimmed()
+
+        let selectedFromList =
+            !name.isEmpty &&
+            selectedSavedTraineeName?.lowercased() == name.lowercased()
+
+        return selectedFromList ||
+            !marksMap.isEmpty ||
+            !pendingLoadedDraft.isEmpty
     }
     
     private var effectiveLanguageCode: String {
@@ -98,6 +114,384 @@ struct InternalExamView: View {
         isEnglish ? .leading : .trailing
     }
 
+    private var examAssignments: [RegistrationFormState.BranchAssignment] {
+        RegistrationFormState.BranchAssignmentsCodec.sanitized(
+            auth.userBranchAssignments
+        )
+    }
+
+    private var hasAuthoritativeExamAssignments: Bool {
+        !examAssignments.isEmpty ||
+        UserDefaults.standard.object(
+            forKey: RegistrationFormState.BranchAssignmentsCodec.preferenceKey
+        ) != nil
+    }
+
+    private var examBranches: [String] {
+        if hasAuthoritativeExamAssignments {
+            return examAssignments.map(\.branch)
+        }
+
+        let branch = auth.userBranch.trimmed()
+        return branch.isEmpty ? [] : [branch]
+    }
+
+    private var examGroups: [String] {
+        if hasAuthoritativeExamAssignments {
+            return examAssignments.first {
+                $0.branch == selectedExamBranch
+            }?.groups ?? []
+        }
+
+        guard selectedExamBranch == auth.userBranch.trimmed() else {
+            return []
+        }
+
+        let group = auth.userGroup.trimmed()
+        return group.isEmpty ? [] : [group]
+    }
+
+    private var examScope: InternalExamScope? {
+        guard let uid = internalExamCoachUid(),
+              examBranches.contains(selectedExamBranch),
+              examGroups.contains(selectedExamGroup) else {
+            return nil
+        }
+
+        return InternalExamScope(
+            coachUid: uid,
+            branch: selectedExamBranch,
+            group: selectedExamGroup
+        )
+    }
+
+    private var examScopeIdentity: String {
+        examScope?.cacheKey ?? "unselected"
+    }
+
+    private var examAssignmentsIdentity: String {
+        let assignments = examAssignments.map {
+            "\($0.branch):\($0.groups.joined(separator: "|"))"
+        }
+        .joined(separator: "||")
+
+        return "\(internalExamCoachUid() ?? "")||\(auth.userRole)||\(assignments)||\(auth.userBranch)||\(auth.userGroup)"
+    }
+
+    private var isExamScopeBusy: Bool {
+        isSavingFinalResult ||
+        isCreatingExamPDF ||
+        isSavingExamDraft ||
+        isCheckingExamDraft
+    }
+
+    private var examScopeSelectors: some View {
+        VStack(spacing: 12) {
+            KmiPremiumDropdown(
+                title: tr("סניף", "Branch"),
+                options: examBranches,
+                selectedValue: Binding(
+                    get: { selectedExamBranch },
+                    set: { branch in
+                        guard branch != selectedExamBranch,
+                              examBranches.contains(branch) else {
+                            return
+                        }
+
+                        selectedExamBranch = branch
+
+                        let groups = examGroups
+                        selectedExamGroup = groups.count == 1
+                            ? groups[0]
+                            : ""
+                    }
+                ),
+                placeholder: tr("בחר סניף", "Select a branch"),
+                isEnglish: isEnglish,
+                isEnabled: !isExamScopeBusy &&
+                    marksMap.isEmpty &&
+                    !hasUnsavedChanges,
+                labelForOption: {
+                    TrainingCatalogIOS.displayBranch(
+                        $0,
+                        isEnglish: isEnglish
+                    )
+                },
+                titleInsideField: true
+            )
+
+            if examGroups.count > 1 {
+                KmiPremiumDropdown(
+                    title: tr("קבוצה", "Group"),
+                    options: examGroups,
+                    selectedValue: Binding(
+                        get: { selectedExamGroup },
+                        set: { group in
+                            guard examGroups.contains(group) else {
+                                return
+                            }
+
+                            selectedExamGroup = group
+                        }
+                    ),
+                    placeholder: tr("בחר קבוצה", "Select a group"),
+                    isEnglish: isEnglish,
+                    isEnabled: !isExamScopeBusy &&
+                        marksMap.isEmpty &&
+                        !hasUnsavedChanges,
+                    labelForOption: {
+                        TrainingCatalogIOS.displayGroup(
+                            $0,
+                            isEnglish: isEnglish
+                        )
+                    },
+                    titleInsideField: true
+                )
+            }
+
+            if !selectedExamBranch.isEmpty && examGroups.isEmpty {
+                Text(
+                    tr(
+                        "אין קבוצות משויכות למאמן בסניף זה.",
+                        "No groups are assigned to the coach at this branch."
+                    )
+                )
+                .kmiTypography(.secondary)
+                .foregroundStyle(
+                    KmiAppTheme.warning(for: colorScheme)
+                )
+            }
+        }
+    }
+
+    private func initializeExamScope() {
+        if !examBranches.contains(selectedExamBranch) {
+            selectedExamBranch = examBranches.count == 1
+                ? examBranches[0]
+                : ""
+
+            selectedExamGroup = ""
+        }
+
+        if !examGroups.contains(selectedExamGroup) {
+            selectedExamGroup = examGroups.count == 1
+                ? examGroups[0]
+                : ""
+        }
+    }
+
+    private func resetExamScopeState() {
+        traineeName = ""
+        marksMap.removeAll()
+        pendingLoadedDraft.removeAll()
+        resumeCheckedKey = nil
+        expandedTopic = nil
+        hasStartedExam = false
+        hasUnsavedChanges = false
+        showResumeDialog = false
+        showLegacyExamImport = false
+        showPickTraineeDialog = false
+        showExamArchiveSheet = false
+        examResultToDelete = nil
+        completedExamResults.removeAll()
+        showTraineeNameBox = true
+        isTypingNewTraineeName = false
+        isSavingExamDraft = false
+        isCheckingExamDraft = false
+        isSavingFinalResult = false
+        isLoadingExamArchive = false
+        isDeletingExamResult = false
+        showExamShareSheet = false
+        examShareItems.removeAll()
+        recentTrainees = loadRecentTrainees()
+        refreshExamRecentTrainees()
+    }
+
+    private func showExamScopeMessage(_ he: String, _ en: String) {
+        examActionMessage = tr(he, en)
+        shouldDismissAfterExamAction = false
+        showExamActionAlert = true
+    }
+
+    private func loadRecentTrainees() -> [String] {
+        guard let scope = examScope else {
+            return []
+        }
+
+        return scopedLoadRecentTrainees(scope: scope)
+    }
+
+    private func refreshExamRecentTrainees() {
+        guard let scope = examScope else {
+            recentTrainees = []
+            return
+        }
+
+        scopedFetchRecentTrainees(scope: scope) { result in
+            DispatchQueue.main.async {
+                guard examScope == scope,
+                      internalExamCoachUid() == scope.coachUid else {
+                    return
+                }
+
+                switch result {
+                case .success(let names):
+                    recentTrainees = names
+
+                case .failure:
+                    showExamScopeMessage(
+                        "לא ניתן לעדכן את רשימת הנבחנים כרגע. הנתונים השמורים במכשיר נשארו זמינים.",
+                        "The trainee list could not be refreshed. Locally cached entries remain available."
+                    )
+                }
+            }
+        }
+    }
+
+    private func pushRecentTrainee(_ name: String) {
+        guard let scope = examScope else {
+            return
+        }
+
+        scopedPushRecentTrainee(name, scope: scope)
+        recentTrainees = scopedLoadRecentTrainees(scope: scope)
+    }
+
+    private func saveLastTrainee(_ name: String) {
+        guard let scope = examScope else {
+            return
+        }
+
+        scopedSaveLastTrainee(name, scope: scope)
+    }
+
+    private func draftKey(traineeName: String, belt: Belt) -> String {
+        "\(examScopeIdentity)||\(belt.id)||\(traineeName.trimmed())"
+    }
+
+    private func saveExamDraft(
+        traineeName: String,
+        belt: Belt,
+        marksMap: [String: Int],
+        completion: ((Bool) -> Void)? = nil
+    ) {
+        guard let scope = examScope else {
+            completion?(false)
+            return
+        }
+
+        scopedSaveExamDraft(
+            traineeName: traineeName,
+            belt: belt,
+            marksMap: marksMap,
+            scope: scope
+        ) { success in
+            DispatchQueue.main.async {
+                guard examScope == scope,
+                      internalExamCoachUid() == scope.coachUid else {
+                    return
+                }
+
+                if let completion {
+                    completion(success)
+                } else if !success {
+                    showExamScopeMessage(
+                        "שמירת הטיוטה נכשלה. הציונים נשארו במסך; נסה שוב.",
+                        "The draft could not be saved. Your scores remain on screen; please try again."
+                    )
+                }
+            }
+        }
+    }
+
+    private func saveCompletedExamResult(
+        session: InternalExamSession,
+        marksMap: [String: Int],
+        completion: @escaping (Bool) -> Void
+    ) {
+        guard let scope = examScope else {
+            completion(false)
+            return
+        }
+
+        scopedSaveCompletedExamResult(
+            session: session,
+            marksMap: marksMap,
+            scope: scope
+        ) { success in
+            DispatchQueue.main.async {
+                guard examScope == scope,
+                      internalExamCoachUid() == scope.coachUid else {
+                    return
+                }
+
+                completion(success)
+            }
+        }
+    }
+
+    private func removeExamDraft(traineeName: String, belt: Belt) {
+        guard let scope = examScope else {
+            return
+        }
+
+        scopedRemoveExamDraft(
+            traineeName: traineeName,
+            belt: belt,
+            scope: scope
+        )
+    }
+
+    private func removeRecentTraineeAfterCompletion(_ name: String) {
+        guard let scope = examScope else {
+            return
+        }
+
+        scopedRemoveRecentTraineeAfterCompletion(name, scope: scope)
+        recentTrainees = scopedLoadRecentTrainees(scope: scope)
+    }
+
+    private func importLegacyExamDraft() {
+        guard let scope = examScope else {
+            return
+        }
+
+        let name = traineeName.trimmed()
+        let selectedBelt = currentBelt
+        let importedMarks = pendingLoadedDraft
+
+        isSavingExamDraft = true
+
+        scopedSaveExamDraft(
+            traineeName: name,
+            belt: selectedBelt,
+            marksMap: importedMarks,
+            scope: scope
+        ) { success in
+            DispatchQueue.main.async {
+                guard examScope == scope,
+                      traineeName.trimmed() == name,
+                      currentBelt.id == selectedBelt.id else {
+                    return
+                }
+
+                isSavingExamDraft = false
+
+                guard success else {
+                    showExamScopeMessage(
+                        "ייבוא הטיוטה נכשל. הטיוטה המקורית לא שונתה.",
+                        "The draft could not be imported. The original draft was not changed."
+                    )
+
+                    resumeCheckedKey = nil
+                    return
+                }
+
+                continueSavedExamFromPrompt()
+            }
+        }
+    }
+
     private func tr(_ he: String, _ en: String) -> String {
         isEnglish ? en : he
     }
@@ -107,61 +501,27 @@ struct InternalExamView: View {
     }
 
     private var examPanelColor: Color {
-        isDarkMode
-            ? Color(
-                red: 0.055,
-                green: 0.075,
-                blue: 0.120
-            )
-            : Color.white.opacity(0.96)
+        KmiAppTheme.surface(for: colorScheme)
     }
 
     private var examFieldColor: Color {
-        isDarkMode
-            ? Color(
-                red: 0.080,
-                green: 0.105,
-                blue: 0.165
-            )
-            : Color.white
+        KmiAppTheme.surfaceVariant(for: colorScheme)
     }
 
     private var examPrimaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.94)
-            : Color(
-                red: 0.10,
-                green: 0.14,
-                blue: 0.22
-            )
+        KmiAppTheme.onSurface(for: colorScheme)
     }
 
     private var examSecondaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.68)
-            : Color(
-                red: 0.42,
-                green: 0.48,
-                blue: 0.58
-            )
+        KmiAppTheme.onSurfaceVariant(for: colorScheme)
     }
 
     private var examPanelBorderColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.16)
-            : Color.black.opacity(0.10)
+        KmiAppTheme.outlineVariant(for: colorScheme)
     }
 
     private var examFieldBorderColor: Color {
-        isDarkMode
-            ? beltAccentColor(for: currentBelt)
-                .opacity(0.42)
-            : Color(
-                red: 0.76,
-                green: 0.63,
-                blue: 0.45
-            )
-            .opacity(0.65)
+        KmiAppTheme.outline(for: colorScheme)
     }
 
     private func beltNameForUi(_ belt: Belt) -> String {
@@ -195,43 +555,7 @@ struct InternalExamView: View {
                 ZStack {
                     androidExamBackground
 
-                    VStack(spacing: 14) {
-                        ProgressView()
-                            .controlSize(.large)
-                            .tint(.white)
-
-                        Text(
-                            tr(
-                                "בודק הרשאות…",
-                                "Checking permissions…"
-                            )
-                        )
-                        .kmiFont(
-                            size: 15,
-                            weight: .black
-                        )
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-                    }
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 22)
-                    .background(
-                        RoundedRectangle(
-                            cornerRadius: 22,
-                            style: .continuous
-                        )
-                        .fill(Color.black.opacity(0.24))
-                    )
-                    .overlay(
-                        RoundedRectangle(
-                            cornerRadius: 22,
-                            style: .continuous
-                        )
-                        .stroke(
-                            Color.white.opacity(0.18),
-                            lineWidth: 1
-                        )
-                    )
+                    KmiLoadingOverlay()
                 }
             } else if coach.isCoach {
                 examContent
@@ -241,16 +565,9 @@ struct InternalExamView: View {
 
                     VStack(spacing: 12) {
                         Image(systemName: "lock.shield.fill")
-                            .kmiFont(
-                                size: 32,
-                                weight: .black
-                            )
+                            .kmiIconSize(32)
                             .foregroundStyle(
-                                Color(
-                                    red: 1.00,
-                                    green: 0.82,
-                                    blue: 0.18
-                                )
+                                KmiAppTheme.warning(for: colorScheme)
                             )
 
                         Text(
@@ -259,11 +576,9 @@ struct InternalExamView: View {
                                 "Coach access only"
                             )
                         )
-                        .kmiFont(
-                            size: 20,
-                            weight: .black
-                        )
-                        .foregroundStyle(.white)
+                        .kmiTypography(.sectionTitle)
+                        .fontWeight(.black)
+                        .foregroundStyle(examPrimaryTextColor)
                         .frame(
                             maxWidth: .infinity,
                             alignment: .center
@@ -276,13 +591,8 @@ struct InternalExamView: View {
                                 "Permission is determined on the server using the user's phone number."
                             )
                         )
-                        .kmiFont(
-                            size: 13,
-                            weight: .semibold
-                        )
-                        .foregroundStyle(
-                            .white.opacity(0.76)
-                        )
+                        .kmiTypography(.secondary)
+                        .foregroundStyle(examSecondaryTextColor)
                         .frame(
                             maxWidth: .infinity,
                             alignment: .center
@@ -297,7 +607,7 @@ struct InternalExamView: View {
                             cornerRadius: 24,
                             style: .continuous
                         )
-                        .fill(Color.black.opacity(0.30))
+                        .fill(examPanelColor)
                     )
                     .overlay(
                         RoundedRectangle(
@@ -305,7 +615,7 @@ struct InternalExamView: View {
                             style: .continuous
                         )
                         .stroke(
-                            Color.white.opacity(0.18),
+                            examPanelBorderColor,
                             lineWidth: 1
                         )
                     )
@@ -314,35 +624,81 @@ struct InternalExamView: View {
             }
         }
         .environment(\.layoutDirection, screenLayoutDirection)
-        .task {
-            await coach.checkCoach(userRole: auth.userRole)
-            bootstrapInitialState()
+        .overlay {
+            if coach.isCoach &&
+                !coach.isLoading &&
+                (isSavingExamDraft ||
+                 isCheckingExamDraft ||
+                 isSavingFinalResult) {
+                KmiLoadingOverlay()
+            }
         }
-        .onChange(of: traineeName) { _, _ in
+        .task(id: examAssignmentsIdentity) {
+            await coach.checkCoach(userRole: auth.userRole)
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            guard coach.isCoach else {
+                resetExamScopeState()
+                return
+            }
+
+            let previousScope = examScopeIdentity
+            initializeExamScope()
+
+            if examScopeIdentity == previousScope {
+                refreshExamRecentTrainees()
+            }
+        }
+        .onChange(of: examScopeIdentity) { _, _ in
+            resetExamScopeState()
+        }
+        .alert(
+            tr("ייבוא טיוטה קודמת", "Import previous draft"),
+            isPresented: $showLegacyExamImport
+        ) {
+            Button(tr("ייבא והמשך", "Import and resume")) {
+                importLegacyExamDraft()
+            }
+
+            Button(tr("ביטול", "Cancel"), role: .cancel) {
+                pendingLoadedDraft.removeAll()
+                resumeCheckedKey = nil
+            }
+        } message: {
+            Text(
+                tr(
+                    "נמצאה טיוטה ישנה ללא שיוך לסניף וקבוצה. לייבא עותק ל־\(selectedExamBranch) / \(selectedExamGroup)? הטיוטה המקורית תישאר ללא שינוי.",
+                    "An old draft has no branch or group. Import a copy into \(selectedExamBranch) / \(selectedExamGroup)? The original will remain unchanged."
+                )
+            )
+        }
+        .onChange(of: traineeName) { _, newValue in
+            let name = newValue.trimmed()
+
+            if name.isEmpty ||
+                selectedSavedTraineeName?.lowercased() != name.lowercased() {
+                selectedSavedTraineeName = nil
+            }
+
             recentTrainees = loadRecentTrainees()
+        }
+        .onChange(of: expandedTopic) { _, _ in
+            expandedExamSubTopic = nil
         }
         .onChange(of: currentBelt) { _, _ in
             expandedTopic = nil
+            expandedExamSubTopic = nil
+            pendingLoadedDraft.removeAll()
+            resumeCheckedKey = nil
+            isCheckingExamDraft = false
             checkForDraft()
         }
 
         .navigationBarBackButtonHidden(true)
-
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    if hasUnsavedChanges {
-                        showExitDialog = true
-                    } else {
-                        dismiss()
-                    }
-                } label: {
-                    Image(systemName: isEnglish ? "chevron.left" : "chevron.right")
-                }
-            }
-        }
-
-        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
 
         .sheet(isPresented: $showPickTraineeDialog) {
             traineePickerSheet
@@ -397,20 +753,7 @@ struct InternalExamView: View {
         ) {
 
             Button(tr("שמור טיוטה", "Save draft")) {
-                let cleanName = traineeName.trimmed()
-
-                if !cleanName.isEmpty {
-                    saveExamDraft(
-                        traineeName: cleanName,
-                        belt: currentBelt,
-                        marksMap: marksMap
-                    )
-                    pushRecentTrainee(cleanName)
-                    saveLastTrainee(cleanName)
-                }
-
-                hasUnsavedChanges = false
-                dismiss()
+                saveDraftFromAndroidPanel(shouldExit: true)
             }
 
             Button(tr("צא בלי לשמור", "Exit without saving"), role: .destructive) {
@@ -511,25 +854,48 @@ struct InternalExamView: View {
     }
 
     private func loadCompletedInternalExamResultsFromFirestore(
-        completion: @escaping ([StoredCompletedInternalExamResult]) -> Void
+        completion: @escaping (
+            Result<[StoredCompletedInternalExamResult], Error>
+        ) -> Void
     ) {
-        guard let coachUid = internalExamCoachUid() else {
-            completion([])
+        guard let scope = examScope else {
+            completion(.failure(InternalExamScopeError.invalidScope))
             return
         }
 
         Firestore.firestore()
             .collection(InternalExamStore.completedResultsCollection)
-            .whereField("coachUid", isEqualTo: coachUid)
-            .limit(to: 80)
-            .getDocuments { snapshot, _ in
+            .whereField("coachUid", isEqualTo: scope.coachUid)
+            .getDocuments { snapshot, error in
+                guard scope.isCurrentUser else {
+                    completion(
+                        .failure(InternalExamScopeError.accountChanged)
+                    )
+                    return
+                }
+
+                if let error {
+                    completion(.failure(error))
+                    return
+                }
+
                 guard let documents = snapshot?.documents else {
-                    completion([])
+                    completion(
+                        .failure(InternalExamScopeError.invalidScope)
+                    )
                     return
                 }
 
                 let results: [StoredCompletedInternalExamResult] = documents.compactMap { doc in
                     let data = doc.data()
+
+                    let legacy =
+                        (data["branch"] as? String ?? "").trimmed().isEmpty &&
+                        (data["group"] as? String ?? "").trimmed().isEmpty
+
+                    guard scope.matches(data) || legacy else {
+                        return nil
+                    }
 
                     let status = (data["status"] as? String) ?? InternalExamStore.completedStatus
                     guard status == InternalExamStore.completedStatus else {
@@ -633,7 +999,7 @@ struct InternalExamView: View {
                     let beltEn = ((data["beltEn"] as? String) ?? "").trimmed()
 
                     return StoredCompletedInternalExamResult(
-                        resultId: ((data["resultId"] as? String) ?? doc.documentID).trimmed(),
+                        resultId: doc.documentID,
                         traineeName: traineeName,
                         traineeKey: ((data["traineeKey"] as? String) ?? "").trimmed(),
                         beltId: beltId,
@@ -648,12 +1014,14 @@ struct InternalExamView: View {
                         summaryTextEn: ((data["summaryTextEn"] as? String) ?? examStatusText(percent: percent, isEnglish: true)).trimmed(),
                         shareSummaryHe: ((data["shareSummaryHe"] as? String) ?? "").trimmed(),
                         shareSummaryEn: ((data["shareSummaryEn"] as? String) ?? "").trimmed(),
-                        answeredExercises: answeredExercises
+                        answeredExercises: answeredExercises,
+                        branch: data["branch"] as? String,
+                        group: data["group"] as? String
                     )
                 }
                 .sorted { $0.completedAtMillis > $1.completedAtMillis }
 
-                completion(results)
+                completion(.success(results))
             }
     }
     
@@ -696,17 +1064,7 @@ struct InternalExamView: View {
     }
     
     private var androidExamBackground: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.02, green: 0.08, blue: 0.15),
-                Color(red: 0.03, green: 0.20, blue: 0.32),
-                Color(red: 0.03, green: 0.48, blue: 0.64),
-                Color(red: 0.03, green: 0.18, blue: 0.30)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
+        KmiAppBackground()
     }
 
     private var androidSavedExamOverlay: some View {
@@ -807,7 +1165,7 @@ struct InternalExamView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 54)
+                        .frame(minHeight: 54)
                         .background(
                             LinearGradient(
                                 colors: [
@@ -865,7 +1223,7 @@ struct InternalExamView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 54)
+                        .frame(minHeight: 54)
                         .background(
                             LinearGradient(
                                 colors: [
@@ -935,102 +1293,141 @@ struct InternalExamView: View {
     }
     
     private var androidPreStartHint: some View {
-        VStack(spacing: 0) {
-            Text(
-                tr(
-                    "בחר נבחן וחגורה לפני\nתחילת המבחן",
-                    "Choose trainee and belt\nbefore starting the exam"
-                )
-            )
-            .kmiFont(
-                size: 21,
-                weight: .black
-            )
-            .foregroundStyle(examPrimaryTextColor)
+        VStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(KmiAppTheme.primary(for: colorScheme).opacity(0.14))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(
+                                KmiAppTheme.primary(for: colorScheme).opacity(0.44),
+                                lineWidth: 2
+                            )
+                    }
+                    .frame(width: 58, height: 58)
+                    .rotationEffect(.degrees(45))
+
+                Circle()
+                    .fill(KmiAppTheme.primaryContainer(for: colorScheme))
+                    .overlay {
+                        Circle()
+                            .stroke(
+                                KmiAppTheme.primary(for: colorScheme).opacity(0.48),
+                                lineWidth: 1
+                            )
+                    }
+                    .frame(width: 46, height: 46)
+
+                Image(systemName: "star.fill")
+                    .kmiIconSize(22)
+                    .foregroundStyle(KmiAppTheme.primary(for: colorScheme))
+            }
+            .frame(height: 78)
+            .accessibilityHidden(true)
+
+            Text(tr(
+                "בחר נבחן וחגורה לפני תחילת המבחן",
+                "Select a trainee and belt before starting"
+            ))
+            .kmiTypography(.secondary)
+            .fontWeight(.semibold)
+            .foregroundStyle(examSecondaryTextColor)
             .multilineTextAlignment(.center)
-            .lineLimit(2)
-            .minimumScaleFactor(0.82)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
-            .background(
-                examFieldColor.opacity(
-                    isDarkMode ? 0.88 : 0.92
-                )
-            )
-            .clipShape(
-                RoundedRectangle(
-                    cornerRadius: 12,
-                    style: .continuous
-                )
-            )
-            .padding(.horizontal, 18)
-            .padding(.bottom, 16)
+            .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 18)
         .background(
-            RoundedRectangle(
-                cornerRadius: 24,
-                style: .continuous
-            )
-            .fill(examPanelColor)
+            examPanelColor,
+            in: RoundedRectangle(cornerRadius: 28, style: .continuous)
         )
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 24,
-                style: .continuous
-            )
-            .stroke(
-                examPanelBorderColor,
-                lineWidth: 1
-            )
-        )
-        .shadow(
-            color: Color.black.opacity(
-                isDarkMode ? 0.30 : 0.14
-            ),
-            radius: 7,
-            x: 0,
-            y: 4
-        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(examPanelBorderColor, lineWidth: 0.75)
+        }
     }
 
     private var androidStartCard: some View {
         VStack(spacing: 14) {
             androidNameField
+                .disabled(examScope == nil || isExamScopeBusy)
 
+            examScopeSelectors
             androidBeltPicker
 
-            androidStartButton
+            Divider()
+                .overlay(examPanelBorderColor)
 
+            examEntryMetaRow
+            androidStartButton
             androidSaveShareRow
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 16)
+        .padding(.vertical, 20)
         .background(
-            RoundedRectangle(
-                cornerRadius: 28,
-                style: .continuous
-            )
-            .fill(examPanelColor)
+            examPanelColor,
+            in: RoundedRectangle(cornerRadius: 28, style: .continuous)
         )
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 28,
-                style: .continuous
+        .overlay {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(examPanelBorderColor, lineWidth: 0.75)
+        }
+    }
+
+    private var examEntryMetaRow: some View {
+        HStack(alignment: .top, spacing: 8) {
+            examEntryMetaItem(
+                icon: "square.stack",
+                title: tr(
+                    "\(examItemsForCurrentBelt.count) שאלות",
+                    "\(examItemsForCurrentBelt.count) questions"
+                )
             )
-            .stroke(
-                examPanelBorderColor,
-                lineWidth: 1
+
+            examEntryMetaItem(
+                icon: "clock",
+                title: tr("ללא הגבלת זמן", "No time limit")
             )
-        )
-        .shadow(
-            color: Color.black.opacity(
-                isDarkMode ? 0.34 : 0.18
-            ),
-            radius: 12,
-            x: 0,
-            y: 7
-        )
+
+            VStack(spacing: 7) {
+                androidBeltImage
+                    .scaleEffect(0.40)
+                    .frame(width: 42, height: 34)
+                    .accessibilityHidden(true)
+
+                Text(examBeltNameForUi(currentBelt, isEnglish: isEnglish))
+                    .kmiTypography(.caption)
+                    .fontWeight(.bold)
+                    .foregroundStyle(examPrimaryTextColor)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func examEntryMetaItem(icon: String, title: String) -> some View {
+        VStack(spacing: 7) {
+            Image(systemName: icon)
+                .kmiIconSize(15)
+                .foregroundStyle(KmiAppTheme.primary(for: colorScheme))
+                .frame(width: 34, height: 34)
+                .background(
+                    KmiAppTheme.primaryContainer(for: colorScheme).opacity(0.50),
+                    in: Circle()
+                )
+                .accessibilityHidden(true)
+
+            Text(title)
+                .kmiTypography(.caption)
+                .fontWeight(.bold)
+                .foregroundStyle(examPrimaryTextColor)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private var androidNameField: some View {
@@ -1076,14 +1473,10 @@ struct InternalExamView: View {
                         ),
                         text: $traineeName
                     )
-                    .kmiFont(
-                        size: 18,
-                        weight: .heavy
-                    )
+                    .kmiTypography(.body)
+                    .fontWeight(.heavy)
                     .foregroundStyle(examPrimaryTextColor)
-                    .multilineTextAlignment(
-                        isEnglish ? .leading : .trailing
-                    )
+                    .multilineTextAlignment(.leading)
                     .submitLabel(.done)
                         .onSubmit {
                             _ = commitTraineeNameAndCollapse()
@@ -1091,7 +1484,7 @@ struct InternalExamView: View {
                         }
                 }
                 .padding(.horizontal, 14)
-                .frame(height: 66)
+                .frame(minHeight: 66)
                 .background(examFieldColor)
                 .clipShape(
                     RoundedRectangle(
@@ -1137,6 +1530,7 @@ struct InternalExamView: View {
                         Button {
                             let cleanName = name.trimmed()
 
+                            selectedSavedTraineeName = cleanName
                             traineeName = cleanName
                             showTraineeNameBox = false
                             isTypingNewTraineeName = false
@@ -1197,7 +1591,7 @@ struct InternalExamView: View {
                             .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
                     }
                     .padding(.horizontal, 18)
-                    .frame(height: 66)
+                    .frame(minHeight: 66)
                     .background(examFieldColor)
                     .clipShape(
                         RoundedRectangle(
@@ -1230,125 +1624,33 @@ struct InternalExamView: View {
     }
     
     private var androidBeltPicker: some View {
-        Menu {
-            ForEach(
-                [
-                    Belt.yellow,
-                    .orange,
-                    .green,
-                    .blue,
-                    .brown,
-                    .black
-                ],
-                id: \.id
-            ) { picked in
-                Button(
-                    examBeltNameForUi(
-                        picked,
-                        isEnglish: isEnglish
-                    )
-                ) {
+        let belts: [Belt] = [.yellow, .orange, .green, .blue, .brown, .black]
+
+        return KmiPremiumDropdown(
+            title: tr("חגורה נבחרת", "Selected belt"),
+            options: belts.map(\.id),
+            selectedValue: Binding(
+                get: { currentBelt.id },
+                set: { id in
+                    guard let picked = belts.first(where: { $0.id == id }),
+                          picked.id != currentBelt.id else { return }
+
                     currentBelt = picked
                     expandedTopic = nil
                     pendingLoadedDraft.removeAll()
                     resumeCheckedKey = nil
                     checkForDraft()
                 }
-            }
-        } label: {
-            HStack(spacing: 12) {
-                if isEnglish {
-                    androidBeltImage
-                }
-
-                VStack(
-                    alignment:
-                        isEnglish ? .leading : .trailing,
-                    spacing: 2
-                ) {
-                    Text(
-                        tr(
-                            "חגורה במבחן",
-                            "Exam belt"
-                        )
-                    )
-                    .kmiFont(
-                        size: 13,
-                        weight: .bold
-                    )
-                    .foregroundStyle(examSecondaryTextColor)
-
-                    Text(
-                        examBeltNameForUi(
-                            currentBelt,
-                            isEnglish: isEnglish
-                        )
-                    )
-                    .kmiFont(
-                        size: 21,
-                        weight: .black
-                    )
-                    .foregroundStyle(
-                        beltAccentColor(for: currentBelt)
-                    )
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.80)
-                }
-                .frame(
-                    maxWidth: .infinity,
-                    alignment:
-                        isEnglish ? .leading : .trailing
-                )
-
-                Image(systemName: "chevron.down")
-                    .kmiFont(
-                        size: 12,
-                        weight: .black
-                    )
-                    .foregroundStyle(
-                        beltAccentColor(for: currentBelt)
-                    )
-                    .frame(width: 34, height: 34)
-                    .background(
-                        beltAccentColor(for: currentBelt)
-                            .opacity(0.15)
-                    )
-                    .clipShape(Circle())
-
-                if !isEnglish {
-                    androidBeltImage
-                }
-            }
-            .padding(.horizontal, 14)
-            .frame(height: 90)
-            .background(
-                RoundedRectangle(
-                    cornerRadius: 18,
-                    style: .continuous
-                )
-                .fill(examFieldColor)
-            )
-            .overlay(
-                RoundedRectangle(
-                    cornerRadius: 18,
-                    style: .continuous
-                )
-                .stroke(
-                    beltAccentColor(for: currentBelt)
-                        .opacity(0.40),
-                    lineWidth: 1.2
-                )
-            )
-            .shadow(
-                color:
-                    beltAccentColor(for: currentBelt)
-                        .opacity(0.22),
-                radius: 7,
-                x: 0,
-                y: 3
-            )
-        }
-        .buttonStyle(.plain)
+            ),
+            placeholder: tr("בחר חגורה", "Select a belt"),
+            isEnglish: isEnglish,
+            isEnabled: !isSavingFinalResult && !isCreatingExamPDF,
+            labelForOption: { id in
+                guard let picked = belts.first(where: { $0.id == id }) else { return id }
+                return examBeltNameForUi(picked, isEnglish: isEnglish)
+            },
+            titleInsideField: true
+        )
     }
 
     @ViewBuilder
@@ -1359,13 +1661,15 @@ struct InternalExamView: View {
                 .scaledToFit()
                 .frame(width: 98, height: 58)
                 .rotationEffect(.degrees(-7))
-                .shadow(color: beltAccentColor(for: currentBelt).opacity(0.40), radius: 5, x: 0, y: 3)
+                .shadow(
+                    color: Color.black.opacity(0.10),
+                    radius: 2,
+                    x: 0,
+                    y: 1
+                )
         } else {
             Image(systemName: "rosette")
-                .kmiFont(
-                    size: 42,
-                    weight: .black
-                )
+                .kmiIconSize(42)
                 .foregroundStyle(
                     beltAccentColor(for: currentBelt)
                 )
@@ -1399,171 +1703,269 @@ struct InternalExamView: View {
             startExamFromAndroidPanel()
         } label: {
             HStack(spacing: 12) {
-                Text(
-                    shouldShowContinueExamButton
-                        ? tr(
-                            "המשך מבחן",
-                            "Continue Exam"
-                        )
-                        : tr(
-                            "התחל מבחן",
-                            "Start Exam"
-                        )
-                )
-                .kmiFont(
-                    size: 23,
-                    weight: .black
-                )
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-
                 Image(
                     systemName:
                         shouldShowContinueExamButton
-                        ? (
-                            isEnglish
-                                ? "forward.fill"
-                                : "backward.fill"
-                        )
+                        ? "forward.fill"
                         : "play.fill"
                 )
-                .kmiFont(
-                    size: 17,
-                    weight: .black
+                .kmiIconSize(17)
+                .frame(width: 40, height: 40)
+                .background(Color.white.opacity(0.16), in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(Color.white.opacity(0.35), lineWidth: 1)
+                }
+                .accessibilityHidden(true)
+
+                Text(
+                    shouldShowContinueExamButton
+                        ? tr("המשך מבחן", "Continue exam")
+                        : tr("התחל מבחן", "Start exam")
                 )
-                    .foregroundStyle(.white.opacity(0.82))
-                    .frame(width: 42, height: 42)
-                    .background(Color.white.opacity(0.18))
-                    .clipShape(Circle())
+                .kmiTypography(.sectionTitle)
+                .fontWeight(.black)
+                .multilineTextAlignment(.center)
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 64)
+            .foregroundStyle(KmiAppTheme.sectionHeaderContentColor)
+            .frame(maxWidth: .infinity, minHeight: 64)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
             .background(
                 LinearGradient(
                     colors: [
-                        Color(red: 0.66, green: 0.36, blue: 0.05),
-                        Color(red: 1.00, green: 0.82, blue: 0.18),
-                        Color(red: 0.62, green: 0.25, blue: 0.96)
+                        KmiAppTheme.primary(for: colorScheme),
+                        KmiBeltPalette.color(for: .yellow)
                     ],
-                    startPoint: .leading,
-                    endPoint: .trailing
+                    startPoint: UnitPoint(x: 0, y: 0.5),
+                    endPoint: UnitPoint(x: 1, y: 0.5)
                 )
             )
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .shadow(color: Color.black.opacity(0.22), radius: 8, x: 0, y: 4)
+            .clipShape(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+            )
         }
         .buttonStyle(.plain)
+        .disabled(examScope == nil || isExamScopeBusy)
     }
     
     private var androidSaveShareRow: some View {
-        HStack(spacing: 10) {
-            Button {
-                shareSummaryText()
-            } label: {
-                Text(tr("שתף", "Share"))
-                    .kmiFont(
-                        size: 18,
-                        weight: .black
-                    )
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .background(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.08, green: 0.72, blue: 0.94),
-                                Color(red: 0.16, green: 0.41, blue: 0.95)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-            }
-            .buttonStyle(.plain)
+        Button {
+            saveDraftFromAndroidPanel()
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: "bookmark")
+                    .kmiIconSize(17)
+                    .accessibilityHidden(true)
 
-            Button {
-                saveDraftFromAndroidPanel()
-            } label: {
-                Text(tr("שמור", "Save"))
-                    .kmiFont(
-                        size: 18,
-                        weight: .black
-                    )
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .background(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.41, green: 0.23, blue: 0.93),
-                                Color(red: 0.61, green: 0.21, blue: 0.89)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                Text(tr("שמור מבחן", "Save exam"))
+                    .kmiTypography(.action)
+                    .fontWeight(.bold)
             }
-            .buttonStyle(.plain)
+            .foregroundStyle(KmiAppTheme.onPrimaryContainer(for: .dark))
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .padding(.vertical, 3)
+            .background(
+                KmiAppTheme.tertiaryContainer(for: colorScheme),
+                in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(
+                        KmiAppTheme.primary(for: .dark),
+                        lineWidth: 1
+                    )
+            }
         }
+        .buttonStyle(.plain)
+        .disabled(examScope == nil || isExamScopeBusy)
     }
 
     private var androidArchiveButton: some View {
         Button {
             openCompletedExamArchive()
         } label: {
-            HStack(spacing: 10) {
-                Text(tr("ארכיון מבחנים", "Exam Archive"))
-                    .kmiFont(
-                        size: 19,
-                        weight: .black
-                    )
-                    .foregroundStyle(.white)
+            HStack(spacing: 12) {
+                Image(systemName: "chevron.forward")
+                    .kmiIconSize(14)
+                    .accessibilityHidden(true)
+
+                Text(tr("ארכיון מבחנים", "Exam archive"))
+                    .kmiTypography(.sectionTitle)
+                    .fontWeight(.black)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 Image(systemName: "books.vertical.fill")
-                    .kmiFont(
-                        size: 17,
-                        weight: .black
-                    )
-                    .foregroundStyle(.white)
-                    .frame(width: 42, height: 42)
+                    .kmiIconSize(22)
+                    .frame(width: 40, height: 40)
                     .background(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.78, green: 0.37, blue: 1.0),
-                                Color(red: 0.12, green: 0.76, blue: 0.95)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
+                        KmiAppTheme.secondaryContainer(for: .dark),
+                        in: Circle()
                     )
-                    .clipShape(Circle())
+                    .accessibilityHidden(true)
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 62)
+            .foregroundStyle(
+                KmiAppTheme.onTertiaryContainer(for: colorScheme)
+            )
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, minHeight: 64)
             .background(
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.05, green: 0.09, blue: 0.17),
-                        Color(red: 0.16, green: 0.20, blue: 0.34),
-                        Color(red: 0.44, green: 0.16, blue: 0.88)
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
+                KmiAppTheme.tertiaryContainer(for: colorScheme),
+                in: RoundedRectangle(cornerRadius: 22, style: .continuous)
             )
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.white.opacity(0.20), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.20), radius: 8, x: 0, y: 4)
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(
+                        KmiAppTheme.primary(for: .dark).opacity(0.75),
+                        lineWidth: 1
+                    )
+            }
         }
         .buttonStyle(.plain)
+        .disabled(
+            examScope == nil ||
+            isLoadingExamArchive ||
+            isExamScopeBusy
+        )
     }
     
+    private func examSubTopicGroups(
+        for group: ExamTopicGroup
+    ) -> [ExamTopicGroup] {
+        var groups: [ExamTopicGroup] = []
+        var directItems: [ExamExerciseItem] = []
+
+        for item in group.items {
+            let title = (item.subTopic ?? "").trimmed()
+
+            guard !title.isEmpty, title != group.topic else {
+                directItems.append(item)
+                continue
+            }
+
+            if let index = groups.firstIndex(
+                where: { $0.topic == title }
+            ) {
+                let previous = groups[index]
+
+                groups[index] = ExamTopicGroup(
+                    topic: title,
+                    items: previous.items + [item]
+                )
+            } else {
+                groups.append(
+                    ExamTopicGroup(
+                        topic: title,
+                        items: [item]
+                    )
+                )
+            }
+        }
+
+        guard !groups.isEmpty else {
+            return []
+        }
+
+        if !directItems.isEmpty {
+            groups.append(
+                ExamTopicGroup(
+                    topic: tr(
+                        "תרגילים כלליים",
+                        "General exercises"
+                    ),
+                    items: directItems
+                )
+            )
+        }
+
+        return groups
+    }
+
+    private func examTopicChildren(
+        _ group: ExamTopicGroup
+    ) -> some View {
+        let subGroups = examSubTopicGroups(for: group)
+
+        return VStack(spacing: 8) {
+            if subGroups.isEmpty {
+                examExerciseRows(group.items)
+            } else {
+                ForEach(
+                    Array(subGroups.enumerated()),
+                    id: \.offset
+                ) { index, subGroup in
+                    TopicHeaderView(
+                        title: examTitleForUi(
+                            subGroup.topic,
+                            isEnglish: isEnglish
+                        ),
+                        expanded: expandedExamSubTopic == index,
+                        exerciseCount: subGroup.items.count,
+                        isEnglish: isEnglish,
+                        isDarkMode: isDarkMode,
+                        belt: currentBelt
+                    ) {
+                        withAnimation(
+                            .easeInOut(duration: 0.20)
+                        ) {
+                            expandedExamSubTopic =
+                                expandedExamSubTopic == index
+                                ? nil
+                                : index
+                        }
+                    }
+                    .padding(.horizontal, 10)
+
+                    if expandedExamSubTopic == index {
+                        examExerciseRows(subGroup.items)
+                    }
+                }
+            }
+        }
+    }
+
+    private func examExerciseRows(
+        _ items: [ExamExerciseItem]
+    ) -> some View {
+        ForEach(items) { item in
+            ExerciseRowView(
+                name: examTitleForUi(
+                    item.name,
+                    isEnglish: isEnglish
+                ),
+                score: marksMap[item.id],
+                isEnglish: isEnglish,
+                isDarkMode: isDarkMode,
+                belt: currentBelt,
+                onScoreChange: { newScore in
+                    hasUnsavedChanges = true
+
+                    if let newScore {
+                        marksMap[item.id] = clampScore10(newScore)
+                    } else {
+                        marksMap.removeValue(forKey: item.id)
+                    }
+
+                    let cleanName = traineeName.trimmed()
+
+                    if !cleanName.isEmpty {
+                        saveExamDraft(
+                            traineeName: cleanName,
+                            belt: currentBelt,
+                            marksMap: marksMap
+                        )
+
+                        pushRecentTrainee(cleanName)
+                        saveLastTrainee(cleanName)
+                    }
+                }
+            )
+            .padding(.horizontal, 10)
+        }
+    }
+
     private var activeExamContent: some View {
         VStack(spacing: 8) {
             androidActiveExamHeader
@@ -1608,53 +2010,7 @@ struct InternalExamView: View {
                         }
 
                         if expandedTopic == group.topic {
-                            ForEach(group.items) { item in
-                                ExerciseRowView(
-                                    name: examTitleForUi(
-                                        item.name,
-                                        isEnglish: isEnglish
-                                    ),
-                                    score: marksMap[item.id],
-                                    isEnglish: isEnglish,
-                                    isDarkMode: isDarkMode,
-                                    belt: currentBelt,
-                                    onScoreChange: { newScore in
-                                        hasUnsavedChanges = true
-
-                                        if let newScore {
-                                            marksMap[item.id] =
-                                                clampScore10(
-                                                    newScore
-                                                )
-                                        } else {
-                                            marksMap.removeValue(
-                                                forKey: item.id
-                                            )
-                                        }
-
-                                        let cleanName =
-                                            traineeName.trimmed()
-
-                                        if !cleanName.isEmpty {
-                                            saveExamDraft(
-                                                traineeName:
-                                                    cleanName,
-                                                belt: currentBelt,
-                                                marksMap: marksMap
-                                            )
-
-                                            pushRecentTrainee(
-                                                cleanName
-                                            )
-
-                                            saveLastTrainee(
-                                                cleanName
-                                            )
-                                        }
-                                    }
-                                )
-                                .padding(.horizontal, 10)
-                            }
+                            examTopicChildren(group)
                         }
                     }
 
@@ -1699,10 +2055,7 @@ struct InternalExamView: View {
                 }
             } label: {
                 Image(systemName: "chevron.down")
-                    .kmiFont(
-                        size: 13,
-                        weight: .black
-                    )
+                    .kmiIconSize(13)
                     .foregroundStyle(
                         beltAccentColor(for: currentBelt)
                     )
@@ -1741,10 +2094,8 @@ struct InternalExamView: View {
                         )
                         : traineeName.trimmed()
                 )
-                .kmiFont(
-                    size: 17,
-                    weight: .black
-                )
+                .kmiTypography(.cardTitle)
+                .fontWeight(.black)
                 .foregroundStyle(examPrimaryTextColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)
@@ -1760,10 +2111,8 @@ struct InternalExamView: View {
                         "Belt: \(examBeltNameForUi(currentBelt, isEnglish: true))"
                     )
                 )
-                .kmiFont(
-                    size: 12,
-                    weight: .bold
-                )
+                .kmiTypography(.caption)
+                .fontWeight(.bold)
                 .foregroundStyle(
                     beltAccentColor(for: currentBelt)
                 )
@@ -1810,51 +2159,7 @@ struct InternalExamView: View {
     }
     
     private var examBeltBackground: some View {
-        LinearGradient(
-            colors:
-                isDarkMode
-                ? [
-                    Color(
-                        red: 0.020,
-                        green: 0.035,
-                        blue: 0.075
-                    ),
-                    beltDarkColor(for: currentBelt)
-                        .opacity(0.74),
-                    Color(
-                        red: 0.035,
-                        green: 0.055,
-                        blue: 0.105
-                    ),
-                    beltAccentColor(for: currentBelt)
-                        .opacity(0.30)
-                ]
-                : [
-                    Color.white.opacity(0.98),
-                    beltSoftColor(for: currentBelt)
-                        .opacity(0.98),
-                    Color.white.opacity(0.96),
-                    beltSoftColor(for: currentBelt)
-                        .opacity(0.88)
-                ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
-        .overlay(
-            LinearGradient(
-                colors: [
-                    beltAccentColor(for: currentBelt)
-                        .opacity(isDarkMode ? 0.18 : 0.10),
-                    Color.clear,
-                    beltDarkColor(for: currentBelt)
-                        .opacity(isDarkMode ? 0.24 : 0.10)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-        )
+        KmiAppBackground()
     }
 
     private var traineeHeaderSection: some View {
@@ -1954,94 +2259,10 @@ struct InternalExamView: View {
     private var examArchiveSheet: some View {
         NavigationStack {
             ZStack {
-                LinearGradient(
-                    colors:
-                        isDarkMode
-                        ? [
-                            Color(
-                                red: 0.020,
-                                green: 0.035,
-                                blue: 0.075
-                            ),
-                            Color(
-                                red: 0.040,
-                                green: 0.075,
-                                blue: 0.140
-                            ),
-                            Color(
-                                red: 0.025,
-                                green: 0.045,
-                                blue: 0.090
-                            )
-                        ]
-                        : [
-                            Color(
-                                red: 0.95,
-                                green: 0.97,
-                                blue: 1.00
-                            ),
-                            Color(
-                                red: 0.88,
-                                green: 0.94,
-                                blue: 1.00
-                            ),
-                            Color(
-                                red: 0.96,
-                                green: 0.94,
-                                blue: 1.00
-                            )
-                        ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
+                KmiAppBackground()
 
                 if isLoadingExamArchive {
-                    VStack(spacing: 14) {
-                        ProgressView()
-                            .controlSize(.large)
-                            .tint(
-                                Color(
-                                    red: 0.486,
-                                    green: 0.302,
-                                    blue: 1.000
-                                )
-                            )
-
-                        Text(
-                            tr(
-                                "טוען ארכיון מבחנים…",
-                                "Loading exam archive…"
-                            )
-                        )
-                        .kmiFont(
-                            size: 15,
-                            weight: .bold
-                        )
-                        .foregroundStyle(
-                            examSecondaryTextColor
-                        )
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 22)
-                    .background(
-                        RoundedRectangle(
-                            cornerRadius: 22,
-                            style: .continuous
-                        )
-                        .fill(examPanelColor)
-                    )
-                    .overlay(
-                        RoundedRectangle(
-                            cornerRadius: 22,
-                            style: .continuous
-                        )
-                        .stroke(
-                            examPanelBorderColor,
-                            lineWidth: 1
-                        )
-                    )
-
+                    KmiLoadingOverlay()
                 } else if completedExamResults.isEmpty {
                     VStack(spacing: 14) {
                         Image(
@@ -2292,6 +2513,17 @@ struct InternalExamView: View {
                 isEnglish ? .leading : .trailing,
             spacing: 5
         ) {
+            if result.isUnassigned {
+                Text(
+                    tr(
+                        "ארכיון קודם ללא שיוך לסניף וקבוצה",
+                        "Previous unassigned archive"
+                    )
+                )
+                .kmiTypography(.caption)
+                .foregroundStyle(examSecondaryTextColor)
+            }
+
             Text(result.traineeName)
                 .kmiFont(
                     size: 17,
@@ -2695,39 +2927,9 @@ struct InternalExamView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
         }
-        .background(
-            LinearGradient(
-                colors:
-                    isDarkMode
-                    ? [
-                        Color(
-                            red: 0.020,
-                            green: 0.035,
-                            blue: 0.075
-                        ),
-                        Color(
-                            red: 0.035,
-                            green: 0.065,
-                            blue: 0.125
-                        )
-                    ]
-                    : [
-                        Color(
-                            red: 0.95,
-                            green: 0.96,
-                            blue: 0.99
-                        ),
-                        Color(
-                            red: 0.90,
-                            green: 0.95,
-                            blue: 1.00
-                        )
-                    ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-        )
+        .background {
+            KmiAppBackground()
+        }
         .navigationTitle(
             tr(
                 "פרטי מבחן",
@@ -2786,14 +2988,35 @@ struct InternalExamView: View {
     }
     
     private func openCompletedExamArchive() {
+        guard let scope = examScope,
+              !isLoadingExamArchive else {
+            return
+        }
+
         completedExamResults = []
         isLoadingExamArchive = true
         showExamArchiveSheet = true
 
-        loadCompletedInternalExamResultsFromFirestore { results in
+        loadCompletedInternalExamResultsFromFirestore { result in
             DispatchQueue.main.async {
-                completedExamResults = results
+                guard examScope == scope else {
+                    return
+                }
+
                 isLoadingExamArchive = false
+
+                switch result {
+                case .success(let results):
+                    completedExamResults = results
+
+                case .failure:
+                    showExamArchiveSheet = false
+
+                    showExamScopeMessage(
+                        "לא ניתן לטעון את היסטוריית המבחנים כרגע. נסה שוב.",
+                        "Exam history could not be loaded. Please try again."
+                    )
+                }
             }
         }
     }
@@ -2801,73 +3024,73 @@ struct InternalExamView: View {
     private func deleteCompletedExamResult(
         _ result: StoredCompletedInternalExamResult
     ) {
-        guard !isDeletingExamResult else {
-            return
-        }
-
-        let resultId =
-            result.resultId
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-
-        guard !resultId.isEmpty else {
-            examResultToDelete = nil
-
-            examActionMessage = tr(
-                "לא ניתן למחוק את המבחן משום שמזהה התוצאה חסר.",
-                "The exam cannot be deleted because its result identifier is missing."
-            )
-
-            shouldDismissAfterExamAction = false
-            showExamActionAlert = true
+        guard let scope = examScope,
+              !isDeletingExamResult,
+              !result.resultId.trimmed().isEmpty else {
             return
         }
 
         isDeletingExamResult = true
 
-        Firestore.firestore()
-            .collection(
-                InternalExamStore
-                    .completedResultsCollection
-            )
-            .document(resultId)
-            .delete { error in
+        let reference = Firestore.firestore()
+            .collection(InternalExamStore.completedResultsCollection)
+            .document(result.resultId)
+
+        reference.getDocument { snapshot, error in
+            guard scope.isCurrentUser else {
+                return
+            }
+
+            let data = snapshot?.data()
+
+            let legacy =
+                result.isUnassigned &&
+                (data?["branch"] as? String ?? "").trimmed().isEmpty &&
+                (data?["group"] as? String ?? "").trimmed().isEmpty &&
+                data?["coachUid"] as? String == scope.coachUid
+
+            guard error == nil,
+                  let data,
+                  scope.matches(data) || legacy else {
                 DispatchQueue.main.async {
-                    isDeletingExamResult = false
-
-                    if let error {
-                        examResultToDelete = nil
-
-                        examActionMessage = tr(
-                            "מחיקת המבחן נכשלה: \(error.localizedDescription)",
-                            "Deleting the exam failed: \(error.localizedDescription)"
-                        )
-
-                        shouldDismissAfterExamAction = false
-                        showExamActionAlert = true
+                    guard examScope == scope else {
                         return
                     }
 
-                    withAnimation(
-                        .easeInOut(duration: 0.20)
-                    ) {
-                        completedExamResults.removeAll {
-                            $0.resultId == resultId
-                        }
-                    }
-
+                    isDeletingExamResult = false
                     examResultToDelete = nil
 
-                    examActionMessage = tr(
-                        "המבחן נמחק מהיסטוריית המבחנים.",
-                        "The exam was deleted from history."
+                    showExamScopeMessage(
+                        "לא ניתן לאמת את המבחן למחיקה. נסה שוב.",
+                        "The exam could not be verified for deletion. Please try again."
                     )
+                }
+                return
+            }
 
-                    shouldDismissAfterExamAction = false
-                    showExamActionAlert = true
+            reference.delete { error in
+                DispatchQueue.main.async {
+                    guard examScope == scope else {
+                        return
+                    }
+
+                    isDeletingExamResult = false
+                    examResultToDelete = nil
+
+                    guard error == nil else {
+                        showExamScopeMessage(
+                            "מחיקת המבחן נכשלה. נסה שוב.",
+                            "The exam could not be deleted. Please try again."
+                        )
+                        return
+                    }
+
+                    completedExamResults.removeAll {
+                        $0.resultId == result.resultId
+                    }
                 }
             }
+        }
     }
 
     private var traineePickerSheet: some View {
@@ -2882,8 +3105,11 @@ struct InternalExamView: View {
                     ForEach(recentTrainees, id: \.self) { name in
                         Button {
                             marksMap.removeAll()
-                            traineeName = name
+                            pendingLoadedDraft.removeAll()
+                            selectedSavedTraineeName = name.trimmed()
+                            traineeName = name.trimmed()
                             showTraineeNameBox = false
+                            isTypingNewTraineeName = false
                             resumeCheckedKey = nil
                             showPickTraineeDialog = false
                             checkForDraft()
@@ -2973,69 +3199,82 @@ struct InternalExamView: View {
     // MARK: - Actions
 
     private func startExamFromAndroidPanel() {
-        let cleanName = traineeName.trimmed()
-
-        guard !cleanName.isEmpty else {
-            examActionMessage = tr(
-                "נא לבחור נבחן מתוך הרשימה או ליצור נבחן חדש לפני תחילת המבחן.",
-                "Please select a trainee from the list or create a new trainee before starting the exam."
+        guard examScope != nil else {
+            showExamScopeMessage(
+                "יש לבחור סניף וקבוצה לפני תחילת המבחן.",
+                "Select a branch and group before starting the exam."
             )
-            shouldDismissAfterExamAction = false
-            showExamActionAlert = true
             return
         }
 
-        traineeName = cleanName
+        let name = traineeName.trimmed()
+
+        guard !name.isEmpty else {
+            showExamScopeMessage(
+                "נא לבחור נבחן או להזין שם נבחן חדש.",
+                "Select a trainee or enter a new trainee name."
+            )
+            return
+        }
+
+        traineeName = name
         showTraineeNameBox = false
         isTypingNewTraineeName = false
 
-        if marksMap.isEmpty && !pendingLoadedDraft.isEmpty {
-            marksMap = pendingLoadedDraft
-        }
-
-        pushRecentTrainee(cleanName)
-        saveLastTrainee(cleanName)
-        checkForDraft()
-
-        // Android behavior: exercise topics start closed.
-        expandedTopic = nil
-
-        withAnimation(.easeInOut(duration: 0.22)) {
-            hasStartedExam = true
-        }
+        pushRecentTrainee(name)
+        saveLastTrainee(name)
+        checkForDraft(startWhenMissing: true)
     }
     
-    private func saveDraftFromAndroidPanel() {
-        let cleanName = traineeName.trimmed()
-
-        guard !cleanName.isEmpty else {
-            examActionMessage = tr(
-                "נא להזין שם נבחן לפני שמירה.",
-                "Please enter a trainee name before saving."
-            )
-            shouldDismissAfterExamAction = false
-            showExamActionAlert = true
+    private func saveDraftFromAndroidPanel(
+        shouldExit: Bool = false
+    ) {
+        guard !isExamScopeBusy, examScope != nil else {
             return
         }
 
-        traineeName = cleanName
+        let name = traineeName.trimmed()
+
+        guard !name.isEmpty else {
+            showExamScopeMessage(
+                "נא להזין שם נבחן לפני שמירה.",
+                "Enter a trainee name before saving."
+            )
+            return
+        }
+
+        traineeName = name
         showTraineeNameBox = false
+        isSavingExamDraft = true
 
         saveExamDraft(
-            traineeName: cleanName,
+            traineeName: name,
             belt: currentBelt,
             marksMap: marksMap
-        )
+        ) { success in
+            isSavingExamDraft = false
 
-        pushRecentTrainee(cleanName)
-        saveLastTrainee(cleanName)
+            guard success else {
+                showExamScopeMessage(
+                    "שמירת הטיוטה נכשלה. הציונים נשארו במסך; נסה שוב.",
+                    "The draft could not be saved. Your scores remain on screen; please try again."
+                )
+                return
+            }
 
-        examActionMessage = tr(
-            "הטיוטה נשמרה בהצלחה.",
-            "Draft saved successfully."
-        )
-        shouldDismissAfterExamAction = false
-        showExamActionAlert = true
+            pushRecentTrainee(name)
+            saveLastTrainee(name)
+            hasUnsavedChanges = false
+
+            if shouldExit {
+                dismiss()
+            } else {
+                showExamScopeMessage(
+                    "הטיוטה נשמרה בהצלחה.",
+                    "Draft saved successfully."
+                )
+            }
+        }
     }
     
     private func continueSavedExamFromPrompt() {
@@ -3092,31 +3331,85 @@ struct InternalExamView: View {
         return true
     }
 
-    private func checkForDraft() {
+    private func checkForDraft(startWhenMissing: Bool = false) {
+        guard let scope = examScope else {
+            return
+        }
+
         let name = traineeName.trimmed()
-        guard !name.isEmpty else { return }
 
-        let beltForCheck = currentBelt
-        let key = draftKey(traineeName: name, belt: beltForCheck)
+        guard !name.isEmpty, !isCheckingExamDraft else {
+            return
+        }
 
-        if resumeCheckedKey == key { return }
+        let selectedBelt = currentBelt
+        let key = draftKey(
+            traineeName: name,
+            belt: selectedBelt
+        )
+
+        if resumeCheckedKey == key {
+            if startWhenMissing &&
+                !showResumeDialog &&
+                !showLegacyExamImport {
+                hasStartedExam = true
+            }
+            return
+        }
+
         resumeCheckedKey = key
+        isCheckingExamDraft = true
 
-        loadExamDraft(traineeName: name, belt: beltForCheck) { loaded in
+        scopedLoadExamDraft(
+            traineeName: name,
+            belt: selectedBelt,
+            scope: scope
+        ) { result in
             DispatchQueue.main.async {
-                guard resumeCheckedKey == key else { return }
-                guard traineeName.trimmed() == name else { return }
-                guard currentBelt.id == beltForCheck.id else { return }
+                guard examScope == scope,
+                      traineeName.trimmed() == name,
+                      currentBelt.id == selectedBelt.id,
+                      resumeCheckedKey == key else {
+                    return
+                }
 
-                if !loaded.isEmpty {
-                    pendingLoadedDraft = loaded
-                    showResumeDialog = true
+                isCheckingExamDraft = false
+
+                switch result {
+                case .success(let loaded):
+                    pendingLoadedDraft = loaded.marks
+
+                    if !loaded.marks.isEmpty {
+                        if loaded.isLegacy {
+                            showLegacyExamImport = true
+                        } else {
+                            showResumeDialog = true
+                        }
+                    } else if startWhenMissing {
+                        expandedTopic = nil
+                        hasStartedExam = true
+                    }
+
+                case .failure:
+                    resumeCheckedKey = nil
+
+                    showExamScopeMessage(
+                        "לא ניתן לבדוק את הטיוטה כרגע. נסה שוב לפני תחילת המבחן.",
+                        "The draft could not be checked. Please try again before starting the exam."
+                    )
                 }
             }
         }
     }
     
     private func saveCurrentExam() {
+        guard examScope != nil else {
+            showExamScopeMessage(
+                "יש לבחור סניף וקבוצה לפני שמירת תוצאה.",
+                "Select a branch and group before saving a result."
+            )
+            return
+        }
         let cleanName = traineeName.trimmed()
 
         guard !cleanName.isEmpty else {
@@ -3173,17 +3466,34 @@ struct InternalExamView: View {
                 )
 
                 removeRecentTraineeAfterCompletion(cleanName)
-                saveLastTrainee(cleanName)
+
+                if let scope = examScope {
+                    UserDefaults.standard.removeObject(
+                        forKey: scope.localKey(InternalExamStore.lastKey)
+                    )
+                }
 
                 marksMap.removeAll()
+                pendingLoadedDraft.removeAll()
                 hasUnsavedChanges = false
-                resumeCheckedKey = draftKey(traineeName: cleanName, belt: currentBelt)
+                resumeCheckedKey = nil
+                selectedSavedTraineeName = nil
+                expandedTopic = nil
+                expandedExamSubTopic = nil
+                showResumeDialog = false
+                showLegacyExamImport = false
+                isCheckingExamDraft = false
+
+                traineeName = ""
+                showTraineeNameBox = true
+                isTypingNewTraineeName = false
+                hasStartedExam = false
 
                 examActionMessage = tr(
                     "המבחן הסתיים ונשמר בהצלחה.",
                     "The exam was finished and saved successfully."
                 )
-                shouldDismissAfterExamAction = true
+                shouldDismissAfterExamAction = false
                 showExamActionAlert = true
             }
         }
@@ -3271,29 +3581,8 @@ struct InternalExamView: View {
         let leftMargin: CGFloat = 40
         let rightMargin: CGFloat = pageWidth - 40
         let contentWidth = rightMargin - leftMargin
-        let contentTop: CGFloat = 164
-        let contentBottom: CGFloat = pageHeight - 66
-
-        let navy = UIColor(
-            red: 2.0 / 255.0,
-            green: 43.0 / 255.0,
-            blue: 74.0 / 255.0,
-            alpha: 1
-        )
-
-        let mediumBlue = UIColor(
-            red: 36.0 / 255.0,
-            green: 103.0 / 255.0,
-            blue: 158.0 / 255.0,
-            alpha: 1
-        )
-
-        let lightHeaderBlue = UIColor(
-            red: 128.0 / 255.0,
-            green: 183.0 / 255.0,
-            blue: 220.0 / 255.0,
-            alpha: 1
-        )
+        let contentTop = KmiPdfHeader.CONTENT_TOP
+        let contentBottom = pageHeight - KmiPdfFooter.CONTENT_BOTTOM_PADDING
 
         let primaryText = UIColor(
             red: 15.0 / 255.0,
@@ -3568,259 +3857,25 @@ struct InternalExamView: View {
             var currentY = contentTop
 
             func drawHeader() {
-                let graphicsContext = context.cgContext
-
-                graphicsContext.saveGState()
-
-                UIColor.white.setFill()
-                graphicsContext.fill(pageBounds)
-
-                let headerBottom: CGFloat = 122
-
-                navy.setFill()
-
-                let navyPath = UIBezierPath()
-                navyPath.move(
-                    to: CGPoint(
-                        x: pageWidth,
-                        y: 0
-                    )
+                KmiPdfHeader.draw(
+                    context: context.cgContext,
+                    pageWidth: pageWidth,
+                    isEnglish: isEnglish,
+                    titleHebrew: "דו״ח מבחן פנימי",
+                    titleEnglish: "Internal Exam",
+                    subtitleHebrew: "חגורה: \(examBeltNameForUi(session.belt, isEnglish: false))",
+                    subtitleEnglish: "Belt: \(examBeltNameForUi(session.belt, isEnglish: true))",
+                    generatedDate: formattedDate
                 )
-                navyPath.addLine(
-                    to: CGPoint(
-                        x: pageWidth,
-                        y: headerBottom
-                    )
-                )
-                navyPath.addLine(
-                    to: CGPoint(
-                        x: 178,
-                        y: headerBottom
-                    )
-                )
-                navyPath.addLine(
-                    to: CGPoint(
-                        x: 238,
-                        y: 0
-                    )
-                )
-                navyPath.close()
-                navyPath.fill()
-
-                mediumBlue.setFill()
-
-                let mediumStripe = UIBezierPath()
-                mediumStripe.move(
-                    to: CGPoint(
-                        x: 208,
-                        y: headerBottom
-                    )
-                )
-                mediumStripe.addLine(
-                    to: CGPoint(
-                        x: 224,
-                        y: headerBottom
-                    )
-                )
-                mediumStripe.addLine(
-                    to: CGPoint(
-                        x: 284,
-                        y: 0
-                    )
-                )
-                mediumStripe.addLine(
-                    to: CGPoint(
-                        x: 268,
-                        y: 0
-                    )
-                )
-                mediumStripe.close()
-                mediumStripe.fill()
-
-                lightHeaderBlue.setFill()
-
-                let lightStripe = UIBezierPath()
-                lightStripe.move(
-                    to: CGPoint(
-                        x: 230,
-                        y: headerBottom
-                    )
-                )
-                lightStripe.addLine(
-                    to: CGPoint(
-                        x: 238,
-                        y: headerBottom
-                    )
-                )
-                lightStripe.addLine(
-                    to: CGPoint(
-                        x: 298,
-                        y: 0
-                    )
-                )
-                lightStripe.addLine(
-                    to: CGPoint(
-                        x: 290,
-                        y: 0
-                    )
-                )
-                lightStripe.close()
-                lightStripe.fill()
-
-                navy.setFill()
-
-                UIBezierPath(
-                    ovalIn: CGRect(
-                        x: 36,
-                        y: 16,
-                        width: 84,
-                        height: 84
-                    )
-                ).fill()
-
-                UIColor.white.setFill()
-
-                UIBezierPath(
-                    ovalIn: CGRect(
-                        x: 40,
-                        y: 20,
-                        width: 76,
-                        height: 76
-                    )
-                ).fill()
-
-                drawText(
-                    "KAMI",
-                    in: CGRect(
-                        x: 40,
-                        y: 43,
-                        width: 76,
-                        height: 34
-                    ),
-                    font: .systemFont(
-                        ofSize: 25,
-                        weight: .bold
-                    ),
-                    color: navy,
-                    alignment: .center
-                )
-
-                let headerTextX: CGFloat =
-                    isEnglish ? 308 : 260
-
-                let headerTextWidth: CGFloat =
-                    pageWidth - headerTextX - 34
-
-                drawText(
-                    tr(
-                        "דו״ח מבחן פנימי",
-                        "Internal Exam Report"
-                    ),
-                    in: CGRect(
-                        x: headerTextX,
-                        y: 28,
-                        width: headerTextWidth,
-                        height: 39
-                    ),
-                    font: .systemFont(
-                        ofSize: 28,
-                        weight: .bold
-                    ),
-                    color: .white,
-                    alignment: isEnglish ? .left : .right
-                )
-
-                drawText(
-                    tr(
-                        "חגורה: \(examBeltNameForUi(session.belt, isEnglish: false))",
-                        "Belt: \(examBeltNameForUi(session.belt, isEnglish: true))"
-                    ),
-                    in: CGRect(
-                        x: headerTextX,
-                        y: 70,
-                        width: headerTextWidth,
-                        height: 25
-                    ),
-                    font: .systemFont(
-                        ofSize: 14,
-                        weight: .regular
-                    ),
-                    color: .white,
-                    alignment: isEnglish ? .left : .right
-                )
-
-                drawText(
-                    tr(
-                        "תאריך הפקה: \(formattedDate)",
-                        "Generated: \(formattedDate)"
-                    ),
-                    in: CGRect(
-                        x: leftMargin,
-                        y: 132,
-                        width: contentWidth,
-                        height: 18
-                    ),
-                    font: .systemFont(
-                        ofSize: 9,
-                        weight: .regular
-                    ),
-                    color: mutedText,
-                    alignment: .right
-                )
-
-                graphicsContext.restoreGState()
             }
 
             func drawFooter() {
-                let footerY = pageHeight - 29
-
-                borderColor.setFill()
-
-                UIBezierPath(
-                    rect: CGRect(
-                        x: leftMargin,
-                        y: footerY - 10,
-                        width: contentWidth,
-                        height: 1
-                    )
-                ).fill()
-
-                drawText(
-                    tr(
-                        "נוצר ע״י K.A.M.I",
-                        "Generated by K.A.M.I"
-                    ),
-                    in: CGRect(
-                        x: leftMargin,
-                        y: footerY,
-                        width: contentWidth / 2,
-                        height: 16
-                    ),
-                    font: .systemFont(
-                        ofSize: 10.5,
-                        weight: .regular
-                    ),
-                    color: mutedText,
-                    alignment: .left
-                )
-
-                drawText(
-                    tr(
-                        "עמוד \(pageNumber)",
-                        "Page \(pageNumber)"
-                    ),
-                    in: CGRect(
-                        x: leftMargin + contentWidth / 2,
-                        y: footerY,
-                        width: contentWidth / 2,
-                        height: 16
-                    ),
-                    font: .systemFont(
-                        ofSize: 10.5,
-                        weight: .regular
-                    ),
-                    color: mutedText,
-                    alignment: .right
+                KmiPdfFooter.draw(
+                    context: context.cgContext,
+                    pageWidth: pageWidth,
+                    pageHeight: pageHeight,
+                    pageNumber: pageNumber,
+                    isEnglish: isEnglish
                 )
             }
 
@@ -4289,7 +4344,7 @@ struct InternalExamView: View {
         let fileName =
             isEnglish
             ? "internal_exam_report.pdf"
-            : "internal_exam_hebrew_report.pdf"
+            : "דוח_מבחן_פנימי.pdf"
 
         let fileURL =
             temporaryDirectory.appendingPathComponent(
@@ -4310,8 +4365,8 @@ struct InternalExamView: View {
             showExamShareSheet = true
         } catch {
             examActionMessage = tr(
-                "יצירת קובץ ה־PDF נכשלה: \(error.localizedDescription)",
-                "Failed to create the PDF: \(error.localizedDescription)"
+                "יצירת קובץ ה־PDF נכשלה. נסה שוב.",
+                "The PDF could not be created. Please try again."
             )
             shouldDismissAfterExamAction = false
             showExamActionAlert = true
@@ -4328,7 +4383,8 @@ struct InternalExamView: View {
                 id: "\(belt.id)_\(item.topic)_\(item.name)_\(index)",
                 belt: belt,
                 topic: item.topic,
-                name: item.name
+                name: item.name,
+                subTopic: item.subTopic
             )
         }
     }
@@ -4464,6 +4520,7 @@ private struct ExamExerciseItem: Identifiable, Hashable {
     let belt: Belt
     let topic: String
     let name: String
+    var subTopic: String? = nil
 }
 
 private struct InternalExamSession {
@@ -4659,58 +4716,19 @@ private struct SummaryCardView: View {
     }
 
     private var primaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.94)
-            : Color(
-                red: 0.10,
-                green: 0.14,
-                blue: 0.24
-            )
+        KmiAppTheme.onSurface(for: isDarkMode ? .dark : .light)
     }
 
     private var secondaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.68)
-            : Color.black.opacity(0.58)
+        KmiAppTheme.onSurfaceVariant(for: isDarkMode ? .dark : .light)
     }
 
     private var rowBackground: Color {
-        isDarkMode
-            ? Color.white.opacity(0.10)
-            : Color.white.opacity(0.70)
+        KmiAppTheme.surfaceVariant(for: isDarkMode ? .dark : .light)
     }
 
-    private var cardBackground: LinearGradient {
-        LinearGradient(
-            colors:
-                isDarkMode
-                ? [
-                    Color(
-                        red: 0.075,
-                        green: 0.100,
-                        blue: 0.160
-                    ),
-                    beltDarkColor(for: currentBelt)
-                        .opacity(0.55),
-                    Color(
-                        red: 0.060,
-                        green: 0.080,
-                        blue: 0.135
-                    )
-                ]
-                : [
-                    Color(
-                        red: 1.0,
-                        green: 0.98,
-                        blue: 0.78
-                    ),
-                    Color.white.opacity(0.96),
-                    beltSoftColor(for: currentBelt)
-                        .opacity(0.68)
-                ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+    private var cardBackground: Color {
+        KmiAppTheme.surface(for: isDarkMode ? .dark : .light)
     }
 
     var body: some View {
@@ -5036,37 +5054,15 @@ private struct TopicHeaderView: View {
     }
 
     private var backgroundColor: Color {
-        isDarkMode
-            ? Color(
-                red: 0.070,
-                green: 0.095,
-                blue: 0.150
-            )
-            : Color(
-                red: 0.92,
-                green: 0.95,
-                blue: 1.00
-            )
+        KmiAppTheme.surfaceVariant(for: isDarkMode ? .dark : .light)
     }
 
     private var primaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.94)
-            : Color(
-                red: 0.07,
-                green: 0.10,
-                blue: 0.15
-            )
+        KmiAppTheme.onSurface(for: isDarkMode ? .dark : .light)
     }
 
     private var secondaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.64)
-            : Color(
-                red: 0.37,
-                green: 0.42,
-                blue: 0.50
-            )
+        KmiAppTheme.onSurfaceVariant(for: isDarkMode ? .dark : .light)
     }
 
     var body: some View {
@@ -5202,63 +5198,31 @@ private struct ExerciseRowView: View {
     let belt: Belt
     let onScoreChange: (Int?) -> Void
 
-    private var primaryTextColor: Color {
-                                            isDarkMode
-                                                ? Color.white.opacity(0.94)
-                                                : Color(
-                                                    red: 0.08,
-                                                    green: 0.12,
-                                                    blue: 0.20
-                                                )
-                                        }
-
-                                        private var cardColor: Color {
-                                            isDarkMode
-                                                ? Color(
-                                                    red: 0.060,
-                                                    green: 0.082,
-                                                    blue: 0.130
-                                                )
-                                                : Color.white.opacity(0.985)
-                                        }
-
-    private var textAlignment: TextAlignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    private var frameAlignment: Alignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    private var stackAlignment: HorizontalAlignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    private var scoreValues: [Int] {
-        isEnglish ? Array(1...10) : [5, 4, 3, 2, 1, 10, 9, 8, 7, 6]
+    private var scheme: ColorScheme {
+        isDarkMode ? .dark : .light
     }
 
     private let scoreColumns: [GridItem] = Array(
-        repeating: GridItem(.fixed(26), spacing: 6, alignment: .center),
+        repeating: GridItem(
+            .flexible(minimum: 32, maximum: 44),
+            spacing: 6,
+            alignment: .center
+        ),
         count: 5
     )
 
     var body: some View {
-        VStack(alignment: stackAlignment, spacing: 7) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(name)
-                .kmiFont(
-                    size: 13,
-                    weight: .black
-                )
-                .foregroundStyle(primaryTextColor)
-                .multilineTextAlignment(textAlignment)
-                .frame(maxWidth: .infinity, alignment: frameAlignment)
-                .lineLimit(2)
-                .minimumScaleFactor(0.82)
-                .padding(.bottom, 1)
+                .kmiTypography(.secondary)
+                .fontWeight(.black)
+                .foregroundStyle(KmiAppTheme.onSurface(for: scheme))
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
 
-            LazyVGrid(columns: scoreColumns, alignment: .center, spacing: 5) {
-                ForEach(scoreValues, id: \.self) { value in
+            LazyVGrid(columns: scoreColumns, alignment: .center, spacing: 6) {
+                ForEach(1...10, id: \.self) { value in
                     ScoreChipView(
                         value: value,
                         selected: score == value
@@ -5271,25 +5235,23 @@ private struct ExerciseRowView: View {
             .environment(\.layoutDirection, .leftToRight)
         }
         .padding(.horizontal, 9)
-        .padding(.vertical, 7)
-        .background(cardColor)
-        .overlay(
+        .padding(.vertical, 8)
+        .background(
+            KmiAppTheme.surface(for: scheme),
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+        )
+        .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(
-                    isDarkMode
-                        ? beltAccentColor(for: belt)
-                            .opacity(0.32)
-                        : Color(
-                            red: 0.78,
-                            green: 0.84,
-                            blue: 0.92
-                        )
-                        .opacity(0.75),
+                    KmiAppTheme.outlineVariant(for: scheme),
                     lineWidth: 1
                 )
+                .allowsHitTesting(false)
+        }
+        .environment(
+            \.layoutDirection,
+            isEnglish ? .leftToRight : .rightToLeft
         )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .shadow(color: Color.black.opacity(0.075), radius: 4, x: 0, y: 2)
     }
 }
 
@@ -5298,41 +5260,37 @@ private struct ScoreChipView: View {
     let selected: Bool
     let onTap: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         let base = scoreColor(value)
-        let background = selected ? base.opacity(0.95) : base.opacity(0.34)
+        let foreground: Color = selected
+            ? (value <= 3 ? .white : .black)
+            : KmiAppTheme.onSurface(for: colorScheme)
 
         Button(action: onTap) {
             Text("\(value)")
-                .kmiFont(
-                    size: 9.5,
-                    weight: .black
-                )
-                .foregroundStyle(
-                    selected
-                        ? Color.black.opacity(0.94)
-                        : Color.primary.opacity(0.92)
-                )
-                .frame(width: 25, height: 25)
+                .kmiTypography(.caption)
+                .fontWeight(.black)
+                .foregroundStyle(foreground)
+                .frame(maxWidth: .infinity, minHeight: 34)
                 .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(background)
+                    base.opacity(selected ? 0.95 : 0.20),
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(
-                            selected ? base.opacity(0.98) : base.opacity(0.82),
-                            lineWidth: selected ? 1.4 : 0.9
+                            selected
+                                ? base
+                                : KmiAppTheme.outlineVariant(for: colorScheme),
+                            lineWidth: selected ? 2 : 1
                         )
-                )
-                .shadow(
-                    color: selected ? base.opacity(0.22) : Color.clear,
-                    radius: selected ? 2 : 0,
-                    x: 0,
-                    y: selected ? 1 : 0
-                )
+                        .allowsHitTesting(false)
+                }
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -5499,6 +5457,134 @@ private func beltDarkColor(for belt: Belt) -> Color {
 
 // MARK: - Persistence
 
+private struct InternalExamScope: Equatable, Sendable {
+    let coachUid: String
+    let branch: String
+    let group: String
+
+    var isCurrentUser: Bool {
+        internalExamCoachUid() == coachUid
+    }
+
+    var cacheKey: String {
+        let value = [coachUid, branch, group]
+            .map { "\($0.utf8.count):\($0)" }
+            .joined()
+
+        return Data(value.utf8).base64EncodedString()
+    }
+
+    func localKey(_ base: String) -> String {
+        "\(base).scope.\(cacheKey)"
+    }
+
+    func matches(_ data: [String: Any]) -> Bool {
+        (data["coachUid"] as? String) == coachUid &&
+        (data["branch"] as? String ?? "").trimmed() == branch &&
+        (data["group"] as? String ?? "").trimmed() == group
+    }
+
+    func recentDocumentId(_ name: String) -> String {
+        "\(Self.part(branch))_\(Self.part(group))_\(internalExamTraineeKey(name))"
+    }
+
+    static func part(_ value: String) -> String {
+        value.trimmed()
+            .lowercased()
+            .replacingOccurrences(
+                of: "[^a-z0-9א-ת]+",
+                with: "_",
+                options: .regularExpression
+            )
+            .trimmingCharacters(
+                in: CharacterSet(charactersIn: "_")
+            )
+    }
+}
+
+private enum InternalExamScopeError: Error {
+    case accountChanged
+    case invalidScope
+}
+
+private struct InternalExamLoadedDraft: Sendable {
+    let marks: [String: Int]
+    let isLegacy: Bool
+}
+
+private func scopedFetchRecentTrainees(
+    scope: InternalExamScope,
+    completion: @escaping (Result<[String], Error>) -> Void
+) {
+    guard scope.isCurrentUser else {
+        completion(.failure(InternalExamScopeError.accountChanged))
+        return
+    }
+
+    Firestore.firestore()
+        .collection(InternalExamStore.recentTraineesCollection)
+        .document(scope.coachUid)
+        .collection(InternalExamStore.traineesSubcollection)
+        .getDocuments { snapshot, error in
+            guard scope.isCurrentUser else {
+                completion(
+                    .failure(InternalExamScopeError.accountChanged)
+                )
+                return
+            }
+
+            if let error {
+                completion(.failure(error))
+                return
+            }
+
+            guard let documents = snapshot?.documents else {
+                completion(
+                    .failure(InternalExamScopeError.invalidScope)
+                )
+                return
+            }
+
+            let rows = documents.compactMap { doc -> (String, Int64)? in
+                let data = doc.data()
+
+                let legacy =
+                    (data["branch"] as? String ?? "").trimmed().isEmpty &&
+                    (data["group"] as? String ?? "").trimmed().isEmpty &&
+                    data["coachUid"] as? String == scope.coachUid
+
+                guard scope.matches(data) || legacy,
+                      let name = (data["name"] as? String)?.trimmed(),
+                      !name.isEmpty else {
+                    return nil
+                }
+
+                return (
+                    name,
+                    (data["updatedAtMillis"] as? NSNumber)?.int64Value ?? 0
+                )
+            }
+            .sorted { $0.1 > $1.1 }
+
+            var seen = Set<String>()
+
+            let names = Array(
+                rows.map(\.0)
+                    .filter {
+                        seen.insert($0.lowercased()).inserted
+                    }
+                    .prefix(20)
+            )
+
+            UserDefaults.standard.set(
+                names,
+                forKey: scope.localKey(InternalExamStore.recentKey)
+            )
+
+            completion(.success(names))
+        }
+}
+
 private enum InternalExamStore {
     static let draftsKey = "kmi_internal_exam_drafts"
     static let recentKey = "kmi_internal_exam_recent_trainees"
@@ -5533,6 +5619,13 @@ private struct StoredCompletedInternalExamResult: Codable {
     let shareSummaryHe: String
     let shareSummaryEn: String
     let answeredExercises: [StoredCompletedInternalExamExercise]
+    var branch: String? = nil
+    var group: String? = nil
+
+    var isUnassigned: Bool {
+        (branch ?? "").trimmed().isEmpty &&
+        (group ?? "").trimmed().isEmpty
+    }
 }
 
 private struct StoredCompletedInternalExamExercise: Codable {
@@ -5546,10 +5639,6 @@ private struct StoredCompletedInternalExamExercise: Codable {
     let score: Int
 }
 
-private func draftKey(traineeName: String, belt: Belt) -> String {
-    "draft_\(traineeName.trimmed())_\(belt.id)"
-}
-
 private func internalExamItemsForPersistence(for belt: Belt) -> [ExamExerciseItem] {
     let categorized = ExamDataSource.categorizedItemsForBelt(belt)
 
@@ -5558,7 +5647,8 @@ private func internalExamItemsForPersistence(for belt: Belt) -> [ExamExerciseIte
             id: "\(belt.id)_\(item.topic)_\(item.name)_\(index)",
             belt: belt,
             topic: item.topic,
-            name: item.name
+            name: item.name,
+            subTopic: item.subTopic
         )
     }
 }
@@ -5600,19 +5690,27 @@ private func internalExamTraineeKey(_ name: String) -> String {
 private func internalExamDraftId(
     coachUid: String,
     traineeName: String,
-    belt: Belt
+    belt: Belt,
+    scope: InternalExamScope
 ) -> String {
-    "\(coachUid)_\(belt.id)_\(internalExamTraineeKey(traineeName))"
+    "\(coachUid)_\(InternalExamScope.part(scope.branch))_\(InternalExamScope.part(scope.group))_\(belt.id.uppercased())_\(internalExamTraineeKey(traineeName))"
 }
 
-private func saveExamDraft(
+private func scopedSaveExamDraft(
     traineeName: String,
     belt: Belt,
-    marksMap: [String: Int]
+    marksMap: [String: Int],
+    scope: InternalExamScope,
+    completion: @escaping (Bool) -> Void
 ) {
     let cleanName = traineeName.trimmed()
-    guard !cleanName.isEmpty else { return }
-    guard let coachUid = internalExamCoachUid() else { return }
+
+    guard !cleanName.isEmpty, scope.isCurrentUser else {
+        completion(false)
+        return
+    }
+
+    let coachUid = scope.coachUid
 
     let safeMarks = Dictionary(
         uniqueKeysWithValues: marksMap
@@ -5631,19 +5729,22 @@ private func saveExamDraft(
         exercises: draftExercises,
         marks: draftExercises.map { safeMarks[$0.id] }
     )
-    
+
     let docId = internalExamDraftId(
         coachUid: coachUid,
         traineeName: cleanName,
-        belt: belt
+        belt: belt,
+        scope: scope
     )
 
     let data: [String: Any] = [
         "examId": docId,
         "coachUid": coachUid,
+        "branch": scope.branch,
+        "group": scope.group,
         "traineeName": cleanName,
         "traineeKey": internalExamTraineeKey(cleanName),
-        "belt": belt.id,
+        "belt": belt.id.uppercased(),
         "beltHeb": belt.heb,
         "beltEn": examBeltNameForUi(belt, isEnglish: true),
         "status": InternalExamStore.draftStatus,
@@ -5651,8 +5752,14 @@ private func saveExamDraft(
         "totalScore": draftSession.totalScore,
         "maxScore": draftSession.maxScore,
         "percent": draftSession.percent,
-        "summaryTextHe": examStatusText(percent: draftSession.percent, isEnglish: false),
-        "summaryTextEn": examStatusText(percent: draftSession.percent, isEnglish: true),
+        "summaryTextHe": examStatusText(
+            percent: draftSession.percent,
+            isEnglish: false
+        ),
+        "summaryTextEn": examStatusText(
+            percent: draftSession.percent,
+            isEnglish: true
+        ),
         "updatedAtMillis": Int64(Date().timeIntervalSince1970 * 1000),
         "updatedAt": FieldValue.serverTimestamp()
     ]
@@ -5660,70 +5767,147 @@ private func saveExamDraft(
     Firestore.firestore()
         .collection(InternalExamStore.draftsCollection)
         .document(docId)
-        .setData(data, merge: true)
-
-    pushRecentTrainee(cleanName)
-    saveLastTrainee(cleanName)
+        .setData(data) { error in
+            completion(error == nil && scope.isCurrentUser)
+        }
 }
 
-private func loadExamDraft(
+private func scopedLoadExamDraft(
     traineeName: String,
     belt: Belt,
-    completion: @escaping ([String: Int]) -> Void
+    scope: InternalExamScope,
+    completion: @escaping (Result<InternalExamLoadedDraft, Error>) -> Void
 ) {
     let cleanName = traineeName.trimmed()
-    guard !cleanName.isEmpty else {
-        completion([:])
-        return
-    }
 
-    guard let coachUid = internalExamCoachUid() else {
-        completion([:])
+    guard !cleanName.isEmpty, scope.isCurrentUser else {
+        completion(.failure(InternalExamScopeError.accountChanged))
         return
     }
 
     let docId = internalExamDraftId(
-        coachUid: coachUid,
+        coachUid: scope.coachUid,
         traineeName: cleanName,
-        belt: belt
+        belt: belt,
+        scope: scope
     )
+
+    func parsedMarks(_ data: [String: Any]) -> [String: Int] {
+        (data["marks"] as? [String: Any] ?? [:])
+            .reduce(into: [String: Int]()) { result, pair in
+                guard !pair.key.trimmed().isEmpty else {
+                    return
+                }
+
+                if let number = pair.value as? NSNumber {
+                    result[pair.key] = clampScore10(number.intValue)
+                } else if let text = pair.value as? String,
+                          let number = Int(text) {
+                    result[pair.key] = clampScore10(number)
+                }
+            }
+    }
 
     Firestore.firestore()
         .collection(InternalExamStore.draftsCollection)
         .document(docId)
-        .getDocument { snapshot, _ in
-            guard let data = snapshot?.data(),
-                  let rawMarks = data["marks"] as? [String: Any] else {
-                completion([:])
+        .getDocument { snapshot, error in
+            guard scope.isCurrentUser else {
+                completion(
+                    .failure(InternalExamScopeError.accountChanged)
+                )
                 return
             }
 
-            let marks = rawMarks.reduce(into: [String: Int]()) { result, item in
-                let key = item.key.trimmed()
-                guard !key.isEmpty else { return }
-
-                if let value = item.value as? Int {
-                    result[key] = clampScore10(value)
-                } else if let value = item.value as? Double {
-                    result[key] = clampScore10(Int(value))
-                } else if let value = item.value as? NSNumber {
-                    result[key] = clampScore10(value.intValue)
-                }
+            if let error {
+                completion(.failure(error))
+                return
             }
 
-            completion(marks)
+            if let data = snapshot?.data() {
+                guard scope.matches(data) else {
+                    completion(
+                        .failure(InternalExamScopeError.invalidScope)
+                    )
+                    return
+                }
+
+                completion(
+                    .success(
+                        InternalExamLoadedDraft(
+                            marks: parsedMarks(data),
+                            isLegacy: false
+                        )
+                    )
+                )
+                return
+            }
+
+            let legacyId =
+                "\(scope.coachUid)_\(belt.id)_\(internalExamTraineeKey(cleanName))"
+
+            Firestore.firestore()
+                .collection(InternalExamStore.draftsCollection)
+                .document(legacyId)
+                .getDocument { oldSnapshot, oldError in
+                    guard scope.isCurrentUser else {
+                        completion(
+                            .failure(InternalExamScopeError.accountChanged)
+                        )
+                        return
+                    }
+
+                    if let oldError {
+                        completion(.failure(oldError))
+                        return
+                    }
+
+                    guard let data = oldSnapshot?.data(),
+                          data["coachUid"] as? String == scope.coachUid,
+                          (data["branch"] as? String ?? "").trimmed().isEmpty,
+                          (data["group"] as? String ?? "").trimmed().isEmpty,
+                          (data["traineeName"] as? String ?? "")
+                            .trimmed()
+                            .lowercased() == cleanName.lowercased() else {
+                        completion(
+                            .success(
+                                InternalExamLoadedDraft(
+                                    marks: [:],
+                                    isLegacy: false
+                                )
+                            )
+                        )
+                        return
+                    }
+
+                    completion(
+                        .success(
+                            InternalExamLoadedDraft(
+                                marks: parsedMarks(data),
+                                isLegacy: true
+                            )
+                        )
+                    )
+                }
         }
 }
 
-private func removeExamDraft(traineeName: String, belt: Belt) {
+private func scopedRemoveExamDraft(
+    traineeName: String,
+    belt: Belt,
+    scope: InternalExamScope
+) {
     let cleanName = traineeName.trimmed()
-    guard !cleanName.isEmpty else { return }
-    guard let coachUid = internalExamCoachUid() else { return }
+
+    guard !cleanName.isEmpty, scope.isCurrentUser else {
+        return
+    }
 
     let docId = internalExamDraftId(
-        coachUid: coachUid,
+        coachUid: scope.coachUid,
         traineeName: cleanName,
-        belt: belt
+        belt: belt,
+        scope: scope
     )
 
     Firestore.firestore()
@@ -5732,24 +5916,22 @@ private func removeExamDraft(traineeName: String, belt: Belt) {
         .delete()
 }
 
-private func saveCompletedExamResult(
+private func scopedSaveCompletedExamResult(
     session: InternalExamSession,
     marksMap: [String: Int],
+    scope: InternalExamScope,
     completion: @escaping (Bool) -> Void
 ) {
     let cleanName = session.traineeName.trimmed()
 
-    guard !cleanName.isEmpty else {
+    guard !cleanName.isEmpty, scope.isCurrentUser else {
         completion(false)
         return
     }
 
-    guard let coachUid = Auth.auth().currentUser?.uid else {
-        completion(false)
-        return
-    }
-
+    let coachUid = scope.coachUid
     let db = Firestore.firestore()
+
     let docRef = db
         .collection(InternalExamStore.completedResultsCollection)
         .document()
@@ -5765,11 +5947,14 @@ private func saveCompletedExamResult(
 
         return [
             "exerciseId": exercise.id,
-            "belt": exercise.belt.id,
+            "belt": exercise.belt.id.uppercased(),
             "beltHeb": exercise.belt.heb,
-            "beltEn": examBeltNameForUi(exercise.belt, isEnglish: true),
+            "beltEn": examBeltNameForUi(
+                exercise.belt,
+                isEnglish: true
+            ),
             "topic": exercise.topic,
-            "subTopic": "",
+            "subTopic": exercise.subTopic ?? "",
             "name": exercise.name,
             "score": clampScore10(score)
         ]
@@ -5786,11 +5971,13 @@ private func saveCompletedExamResult(
     let data: [String: Any] = [
         "resultId": resultId,
         "coachUid": coachUid,
+        "branch": scope.branch,
+        "group": scope.group,
 
         "traineeName": cleanName,
         "traineeKey": traineeKey,
 
-        "belt": session.belt.id,
+        "belt": session.belt.id.uppercased(),
         "beltHeb": session.belt.heb,
         "beltEn": examBeltNameForUi(session.belt, isEnglish: true),
 
@@ -5806,8 +5993,14 @@ private func saveCompletedExamResult(
         "score10": session.score10,
         "percent": session.percent,
 
-        "summaryTextHe": examStatusText(percent: session.percent, isEnglish: false),
-        "summaryTextEn": examStatusText(percent: session.percent, isEnglish: true),
+        "summaryTextHe": examStatusText(
+            percent: session.percent,
+            isEnglish: false
+        ),
+        "summaryTextEn": examStatusText(
+            percent: session.percent,
+            isEnglish: true
+        ),
         "shareSummaryHe": session.shareText(isEnglish: false),
         "shareSummaryEn": session.shareText(isEnglish: true),
 
@@ -5818,48 +6011,81 @@ private func saveCompletedExamResult(
     ]
 
     docRef.setData(data, merge: true) { error in
-        completion(error == nil)
+        completion(error == nil && scope.isCurrentUser)
     }
 }
 
-private func loadCompletedExamResults() -> [StoredCompletedInternalExamResult] {
-    guard let data = UserDefaults.standard.data(forKey: InternalExamStore.completedResultsKey),
-          let decoded = try? JSONDecoder().decode([StoredCompletedInternalExamResult].self, from: data) else {
+private func scopedLoadCompletedExamResults(
+    scope: InternalExamScope
+) -> [StoredCompletedInternalExamResult] {
+    guard scope.isCurrentUser else {
+        return []
+    }
+
+    guard let data = UserDefaults.standard.data(
+        forKey: scope.localKey(InternalExamStore.completedResultsKey)
+    ),
+    let decoded = try? JSONDecoder().decode(
+        [StoredCompletedInternalExamResult].self,
+        from: data
+    ) else {
         return []
     }
 
     return decoded
 }
 
-private func removeRecentTraineeAfterCompletion(_ name: String) {
+private func scopedRemoveRecentTraineeAfterCompletion(
+    _ name: String,
+    scope: InternalExamScope
+) {
     let clean = name.trimmed()
-    guard !clean.isEmpty else { return }
 
-    let list = loadRecentTrainees().filter {
+    guard !clean.isEmpty, scope.isCurrentUser else {
+        return
+    }
+
+    let list = scopedLoadRecentTrainees(scope: scope).filter {
         $0.trimmed().lowercased() != clean.lowercased()
     }
 
-    UserDefaults.standard.set(list, forKey: InternalExamStore.recentKey)
-
-    guard let coachUid = internalExamCoachUid() else { return }
+    UserDefaults.standard.set(
+        list,
+        forKey: scope.localKey(InternalExamStore.recentKey)
+    )
 
     Firestore.firestore()
         .collection(InternalExamStore.recentTraineesCollection)
-        .document(coachUid)
+        .document(scope.coachUid)
         .collection(InternalExamStore.traineesSubcollection)
-        .document(internalExamTraineeKey(clean))
+        .document(scope.recentDocumentId(clean))
         .delete()
 }
 
-private func loadRecentTrainees() -> [String] {
-    UserDefaults.standard.stringArray(forKey: InternalExamStore.recentKey) ?? []
+private func scopedLoadRecentTrainees(
+    scope: InternalExamScope
+) -> [String] {
+    guard scope.isCurrentUser else {
+        return []
+    }
+
+    return UserDefaults.standard.stringArray(
+        forKey: scope.localKey(InternalExamStore.recentKey)
+    ) ?? []
 }
 
-private func pushRecentTrainee(_ name: String, limit: Int = 20) {
+private func scopedPushRecentTrainee(
+    _ name: String,
+    scope: InternalExamScope,
+    limit: Int = 20
+) {
     let clean = name.trimmed()
-    guard !clean.isEmpty else { return }
 
-    var list = loadRecentTrainees().filter {
+    guard !clean.isEmpty, scope.isCurrentUser else {
+        return
+    }
+
+    var list = scopedLoadRecentTrainees(scope: scope).filter {
         $0.trimmed().lowercased() != clean.lowercased()
     }
 
@@ -5869,22 +6095,25 @@ private func pushRecentTrainee(_ name: String, limit: Int = 20) {
         list = Array(list.prefix(limit))
     }
 
-    UserDefaults.standard.set(list, forKey: InternalExamStore.recentKey)
-
-    guard let coachUid = internalExamCoachUid() else { return }
+    UserDefaults.standard.set(
+        list,
+        forKey: scope.localKey(InternalExamStore.recentKey)
+    )
 
     let traineeKey = internalExamTraineeKey(clean)
 
     Firestore.firestore()
         .collection(InternalExamStore.recentTraineesCollection)
-        .document(coachUid)
+        .document(scope.coachUid)
         .collection(InternalExamStore.traineesSubcollection)
-        .document(traineeKey)
+        .document(scope.recentDocumentId(clean))
         .setData(
             [
                 "name": clean,
                 "traineeKey": traineeKey,
-                "coachUid": coachUid,
+                "coachUid": scope.coachUid,
+                "branch": scope.branch,
+                "group": scope.group,
                 "updatedAtMillis": Int64(Date().timeIntervalSince1970 * 1000),
                 "updatedAt": FieldValue.serverTimestamp()
             ],
@@ -5892,19 +6121,28 @@ private func pushRecentTrainee(_ name: String, limit: Int = 20) {
         )
 }
 
-private func saveLastTrainee(_ name: String) {
+private func scopedSaveLastTrainee(
+    _ name: String,
+    scope: InternalExamScope
+) {
     let clean = name.trimmed()
-    guard !clean.isEmpty else { return }
 
-    UserDefaults.standard.set(clean, forKey: InternalExamStore.lastKey)
+    guard !clean.isEmpty, scope.isCurrentUser else {
+        return
+    }
 
-    guard let coachUid = internalExamCoachUid() else { return }
+    UserDefaults.standard.set(
+        clean,
+        forKey: scope.localKey(InternalExamStore.lastKey)
+    )
 
     Firestore.firestore()
         .collection(InternalExamStore.coachStateCollection)
-        .document(coachUid)
+        .document(scope.coachUid)
         .setData(
             [
+                "branch": scope.branch,
+                "group": scope.group,
                 "lastTraineeName": clean,
                 "lastTraineeKey": internalExamTraineeKey(clean),
                 "updatedAtMillis": Int64(Date().timeIntervalSince1970 * 1000),
@@ -5912,10 +6150,6 @@ private func saveLastTrainee(_ name: String) {
             ],
             merge: true
         )
-}
-
-private func loadLastTrainee() -> String {
-    UserDefaults.standard.string(forKey: InternalExamStore.lastKey) ?? ""
 }
 
 // MARK: - String / Number utils

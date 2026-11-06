@@ -286,10 +286,18 @@ struct ExercisesTabsView: View {
             refreshStates()
         }) { context in
             ExerciseNoteSheet(
-                title: title(context.item), noteText: $noteDraft,
+                title: title(context.item),
+                noteText: $noteDraft,
                 isEnglish: isEnglish,
-                onSave: { saveNote(context) },
-                shouldDismissAfterSave: { !noteSaveFailed }
+                onSave: {
+                    saveNote(context)
+                },
+                shouldDismissAfterSave: {
+                    !noteSaveFailed
+                },
+                accentColor: KmiBeltPalette.color(
+                    for: belt
+                )
             )
             .alert(tr("לא ניתן לשמור", "Unable to save"), isPresented: $noteSaveFailed) {
                 Button(tr("אישור", "OK"), role: .cancel) {}

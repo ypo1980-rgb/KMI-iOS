@@ -260,6 +260,10 @@ struct BeltQuestionsByBeltView: View {
     @State private var showPDFShareSheet: Bool = false
     @State private var pdfShareItems: [Any] = []
     @State private var pdfErrorMessage: String? = nil
+
+    @State private var isPreparingPDF = false
+    @State private var pdfRequestID = UUID()
+    @State private var isPDFScreenActive = false
     
     /*
      * מצב הגישה מתרענן באמצעות
@@ -2210,58 +2214,88 @@ struct BeltQuestionsByBeltView: View {
             }
     }
 
+    private func invalidatePDFRequest() {
+        pdfRequestID = UUID()
+        isPreparingPDF = false
+    }
+
+    @MainActor
     private func createAndSharePDF() {
-        let pdfBelt =
-            quickMenuBelt
-
-        let pdfItems =
-            materialsPDFItems(
-                for: pdfBelt
-            )
-
-        guard !pdfItems.isEmpty else {
-            pdfShareItems.removeAll()
-
-            pdfErrorMessage =
-                isEnglish
-                    ? "There are no exercises available for this belt."
-                    : "אין תרגילים זמינים לחגורה זו."
-
+        guard isPDFScreenActive,
+              !isPreparingPDF,
+              !showPDFShareSheet
+        else {
             return
         }
 
-        let pdfTitle =
-            isEnglish
-                ? "\(beltDisplayTitle(pdfBelt)) Belt"
-                : "חגורה \(beltDisplayTitle(pdfBelt))"
+        let requestID = UUID()
+        let requestedBelt = quickMenuBelt
+        let requestedLanguage = isEnglish
+        let requestedUserID = currentPDFNoteUserID()
 
-        do {
-            let fileURL =
-                try MaterialsPdfGeneratorIOS
-                    .create(
-                        belt:
-                            pdfBelt,
-                        topicTitle:
-                            pdfTitle,
-                        items:
-                            pdfItems,
-                        isEnglish:
-                            isEnglish
-                    )
+        let title = requestedLanguage
+            ? "\(beltDisplayTitle(requestedBelt)) Belt"
+            : "חגורה \(beltDisplayTitle(requestedBelt))"
 
-            pdfShareItems = [
-                fileURL
-            ]
+        pdfRequestID = requestID
+        pdfErrorMessage = nil
+        pdfShareItems.removeAll()
+        quickMenuOpen = false
+        isPreparingPDF = true
 
-            showPDFShareSheet =
-                true
-        } catch {
-            pdfShareItems.removeAll()
+        Task { @MainActor in
+            await Task.yield()
 
-            pdfErrorMessage =
-                isEnglish
-                    ? "The PDF file could not be created."
-                    : "לא ניתן היה ליצור את קובץ ה־PDF."
+            guard pdfRequestID == requestID,
+                  isPDFScreenActive,
+                  quickMenuBelt.id == requestedBelt.id,
+                  isEnglish == requestedLanguage,
+                  currentPDFNoteUserID() == requestedUserID
+            else {
+                if pdfRequestID == requestID {
+                    isPreparingPDF = false
+                }
+                return
+            }
+
+            defer {
+                if pdfRequestID == requestID {
+                    isPreparingPDF = false
+                }
+            }
+
+            let items = materialsPDFItems(
+                for: requestedBelt
+            )
+
+            guard !items.isEmpty else {
+                pdfErrorMessage = requestedLanguage
+                    ? "There are no exercises available for this belt."
+                    : "אין תרגילים זמינים לחגורה זו."
+                return
+            }
+
+            do {
+                let fileURL = try MaterialsPdfGeneratorIOS.create(
+                    belt: requestedBelt,
+                    topicTitle: title,
+                    items: items,
+                    isEnglish: requestedLanguage
+                )
+
+                guard pdfRequestID == requestID,
+                      isPDFScreenActive
+                else {
+                    return
+                }
+
+                pdfShareItems = [fileURL]
+                showPDFShareSheet = true
+            } catch {
+                pdfErrorMessage = requestedLanguage
+                    ? "The PDF file could not be created. Please try again."
+                    : "לא ניתן היה ליצור את קובץ ה־PDF. נסה שוב."
+            }
         }
     }
 
@@ -2353,7 +2387,16 @@ struct BeltQuestionsByBeltView: View {
             \.layoutDirection,
             screenLayoutDirection
         )
+        .overlay {
+            if isPreparingPDF {
+                KmiLoadingOverlay()
+            }
+        }
+        .onChange(of: isEnglish) { _, _ in
+            invalidatePDFRequest()
+        }
         .onAppear {
+            isPDFScreenActive = true
 
             quickMenuOpen =
                 false
@@ -2441,6 +2484,8 @@ struct BeltQuestionsByBeltView: View {
         .onChange(
             of: selectedBelt
         ) { _, newValue in
+
+            invalidatePDFRequest()
 
             expandedTopic =
                 nil
@@ -2581,6 +2626,9 @@ struct BeltQuestionsByBeltView: View {
             createAndSharePDF()
         }
         .onDisappear {
+            isPDFScreenActive = false
+            invalidatePDFRequest()
+
             NotificationCenter
                 .default
                 .post(
@@ -2936,176 +2984,20 @@ struct BeltQuestionsByBeltView: View {
             )
         }
         .sheet(
-            isPresented:
-                $showGeneralNote,
+            isPresented: $showGeneralNote,
             onDismiss: {
-
-                generalNoteTitle =
-                    ""
-
-                generalNoteText =
-                    ""
+                generalNoteTitle = ""
+                generalNoteText = ""
             }
         ) {
-
-            VStack(
-                spacing:
-                    16
-            ) {
-
-                Capsule()
-                    .fill(
-                        KmiAppTheme
-                            .outline(
-                                for:
-                                    colorScheme
-                            )
-                            .opacity(
-                                0.45
-                            )
-                    )
-                    .frame(
-                        width:
-                            42,
-                        height:
-                            5
-                    )
-                    .padding(
-                        .top,
-                        10
-                    )
-
-                Image(
-                    systemName:
-                        "info.circle.fill"
-                )
-                .kmiIconSize(
-                    34
-                )
-                .foregroundStyle(
-                    KmiAppTheme
-                        .secondary(
-                            for:
-                                colorScheme
-                        )
-                )
-
-                Text(
-                    generalNoteTitle
-                )
-                .kmiTypography(
-                    .sectionTitle
-                )
-                .foregroundStyle(
-                    KmiAppTheme
-                        .onSurface(
-                            for:
-                                colorScheme
-                        )
-                )
-                .multilineTextAlignment(
-                    .center
-                )
-                .frame(
-                    maxWidth:
-                        .infinity
-                )
-
-                ScrollView {
-
-                    Text(
-                        generalNoteText
-                    )
-                    .kmiTypography(
-                        .body
-                    )
-                    .foregroundStyle(
-                        KmiAppTheme
-                            .onSurfaceVariant(
-                                for:
-                                    colorScheme
-                            )
-                    )
-                    .frame(
-                        maxWidth:
-                            .infinity,
-                        alignment:
-                            isEnglish
-                                ? .leading
-                                : .trailing
-                    )
-                    .multilineTextAlignment(
-                        isEnglish
-                            ? .leading
-                            : .trailing
-                    )
+            MaterialsGeneralNoteSheet(
+                title: generalNoteTitle,
+                note: generalNoteText,
+                isEnglish: isEnglish,
+                accentColor: readableBeltAccent,
+                onClose: {
+                    showGeneralNote = false
                 }
-
-                Button {
-
-                    showGeneralNote =
-                        false
-
-                } label: {
-
-                    Text(
-                        isEnglish
-                            ? "Close"
-                            : "סגור"
-                    )
-                    .kmiTypography(
-                        .action
-                    )
-                    .foregroundStyle(
-                        KmiAppTheme
-                            .onPrimary(
-                                for:
-                                    colorScheme
-                            )
-                    )
-                    .frame(
-                        maxWidth:
-                            .infinity
-                    )
-                    .frame(
-                        minHeight:
-                            48
-                    )
-                    .background {
-
-                        RoundedRectangle(
-                            cornerRadius:
-                                14,
-                            style:
-                                .continuous
-                        )
-                        .fill(
-                            KmiAppTheme
-                                .primary(
-                                    for:
-                                        colorScheme
-                                )
-                        )
-                    }
-                }
-                .buttonStyle(
-                    .plain
-                )
-            }
-            .padding(
-                .horizontal,
-                20
-            )
-            .padding(
-                .bottom,
-                18
-            )
-            .background(
-                KmiAppTheme
-                    .surface(
-                        for:
-                            colorScheme
-                    )
             )
             .environment(
                 \.layoutDirection,
@@ -3115,9 +3007,7 @@ struct BeltQuestionsByBeltView: View {
                 .medium,
                 .large
             ])
-            .presentationDragIndicator(
-                .visible
-            )
+            .presentationDragIndicator(.visible)
         }
         .alert(
             isEnglish

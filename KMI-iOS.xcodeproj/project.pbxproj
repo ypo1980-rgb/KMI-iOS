@@ -20,6 +20,18 @@
 		7E8684E63001872E00C0A3F2 /* branches.json in Resources */ = {isa = PBXBuildFile; fileRef = 7E8684E53001872E00C0A3F2 /* branches.json */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		7E728DA6309DE06E005684EA /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 7;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		7E6294063070D62100037807 /* firestore.rules */ = {isa = PBXFileReference; lastKnownFileType = text; path = firestore.rules; sourceTree = "<group>"; };
 		7E6CF5212F3907D90061115C /* KMI-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "KMI-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -113,6 +125,7 @@
 				7E6CF51D2F3907D90061115C /* Sources */,
 				7E6CF51E2F3907D90061115C /* Frameworks */,
 				7E6CF51F2F3907D90061115C /* Resources */,
+				7E728DA6309DE06E005684EA /* CopyFiles */,
 			);
 			buildRules = (
 			);

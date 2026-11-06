@@ -1716,7 +1716,10 @@ struct SubjectAcrossBeltsView: View {
                 },
                 shouldDismissAfterSave: {
                     !showNoteSaveProblem
-                }
+                },
+                accentColor: KmiBeltPalette.color(
+                    for: context.belt
+                )
             )
             .alert(
                 tr(
@@ -2843,7 +2846,9 @@ struct ExerciseNoteSheet: View {
     @Binding var noteText: String
     let isEnglish: Bool
     let onSave: () -> Void
+
     var shouldDismissAfterSave: () -> Bool = { true }
+    var accentColor: Color? = nil
 
     @Environment(\.dismiss)
     private var dismiss
@@ -2851,109 +2856,330 @@ struct ExerciseNoteSheet: View {
     @Environment(\.colorScheme)
     private var colorScheme
 
+    @FocusState
+    private var editorFocused: Bool
+
+    @State
+    private var originalNote: String?
+
     private var layoutDirection: LayoutDirection {
         isEnglish ? .leftToRight : .rightToLeft
     }
 
-    private var textAlignment: TextAlignment {
-        isEnglish ? .leading : .trailing
+    private var resolvedAccent: Color {
+        accentColor ?? KmiAppTheme.primary(
+            for: colorScheme
+        )
+    }
+
+    private var hasText: Bool {
+        !noteText.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ).isEmpty
+    }
+
+    private func tr(
+        _ hebrew: String,
+        _ english: String
+    ) -> String {
+        isEnglish ? english : hebrew
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                KmiAppBackground()
+        ZStack {
+            KmiAppBackground()
 
-                ScrollView {
-                    VStack(spacing: 14) {
+            ScrollView {
+                VStack(spacing: 14) {
+                    Text(
+                        tr(
+                            "הערה על התרגיל",
+                            "Exercise Note"
+                        )
+                    )
+                    .kmiTypography(.screenTitle)
+                    .fontWeight(.black)
+                    .foregroundStyle(
+                        KmiAppTheme.onSurface(
+                            for: colorScheme
+                        )
+                    )
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .fixedSize(
+                        horizontal: false,
+                        vertical: true
+                    )
+
+                    if !title.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    ).isEmpty {
                         Text(title)
-                            .kmiTypography(.body)
+                            .kmiTypography(.sectionTitle)
                             .fontWeight(.bold)
                             .foregroundStyle(
-                                KmiAppTheme.onSurface(
+                                KmiAppTheme.onSurfaceVariant(
                                     for: colorScheme
                                 )
                             )
-                            .multilineTextAlignment(textAlignment)
-                            .frame(
-                                maxWidth: .infinity,
-                                alignment: .leading
-                            )
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
                             .fixedSize(
                                 horizontal: false,
                                 vertical: true
                             )
-
-                        TextEditor(text: $noteText)
-                            .kmiTypography(.body)
-                            .foregroundStyle(
-                                KmiAppTheme.onSurface(
-                                    for: colorScheme
-                                )
-                            )
-                            .multilineTextAlignment(textAlignment)
-                            .scrollContentBackground(.hidden)
-                            .frame(minHeight: 220)
-                            .padding(10)
-                            .background(
-                                KmiAppTheme.surface(
-                                    for: colorScheme
-                                )
-                            )
-                            .clipShape(
-                                RoundedRectangle(
-                                    cornerRadius: 14,
-                                    style: .continuous
-                                )
-                            )
-                            .overlay(
-                                RoundedRectangle(
-                                    cornerRadius: 14,
-                                    style: .continuous
-                                )
-                                .stroke(
-                                    KmiAppTheme.outlineVariant(
-                                        for: colorScheme
-                                    ),
-                                    lineWidth: 1
-                                )
-                            )
-                            .accessibilityLabel(
-                                isEnglish
-                                    ? "Exercise note"
-                                    : "הערה לתרגיל"
-                            )
                     }
-                    .padding(18)
+
+                    noteEditor
                 }
-                .scrollDismissesKeyboard(.interactively)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 20)
+                .background {
+                    RoundedRectangle(
+                        cornerRadius: 28,
+                        style: .continuous
+                    )
+                    .fill(
+                        KmiAppTheme.surface(
+                            for: colorScheme
+                        )
+                    )
+                    .overlay {
+                        RoundedRectangle(
+                            cornerRadius: 28,
+                            style: .continuous
+                        )
+                        .fill(
+                            resolvedAccent.opacity(
+                                colorScheme == .dark
+                                    ? 0.08
+                                    : 0.04
+                            )
+                        )
+                    }
+                }
+                .overlay {
+                    RoundedRectangle(
+                        cornerRadius: 28,
+                        style: .continuous
+                    )
+                    .strokeBorder(
+                        resolvedAccent.opacity(
+                            colorScheme == .dark
+                                ? 0.34
+                                : 0.20
+                        ),
+                        lineWidth: 1
+                    )
+                }
+                .frame(maxWidth: 560)
+                .frame(maxWidth: .infinity)
+                .padding(14)
             }
-            .navigationTitle(
-                isEnglish ? "Exercise note" : "הערה לתרגיל"
-            )
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(isEnglish ? "Save" : "שמור") {
-                        onSave()
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            actionBar
+        }
+        .environment(
+            \.layoutDirection,
+            layoutDirection
+        )
+        .interactiveDismissDisabled()
+        .onAppear {
+            if originalNote == nil {
+                originalNote = noteText
+            }
+        }
+    }
 
-                        if shouldDismissAfterSave() {
-                            dismiss()
-                        }
-                    }
-                    .kmiTypography(.body)
-                    .fontWeight(.bold)
+    private var noteEditor: some View {
+        ZStack(alignment: .topLeading) {
+            TextEditor(text: $noteText)
+                .kmiTypography(.body)
+                .fontWeight(.bold)
+                .foregroundStyle(
+                    KmiAppTheme.onSurface(
+                        for: colorScheme
+                    )
+                )
+                .multilineTextAlignment(.leading)
+                .scrollContentBackground(.hidden)
+                .focused($editorFocused)
+                .frame(minHeight: 170, idealHeight: 210)
+                .padding(10)
+                .accessibilityLabel(
+                    tr("הערה לתרגיל", "Exercise note")
+                )
+
+            if noteText.isEmpty {
+                Text(
+                    tr(
+                        "הקלד הערה חופשית",
+                        "Write a free note"
+                    )
+                )
+                .kmiTypography(.body)
+                .fontWeight(.bold)
+                .foregroundStyle(
+                    KmiAppTheme.onSurfaceVariant(
+                        for: colorScheme
+                    )
+                )
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
+                .padding(.top, 28)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+        }
+        .background(
+            RoundedRectangle(
+                cornerRadius: 20,
+                style: .continuous
+            )
+            .fill(
+                KmiAppTheme.surfaceVariant(
+                    for: colorScheme
+                )
+            )
+        )
+        .overlay {
+            RoundedRectangle(
+                cornerRadius: 20,
+                style: .continuous
+            )
+            .strokeBorder(
+                editorFocused
+                    ? resolvedAccent.opacity(0.65)
+                    : KmiAppTheme.outlineVariant(
+                        for: colorScheme
+                    ),
+                lineWidth: 1
+            )
+        }
+    }
+
+    private var actionBar: some View {
+        HStack(alignment: .top, spacing: 8) {
+            actionButton(
+                title: tr("ביטול", "Cancel"),
+                icon: "xmark",
+                background: KmiAppTheme.surfaceVariant(
+                    for: colorScheme
+                ),
+                foreground: KmiAppTheme.onSurfaceVariant(
+                    for: colorScheme
+                )
+            ) {
+                editorFocused = false
+
+                if let originalNote {
+                    noteText = originalNote
                 }
 
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(isEnglish ? "Close" : "סגור") {
-                        dismiss()
-                    }
-                    .kmiTypography(.body)
+                dismiss()
+            }
+
+            actionButton(
+                title: tr("מחק", "Delete"),
+                icon: "trash",
+                background: KmiAppTheme.errorContainer(
+                    for: colorScheme
+                ),
+                foreground: KmiAppTheme.onErrorContainer(
+                    for: colorScheme
+                )
+            ) {
+                noteText = ""
+            }
+            .disabled(!hasText)
+            .opacity(hasText ? 1 : 0.45)
+
+            actionButton(
+                title: tr("שמור", "Save"),
+                icon: "checkmark",
+                background: KmiAppTheme.primary(
+                    for: colorScheme
+                ),
+                foreground: KmiAppTheme.onPrimary(
+                    for: colorScheme
+                )
+            ) {
+                editorFocused = false
+                onSave()
+
+                if shouldDismissAfterSave() {
+                    dismiss()
                 }
             }
         }
-        .environment(\.layoutDirection, layoutDirection)
+        .frame(maxWidth: 560)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            KmiAppTheme.surface(
+                for: colorScheme
+            )
+            .ignoresSafeArea(edges: .bottom)
+        )
+    }
+
+    private func actionButton(
+        title: String,
+        icon: String,
+        background: Color,
+        foreground: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: icon)
+                    .kmiIconSize(18)
+                    .fontWeight(.bold)
+                    .accessibilityHidden(true)
+
+                Text(title)
+                    .kmiTypography(.action)
+                    .fontWeight(.black)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(
+                        horizontal: false,
+                        vertical: true
+                    )
+            }
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 8)
+            .frame(
+                maxWidth: .infinity,
+                minHeight: 50
+            )
+            .background(
+                RoundedRectangle(
+                    cornerRadius: 16,
+                    style: .continuous
+                )
+                .fill(background)
+            )
+            .overlay {
+                RoundedRectangle(
+                    cornerRadius: 16,
+                    style: .continuous
+                )
+                .strokeBorder(
+                    KmiAppTheme.outlineVariant(
+                        for: colorScheme
+                    ).opacity(0.55),
+                    lineWidth: 1
+                )
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 }
 

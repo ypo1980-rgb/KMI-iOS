@@ -61,21 +61,39 @@ struct KmiStartupLoadingScreen: View {
                 let isCompactHeight = height < 760
                 let isVeryCompactHeight = height < 690
                 let heroTopSpace = height * (isVeryCompactHeight ? 0.145 : (isCompactHeight ? 0.155 : 0.165))
-                let cardTopSpace = height * 0.580
-                let cardWidth = min(geo.size.width * 0.84, 368)
-                ZStack(alignment: .top) {
-                    heroCardView
-                        .padding(.top, heroTopSpace)
-                    loadingCardView
-                        .frame(width: cardWidth)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .position(
-                            x: geo.size.width / 2.2,
-                            y: cardTopSpace + 86
-                        )
-                        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+                let cardTopSpace = height * 0.55
+                let cardWidth = min(
+                    max(geo.size.width - 40, 0),
+                    440
+                )
+
+                ScrollView(showsIndicators: false) {
+                    ZStack(alignment: .top) {
+                        heroCardView
+                            .padding(.top, heroTopSpace)
+
+                        loadingCardView
+                            .frame(width: cardWidth)
+                            .fixedSize(
+                                horizontal: false,
+                                vertical: true
+                            )
+                            .padding(.top, cardTopSpace)
+                            .padding(
+                                .bottom,
+                                max(geo.safeAreaInsets.bottom, 16)
+                            )
+                            .environment(
+                                \.layoutDirection,
+                                isEnglish ? .leftToRight : .rightToLeft
+                            )
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(
+                        minHeight: height,
+                        alignment: .top
+                    )
                 }
-                .frame(width: geo.size.width, height: geo.size.height)
                 .environment(\.layoutDirection, .leftToRight)
             }
         }
@@ -365,12 +383,14 @@ struct KmiStartupLoadingScreen: View {
                                     textSecondary
                                 )
                             Text(currentStage.titleEn)
-                                .kmiTypography(.cardTitle)
-                                .foregroundColor(
-                                    textPrimary
+                                .kmiTypography(.sectionTitle)
+                                .fontWeight(.black)
+                                .foregroundColor(textPrimary)
+                                .multilineTextAlignment(.leading)
+                                .fixedSize(
+                                    horizontal: false,
+                                    vertical: true
                                 )
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.80)
                         }
                         .frame(
                             maxWidth: .infinity,
@@ -379,7 +399,8 @@ struct KmiStartupLoadingScreen: View {
                         Text(
                             "\(Int(progress * 100))%"
                         )
-                        .kmiTypography(.cardTitle)
+                        .kmiTypography(.metric)
+                        .fontWeight(.black)
                         .foregroundColor(
                             progressTextColor
                         )
@@ -413,12 +434,14 @@ struct KmiStartupLoadingScreen: View {
                                     textSecondary
                                 )
                             Text(currentStage.titleHe)
-                                .kmiTypography(.cardTitle)
-                                .foregroundColor(
-                                    textPrimary
+                                .kmiTypography(.sectionTitle)
+                                .fontWeight(.black)
+                                .foregroundColor(textPrimary)
+                                .multilineTextAlignment(.trailing)
+                                .fixedSize(
+                                    horizontal: false,
+                                    vertical: true
                                 )
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.80)
                         }
                         .frame(
                             maxWidth: .infinity,
@@ -479,9 +502,9 @@ struct KmiStartupLoadingScreen: View {
             }
             .frame(height: 34)
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .padding(.bottom, 6)
+        .padding(.horizontal, 18)
+        .padding(.top, 18)
+        .padding(.bottom, 12)
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(
@@ -526,7 +549,7 @@ struct KmiStartupLoadingScreen: View {
         .frame(height: 8)
     }
     private var checklistView: some View {
-        VStack(spacing: 5) {
+        VStack(spacing: 10) {
             ForEach(
                 Array(stages.enumerated()),
                 id: \.element.id
@@ -563,10 +586,13 @@ struct KmiStartupLoadingScreen: View {
                                 value: done
                             )
                             Text(stage.titleEn)
-                                .kmiTypography(.secondary)
+                                .kmiTypography(.body)
                                 .fontWeight(active ? .bold : .semibold)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.76)
+                                .multilineTextAlignment(.leading)
+                                .fixedSize(
+                                    horizontal: false,
+                                    vertical: true
+                                )
                                 .foregroundColor(
                                     active || done
                                         ? textPrimary
@@ -580,10 +606,13 @@ struct KmiStartupLoadingScreen: View {
                     } else {
                         HStack(spacing: 8) {
                             Text(stage.titleHe)
-                                .kmiTypography(.secondary)
+                                .kmiTypography(.body)
                                 .fontWeight(active ? .bold : .semibold)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.76)
+                                .multilineTextAlignment(.trailing)
+                                .fixedSize(
+                                    horizontal: false,
+                                    vertical: true
+                                )
                                 .foregroundColor(
                                     active || done
                                         ? textPrimary

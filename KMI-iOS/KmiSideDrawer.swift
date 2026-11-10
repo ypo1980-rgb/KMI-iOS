@@ -21,6 +21,8 @@ enum KmiDrawerRouteKey: String {
     case controlCenterLogs
 
     case myProfile
+    case monthlyTrainingBoard
+    case trainingSummary
     case aboutAvi
     case aboutNetworkCoaches
     case aboutMethod
@@ -87,6 +89,7 @@ struct KmiSideDrawer: View {
     @AppStorage("region") private var storedRegion: String = ""
     @AppStorage("branch") private var storedBranch: String = ""
     @AppStorage("active_branch") private var storedActiveBranch: String = ""
+    @AppStorage("user_role") private var storedActiveUserRole: String = ""
 
     @Binding var isOpen: Bool
 
@@ -130,41 +133,6 @@ struct KmiSideDrawer: View {
         }
 
         return false
-    }
-
-    private var closeIconName: String {
-        "xmark"
-    }
-
-    private func titleSize(for item: KmiDrawerItem, isCoachButton: Bool) -> CGFloat {
-        if isCoachButton {
-            return 15
-        }
-
-        switch item.routeKey {
-        case .aboutAvi, .aboutNetworkCoaches:
-            return 14
-        case .controlCenterLogs:
-            return 15
-        default:
-            return 15
-        }
-    }
-    
-    private func titleWeight(for item: KmiDrawerItem, isCoachButton: Bool) -> Font.Weight {
-        isCoachButton ? .heavy : .heavy
-    }
-
-    private func rowHorizontalPadding(isCoachButton: Bool) -> EdgeInsets {
-        if isCoachButton {
-            return EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
-        }
-
-        if isEnglish {
-            return EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 16)
-        } else {
-            return EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
-        }
     }
 
     private var resolvedRegion: String {
@@ -267,21 +235,15 @@ struct KmiSideDrawer: View {
             .order(by: "createdAt", descending: true)
             .limit(to: forumUnreadLimit)
             .addSnapshotListener { snapshot, error in
-                guard error == nil,
-                      let snapshot else {
-                    return
-                }
-
-                let unread = snapshot.documents.filter { document in
+                let documents = error == nil ? (snapshot?.documents ?? []) : []
+                let unread = documents.filter { document in
                     let authorUid = (
                         document.get("authorUid") as? String ?? ""
                     )
                     .trimmingCharacters(
                         in: .whitespacesAndNewlines
                     )
-
-                    return authorUid.isEmpty ||
-                        authorUid != currentUid
+                    return authorUid.isEmpty || authorUid != currentUid
                 }.count
 
                 Task { @MainActor in
@@ -316,12 +278,17 @@ struct KmiSideDrawer: View {
                role == "kmi_coach"
     }
 
-    private var effectiveRole: String {
-        normalizeRole(auth.userRole)
+    private var isCoachMode: Bool {
+        let storedRole = normalizeRole(storedActiveUserRole)
+        let activeRole = storedRole.isEmpty
+            ? normalizeRole(auth.userRole)
+            : storedRole
+
+        return isCoachRole(activeRole)
     }
 
-    private var isCoach: Bool {
-        isCoachRole(effectiveRole)
+    private var showsCoachArea: Bool {
+        isCoachMode && (isCoachRole(auth.userRole) || isAdminUser)
     }
 
     private var isAdminUser: Bool {
@@ -342,15 +309,15 @@ struct KmiSideDrawer: View {
     }
 
     private var coachItems: [KmiDrawerItem] {
-        guard isCoach else {
+        guard showsCoachArea else {
             return []
         }
 
         return [
             .init(
                 routeKey: .attendance,
-                titleHe: "דו״ח נוכחות",
-                titleEn: "Attendance Report",
+                titleHe: "עדכון נוכחות",
+                titleEn: "Mark Attendance",
                 systemImage: "chart.bar.xaxis"
             ),
             .init(
@@ -390,7 +357,7 @@ struct KmiSideDrawer: View {
                 routeKey: .adminUsers,
                 titleHe: "ניהול משתמשים",
                 titleEn: "Manage Users",
-                subtitleHe: "צפייה בכל המשתמשים באפליקציה",
+                subtitleHe: "צפייה במתאמנים ובמאמנים הרשומים באפליקציה",
                 subtitleEn: "View all app users",
                 systemImage: "person.3.fill"
             ),
@@ -398,8 +365,8 @@ struct KmiSideDrawer: View {
                 routeKey: .controlCenterLogs,
                 titleHe: "מרכז בקרה ולוגים",
                 titleEn: "Control Center & Logs",
-                subtitleHe: "ניהול פעילות, תקלות ושימוש באפליקציה",
-                subtitleEn: "Activity, issues and app usage control",
+                subtitleHe: "ניתוח פעילות, תקלות ושימוש באפליקציה",
+                subtitleEn: "Activity, errors and app diagnostics",
                 systemImage: "chart.bar.doc.horizontal"
             )
         ]
@@ -416,8 +383,16 @@ struct KmiSideDrawer: View {
                 systemImage: "person.fill"
             ),
             .init(
+                routeKey: .monthlyTrainingBoard,
+                titleHe: "לוח אימונים חודשי",
+                titleEn: "Monthly Calendar",
+                subtitleHe: "אימונים, חגים וסיכומים",
+                subtitleEn: "Trainings, holidays and summaries",
+                systemImage: "calendar"
+            ),
+            .init(
                 routeKey: .aboutAvi,
-                titleHe: "אודות אבי אביסידון",
+                titleHe: "אודות אבי אביסדון",
                 titleEn: "About Avi Avisidon",
                 subtitleHe: "ראש השיטה",
                 subtitleEn: "Head of the method",
@@ -435,8 +410,8 @@ struct KmiSideDrawer: View {
                 routeKey: .aboutMethod,
                 titleHe: "אודות השיטה",
                 titleEn: "About the Method",
-                subtitleHe: "K.M.I",
-                subtitleEn: "K.M.I",
+                subtitleHe: "KAMI",
+                subtitleEn: "KAMI",
                 systemImage: "rosette"
             ),
             .init(
@@ -452,6 +427,14 @@ struct KmiSideDrawer: View {
                 titleHe: "טפסים ותשלומים",
                 titleEn: "Forms & Payments",
                 systemImage: "chart.bar.doc.horizontal"
+            ),
+            .init(
+                routeKey: .trainingSummary,
+                titleHe: "סיכום אימון",
+                titleEn: "Training Summary",
+                subtitleHe: "הוספה או צפייה בסיכום אימון",
+                subtitleEn: "Add or view a training summary",
+                systemImage: "doc.text"
             ),
             .init(
                 routeKey: .contactUs,
@@ -471,8 +454,6 @@ struct KmiSideDrawer: View {
                 routeKey: .toggleLanguage,
                 titleHe: "שפה / Language",
                 titleEn: "Language / שפה",
-                subtitleHe: "מעבר לאנגלית",
-                subtitleEn: "Switch to Hebrew",
                 systemImage: "globe"
             ),
             .init(
@@ -497,40 +478,20 @@ struct KmiSideDrawer: View {
     }
     
     var body: some View {
-        GeometryReader { geo in
+        GeometryReader { _ in
             ZStack {
-                KmiAppTheme.tertiaryContainer(
-                    for: colorScheme
-                )
-                .ignoresSafeArea()
+                KmiAppTheme.drawerBackgroundBrush(for: colorScheme)
+                    .ignoresSafeArea()
 
                 VStack(spacing: 8) {
-                    HStack {
-                        Text(isEnglish ? "Menu" : "תפריט")
-                            .kmiFont(
-                                size: 22,
-                                weight: .bold
-                            )
-                            .foregroundStyle(.white)
-
-                        Spacer()
-
-                        Button(action: onClose) {
-                            Image(systemName: closeIconName)
-                                .kmiIconSize(18)
-                                .fontWeight(.bold)
-                                .foregroundStyle(.white)
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(
-                            isEnglish ? "Close menu" : "סגירת התפריט"
-                        )
-                    }
-                    .frame(height: 48)
-                    .padding(.horizontal, 18)
-                    .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+                    KmiDrawerHeader(
+                        title: isEnglish ? "Menu" : "תפריט",
+                        subtitle: isEnglish
+                            ? "Quick app navigation"
+                            : "ניווט מהיר באפליקציה",
+                        closeAccessibilityLabel: isEnglish ? "Close menu" : "סגור תפריט",
+                        onClose: onClose
+                    )
 
                     ScrollView {
                         VStack(spacing: 14) {
@@ -544,32 +505,26 @@ struct KmiSideDrawer: View {
                             }
 
                             traineeAreaCard
-
+                            informationAreaCard
+                            systemAreaCard
                             Text("© KAMI")
                                 .kmiFont(
                                     size: 12,
                                     weight: .regular
                                 )
                                 .foregroundStyle(
-                                    Color(
-                                        red: 0.72,
-                                        green: 0.77,
-                                        blue: 0.85
-                                    )
+                                    KmiAppTheme.onBackground(for: colorScheme)
                                 )
-                                .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
-                                .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .multilineTextAlignment(.leading)
                                 .padding(.horizontal, 18)
-                                .padding(.top, 0)
                                 .padding(.bottom, 8)
                         }
-                        .padding(.horizontal, 0)
                         .padding(.top, 8)
-                        .padding(.bottom, 118)
+                        .padding(.bottom, 24)
                     }
-                    Spacer(minLength: 0)
+                    .id([isEnglish, showsCoachArea, isAdminUser])
                 }
-                .padding(.top, 50)
             }
         }
         .task(id: adminCheckUID) {
@@ -668,283 +623,105 @@ struct KmiSideDrawer: View {
         }
     }
 
-    private func drawerSectionCard(
-        titleHe: String,
-        titleEn: String,
-        items sectionItems: [KmiDrawerItem],
-        colors: [Color],
-        borderColor: Color,
-        isCoachButton: Bool
-    ) -> some View {
-        VStack(spacing: 0) {
-            Text(isEnglish ? titleEn : titleHe)
-                .kmiFont(
-                    size: 16,
-                    weight: .black
-                )
-                .foregroundStyle(.white)
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: isEnglish ? .leading : .trailing
-                )
-                .multilineTextAlignment(isEnglish ? .leading : .trailing)
-                .padding(.horizontal, 16)
-                .padding(.top, 13)
-                .padding(.bottom, 8)
-
-            Rectangle()
-                .fill(Color.white.opacity(0.18))
-                .frame(height: 1)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 2)
-
-            ForEach(sectionItems) { it in
-                drawerButton(it, isCoachButton: isCoachButton)
-            }
-        }
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: colors,
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(
-                            borderColor.opacity(
-                                colorScheme == .dark ? 0.65 : 0.85
-                            ),
-                            lineWidth: 1
-                        )
-                )
-        )
-        .padding(.horizontal, 10)
-    }
-    
     private var coachAreaCard: some View {
-        drawerSectionCard(
-            titleHe: "אזור מאמן",
-            titleEn: "Coach area",
-            items: coachItems,
-            colors: [
-                KmiAppTheme.tertiaryContainer(for: colorScheme),
-                KmiAppTheme.tertiaryContainer(for: colorScheme)
-                    .opacity(0.86)
-            ],
-            borderColor: KmiAppTheme.primary(for: colorScheme),
-            isCoachButton: true
+        drawerAreaCard(
+            title: isEnglish ? "Coach area" : "אזור מאמן",
+            role: .coach,
+            sectionItems: coachItems
         )
     }
 
     private var adminAreaCard: some View {
-        drawerSectionCard(
-            titleHe: "אזור מנהל",
-            titleEn: "Admin area",
-            items: adminItems,
-            colors: [
-                KmiAppTheme.tertiaryContainer(for: colorScheme),
-                KmiAppTheme.tertiaryContainer(for: colorScheme)
-                    .opacity(0.86)
-            ],
-            borderColor: KmiAppTheme.success(for: colorScheme),
-            isCoachButton: false
+        drawerAreaCard(
+            title: isEnglish ? "Admin area" : "אזור מנהל",
+            role: .manager,
+            sectionItems: adminItems
         )
     }
 
     private var traineeAreaCard: some View {
-        drawerSectionCard(
-            titleHe: "אזור מתאמן",
-            titleEn: "Trainee area",
-            items: items,
-            colors: [
-                KmiAppTheme.tertiaryContainer(for: colorScheme),
-                KmiAppTheme.tertiaryContainer(for: colorScheme)
-                    .opacity(0.86)
-            ],
-            borderColor: KmiAppTheme.secondary(for: colorScheme),
-            isCoachButton: false
+        drawerStandardAreaCard(
+            title: isEnglish ? "Trainee area" : "אזור מתאמן",
+            routes: [
+                .myProfile,
+                .monthlyTrainingBoard,
+                .trainingSummary,
+                .formsPayments,
+                .forum,
+                .subscription
+            ]
         )
     }
-    
-    private func drawerButton(_ it: KmiDrawerItem, isCoachButton: Bool) -> some View {
-        Button {
 
-            switch it.routeKey {
+    private var informationAreaCard: some View {
+        drawerStandardAreaCard(
+            title: isEnglish ? "Information" : "מידע",
+            routes: [.aboutAvi, .aboutNetworkCoaches, .aboutMethod, .demoVideos]
+        )
+    }
 
-            case .toggleLanguage:
-                toggleLanguage()
-                onClose()
-                return
+    private var systemAreaCard: some View {
+        drawerStandardAreaCard(
+            title: isEnglish ? "System" : "מערכת",
+            routes: [.contactUs, .toggleLanguage, .rateUs, .logout]
+        )
+    }
 
-            case .demoVideos:
-                showDemoVideos = true
-                return
+    private func drawerStandardAreaCard(
+        title: String,
+        routes: [KmiDrawerRouteKey]
+    ) -> some View {
+        let availableItems = items
+        let sectionItems = routes.compactMap { route in
+            availableItems.first { $0.routeKey == route }
+        }
 
-            case .formsPayments:
-                showFormsPayments = true
-                return
+        return drawerAreaCard(
+            title: title,
+            role: .trainee,
+            sectionItems: sectionItems
+        )
+    }
 
-            case .attendance:
-                guard !isAbroadUser else {
-                    onClose()
-                    return
-                }
+    private func drawerAreaCard(
+        title: String,
+        role: KmiAppTheme.DrawerRole,
+        sectionItems: [KmiDrawerItem]
+    ) -> some View {
+        let colors = KmiAppTheme.drawerRoleColors(for: role)
 
-                onSelect(it)
-                return
-
-            case .myProfile,
-                 .editProfile,
-                 .controlCenterLogs,
-                 .logout:
-                onSelect(it)
-                return
-
-            default:
-                onSelect(it)
-                return
-            }
-
-        } label: {
-            HStack(spacing: isCoachButton ? 10 : 8) {
-                VStack(
-                    alignment: isEnglish ? .leading : .trailing,
-                    spacing: 2
-                ) {
-                    Text(it.title(isEnglish: isEnglish))
-                        .kmiFont(
-                            size: titleSize(
-                                for: it,
-                                isCoachButton: isCoachButton
-                            ),
-                            weight: titleWeight(
-                                for: it,
-                                isCoachButton: isCoachButton
-                            )
-                        )
-                        .foregroundStyle(.white)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.72)
-                        .tracking(it.routeKey == .aboutAvi || it.routeKey == .aboutNetworkCoaches ? -0.2 : 0)
-                        .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
-                        .multilineTextAlignment(isEnglish ? .leading : .trailing)
-
-                    if let sub = it.subtitle(isEnglish: isEnglish), !sub.isEmpty {
-                        Text(sub)
-                            .kmiFont(
-                                size: isCoachButton ? 11 : 12,
-                                weight:
-                                    isCoachButton
-                                    ? .medium
-                                    : .semibold
-                            )
-                            .foregroundStyle(
-                                .white.opacity(
-                                    isCoachButton ? 0.82 : 0.72
-                                )
-                            )
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.72)
-                            .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
-                            .multilineTextAlignment(isEnglish ? .leading : .trailing)
-                    }
-                }
-
-                if it.routeKey == .forum {
-                    DrawerUnreadBadge(count: forumUnreadCount)
-                }
-
-                DrawerIconBubble(
-                    systemImage: it.systemImage,
-                    isCoachButton: isCoachButton
+        return KmiDrawerSectionCard(title: title, colors: colors) {
+            ForEach(sectionItems) { item in
+                KmiDrawerActionRow(
+                    title: item.title(isEnglish: isEnglish),
+                    subtitle: item.subtitle(isEnglish: isEnglish),
+                    systemImage: item.systemImage,
+                    colors: colors,
+                    isCompact: role == .coach,
+                    unreadCount: item.routeKey == .forum ? forumUnreadCount : 0,
+                    action: { selectDrawerItem(item) }
                 )
-            }
-            .environment(\.layoutDirection, .leftToRight)
-            .padding(rowHorizontalPadding(isCoachButton: isCoachButton))
-            .padding(.vertical, isCoachButton ? 7 : 7)
-            .frame(maxWidth: .infinity)
-            .background(
-                Rectangle()
-                    .fill(Color.white.opacity(0.001))
-            )
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(Color.white.opacity(isCoachButton ? 0.12 : 0.10))
-                    .frame(height: 1)
-                    .padding(.horizontal, isCoachButton ? 16 : 18)
             }
         }
-        .buttonStyle(.plain)
     }
-}
 
-// MARK: - Drawer Icon Bubble
+    private func selectDrawerItem(_ item: KmiDrawerItem) {
+        switch item.routeKey {
+        case .toggleLanguage:
+            toggleLanguage()
+            onClose()
 
-private struct DrawerIconBubble: View {
-    let systemImage: String
-    let isCoachButton: Bool
+        case .demoVideos:
+            showDemoVideos = true
 
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(Color.white.opacity(isCoachButton ? 0.16 : 0.12))
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(isCoachButton ? 0.24 : 0.18), lineWidth: 1)
-                )
-                .shadow(color: Color.black.opacity(0.16), radius: 2, x: 0, y: 1)
+        case .formsPayments:
+            showFormsPayments = true
 
-            Image(systemName: systemImage)
-                .kmiIconSize(16)
-                .fontWeight(.bold)
-                .accessibilityHidden(true)
-                .foregroundStyle(isCoachButton ? Color(red: 1.0, green: 0.54, blue: 0.85) : .white)
-                .symbolRenderingMode(.hierarchical)
-        }
-        .frame(width: 30, height: 30)
-    }
-}
+        case .attendance where isAbroadUser:
+            onClose()
 
-private struct DrawerUnreadBadge: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    let count: Int
-
-    var body: some View {
-        if count > 0 {
-            Text(count > 99 ? "99+" : "\(count)")
-                .kmiFont(
-                    size: 12,
-                    weight: .black
-                )
-                .foregroundStyle(
-                    KmiAppTheme.onSuccess(for: colorScheme)
-                )
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .frame(minWidth: 24, minHeight: 24)
-                .background(
-                    Capsule()
-                        .fill(
-                            KmiAppTheme.success(for: colorScheme)
-                        )
-                        .overlay(
-                            Capsule()
-                                .stroke(
-                                    KmiAppTheme.onSuccess(
-                                        for: colorScheme
-                                    )
-                                    .opacity(0.35),
-                                    lineWidth: 1
-                                )
-                        )
-                )
+        default:
+            onSelect(item)
         }
     }
 }
@@ -1044,9 +821,7 @@ struct KmiSideDrawerContainer<Content: View>: View {
                             }
                         }
                     )
-                    .frame(width: drawerWidth)
-                    .frame(height: geo.size.height)
-                    .ignoresSafeArea()
+                    .frame(width: drawerWidth, height: geo.size.height)
                     .shadow(
                         color: Color.black.opacity(0.28),
                         radius: 18,
@@ -1149,8 +924,6 @@ private let kmiDemoVideos: [KmiDemoVideo] = [
 ]
 
 private struct KmiDemoVideosSheet: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     let isEnglish: Bool
     let onCloseDrawer: () -> Void
 
@@ -1161,80 +934,36 @@ private struct KmiDemoVideosSheet: View {
         guard !clean.isEmpty else {
             return kmiDemoVideos
         }
-
-        return kmiDemoVideos.filter {
-            $0.title(isEnglish: isEnglish).localizedCaseInsensitiveContains(clean) ||
-            $0.source.localizedCaseInsensitiveContains(clean)
+        return kmiDemoVideos.filter { video in
+            video.titleHe.localizedCaseInsensitiveContains(clean) ||
+            video.titleEn.localizedCaseInsensitiveContains(clean) ||
+            video.source.localizedCaseInsensitiveContains(clean)
         }
     }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                KmiAppTheme.tertiaryContainer(
-                    for: colorScheme
-                )
-                .ignoresSafeArea()
+                KmiDrawerSheetBackground()
 
                 VStack(spacing: 14) {
-                    TextField(
-                        isEnglish ? "Search…" : "חיפוש…",
-                        text: $query
+                    KmiDrawerSheetSearchField(
+                        prompt: isEnglish ? "Search…" : "חיפוש…",
+                        query: $query
                     )
-                    .textFieldStyle(.roundedBorder)
                     .padding(.horizontal, 16)
-                    .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
 
                     ScrollView {
                         VStack(spacing: 12) {
                             ForEach(filtered) { video in
-                                Button {
+                                KmiDrawerSheetAction(
+                                    title: video.title(isEnglish: isEnglish),
+                                    subtitle: video.source,
+                                    systemImage: "play.fill"
+                                ) {
                                     openUrl(video.url)
                                     onCloseDrawer()
-                                } label: {
-                                    HStack(spacing: 12) {
-                                        Image(systemName: "play.fill")
-                                            .kmiIconSize(18)
-                                            .fontWeight(.bold)
-                                            .accessibilityHidden(true)
-                                            .foregroundStyle(.white)
-                                            .frame(width: 34, height: 34)
-                                            .background(Circle().fill(Color.white.opacity(0.14)))
-
-                                        VStack(
-                                            alignment: isEnglish ? .leading : .trailing,
-                                            spacing: 4
-                                        ) {
-                                            Text(video.title(isEnglish: isEnglish))
-                                                .kmiFont(
-                                                    size: 16,
-                                                    weight: .heavy
-                                                )
-                                                .foregroundStyle(.white)
-                                                .lineLimit(2)
-                                                .minimumScaleFactor(0.72)
-                                                .multilineTextAlignment(isEnglish ? .leading : .trailing)
-
-                                            Text(video.source)
-                                                .kmiFont(
-                                                    size: 13,
-                                                    weight: .semibold
-                                                )
-                                                .foregroundStyle(.white.opacity(0.68))
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
-                                    }
-                                    .padding(14)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                            .fill(Color.white.opacity(0.10))
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                                            )
-                                    )
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                         .padding(.horizontal, 16)
@@ -1255,107 +984,57 @@ private struct KmiDemoVideosSheet: View {
     }
 }
 
-private struct KmiFormsPaymentsSheet: View {
-    @Environment(\.colorScheme) private var colorScheme
+    private struct KmiFormsPaymentsSheet: View {
+        let isEnglish: Bool
+        let onOpenForms: () -> Void
+        let onOpenPayments: () -> Void
 
-    let isEnglish: Bool
-    let onOpenForms: () -> Void
-    let onOpenPayments: () -> Void
+        var body: some View {
+            ZStack {
+                KmiDrawerSheetBackground()
 
-    var body: some View {
-        ZStack {
-            Color(red: 0.05, green: 0.09, blue: 0.18)
-                .ignoresSafeArea()
+                ScrollView {
+                    VStack(spacing: 14) {
+                        KmiDrawerSheetTitle(
+                            title: isEnglish ? "Forms & Payments" : "טפסים ותשלומים"
+                        )
 
-            ScrollView {
-                VStack(spacing: 14) {
-                    Text(isEnglish ? "Forms & Payments" : "טפסים ותשלומים")
-                    .kmiFont(
-                        size: 24,
-                        weight: .black
-                    )
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-                    .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
+                        KmiDrawerSheetActionGroup {
+                            KmiDrawerSheetAction(
+                                title: isEnglish ? "Forms" : "טפסים",
+                                subtitle: isEnglish
+                                    ? "Open the existing association registration form"
+                                    : "פתיחת טופס ההרשמה הקיים לעמותה",
+                                onGranite: true,
+                                action: onOpenForms
+                            )
 
-                drawerSheetCard(
-                    title: isEnglish ? "Forms" : "טפסים",
-                    subtitle: isEnglish
-                        ? "Open the existing association registration form"
-                        : "פתיחת טופס ההרשמה הקיים לעמותה",
-                    onTap: onOpenForms
-                )
-
-                drawerSheetCard(
-                    title: isEnglish ? "Payments" : "תשלומים",
-                    subtitle: isEnglish
-                        ? "Open the membership fee payment form"
-                        : "פתיחת טופס תשלום דמי חבר לעמותה",
-                    onTap: onOpenPayments
-                )
+                            KmiDrawerSheetAction(
+                                title: isEnglish ? "Payments" : "תשלומים",
+                                subtitle: isEnglish
+                                    ? "Open the membership fee payment form"
+                                    : "פתיחת טופס תשלום דמי חבר לעמותה",
+                                onGranite: true,
+                                action: onOpenPayments
+                            )
+                        }
+                    }
+                    .padding(18)
                 }
-                .padding(18)
             }
+            .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
         }
-        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
     }
 
-    private func drawerSheetCard(
-        title: String,
-        subtitle: String,
-        onTap: @escaping () -> Void
-    ) -> some View {
-        Button(action: onTap) {
-            VStack(
-                alignment: isEnglish ? .leading : .trailing,
-                spacing: 5
-            ) {
-                Text(title)
-                    .kmiFont(
-                        size: 18,
-                        weight: .heavy
-                    )
-                    .foregroundStyle(.white)
 
-                Text(subtitle)
-                    .kmiFont(
-                        size: 14,
-                        weight: .semibold
-                    )
-                    .foregroundStyle(.white.opacity(0.72))
-                    .multilineTextAlignment(
-                        isEnglish ? .leading : .trailing
-                    )
-            }
-            .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(0.10))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                    )
-            )
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct KmiFormsListSheet: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    let isEnglish: Bool
-    let onCloseDrawer: () -> Void
+    private struct KmiFormsListSheet: View {
+        let isEnglish: Bool
+        let onCloseDrawer: () -> Void
 
     var body: some View {
         NavigationStack {
             ZStack {
-                KmiAppTheme.tertiaryContainer(
-                    for: colorScheme
-                )
-                .ignoresSafeArea()
+                KmiDrawerSheetBackground()
 
                 ScrollView {
                     VStack(spacing: 12) {
@@ -1408,60 +1087,19 @@ private struct KmiFormsListSheet: View {
         .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
     }
 
-    private func formCard(
-        title: String,
-        subtitle: String,
-        enabled: Bool,
-        onTap: @escaping () -> Void
-    ) -> some View {
-        Button(action: {
-            if enabled {
-                onTap()
-            }
-        }) {
-            VStack(
-                alignment: isEnglish ? .leading : .trailing,
-                spacing: 5
-            ) {
-                Text(title)
-                    .kmiFont(
-                        size: 17,
-                        weight: .heavy
-                    )
-                    .foregroundStyle(
-                        enabled
-                            ? .white
-                            : .white.opacity(0.62)
-                    )
-
-                Text(subtitle)
-                    .kmiFont(
-                        size: 14,
-                        weight: .semibold
-                    )
-                    .foregroundStyle(
-                        enabled
-                            ? .white.opacity(0.72)
-                            : .white.opacity(0.50)
-                    )
-                    .multilineTextAlignment(
-                        isEnglish ? .leading : .trailing
-                    )
-            }
-            .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(enabled ? 0.10 : 0.06))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(Color.white.opacity(enabled ? 0.12 : 0.08), lineWidth: 1)
-                    )
+        private func formCard(
+            title: String,
+            subtitle: String,
+            enabled: Bool,
+            onTap: @escaping () -> Void
+        ) -> some View {
+            KmiDrawerSheetAction(
+                title: title,
+                subtitle: subtitle,
+                isEnabled: enabled,
+                action: onTap
             )
         }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-    }
 
     private func openUrl(_ raw: String) {
         guard let url = URL(string: raw) else { return }

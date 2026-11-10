@@ -7,7 +7,30 @@ final class HomeTrainingsViewModel: ObservableObject {
     @Published var upcomingTrainings: [TrainingData] = []
     @Published var statusMessage: String? = nil
 
+    private var sourcesByTrainingKey: [String: (branch: String, group: String)] = [:]
+
+    func source(for training: TrainingData) -> (branch: String, group: String)? {
+        sourcesByTrainingKey[trainingKey(for: training)]
+    }
+
+    private func trainingKey(for training: TrainingData) -> String {
+        let startMinute = Int(training.date.timeIntervalSince1970 / 60)
+        let identityParts = [
+            training.endText,
+            training.place,
+            training.address
+        ].map { value in
+            value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+        }
+
+        return ([String(startMinute)] + identityParts).joined(separator: "|")
+    }
+
     func loadForCurrentUser(auth: AuthViewModel? = nil) {
+        sourcesByTrainingKey.removeAll()
+
         let defaults = UserDefaults.standard
 
         let languageCode = (
@@ -272,7 +295,9 @@ final class HomeTrainingsViewModel: ObservableObject {
             return
         }
 
-        var collectedTrainings: [TrainingData] = []
+        var collectedTrainings: [
+            (training: TrainingData, branch: String, group: String)
+        ] = []
 
         /*
          * כאשר קיימים שיוכים, כל קבוצה נטענת
@@ -300,15 +325,19 @@ final class HomeTrainingsViewModel: ObservableObject {
                     count: 50
                 )
 
-            collectedTrainings += matchingTrainings
+            collectedTrainings += matchingTrainings.map { training in
+                (
+                    training: training,
+                    branch: source.branch,
+                    group: source.group
+                )
+            }
         }
 
         /*
          * אותו אימון יכול להגיע דרך יותר מקבוצה אחת.
          * המפתח מתאר אימון פיזי לפי זמן, מקום וכתובת.
          */
-        var seenTrainingKeys = Set<String>()
-
         func completenessScore(
             _ training: TrainingData
         ) -> Int {
@@ -326,50 +355,29 @@ final class HomeTrainingsViewModel: ObservableObject {
             .count
         }
 
-        let uniqueTrainings =
+        let uniqueTrainings: [TrainingData] =
             collectedTrainings
                 .sorted { left, right in
-                    if left.date == right.date {
-                        return completenessScore(left)
-                            > completenessScore(right)
+                    if left.training.date == right.training.date {
+                        return completenessScore(left.training)
+                            > completenessScore(right.training)
                     }
 
-                    return left.date < right.date
+                    return left.training.date < right.training.date
                 }
-                .filter { training in
-                    let startMinute =
-                        Int(
-                            training.date
-                                .timeIntervalSince1970
-                            / 60
-                        )
+                .compactMap { candidate in
+                    let key = trainingKey(for: candidate.training)
 
-                    let key = [
-                        String(startMinute),
-                        training.endText
-                            .trimmingCharacters(
-                                in: .whitespacesAndNewlines
-                            )
-                            .lowercased(),
-                        training.place
-                            .trimmingCharacters(
-                                in: .whitespacesAndNewlines
-                            )
-                            .lowercased(),
-                        training.address
-                            .trimmingCharacters(
-                                in: .whitespacesAndNewlines
-                            )
-                            .lowercased()
-                    ]
-                    .joined(separator: "|")
-
-                    guard !seenTrainingKeys.contains(key) else {
-                        return false
+                    guard sourcesByTrainingKey[key] == nil else {
+                        return nil
                     }
 
-                    seenTrainingKeys.insert(key)
-                    return true
+                    sourcesByTrainingKey[key] = (
+                        branch: candidate.branch,
+                        group: candidate.group
+                    )
+
+                    return candidate.training
                 }
 
         statusMessage = uniqueTrainings.isEmpty

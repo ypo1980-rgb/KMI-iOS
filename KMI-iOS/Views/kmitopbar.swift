@@ -1579,6 +1579,12 @@ struct KmiRootLayout<Content: View>: View {
                 case .myProfile:
                     nav.push(.myProfile)
 
+                case .monthlyTrainingBoard:
+                    nav.push(.monthlyTrainingBoard)
+
+                case .trainingSummary:
+                    nav.push(.trainingSummary(pickedDateIso: nil))
+
                 case .coachBroadcast:
                     nav.push(.coachBroadcast)
 

@@ -55,7 +55,15 @@ struct KmiStartupLoadingScreen: View {
     }
     var body: some View {
         ZStack {
-            backgroundView
+            GeometryReader { backgroundGeometry in
+                backgroundView
+                    .frame(
+                        width: backgroundGeometry.size.width,
+                        height: backgroundGeometry.size.height
+                    )
+                    .clipped()
+            }
+
             GeometryReader { geo in
                 let height = geo.size.height
                 let isCompactHeight = height < 760
@@ -88,7 +96,10 @@ struct KmiStartupLoadingScreen: View {
                                 isEnglish ? .leftToRight : .rightToLeft
                             )
                     }
-                    .frame(maxWidth: .infinity)
+                    .frame(
+                        width: geo.size.width,
+                        alignment: .center
+                    )
                     .frame(
                         minHeight: height,
                         alignment: .top
@@ -125,26 +136,7 @@ struct KmiStartupLoadingScreen: View {
                     .resizable()
                     .scaledToFill()
             } else {
-                ZStack {
-                    colorScheme == .dark
-                        ? Color.black
-                        : Color.white
-                    Text(
-                        "Missing asset:\n\(backgroundAssetName)"
-                    )
-                    .kmiTypography(.sectionTitle)
-                    .foregroundStyle(
-                        colorScheme == .dark
-                            ? Color.white
-                            : Color(
-                                red: 0.09,
-                                green: 0.13,
-                                blue: 0.20
-                            )
-                    )
-                    .multilineTextAlignment(.center)
-                    .padding()
-                }
+                KmiAppBackground()
             }
         }
         .ignoresSafeArea()
@@ -180,20 +172,12 @@ struct KmiStartupLoadingScreen: View {
                     style: .continuous
                 )
                 .stroke(
-                    Color.white.opacity(
-                        colorScheme == .dark
-                            ? 0.18
-                            : 0.14
-                    ),
+                    KmiAppTheme.outlineVariant(for: colorScheme),
                     lineWidth: 1
                 )
             )
             .shadow(
-                color: Color.black.opacity(
-                    colorScheme == .dark
-                        ? 0.42
-                        : 0.30
-                ),
+                color: loadingCardShadowColor,
                 radius: 16,
                 x: 0,
                 y: 10
@@ -235,7 +219,10 @@ struct KmiStartupLoadingScreen: View {
                 .clipShape(Circle())
                 .overlay(
                     Circle()
-                        .stroke(Color.white.opacity(0.24), lineWidth: 1)
+                        .stroke(
+                            KmiAppTheme.outlineVariant(for: colorScheme),
+                            lineWidth: 1
+                        )
                 )
                 .shadow(color: accentBlue.opacity(0.30), radius: 8, x: 0, y: 3)
         } else if let image = UIImage(named: "app_icon") {
@@ -245,7 +232,10 @@ struct KmiStartupLoadingScreen: View {
                 .clipShape(Circle())
                 .overlay(
                     Circle()
-                        .stroke(Color.white.opacity(0.24), lineWidth: 1)
+                        .stroke(
+                            KmiAppTheme.outlineVariant(for: colorScheme),
+                            lineWidth: 1
+                        )
                 )
                 .shadow(color: accentBlue.opacity(0.30), radius: 8, x: 0, y: 3)
         } else {
@@ -253,8 +243,8 @@ struct KmiStartupLoadingScreen: View {
                 .fill(
                     RadialGradient(
                         colors: [
-                            Color.white.opacity(0.18),
-                            Color(red: 0.04, green: 0.10, blue: 0.16).opacity(0.94)
+                            KmiAppTheme.secondaryContainer(for: colorScheme),
+                            KmiAppTheme.tertiaryContainer(for: colorScheme)
                         ],
                         center: .center,
                         startRadius: 4,
@@ -264,98 +254,51 @@ struct KmiStartupLoadingScreen: View {
                 .overlay(
                     Text("KMI")
                         .kmiTypography(.cardTitle)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(
+                            KmiAppTheme.onTertiaryContainer(for: colorScheme)
+                        )
                 )
                 .overlay(
                     Circle()
-                        .stroke(Color.white.opacity(0.24), lineWidth: 1)
+                        .stroke(
+                            KmiAppTheme.outlineVariant(for: colorScheme),
+                            lineWidth: 1
+                        )
                 )
                 .shadow(color: accentBlue.opacity(0.30), radius: 8, x: 0, y: 3)
         }
     }
     private var accentBlue: Color {
-        Color(
-            red: 0.09,
-            green: 0.55,
-            blue: 1.0
-        )
+        KmiAppTheme.secondary(for: colorScheme)
     }
+
     private var accentPurple: Color {
-        Color(
-            red: 0.36,
-            green: 0.21,
-            blue: 0.96
-        )
+        KmiAppTheme.primary(for: colorScheme)
     }
+
     private var textPrimary: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(0.94)
-            : Color(
-                red: 0.09,
-                green: 0.13,
-                blue: 0.20
-            )
+        KmiAppTheme.onSurface(for: colorScheme)
     }
+
     private var textSecondary: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(0.68)
-            : Color(
-                red: 0.40,
-                green: 0.44,
-                blue: 0.52
-            )
+        KmiAppTheme.onSurfaceVariant(for: colorScheme)
     }
+
     private var progressTextColor: Color {
-        colorScheme == .dark
-            ? Color(
-                red: 0.43,
-                green: 0.72,
-                blue: 1.0
-            )
-            : Color(
-                red: 0.07,
-                green: 0.24,
-                blue: 0.49
-            )
+        KmiAppTheme.primary(for: colorScheme)
     }
+
     private var loadingCardBackground: Color {
-        Color(
-            uiColor:
-                colorScheme == .dark
-                ? UIColor.secondarySystemBackground
-                : UIColor.systemBackground
-        )
-        .opacity(
-            colorScheme == .dark
-                ? 0.94
-                : 0.96
-        )
+        KmiAppTheme.surface(for: colorScheme)
     }
+
     private var loadingCardShadowColor: Color {
-        colorScheme == .dark
-            ? Color.black.opacity(0.40)
-            : Color.black.opacity(0.14)
+        KmiAppTheme.background(for: .dark)
+            .opacity(colorScheme == .dark ? 0.40 : 0.14)
     }
-    private var progressTrackColor: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(0.16)
-            : Color(
-                red: 0.90,
-                green: 0.91,
-                blue: 0.93
-            )
-    }
+
     private var videoBackgroundColor: Color {
-        colorScheme == .dark
-            ? Color(
-                uiColor:
-                    UIColor.tertiarySystemBackground
-            )
-            : Color(
-                red: 0.06,
-                green: 0.10,
-                blue: 0.15
-            )
+        KmiAppTheme.tertiaryContainer(for: colorScheme)
     }
     private var loadingCardView: some View {
         let currentStage =
@@ -526,28 +469,16 @@ struct KmiStartupLoadingScreen: View {
             )
         )
     }
+    
     private var progressBar: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(progressTrackColor)
-                Capsule()
-                    .fill(
-                        Color(
-                            red: 0.06,
-                            green: 0.64,
-                            blue: 0.42
-                        )
-                    )
-                    .frame(
-                        width:
-                            geo.size.width
-                            * progress
-                    )
-            }
-        }
-        .frame(height: 8)
+        ProgressView(value: Double(progress), total: 1)
+            .progressViewStyle(.linear)
+            .tint(KmiAppTheme.primary(for: colorScheme))
+            .accessibilityLabel(
+                Text(isEnglish ? "Loading progress" : "התקדמות הטעינה")
+            )
     }
+    
     private var checklistView: some View {
         VStack(spacing: 10) {
             ForEach(
@@ -667,18 +598,23 @@ struct KmiStartupLoadingScreen: View {
             }
         }
     }
+    
     private var accentColor: Color {
-        Color(red: 0.08, green: 0.77, blue: 0.50)
+        KmiAppTheme.success(for: colorScheme)
     }
+
     private func iconColor(done: Bool, active: Bool) -> Color {
         if done {
             return accentColor
         }
+
         if active {
-            return Color(red: 1.0, green: 0.82, blue: 0.40)
+            return KmiAppTheme.warning(for: colorScheme)
         }
+
         return textSecondary
     }
+    
     private func startVisualAnimations() {
         withAnimation(
             .easeInOut(duration: 1.4)
@@ -707,7 +643,14 @@ struct KmiStartupLoadingScreen: View {
             if Task.isCancelled {
                 return
             }
-            try? await Task.sleep(nanoseconds: tickNanoseconds)
+            do {
+                try await Task.sleep(nanoseconds: tickNanoseconds)
+            } catch {
+                return
+            }
+
+            guard !Task.isCancelled else { return }
+
             let nextProgress = CGFloat(step + 1) / CGFloat(totalSteps)
             let stageProgress = nextProgress * CGFloat(stages.count)
             let safeIndex = min(Int(stageProgress), stages.count - 1)
@@ -725,10 +668,11 @@ struct KmiStartupLoadingScreen: View {
                 completedStagesInCycle = stages.count
                 progress = 1.0
             }
-            onFinished()
+            finishOnce()
         }
     }
 }
+
 private struct KmiLoopingStartupVideoView: UIViewRepresentable {
     final class Coordinator {
         var player: AVQueuePlayer?

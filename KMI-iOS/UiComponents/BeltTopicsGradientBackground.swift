@@ -56,6 +56,77 @@ enum KmiAppTheme {
         Color.white.opacity(0.45)
     }
 
+    struct DrawerSheetColors {
+        let background: Color
+        let content: Color
+
+        var secondaryContent: Color { content.opacity(0.82) }
+        var cardBackground: Color { content.opacity(0.10) }
+        var cardBorder: Color { content.opacity(0.18) }
+    }
+
+    static func drawerSheetColors(
+        for scheme: ColorScheme
+    ) -> DrawerSheetColors {
+        DrawerSheetColors(
+            background: tertiaryContainer(for: scheme),
+            content: onTertiaryContainer(for: scheme)
+        )
+    }
+
+    static func drawerBackgroundBrush(
+        for scheme: ColorScheme
+    ) -> LinearGradient {
+        let colors: [UInt32] = scheme == .dark
+            ? [0x071A2A, 0x163B55, 0x344F63, 0x102F47, 0x061521]
+            : [0xF1F4F7, 0xB8C4CF, 0xDDE3E9, 0x9EAFBD, 0xE9EEF2]
+
+        return LinearGradient(
+            colors: colors.map { rgb($0) },
+            startPoint: UnitPoint(x: 0, y: 0),
+            endPoint: UnitPoint(x: 1, y: 1)
+        )
+    }
+
+    enum DrawerRole {
+        case trainee
+        case coach
+        case manager
+    }
+
+    struct DrawerRoleColors {
+        let background: LinearGradient
+        let content: Color
+        let border: Color
+    }
+
+    static func drawerRoleColors(
+        for role: DrawerRole
+    ) -> DrawerRoleColors {
+        let palette: (background: [UInt32], content: UInt32, border: UInt32)
+
+        switch role {
+        case .trainee:
+            palette = ([0xDCEEFF, 0x9AC7EF, 0x5A9FD6], 0x0B2942, 0x347FB8)
+
+        case .coach:
+            palette = ([0xE8DDF7, 0xC6B4E1, 0xA58FC8], 0x302044, 0x7D61A5)
+
+        case .manager:
+            palette = ([0xD9F3E4, 0x8FD3AC, 0x48A877], 0x123B27, 0x27845A)
+        }
+
+        return DrawerRoleColors(
+            background: LinearGradient(
+                colors: palette.background.map { rgb($0) },
+                startPoint: .top,
+                endPoint: .bottom
+            ),
+            content: rgb(palette.content),
+            border: rgb(palette.border)
+        )
+    }
+
     static func background(for scheme: ColorScheme) -> Color {
         scheme == .dark ? rgb(0x06111C) : rgb(0xF8FBFF)
     }
@@ -381,5 +452,326 @@ struct BeltTopicsGradientBackground: View {
             endPoint: .bottom
         )
         .ignoresSafeArea()
+    }
+}
+
+// MARK: - Shared Drawer Components
+
+struct KmiDrawerSheetBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        KmiAppTheme.drawerSheetColors(for: colorScheme)
+            .background
+            .ignoresSafeArea()
+    }
+}
+
+struct KmiDrawerHeader: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let title: String
+    let subtitle: String
+    let closeAccessibilityLabel: String
+    let onClose: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .kmiTypography(.screenTitle)
+                    .fontWeight(.black)
+                    .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
+                    .accessibilityAddTraits(.isHeader)
+
+                Text(subtitle)
+                    .kmiTypography(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .multilineTextAlignment(.leading)
+
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .kmiIconSize(.medium)
+                    .fontWeight(.bold)
+                    .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
+                    .frame(width: 38, height: 38)
+                    .background(
+                        KmiAppTheme.surface(for: colorScheme),
+                        in: Circle()
+                    )
+                    .overlay {
+                        Circle()
+                            .strokeBorder(
+                                KmiAppTheme.outlineVariant(for: colorScheme),
+                                lineWidth: 1
+                            )
+                            .allowsHitTesting(false)
+                    }
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(closeAccessibilityLabel))
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 8)
+        .background(KmiAppTheme.surfaceVariant(for: colorScheme))
+    }
+}
+
+struct KmiDrawerSheetTitle: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .kmiTypography(.screenTitle)
+            .fontWeight(.black)
+            .foregroundStyle(KmiAppTheme.drawerSheetColors(for: colorScheme).content)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .multilineTextAlignment(.leading)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+struct KmiDrawerSectionCard<Content: View>: View {
+    let title: String
+    let colors: KmiAppTheme.DrawerRoleColors
+    private let content: Content
+
+    init(
+        title: String,
+        colors: KmiAppTheme.DrawerRoleColors,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.colors = colors
+        self.content = content()
+    }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
+
+        VStack(spacing: 0) {
+            Text(title)
+                .kmiTypography(.sectionTitle)
+                .fontWeight(.black)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .multilineTextAlignment(.leading)
+                .accessibilityAddTraits(.isHeader)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+
+            Rectangle()
+                .fill(colors.content.opacity(0.16))
+                .frame(height: 1)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 4)
+                .accessibilityHidden(true)
+
+            content
+        }
+        .foregroundStyle(colors.content)
+        .padding(.vertical, 6)
+        .background(colors.background, in: shape)
+        .overlay {
+            shape
+                .strokeBorder(colors.border, lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .padding(.horizontal, 10)
+    }
+}
+
+struct KmiDrawerSheetActionGroup<Content: View>: View {
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            content
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(
+            KmiAppTheme.graniteActionBrush,
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+        )
+    }
+}
+
+struct KmiDrawerActionRow: View {
+    let title: String
+    let subtitle: String?
+    let systemImage: String
+    let colors: KmiAppTheme.DrawerRoleColors
+    let isCompact: Bool
+    let unreadCount: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: isCompact ? 6 : 8) {
+                KmiDrawerIconBubble(
+                    systemImage: systemImage,
+                    colors: colors
+                )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .kmiTypography(.cardTitle)
+                        .fontWeight(.heavy)
+                        .foregroundStyle(colors.content)
+                        .lineLimit(isCompact ? 2 : 1)
+
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .kmiTypography(.secondary)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(colors.content.opacity(0.82))
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .multilineTextAlignment(.leading)
+
+                if unreadCount > 0 {
+                    KmiDrawerUnreadBadge(count: unreadCount)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, isCompact ? 5 : 7)
+            .frame(maxWidth: .infinity, minHeight: isCompact ? 44 : 58)
+            .contentShape(Rectangle())
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(colors.content.opacity(0.10))
+                    .frame(height: 1)
+                    .padding(.horizontal, 16)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct KmiDrawerSheetAction: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let title: String
+    let subtitle: String
+    var systemImage: String? = nil
+    var isEnabled = true
+    var onGranite = false
+    let action: () -> Void
+
+    var body: some View {
+        let colors = onGranite
+            ? KmiAppTheme.DrawerSheetColors(
+                background: .clear,
+                content: KmiAppTheme.sectionHeaderContentColor
+            )
+            : KmiAppTheme.drawerSheetColors(for: colorScheme)
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+
+        Button(action: action) {
+            HStack(spacing: 10) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .kmiIconSize(.medium)
+                        .foregroundStyle(colors.content)
+                        .accessibilityHidden(true)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .kmiTypography(.cardTitle)
+                        .fontWeight(.heavy)
+                        .foregroundStyle(colors.content)
+
+                    Text(subtitle)
+                        .kmiTypography(.secondary)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(colors.secondaryContent)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .multilineTextAlignment(.leading)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(colors.cardBackground, in: shape)
+            .overlay {
+                shape
+                    .strokeBorder(colors.cardBorder, lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+            .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+        .opacity(isEnabled ? 1 : 0.65)
+        .disabled(!isEnabled)
+    }
+}
+
+struct KmiDrawerIconBubble: View {
+    let systemImage: String
+    let colors: KmiAppTheme.DrawerRoleColors
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .kmiIconSize(.small)
+            .fontWeight(.bold)
+            .foregroundStyle(colors.content)
+            .frame(width: 30, height: 30)
+            .background(colors.content.opacity(0.10), in: Circle())
+            .overlay {
+                Circle()
+                    .strokeBorder(colors.border.opacity(0.40), lineWidth: 1)
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+struct KmiDrawerSheetSearchField: View {
+    let prompt: String
+    @Binding var query: String
+
+    var body: some View {
+        TextField(prompt, text: $query)
+            .kmiTypography(.secondary)
+            .textFieldStyle(.roundedBorder)
+            .multilineTextAlignment(.leading)
+    }
+}
+
+struct KmiDrawerUnreadBadge: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let count: Int
+
+    var body: some View {
+        Text(count > 99 ? "99+" : "\(count)")
+            .kmiFont(size: 12, weight: .black)
+            .foregroundStyle(KmiAppTheme.onSuccess(for: colorScheme))
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .frame(minWidth: 24, minHeight: 24)
+            .background(
+                KmiAppTheme.success(for: colorScheme),
+                in: Capsule()
+            )
+            .fixedSize(horizontal: true, vertical: false)
     }
 }

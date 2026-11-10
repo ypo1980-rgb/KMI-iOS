@@ -168,12 +168,6 @@ struct HomeView: View {
         isInitialTrainingsLoadPending || isWaitingForTrainingProfile
     }
 
-    private var isHomeContentLoading: Bool {
-        isHomeTrainingsLoading ||
-        isLoadingTrainingOverrides ||
-        messageCenterVm.isLoading
-    }
-
     @State private var goVoiceAssistant: Bool = false
     @State private var goMonthly: Bool = false
     @State private var goCard: Bool = false
@@ -1001,87 +995,10 @@ struct HomeView: View {
          */
     private func trainingSource(
         for training: TrainingData
-    ) -> (
-        branch: String,
-        group: String
-    ) {
-        let targetKey =
-            physicalTrainingKey(for: training)
-
-        let assignedSources: [(branch: String, group: String)] =
-            auth.userBranchAssignments.flatMap { assignment in
-                let branch = assignment.branch
-                    .trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    )
-
-                guard !branch.isEmpty else {
-                    return [(branch: String, group: String)]()
-                }
-
-                return assignment.groups.compactMap { rawGroup in
-                    let group = rawGroup
-                        .trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        )
-
-                    guard !group.isEmpty else {
-                        return nil
-                    }
-
-                    return (branch: branch, group: group)
-                }
-            }
-
-        let sources: [(branch: String, group: String)]
-
-        if !assignedSources.isEmpty {
-            sources = assignedSources
-        } else {
-            let branches = resolvedBranches.isEmpty
-                ? [resolvedBranch]
-                : resolvedBranches
-
-            let groups = resolvedGroups.isEmpty
-                ? [resolvedGroup]
-                : resolvedGroups
-
-            sources = branches.flatMap { branch in
-                groups.map { group in
-                    (branch: branch, group: group)
-                }
-            }
-        }
-
-        for source in sources {
-            let candidates =
-                TrainingCatalogIOS.upcomingFor(
-                    region: resolvedRegion,
-                    branch: source.branch,
-                    group: source.group,
-                    count: 50
-                )
-
-            if candidates.contains(where: { candidate in
-                physicalTrainingKey(for: candidate) == targetKey
-            }) {
-                return source
-            }
-        }
-
-        /*
-         * כשקיימים שיוכים, אין לבחור קבוצה
-         * חלופית שאינה תואמת לאימון.
-         */
-        if !assignedSources.isEmpty {
-            return (branch: "", group: "")
-        }
-
-        return (
-            branch: resolvedBranch,
-            group: resolvedGroup
-        )
+    ) -> (branch: String, group: String) {
+        trainingsVm.source(for: training) ?? (branch: "", group: "")
     }
+
 
         private func trainingCompletenessScore(
             _ training: TrainingData
@@ -1104,19 +1021,16 @@ struct HomeView: View {
     }
 
     private func trainingOccurrenceKey(
-        for training: TrainingData
+        for training: TrainingData,
+        source: (branch: String, group: String)? = nil
     ) -> String {
-        let source =
-            trainingSource(
-                for: training
-            )
+        let resolvedSource = source ?? trainingSource(for: training)
 
-        return TrainingOverrideRepository
-            .buildOccurrenceKey(
-                training: training,
-                branch: source.branch,
-                group: source.group
-            )
+        return TrainingOverrideRepository.buildOccurrenceKey(
+            training: training,
+            branch: resolvedSource.branch,
+            group: resolvedSource.group
+        )
     }
 
     private var effectiveUpcomingTrainings: [TrainingData] {
@@ -1157,33 +1071,27 @@ struct HomeView: View {
                 }
             }
 
-        return uniqueTrainings.sorted {
-            left,
-            right in
+        return uniqueTrainings
+            .map { training in
+                let trainingOverride = activeOverride(for: training)
+                let start = trainingOverride?.hasChangedTime == true
+                    ? trainingOverride?.effectiveStartDate ?? training.date
+                    : training.date
 
-            let leftOverride =
-                activeOverride(for: left)
-
-            let rightOverride =
-                activeOverride(for: right)
-
-            let leftStart =
-                leftOverride?.hasChangedTime == true
-                ? leftOverride?.effectiveStartDate ?? left.date
-                : left.date
-
-            let rightStart =
-                rightOverride?.hasChangedTime == true
-                ? rightOverride?.effectiveStartDate ?? right.date
-                : right.date
-
-            if leftStart == rightStart {
-                return physicalTrainingKey(for: left)
-                    < physicalTrainingKey(for: right)
+                return (
+                    training: training,
+                    start: start,
+                    key: physicalTrainingKey(for: training)
+                )
             }
+            .sorted { left, right in
+                if left.start == right.start {
+                    return left.key < right.key
+                }
 
-            return leftStart < rightStart
-        }
+                return left.start < right.start
+            }
+            .map { $0.training }
     }
 
     private var trainingOccurrenceKeys: Set<String> {
@@ -1197,16 +1105,15 @@ struct HomeView: View {
     }
 
     private func activeOverride(
-        for training: TrainingData
+        for training: TrainingData,
+        source: (branch: String, group: String)? = nil
     ) -> TrainingOverride? {
-        let occurrenceKey =
-            trainingOccurrenceKey(
-                for: training
-            )
+        let occurrenceKey = trainingOccurrenceKey(
+            for: training,
+            source: source
+        )
 
-        return activeTrainingOverrides[
-            occurrenceKey
-        ]
+        return activeTrainingOverrides[occurrenceKey]
     }
 
     private func originalTrainingEndDate(
@@ -1363,10 +1270,10 @@ struct HomeView: View {
 
         return TrainingManagementRequest(
             uiData: TrainingManagementUiData(
-                occurrenceKey:
-                    trainingOccurrenceKey(
-                        for: training
-                    ),
+                occurrenceKey: trainingOccurrenceKey(
+                    for: training,
+                    source: source
+                ),
                 place: training.place,
                 branch: source.branch,
                 group: source.group,
@@ -1422,11 +1329,18 @@ struct HomeView: View {
         for training in effectiveUpcomingTrainings {
             let source = trainingSource(for: training)
 
+            guard !source.branch.isEmpty, !source.group.isEmpty else {
+                continue
+            }
+
             TrainingOverrideRepository.syncTrainingOccurrence(
                 training: training,
                 branch: source.branch,
                 group: source.group,
-                activeOverride: activeOverride(for: training)
+                activeOverride: activeOverride(
+                    for: training,
+                    source: source
+                )
             ) { result in
                 #if DEBUG
                 if case .failure(let error) = result {
@@ -1845,8 +1759,27 @@ struct HomeView: View {
                         )
                         .padding(.top, 6)
                     } else if isHomeTrainingsLoading {
-                        Color.clear
-                            .frame(height: 1)
+                        Text(
+                            tr(
+                                "טוען את האימונים לשבוע הקרוב…",
+                                "Loading this week's trainings…"
+                            )
+                        )
+                        .kmiTypography(.secondary)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(
+                            KmiAppTheme.onSurface(for: colorScheme)
+                        )
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(
+                            KmiAppTheme.surface(for: colorScheme),
+                            in: RoundedRectangle(cornerRadius: 16)
+                        )
+                        .padding(.horizontal, 18)
+                        .padding(.top, 6)
                     } else if auth.profileLoadFailed {
                         emptyBlock(
                             message: tr(
@@ -1862,13 +1795,14 @@ struct HomeView: View {
                         )
                         .padding(.top, 6)
                     } else {
-                        VStack(spacing: 12) {
+                        LazyVStack(spacing: 12) {
                             ForEach(effectiveUpcomingTrainings) { training in
-                                let source =
-                                    trainingSource(for: training)
+                                let source = trainingSource(for: training)
 
-                                let trainingOverride =
-                                    activeOverride(for: training)
+                                let trainingOverride = activeOverride(
+                                    for: training,
+                                    source: source
+                                )
 
                                 HomeTrainingCardAndroidStyle(
                                     training: training,
@@ -1947,37 +1881,21 @@ struct HomeView: View {
                     }
                     .frame(maxHeight: .infinity)
                 }
-                .opacity(isHomeContentLoading ? 0 : 1)
-                .allowsHitTesting(!isHomeContentLoading)
-                .accessibilityHidden(isHomeContentLoading)
             }
-        .safeAreaInset(
-            edge: .bottom,
-            spacing: 0
-        ) {
-            if !isHomeContentLoading {
-                VStack(spacing: 0) {
-                    bottomBeltSelectionButton
-                }
-                .background(
-                    HomeVisualTheme.bottomSurface(
-                        for: colorScheme
-                    )
-                    .ignoresSafeArea(edges: .bottom)
-                )
-            }
-        }
-                .overlay(
-                    alignment: .topLeading
+                .safeAreaInset(
+                    edge: .bottom,
+                    spacing: 0
                 ) {
-                    if !isHomeContentLoading {
-                        quickMenuOverlay
-                    }
+                    bottomBeltSelectionButton
+                        .background(
+                            HomeVisualTheme.bottomSurface(
+                                for: colorScheme
+                            )
+                            .ignoresSafeArea(edges: .bottom)
+                        )
                 }
-                .overlay {
-                    if isHomeContentLoading {
-                        KmiLoadingOverlay()
-                    }
+                .overlay(alignment: .topLeading) {
+                    quickMenuOverlay
                 }
 
                 )
@@ -2808,7 +2726,7 @@ struct HomeView: View {
         if isEnglish {
             return "Dates: \(englishWeekdayName(from: start)) \(shortDate(start))–\(englishWeekdayName(from: end)) \(shortDate(end))"
         } else {
-            return "תאריכים: \(hebrewWeekdayName(from: start)) \(shortDate(start))–\(hebrewWeekdayName(from: end)) \(shortDate(end))"
+            return "(תאריכים: \(hebrewWeekdayName(from: start)) \(shortDate(start))–\(hebrewWeekdayName(from: end)) \(shortDate(end)))"
         }
     }
     
@@ -4707,14 +4625,14 @@ private struct HomeTrainingCardAndroidStyle: View {
         }()
 
         return Text(title)
-            .kmiTypography(.body)
+            .kmiTypography(.caption)
             .fontWeight(.bold)
             .foregroundStyle(contentColor)
             .multilineTextAlignment(.center)
             .lineLimit(2)
             .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 5)
             .background(
                 Capsule()
                     .fill(backgroundColor)
@@ -4783,8 +4701,8 @@ private struct HomeTrainingCardAndroidStyle: View {
         VStack(spacing: 8) {
             VStack(spacing: 4) {
                 Text(branchTitle)
-                    .kmiTypography(.sectionTitle)
-                    .fontWeight(.black)
+                    .kmiTypography(.cardTitle)
+                    .fontWeight(.bold)
                     .foregroundStyle(
                         isCancelledByCoach || isCancelledByHoliday
                             ? KmiAppTheme.onErrorContainer(for: colorScheme)
@@ -4811,7 +4729,7 @@ private struct HomeTrainingCardAndroidStyle: View {
 
                 if !groupAndCoachLine.isEmpty {
                     Text(groupAndCoachLine)
-                        .kmiTypography(.body)
+                        .kmiTypography(.secondary)
                         .fontWeight(.semibold)
                         .foregroundStyle(
                             isCancelledByCoach || isCancelledByHoliday
@@ -4826,7 +4744,7 @@ private struct HomeTrainingCardAndroidStyle: View {
 
                 if !dateLine.isEmpty {
                     Text(dateLine)
-                        .kmiTypography(.body)
+                        .kmiTypography(.secondary)
                         .fontWeight(.bold)
                         .foregroundStyle(
                             isCancelledByCoach || isCancelledByHoliday
@@ -4845,7 +4763,7 @@ private struct HomeTrainingCardAndroidStyle: View {
                     holidayCancellationBanner
                 } else {
                     TimelineView(
-                        .periodic(from: .now, by: 1)
+                        .periodic(from: .now, by: 5)
                     ) { timeline in
                         if liveTrainingState(
                             at: timeline.date
@@ -4937,11 +4855,11 @@ private struct HomeTrainingCardAndroidStyle: View {
             attendanceContent
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 12)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
         .background {
             TimelineView(
-                .periodic(from: .now, by: 1)
+                .periodic(from: .now, by: 5)
             ) { timeline in
                 let state = liveTrainingState(at: timeline.date)
 
@@ -4984,7 +4902,7 @@ private struct HomeTrainingCardAndroidStyle: View {
         }
         .overlay {
             TimelineView(
-                .periodic(from: .now, by: 1)
+                .periodic(from: .now, by: 5)
             ) { timeline in
                 let state = liveTrainingState(at: timeline.date)
 
@@ -5508,9 +5426,13 @@ private struct HomeTrainingCardAndroidStyle: View {
             ? KmiAppTheme.success(for: colorScheme)
             : KmiAppTheme.error(for: colorScheme)
 
-        let containerColor = isPresent
-            ? KmiAppTheme.successContainer(for: colorScheme)
-            : KmiAppTheme.errorContainer(for: colorScheme)
+        let containerColor = selected
+            ? statusColor
+            : KmiAppTheme.surfaceVariant(for: colorScheme)
+
+        let borderColor = selected
+            ? statusColor
+            : KmiAppTheme.outline(for: colorScheme).opacity(0.28)
 
         let foregroundColor: Color
 
@@ -5519,20 +5441,17 @@ private struct HomeTrainingCardAndroidStyle: View {
                 ? KmiAppTheme.onSuccess(for: colorScheme)
                 : KmiAppTheme.onError(for: colorScheme)
         } else {
-            foregroundColor = isPresent
-                ? KmiAppTheme.onSuccessContainer(for: colorScheme)
-                : KmiAppTheme.onErrorContainer(for: colorScheme)
+            foregroundColor = KmiAppTheme.onSurfaceVariant(for: colorScheme)
         }
 
         return Button {
             saveAttendanceChoice(status)
         } label: {
             Text(title)
-                .kmiTypography(.action)
+                .kmiTypography(.secondary)
                 .fontWeight(.bold)
                 .multilineTextAlignment(.center)
-                .lineLimit(1)
-                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(foregroundColor)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -5542,19 +5461,15 @@ private struct HomeTrainingCardAndroidStyle: View {
                         cornerRadius: 16,
                         style: .continuous
                     )
-                    .fill(
-                        selected ? statusColor : containerColor
-                    )
+                    .fill(containerColor)
                 )
                 .overlay {
                     RoundedRectangle(
                         cornerRadius: 16,
                         style: .continuous
                     )
-                    .strokeBorder(
-                        statusColor.opacity(selected ? 1 : 0.55),
-                        lineWidth: selected ? 1.5 : 1
-                    )
+                    .strokeBorder(borderColor, lineWidth: 1)
+                    .allowsHitTesting(false)
                 }
         }
         .buttonStyle(.plain)
@@ -5577,6 +5492,12 @@ private struct HomeTrainingCardAndroidStyle: View {
         attendanceSaveError = false
 
         guard !isCancelledByCoach && !isCancelledByHoliday else {
+            attendanceLoading = false
+            return
+        }
+
+        guard !branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !group.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             attendanceLoading = false
             return
         }
@@ -5821,7 +5742,7 @@ private struct HomeTrainingCardAndroidStyle: View {
                     ? "Navigate"
                     : "ניווט"
             )
-            .kmiTypography(.cardTitle)
+            .kmiTypography(.action)
             .fontWeight(.bold)
             .foregroundStyle(
                 KmiAppTheme.onSurface(
@@ -5845,11 +5766,11 @@ private struct HomeTrainingCardAndroidStyle: View {
                     )
                 : addressText
         )
-        .kmiTypography(.body)
+        .kmiTypography(.secondary)
         .fontWeight(.semibold)
-            .foregroundStyle(
-                KmiAppTheme.onSurfaceVariant(for: colorScheme)
-            )
+        .foregroundStyle(
+            KmiAppTheme.onSurfaceVariant(for: colorScheme)
+        )
             .lineLimit(2)
             .truncationMode(.tail)
             .fixedSize(horizontal: false, vertical: true)
@@ -6013,7 +5934,7 @@ private struct WeekHeaderPill: View {
                     spacing: 1 * displayScale
                 ) {
                     Text(title)
-                        .kmiTypography(.action)
+                        .kmiTypography(.secondary)
                         .fontWeight(.bold)
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
@@ -6027,7 +5948,7 @@ private struct WeekHeaderPill: View {
                         .multilineTextAlignment(.center)
 
                     Text(subtitle)
-                        .kmiTypography(.secondary)
+                        .kmiTypography(.caption)
                         .fontWeight(.regular)
                         .foregroundStyle(
                             KmiAppTheme.sectionHeaderContentColor

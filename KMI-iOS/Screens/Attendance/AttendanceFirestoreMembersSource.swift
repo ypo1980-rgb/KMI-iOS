@@ -299,6 +299,8 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
                 uniqueMembers[item.key] = item.member
             }
         }
+        var hadMemberMismatch = false
+
         for candidate in uniqueMembers.values {
             try validateCurrentUser(ownerUid)
             /*
@@ -315,19 +317,34 @@ final class AttendanceFirestoreMembersSource: AttendanceRemoteMembersSource {
              * ומשתמש במזהה מספרי תואם Android.
              * אין כאן יצירת מזהים או כתיבה מקומית.
              */
-            let resolvedMember = try await AttendanceRepository.shared
-                .addManualMemberToFirestore(
-                    ownerUid: ownerUid,
-                    branchName: branchStorageValue,
-                    groupKey: groupStorageValue,
-                    fullName: candidate.fullName,
-                    phone: candidate.phone,
-                    notes: candidate.notes,
-                    authUid: candidate.id
-                )
-            resolvedByID[resolvedMember.id] = resolvedMember
+            do {
+                let resolvedMember = try await AttendanceRepository.shared
+                    .addManualMemberToFirestore(
+                        ownerUid: ownerUid,
+                        branchName: branchStorageValue,
+                        groupKey: groupStorageValue,
+                        fullName: candidate.fullName,
+                        phone: candidate.phone,
+                        notes: candidate.notes,
+                        authUid: candidate.id
+                    )
+                resolvedByID[resolvedMember.id] = resolvedMember
+            } catch AttendanceRepository.OwnAttendanceError.memberMismatch {
+                try validateCurrentUser(ownerUid)
+                hadMemberMismatch = true
+
+                #if DEBUG
+                print("KMI_ATTENDANCE_MEMBER_SYNC_SKIPPED reason: member-mismatch")
+                #endif
+            }
         }
+
         try validateCurrentUser(ownerUid)
+
+        if resolvedByID.isEmpty && hadMemberMismatch {
+            throw AttendanceRepository.OwnAttendanceError.memberMismatch
+        }
+
         return sortedMembers(resolvedByID)
     }
 

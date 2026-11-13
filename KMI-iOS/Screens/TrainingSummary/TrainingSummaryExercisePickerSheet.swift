@@ -28,6 +28,8 @@ struct TrainingSummaryExercisePickerSheet: View {
     @State private var topic: String = ""
     @State private var subTopic: String = ""
     @State private var manualExerciseName: String = ""
+    @State private var pendingExercises: [ExercisePickItem] = []
+    @State private var pendingExplanationIDs: Set<String> = []
 
     init(
         vm: TrainingSummaryViewModel,
@@ -264,25 +266,37 @@ struct TrainingSummaryExercisePickerSheet: View {
                                     name: item
                                 )
 
-                                let isSelected =
-                                    vm.state.selected[exerciseId] != nil
+                                let isAdded = vm.state.selected[exerciseId] != nil
+                                let isPending = pendingExercises.contains {
+                                    $0.exerciseId == exerciseId
+                                }
+                                let isSelected = isAdded || isPending
 
                                 Button {
-                                    vm.toggleExercise(
-                                        ExercisePickItem(
-                                            exerciseId: exerciseId,
-                                            name: item,
-                                            topic: subTopic.isEmpty
-                                                ? topic
-                                                : "\(topic) · \(subTopic)"
-                                        )
+                                    let exercise = ExercisePickItem(
+                                        exerciseId: exerciseId,
+                                        name: item,
+                                        topic: subTopic.isEmpty
+                                            ? topic
+                                            : "\(topic) · \(subTopic)"
                                     )
+
+                                    if isAdded {
+                                        vm.toggleExercise(exercise)
+                                    } else if isPending {
+                                        pendingExercises.removeAll {
+                                            $0.exerciseId == exerciseId
+                                        }
+                                        pendingExplanationIDs.remove(exerciseId)
+                                    } else {
+                                        pendingExercises.append(exercise)
+                                    }
                                 } label: {
                                     HStack(alignment: .center, spacing: 10) {
                                         Image(
-                                            systemName: isSelected
+                                            systemName: isAdded
                                                 ? "checkmark.circle.fill"
-                                                : "plus.circle"
+                                                : (isPending ? "checkmark.circle" : "plus.circle")
                                         )
                                         .kmiIconSize(20)
                                         .foregroundStyle(
@@ -323,6 +337,35 @@ struct TrainingSummaryExercisePickerSheet: View {
                                 .accessibilityAddTraits(
                                     isSelected ? [.isSelected] : []
                                 )
+
+                                if isPending && !isAdded {
+                                    Toggle(
+                                        isOn: Binding(
+                                            get: {
+                                                pendingExplanationIDs.contains(exerciseId)
+                                            },
+                                            set: { includeExplanation in
+                                                if includeExplanation {
+                                                    pendingExplanationIDs.insert(exerciseId)
+                                                } else {
+                                                    pendingExplanationIDs.remove(exerciseId)
+                                                }
+                                            }
+                                        )
+                                    ) {
+                                        Text(
+                                            tr(
+                                                "כלול הסבר לתרגיל ב־PDF",
+                                                "Include exercise explanation in PDF"
+                                            )
+                                        )
+                                        .kmiTypography(.secondary)
+                                        .multilineTextAlignment(.leading)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    .tint(KmiAppTheme.primary(for: colorScheme))
+                                    .frame(minHeight: 44)
+                                }
 
                                 Rectangle()
                                     .fill(
@@ -384,18 +427,20 @@ struct TrainingSummaryExercisePickerSheet: View {
                                 name: clean
                             )
 
-                            if vm.state.selected[exerciseId] == nil {
-                                vm.toggleExercise(
+                            if vm.state.selected[exerciseId] == nil,
+                               !pendingExercises.contains(where: {
+                                   $0.exerciseId == exerciseId
+                               }) {
+                                let exerciseTopic = topic.isEmpty ? "כללי" : topic
+                                let topicLabel = subTopic.isEmpty
+                                    ? exerciseTopic
+                                    : "\(exerciseTopic) · \(subTopic)"
+
+                                pendingExercises.append(
                                     ExercisePickItem(
                                         exerciseId: exerciseId,
                                         name: clean,
-                                        topic: topic.isEmpty
-                                            ? "כללי"
-                                            : (
-                                                subTopic.isEmpty
-                                                    ? topic
-                                                    : "\(topic) · \(subTopic)"
-                                            )
+                                        topic: topicLabel
                                     )
                                 )
                             }
@@ -411,6 +456,9 @@ struct TrainingSummaryExercisePickerSheet: View {
                 .padding(12)
             }
             .scrollDismissesKeyboard(.interactively)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                confirmationBar
+            }
             .background {
                 LinearGradient(
                     colors: KmiAppTheme.screenBackgroundColors(
@@ -445,6 +493,63 @@ struct TrainingSummaryExercisePickerSheet: View {
             vm.setSelectedBelt(selectedBelt)
             vm.setSearchQuery("")
         }
+    }
+
+    private var confirmationBar: some View {
+        let pendingCount = pendingExercises.count
+
+        return VStack(spacing: 8) {
+            if pendingCount > 0 {
+                Button(tr("נקה בחירה", "Clear selection")) {
+                    pendingExercises.removeAll()
+                    pendingExplanationIDs.removeAll()
+                }
+                .buttonStyle(.plain)
+                .kmiTypography(.secondary)
+                .fontWeight(.semibold)
+                .foregroundStyle(KmiAppTheme.primary(for: colorScheme))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: 44)
+            }
+
+            Button {
+                for exercise in pendingExercises {
+                    let exerciseId = exercise.exerciseId
+                    guard vm.state.selected[exerciseId] == nil else {
+                        continue
+                    }
+
+                    vm.toggleExercise(exercise)
+                    vm.setIncludeExplanation(
+                        exerciseId,
+                        includeExplanation: pendingExplanationIDs.contains(exerciseId)
+                    )
+                }
+
+                pendingExercises.removeAll()
+                pendingExplanationIDs.removeAll()
+                onDismiss()
+            } label: {
+                Text(
+                    pendingCount == 0
+                        ? tr("בחר תרגילים להוספה", "Select exercises to add")
+                        : tr(
+                            "אשר והוסף · \(pendingCount)",
+                            "Confirm and add · \(pendingCount)"
+                        )
+                )
+                .kmiTypography(.action)
+                .fontWeight(.bold)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(pendingCount == 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(KmiAppTheme.surface(for: colorScheme))
     }
 
     private func sectionCard<Content: View>(

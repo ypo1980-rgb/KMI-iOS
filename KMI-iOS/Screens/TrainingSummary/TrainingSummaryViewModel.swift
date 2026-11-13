@@ -173,13 +173,23 @@ final class TrainingSummaryViewModel: ObservableObject {
         state.selected[exerciseId] = item
     }
 
+    func setIncludeExplanation(_ exerciseId: String, includeExplanation: Bool) {
+        guard var item = state.selected[exerciseId] else { return }
+        item.includeExplanation = includeExplanation
+        state.selected[exerciseId] = item
+    }
+
     func setHomePractice(_ exerciseId: String, homePractice: Bool) {
         guard var item = state.selected[exerciseId] else { return }
         item.homePractice = homePractice
         state.selected[exerciseId] = item
     }
 
-    func save() {
+    func save(onSaved: (() -> Void)? = nil) {
+        guard !state.isSaving else {
+            return
+        }
+
         guard
             let cleanDate =
                 Self.normalizedIsoOrNil(
@@ -255,7 +265,9 @@ final class TrainingSummaryViewModel: ObservableObject {
                         highlight:
                             $0.highlight.trimmed(),
                         homePractice:
-                            $0.homePractice
+                            $0.homePractice,
+                        includeExplanation:
+                            $0.includeExplanation
                     )
                 },
             notes:
@@ -264,7 +276,7 @@ final class TrainingSummaryViewModel: ObservableObject {
             updatedAtMs: 0
         )
 
-        store.saveForOwner(
+        let didSave = store.saveForOwner(
             ownerUid:
                 state.ownerUid.trimmed(),
             role:
@@ -274,6 +286,17 @@ final class TrainingSummaryViewModel: ObservableObject {
         )
 
         state.isSaving = false
+
+        guard didSave else {
+            publishSaveResult(
+                message: localizedText(
+                    hebrew: "לא ניתן לשמור את סיכום האימון כרגע. נסה שוב.",
+                    english: "Could not save the training summary. Please try again."
+                ),
+                isError: true
+            )
+            return
+        }
 
         publishSaveResult(
             message: localizedText(
@@ -296,6 +319,8 @@ final class TrainingSummaryViewModel: ObservableObject {
                 month1to12: month
             )
         }
+
+        onSaved?()
     }
 
     private func resolveTrainingContextForCurrentDate() {
@@ -566,7 +591,8 @@ final class TrainingSummaryViewModel: ObservableObject {
                             topic: $0.topic,
                             difficulty: $0.difficulty,
                             highlight: $0.highlight,
-                            homePractice: $0.homePractice
+                            homePractice: $0.homePractice,
+                            includeExplanation: $0.includeExplanation ?? false
                         )
                     )
                 }

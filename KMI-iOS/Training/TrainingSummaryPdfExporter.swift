@@ -29,8 +29,11 @@ enum TrainingSummaryPdfExporter {
             throw TrainingSummaryPdfExportError.invalidDate
         }
 
-        dateFormatter.dateFormat = "dd/MM/yyyy"
+        dateFormatter.dateFormat = isEnglish ? "MM/dd/yyyy" : "dd/MM/yyyy"
         let displayDate = dateFormatter.string(from: date)
+
+        dateFormatter.dateFormat = "dd-MM-yyyy"
+        let fileDate = dateFormatter.string(from: date)
 
         let text = state.makeShareText(
             isEnglish: isEnglish,
@@ -176,17 +179,9 @@ enum TrainingSummaryPdfExporter {
 
         let url = directory.appendingPathComponent(
             isEnglish
-                ? "Training_Summary.pdf"
-                : "סיכום_אימון.pdf"
+                ? "KMI_Training_Summary_\(fileDate).pdf"
+                : "סיכום_אימון_קמי_\(fileDate).pdf"
         )
-
-        if FileManager.default.fileExists(
-            atPath: url.path
-        ) {
-            try FileManager.default.removeItem(
-                at: url
-            )
-        }
 
         try data.write(
             to: url,

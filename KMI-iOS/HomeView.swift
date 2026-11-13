@@ -173,6 +173,8 @@ struct HomeView: View {
     @State private var goCard: Bool = false
 
     @State private var selectedTraining: TrainingData? = nil
+    @State private var showAttendanceQrScanner = false
+    @State private var attendanceRefreshID = UUID()
 
     @State private var activeTrainingOverrides:
         [String: TrainingOverride] = [:]
@@ -1747,6 +1749,10 @@ struct HomeView: View {
                         ),
                         subtitle: currentWeekSubtitle
                     )
+                    .transaction { transaction in
+                        transaction.animation = nil
+                        transaction.disablesAnimations = true
+                    }
 
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 8) {
@@ -1811,6 +1817,15 @@ struct HomeView: View {
                                     isEnglish: isEnglish,
                                     isCoach: isCoachUser,
                                     activeOverride: trainingOverride,
+                                    attendanceRefreshID: attendanceRefreshID,
+                                    onAttendanceQrScan: {
+                                        guard !isCoachUser, !freeSessionsUid.isEmpty else {
+                                            return
+                                        }
+
+                                        showHomeQuickMenu = false
+                                        showAttendanceQrScanner = true
+                                    },
                                     onNavigateTap: {
                                         selectedTraining = training
                                     },
@@ -1869,11 +1884,15 @@ struct HomeView: View {
                                 extraCount: recentCoachMessagesExtraCount,
                                 hasMessages: !homeMessagesAndEvents.isEmpty,
                                 isEnglish: isEnglish,
-                        onOpenRecent: {
-                            showCoachMessagesSheet = true
-                        }
-                    )
-                    .padding(.horizontal, 18)
+                                onOpenRecent: {
+                                    showCoachMessagesSheet = true
+                                }
+                            )
+                            .padding(.horizontal, 18)
+                            .transaction { transaction in
+                                transaction.animation = nil
+                                transaction.disablesAnimations = true
+                            }
 
                             Spacer(minLength: 10)
                                 }
@@ -2173,6 +2192,16 @@ struct HomeView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
+                                        .sheet(
+                                            isPresented: $showAttendanceQrScanner,
+                                            onDismiss: {
+                                                attendanceRefreshID = UUID()
+                                            }
+                                        ) {
+                                            AttendanceQrScannerView(isEnglish: isEnglish) {
+                                                showAttendanceQrScanner = false
+                                            }
+                                        }
                                         .sheet(item: $pdfShareItem) { shareItem in
                                             KmiShareSheet(
                                                 items: [shareItem.url]
@@ -2723,10 +2752,13 @@ struct HomeView: View {
                 to: start
             ) ?? start
 
+        let startDate = "\u{2066}\(shortDate(start))\u{2069}"
+        let endDate = "\u{2066}\(shortDate(end))\u{2069}"
+
         if isEnglish {
-            return "Dates: \(englishWeekdayName(from: start)) \(shortDate(start))–\(englishWeekdayName(from: end)) \(shortDate(end))"
+            return "Dates: \(englishWeekdayName(from: start)) \(startDate) – \(englishWeekdayName(from: end)) \(endDate)"
         } else {
-            return "(תאריכים: \(hebrewWeekdayName(from: start)) \(shortDate(start))–\(hebrewWeekdayName(from: end)) \(shortDate(end)))"
+            return "(תאריכים: \(hebrewWeekdayName(from: start)) \(startDate) – \(hebrewWeekdayName(from: end)) \(endDate))"
         }
     }
     
@@ -3858,6 +3890,9 @@ private struct HomeTrainingCardAndroidStyle: View {
 
     let activeOverride: TrainingOverride?
 
+    let attendanceRefreshID: UUID
+    let onAttendanceQrScan: () -> Void
+
     let onNavigateTap: () -> Void
 
     let onManageTap: () -> Void
@@ -4853,6 +4888,41 @@ private struct HomeTrainingCardAndroidStyle: View {
             )
 
             attendanceContent
+
+            if !isCoach, Auth.auth().currentUser != nil {
+                Button(action: onAttendanceQrScan) {
+                    Text(
+                        attendanceText(
+                            "סריקת QR לנוכחות",
+                            "Scan QR for attendance"
+                        )
+                    )
+                    .kmiTypography(.secondary)
+                    .fontWeight(.bold)
+                    .foregroundStyle(
+                        KmiAppTheme.onPrimaryContainer(for: colorScheme)
+                    )
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(
+                        KmiAppTheme.primaryContainer(for: colorScheme),
+                        in: RoundedRectangle(cornerRadius: 16)
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16)
+                            .strokeBorder(
+                                KmiAppTheme.primary(for: colorScheme).opacity(0.30),
+                                lineWidth: 0.75
+                            )
+                            .allowsHitTesting(false)
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 16))
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -5048,7 +5118,8 @@ private struct HomeTrainingCardAndroidStyle: View {
             Auth.auth().currentUser?.uid ?? "",
             String(isCoach),
             String(isCancelledByCoach || isCancelledByHoliday),
-            attendanceRetryID.uuidString
+            attendanceRetryID.uuidString,
+            attendanceRefreshID.uuidString
         ]
         .joined(separator: "|")
     }
@@ -6118,9 +6189,9 @@ private struct CoachMessagesCard: View {
                             .multilineTextAlignment(
                                 textAlignment
                             )
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.78)
-                        
+                            .lineLimit(2, reservesSpace: true)
+                            .truncationMode(.tail)
+
                         if !branchGroupLine.isEmpty {
                             Text(branchGroupLine)
                                 .kmiTypography(.secondary)

@@ -585,6 +585,40 @@ struct TrainingSummaryView: View {
 
             summarySectionDivider
 
+            Toggle(
+                isOn: Binding(
+                    get: {
+                        vm.state.selected[item.exerciseId]?.includeExplanation ?? false
+                    },
+                    set: { isIncluded in
+                        vm.setIncludeExplanation(
+                            item.exerciseId,
+                            includeExplanation: isIncluded
+                        )
+                    }
+                )
+            ) {
+                Text(
+                    tr(
+                        "כלול הסבר לתרגיל ב־PDF",
+                        "Include exercise explanation in PDF"
+                    )
+                )
+                .kmiTypography(.secondary)
+                .fontWeight(.semibold)
+                .foregroundStyle(summaryText)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .tint(summaryPrimary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(minHeight: 44)
+            .background(
+                summaryCard,
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            )
+
             if notesOpen {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(tr("דגשים והערות לתרגיל", "Exercise notes and highlights"))
@@ -727,7 +761,9 @@ struct TrainingSummaryView: View {
             summarySectionDivider
 
             Button {
-                vm.save()
+                vm.save(onSaved: {
+                    nav.pop()
+                })
             } label: {
                 HStack(spacing: 8) {
                     if vm.state.isSaving {

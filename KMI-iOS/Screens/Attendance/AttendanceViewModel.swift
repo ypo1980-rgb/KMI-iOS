@@ -10,17 +10,51 @@ final class AttendanceViewModel: ObservableObject {
     private let repository: AttendanceRepository
     private var contextLoadID = UUID()
     private var contextLoadTask: Task<Void, Never>?
+    private var attendanceRecordsTask: Task<Void, Never>?
+    private var attendanceRecordsListenerID = UUID()
+    private var isAttendanceScreenVisible = false
+    private var editedNotesByMemberID: [String: String] = [:]
     private var monthLoadTask: Task<Void, Never>?
     private var monthLoadID = UUID()
     @Published
     private(set) var isContextLoading = false
     @Published
     private(set) var contextLoadFailed = false
+    var hasScheduledTrainingForCurrentSelection: Bool {
+        let branch = state.branchName.trimmed()
+        let group = state.groupKey.trimmed()
+
+        guard !branch.isEmpty, !group.isEmpty else {
+            return false
+        }
+
+        return hasScheduledTraining(branch: branch, group: group)
+    }
+
     private var canModifyLoadedContext: Bool {
         !state.isSaving &&
         !isContextLoading &&
         !contextLoadFailed
     }
+
+    func setAttendanceScreenVisible(_ isVisible: Bool) {
+        guard isAttendanceScreenVisible != isVisible else {
+            return
+        }
+
+        isAttendanceScreenVisible = isVisible
+
+        if isVisible {
+            startAttendanceRecordsListenerIfReady()
+        } else {
+            stopAttendanceRecordsListener()
+        }
+    }
+
+    deinit {
+        attendanceRecordsTask?.cancel()
+    }
+
     func retryLoadingCurrentContext() {
         guard !state.isSaving else {
             return
@@ -97,27 +131,23 @@ final class AttendanceViewModel: ObservableObject {
     }
     private func finishSavingOperation() {
         state.isSaving = false
-        guard let pending = pendingAssignments else {
-            return
+
+        if let pending = pendingAssignments {
+            pendingAssignments = nil
+            setAssignedBranches(
+                pending.branches,
+                groupsByBranch: pending.groupsByBranch
+            )
         }
-        pendingAssignments = nil
-        setAssignedBranches(
-            pending.branches,
-            groupsByBranch: pending.groupsByBranch
-        )
+
+        startAttendanceRecordsListenerIfReady()
     }
     private func hasScheduledTraining(
         branch: String,
         group: String? = nil
     ) -> Bool {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = ShabbatHolidayCheckerIOS.calendar
-        formatter.timeZone = ShabbatHolidayCheckerIOS.timeZone
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.isLenient = false
-        guard let selectedDate = formatter.date(
-            from: state.dateIso
+        guard let selectedDate = Self.parsedDate(
+            fromIso: state.dateIso
         ) else {
             return false
         }
@@ -292,23 +322,90 @@ final class AttendanceViewModel: ObservableObject {
     }
     func setAttendanceStatus(memberId: String, status: AttendanceStatus) {
         guard canModifyLoadedContext,
-              state.members.contains(where: {
-                $0.id == memberId
-              }) else {
+              hasScheduledTrainingForCurrentSelection,
+              state.members.contains(where: { $0.id == memberId }) else {
             return
         }
-        let current = state.recordsByMemberId[memberId]
-        let updated = AttendanceRecord(
-            id: current?.id ?? "\(state.dateIso)_\(memberId)",
-            dateIso: state.dateIso,
-            memberId: memberId,
-            status: status,
-            note: current?.note ?? ""
-        )
-        state.recordsByMemberId[memberId] = updated
+
+        let ownerUid = state.ownerUid
+        let branchName = state.branchName
+        let groupKey = state.groupKey
+        let dateIso = state.dateIso
+        let loadID = contextLoadID
+
+        guard Auth.auth().currentUser?.uid == ownerUid else {
+            publishMessage(
+                tr(
+                    "יש להתחבר מחדש לפני סימון נוכחות.",
+                    "Sign in again before marking attendance."
+                ),
+                isError: true
+            )
+            return
+        }
+
+        state.isSaving = true
+
+        Task { @MainActor in
+            defer {
+                finishSavingOperation()
+            }
+
+            @MainActor
+            func isCurrentMarkContext() -> Bool {
+                !Task.isCancelled &&
+                contextLoadID == loadID &&
+                Auth.auth().currentUser?.uid == ownerUid &&
+                state.ownerUid == ownerUid &&
+                state.branchName == branchName &&
+                state.groupKey == groupKey &&
+                state.dateIso == dateIso
+            }
+
+            guard isCurrentMarkContext() else {
+                return
+            }
+
+            do {
+                try await repository.markCoachAttendance(
+                    ownerUid: ownerUid,
+                    branchName: branchName,
+                    groupKey: groupKey,
+                    dateIso: dateIso,
+                    memberId: memberId,
+                    status: status
+                )
+
+                guard isCurrentMarkContext() else {
+                    return
+                }
+
+                let current = state.recordsByMemberId[memberId]
+                state.recordsByMemberId[memberId] = AttendanceRecord(
+                    id: current?.id ?? "\(dateIso)_\(memberId)",
+                    dateIso: dateIso,
+                    memberId: memberId,
+                    status: status,
+                    note: current?.note ?? ""
+                )
+            } catch {
+                guard isCurrentMarkContext() else {
+                    return
+                }
+
+                publishMessage(
+                    tr(
+                        "לא ניתן לשמור את סימון הנוכחות כרגע. נסה שוב.",
+                        "Could not save the attendance status. Try again."
+                    ),
+                    isError: true
+                )
+            }
+        }
     }
     func setAttendanceNote(memberId: String, note: String) {
         guard canModifyLoadedContext,
+              Auth.auth().currentUser?.uid == state.ownerUid,
               state.members.contains(where: {
                 $0.id == memberId
               }) else {
@@ -322,6 +419,8 @@ final class AttendanceViewModel: ObservableObject {
             status: current?.status ?? .unknown,
             note: note
         )
+
+        editedNotesByMemberID[memberId] = note
         state.recordsByMemberId[memberId] = updated
     }
     func addMember(
@@ -504,6 +603,7 @@ final class AttendanceViewModel: ObservableObject {
                 self.state.recordsByMemberId.removeValue(
                     forKey: memberId
                 )
+                self.editedNotesByMemberID.removeValue(forKey: memberId)
                 self.persistMembers()
                 let remainingRecords = Array(
                     self.state.recordsByMemberId.values
@@ -561,12 +661,7 @@ final class AttendanceViewModel: ObservableObject {
             )
             return
         }
-        guard !state.branchName.trimmed().isEmpty,
-              !state.groupKey.trimmed().isEmpty,
-              hasScheduledTraining(
-                branch: state.branchName,
-                group: state.groupKey
-              ) else {
+        guard hasScheduledTrainingForCurrentSelection else {
             publishMessage(
                 tr(
                     "אין אימון מתוכנן לסניף ולקבוצה בתאריך שנבחר.",
@@ -576,7 +671,30 @@ final class AttendanceViewModel: ObservableObject {
             )
             return
         }
+        guard !state.members.isEmpty else {
+            publishMessage(
+                tr(
+                    "אין מתאמנים ברשימה לשמירת הדוח.",
+                    "There are no trainees in the list to save this report."
+                ),
+                isError: true
+            )
+            return
+        }
+
+        guard Auth.auth().currentUser?.uid == state.ownerUid else {
+            publishMessage(
+                tr(
+                    "יש להתחבר מחדש לפני שמירת דוח הנוכחות.",
+                    "Sign in again before saving the attendance report."
+                ),
+                isError: true
+            )
+            return
+        }
+
         state.isSaving = true
+
         let records = state.members.map { member -> AttendanceRecord in
             if let existing = state.recordsByMemberId[member.id] {
                 return existing
@@ -591,35 +709,47 @@ final class AttendanceViewModel: ObservableObject {
         }
         let savingState = state
         let savingContextID = contextLoadID
+        let savingNotes = editedNotesByMemberID
+
         Task { @MainActor in
+            @MainActor
+            func isCurrentSaveContext() -> Bool {
+                !Task.isCancelled &&
+                self.contextLoadID == savingContextID &&
+                Auth.auth().currentUser?.uid == savingState.ownerUid &&
+                self.state.ownerUid == savingState.ownerUid &&
+                self.state.branchName == savingState.branchName &&
+                self.state.groupKey == savingState.groupKey &&
+                self.state.dateIso == savingState.dateIso
+            }
+
             defer {
                 finishSavingOperation()
             }
             do {
-                try await repository
+                let savedRecords = try await repository
                     .saveAttendanceReportToFirestore(
                         state: savingState,
-                        records: records
+                        records: records,
+                        useServerRecords: true,
+                        editedNotesByMemberID: savingNotes
                     )
                 // תוצאת השמירה שייכת לבחירה שהייתה
                 // בזמן הלחיצה, גם אם המשתמש עבר יום.
-                guard !Task.isCancelled,
-                      contextLoadID == savingContextID,
-                      Auth.auth().currentUser?.uid == savingState.ownerUid,
-                      state.ownerUid == savingState.ownerUid,
-                      state.branchName == savingState.branchName,
-                      state.groupKey == savingState.groupKey,
-                      state.dateIso == savingState.dateIso else {
+                guard isCurrentSaveContext() else {
                     return
                 }
+
                 state.recordsByMemberId = Dictionary(
-                    records.map {
+                    savedRecords.map {
                         ($0.memberId, $0)
                     },
                     uniquingKeysWith: { _, latest in
                         latest
                     }
                 )
+
+                editedNotesByMemberID.removeAll()
                 isReportSaved = true
                 reloadMonthMarkers()
                 publishMessage(
@@ -635,15 +765,10 @@ final class AttendanceViewModel: ObservableObject {
                  */
                 onSaved?()
             } catch {
-                guard !Task.isCancelled,
-                      contextLoadID == savingContextID,
-                      Auth.auth().currentUser?.uid == savingState.ownerUid,
-                      state.ownerUid == savingState.ownerUid,
-                      state.branchName == savingState.branchName,
-                      state.groupKey == savingState.groupKey,
-                      state.dateIso == savingState.dateIso else {
+                guard isCurrentSaveContext() else {
                     return
                 }
+
                 publishMessage(
                     tr(
                         "לא ניתן לשמור את דו״ח הנוכחות כרגע. נסה שוב.",
@@ -759,8 +884,11 @@ final class AttendanceViewModel: ObservableObject {
     private func reloadCurrentContext(
         preloadedMembers: [AttendanceMember]? = nil
     ) {
+        stopAttendanceRecordsListener()
         contextLoadTask?.cancel()
         contextLoadTask = nil
+        editedNotesByMemberID.removeAll()
+
         let loadID = UUID()
         contextLoadID = loadID
         let ownerUid = state.ownerUid
@@ -779,12 +907,7 @@ final class AttendanceViewModel: ObservableObject {
             return
         }
 
-        guard !branchName.isEmpty,
-              !groupKey.isEmpty,
-              hasScheduledTraining(
-                branch: branchName,
-                group: groupKey
-              ) else {
+        guard hasScheduledTrainingForCurrentSelection else {
             return
         }
         /*
@@ -863,6 +986,8 @@ final class AttendanceViewModel: ObservableObject {
                 )
                 self.isReportSaved = savedReport
                 self.contextLoadFailed = false
+                self.isContextLoading = false
+                self.startAttendanceRecordsListenerIfReady()
                 self.reloadMonthMarkers()
             } catch {
                 guard isCurrentContext() else {
@@ -967,6 +1092,114 @@ final class AttendanceViewModel: ObservableObject {
         }
     }
 
+    private func startAttendanceRecordsListenerIfReady() {
+        stopAttendanceRecordsListener()
+
+        let ownerUid = state.ownerUid
+        let branchName = state.branchName.trimmed()
+        let groupKey = state.groupKey.trimmed()
+        let dateIso = state.dateIso
+
+        guard isAttendanceScreenVisible,
+              !state.isSaving,
+              !isContextLoading,
+              !contextLoadFailed,
+              hasScheduledTrainingForCurrentSelection,
+              !ownerUid.isEmpty,
+              Auth.auth().currentUser?.uid == ownerUid else {
+            return
+        }
+
+        let listenerID = attendanceRecordsListenerID
+        let repository = self.repository
+
+        attendanceRecordsTask = Task { @MainActor [weak self] in
+            let snapshots = repository.attendanceRecordSnapshots(
+                ownerUid: ownerUid,
+                branchName: branchName,
+                groupKey: groupKey,
+                dateIso: dateIso
+            )
+
+            do {
+                for try await snapshot in snapshots {
+                    guard !Task.isCancelled,
+                          self?.attendanceRecordsListenerID == listenerID,
+                          Auth.auth().currentUser?.uid == ownerUid else {
+                        return
+                    }
+
+                    guard self?.state.isSaving == false else {
+                        continue
+                    }
+
+                    let records = try await repository.decodeAttendanceRecords(
+                        from: snapshot,
+                        dateIso: dateIso
+                    )
+
+                    guard !Task.isCancelled,
+                          let self,
+                          self.attendanceRecordsListenerID == listenerID,
+                          Auth.auth().currentUser?.uid == ownerUid else {
+                        return
+                    }
+
+                    guard !self.state.isSaving else {
+                        continue
+                    }
+
+                    self.applyLiveAttendanceRecords(records, dateIso: dateIso)
+                }
+            } catch {
+                guard !Task.isCancelled,
+                      let self,
+                      self.attendanceRecordsListenerID == listenerID,
+                      Auth.auth().currentUser?.uid == ownerUid else {
+                    return
+                }
+
+                self.attendanceRecordsTask = nil
+                self.publishMessage(
+                    self.tr(
+                        "עדכון הנוכחות בזמן אמת הופסק. פתח מחדש את המסך כדי לחדש אותו.",
+                        "Live attendance updates stopped. Reopen the screen to reconnect."
+                    ),
+                    isError: true
+                )
+            }
+        }
+    }
+
+    private func stopAttendanceRecordsListener() {
+        attendanceRecordsListenerID = UUID()
+        attendanceRecordsTask?.cancel()
+        attendanceRecordsTask = nil
+    }
+
+    private func applyLiveAttendanceRecords(
+        _ records: [AttendanceRecord],
+        dateIso: String
+    ) {
+        var updatedRecords = Dictionary(
+            records.map { ($0.memberId, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+
+        for (memberId, note) in editedNotesByMemberID {
+            let serverRecord = updatedRecords[memberId]
+            updatedRecords[memberId] = AttendanceRecord(
+                id: serverRecord?.id ?? "\(dateIso)_\(memberId)",
+                dateIso: dateIso,
+                memberId: memberId,
+                status: serverRecord?.status ?? .unknown,
+                note: note
+            )
+        }
+
+        state.recordsByMemberId = updatedRecords
+    }
+
     private func reloadRecordsOnly() {
         let loaded =
             repository.loadRecords(
@@ -983,9 +1216,8 @@ final class AttendanceViewModel: ObservableObject {
                 latest
             }
         )
-        isReportSaved =
-            !loaded.isEmpty
     }
+
     private func reloadMonthMarkers() {
         let comps = Self.dateComponents(fromIso: state.dateIso)
         if let year = comps.year, let month = comps.month {

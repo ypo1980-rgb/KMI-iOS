@@ -30,11 +30,12 @@ final class TrainingSummaryLocalStore {
         return decoded
     }
 
+    @discardableResult
     func saveForOwner(
         ownerUid: String,
         role: SummaryAuthorRole,
         summary: TrainingSummaryEntity
-    ) {
+    ) -> Bool {
         let now = Int64(Date().timeIntervalSince1970 * 1000)
         var toSave = summary
         toSave.ownerUid = ownerUid.trimmed()
@@ -43,7 +44,7 @@ final class TrainingSummaryLocalStore {
         toSave.updatedAtMs = now
 
         guard let encoded = try? JSONEncoder().encode(toSave) else {
-            return
+            return false
         }
 
         defaults.set(
@@ -60,6 +61,8 @@ final class TrainingSummaryLocalStore {
             role: role,
             dateIso: toSave.dateIso
         )
+
+        return true
     }
 
     func clearForOwner(

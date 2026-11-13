@@ -20,6 +20,7 @@ struct TrainingSummaryExerciseEntity: Identifiable, Codable, Hashable {
     var difficulty: Int?
     var highlight: String
     var homePractice: Bool
+    var includeExplanation: Bool? = nil
 
     var id: String { exerciseId }
 }
@@ -51,6 +52,7 @@ struct SelectedExerciseUi: Identifiable, Hashable {
     var difficulty: Int? = nil
     var highlight: String = ""
     var homePractice: Bool = false
+    var includeExplanation: Bool = false
 
     var id: String { exerciseId }
 }
@@ -103,6 +105,26 @@ extension TrainingSummaryUiState {
         )
     }
 
+    private func exportableExerciseDescription(
+        for name: String,
+        isEnglish: Bool
+    ) -> String? {
+        switch name.trimmed() {
+        case "חימום":
+            return isEnglish
+                ? "Gradually increase your movement at a comfortable pace before the main session."
+                : "הגבירו את התנועה בהדרגה ובקצב נוח לפני החלק העיקרי של האימון."
+
+        case "קואורדינציה":
+            return isEnglish
+                ? "Practice simple movement sequences at a steady pace, focusing on rhythm and balance."
+                : "תרגלו רצפי תנועה פשוטים בקצב אחיד, תוך תשומת לב לקצב ולשיווי המשקל."
+
+        default:
+            return nil
+        }
+    }
+
     func makeShareText(
         isEnglish: Bool,
         privacyEnabled: Bool
@@ -111,11 +133,42 @@ extension TrainingSummaryUiState {
             isEnglish ? english : hebrew
         }
 
-        let sortedExercises = selected.values.sorted {
-            $0.name.localizedCaseInsensitiveCompare(
-                $1.name
-            ) == .orderedAscending
+        let belts = TrainingSummaryCatalog.belts
+
+        func beltIndex(for exerciseId: String) -> Int {
+            let beltId = exerciseId
+                .split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+                .first?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard let beltId else {
+                return belts.count
+            }
+
+            return belts.firstIndex {
+                $0.id.caseInsensitiveCompare(beltId) == .orderedSame
+            } ?? belts.count
         }
+
+        let sortedExercises = selected.values
+            .map { item in
+                (item: item, beltIndex: beltIndex(for: item.exerciseId))
+            }
+            .sorted { left, right in
+                if left.beltIndex != right.beltIndex {
+                    return left.beltIndex < right.beltIndex
+                }
+
+                let nameOrder = left.item.name.localizedCaseInsensitiveCompare(
+                    right.item.name
+                )
+
+                if nameOrder == .orderedSame {
+                    return left.item.exerciseId < right.item.exerciseId
+                }
+
+                return nameOrder == .orderedAscending
+            }
 
         let role = ownerRole == .coach
             ? tr("מאמן", "Coach")
@@ -184,7 +237,22 @@ extension TrainingSummaryUiState {
         } else {
             lines.append(tr("תרגילים:", "Exercises:"))
 
-            for item in sortedExercises {
+            var previousBeltIndex: Int?
+
+            for entry in sortedExercises {
+                let item = entry.item
+
+                if entry.beltIndex != previousBeltIndex {
+                    if belts.indices.contains(entry.beltIndex) {
+                        let belt = belts[entry.beltIndex]
+                        lines.append(isEnglish ? belt.en : belt.heb)
+                    } else {
+                        lines.append(tr("ללא חגורה", "No belt"))
+                    }
+
+                    previousBeltIndex = entry.beltIndex
+                }
+
                 lines.append("- \(item.name)")
 
                 let topic = item.topic.trimmed()
@@ -203,6 +271,19 @@ extension TrainingSummaryUiState {
                         tr(
                             "  רמת קושי: \(difficulty)",
                             "  Difficulty: \(difficulty)"
+                        )
+                    )
+                }
+
+                if item.includeExplanation,
+                   let description = exportableExerciseDescription(
+                       for: item.name,
+                       isEnglish: isEnglish
+                   ) {
+                    lines.append(
+                        tr(
+                            "  הסבר: \(description)",
+                            "  Explanation: \(description)"
                         )
                     )
                 }

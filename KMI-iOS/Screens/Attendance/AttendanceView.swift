@@ -1,5 +1,8 @@
 import SwiftUI
 import FirebaseAuth
+import FirebaseFirestore
+import FirebaseFunctions
+import CoreImage.CIFilterBuiltins
 import UIKit
 
 struct AttendanceView: View {
@@ -21,6 +24,7 @@ struct AttendanceView: View {
 
     @State private var showDatePickerSheet = false
     @State private var draftAttendanceDate = Date()
+    @State private var attendanceQrRequest: AttendanceQrRequest?
 
     @State private var newMemberName: String = ""
     @State private var newMemberPhone: String = ""
@@ -122,6 +126,10 @@ struct AttendanceView: View {
         vm.isReportSaved || reportSavedInCurrentContext
     }
 
+    private var displayedAttendanceRows: [AttendanceRowUi] {
+        uniqueMembers(vm.state.rows)
+    }
+
     private var isAttendanceContextReady: Bool {
         hasSelectedAttendanceContext &&
         !vm.state.isSaving &&
@@ -133,6 +141,18 @@ struct AttendanceView: View {
     private var canEditAttendance: Bool {
         isAttendanceContextReady &&
         (!isAttendanceReportSaved || isEditingSavedReport)
+    }
+
+    private var canUseReportAction: Bool {
+        guard isAttendanceContextReady else {
+            return false
+        }
+
+        if isAttendanceReportSaved && !isEditingSavedReport {
+            return true
+        }
+
+        return !displayedAttendanceRows.isEmpty
     }
 
     private var primaryTextColor: Color {
@@ -241,6 +261,10 @@ struct AttendanceView: View {
 
                     if vm.contextLoadFailed {
                         attendanceLoadFailureCard
+                    } else if isAttendanceContextReady &&
+                        isAttendanceReportSaved &&
+                        !isEditingSavedReport {
+                        savedAttendanceNotice
                     }
 
                     attendanceSummaryCard
@@ -271,6 +295,10 @@ struct AttendanceView: View {
                     .minimumScaleFactor(0.74)
                     .padding(.horizontal, 2)
                     .padding(.top, 2)
+
+                    if !isAttendanceReportSaved {
+                        attendanceQrButton
+                    }
 
                     membersCard
 
@@ -353,6 +381,12 @@ struct AttendanceView: View {
             onDismiss: { shareItems.removeAll() }
         ) {
             AttendanceShareSheet(items: shareItems)
+        }
+        .sheet(item: $attendanceQrRequest) { request in
+            AttendanceCoachQrSheet(
+                request: request,
+                isEnglish: isEnglish
+            )
         }
         .sheet(isPresented: $showDatePickerSheet) {
             AttendancePremiumDatePickerSheet(
@@ -706,6 +740,80 @@ struct AttendanceView: View {
         )
     }
 
+    private var savedAttendanceNotice: some View {
+        Label(
+            tr(
+                "דוח הנוכחות לאימון זה כבר נשמר",
+                "The attendance report for this training has been saved"
+            ),
+            systemImage: "checkmark.circle.fill"
+        )
+        .kmiTypography(.secondary)
+        .fontWeight(.semibold)
+        .foregroundStyle(KmiAppTheme.onSuccessContainer(for: colorScheme))
+        .multilineTextAlignment(.leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(
+            KmiAppTheme.successContainer(for: colorScheme),
+            in: RoundedRectangle(cornerRadius: 16)
+        )
+        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+    }
+
+    private var attendanceQrButton: some View {
+        let canOpen = isAttendanceContextReady &&
+            vm.hasScheduledTrainingForCurrentSelection &&
+            Auth.auth().currentUser != nil &&
+            vm.availableBranches.contains(vm.state.branchName) &&
+            vm.availableGroups.contains(vm.state.groupKey)
+
+        return Button {
+            guard canOpen,
+                  !isAttendanceReportSaved,
+                  let uid = Auth.auth().currentUser?.uid else {
+                return
+            }
+
+            attendanceQrRequest = AttendanceQrRequest(
+                uid: uid,
+                dateIso: vm.state.dateIso,
+                dateLabel: formattedDate(vm.state.dateIso),
+                branch: vm.state.branchName,
+                group: vm.state.groupKey
+            )
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "qrcode")
+                    .kmiIconSize(.medium)
+                    .accessibilityHidden(true)
+
+                Text(tr("QR לנוכחות באימון", "Training attendance QR"))
+                    .kmiTypography(.action)
+                    .fontWeight(.bold)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(KmiAppTheme.primary(for: colorScheme))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .overlay {
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(
+                        KmiAppTheme.primary(for: colorScheme),
+                        lineWidth: 1
+                    )
+                    .allowsHitTesting(false)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 16))
+        }
+        .buttonStyle(.plain)
+        .disabled(!canOpen)
+        .opacity(canOpen ? 1 : 0.55)
+    }
+
     private var attendanceHeroCard: some View {
         let dateText = formattedDate(vm.state.dateIso)
 
@@ -915,7 +1023,7 @@ struct AttendanceView: View {
         excusedLabel: String,
         unknownLabel: String
     ) {
-        let rows = uniqueMembers(vm.state.rows)
+        let rows = displayedAttendanceRows
         let total = rows.count
 
         let present = rows.filter {
@@ -949,7 +1057,7 @@ struct AttendanceView: View {
     }
 
     private var attendancePercentText: String {
-        let rows = uniqueMembers(vm.state.rows)
+        let rows = displayedAttendanceRows
         let present = rows.filter {
             $0.status == .present
         }.count
@@ -1280,7 +1388,7 @@ struct AttendanceView: View {
     }
 
     private var membersCard: some View {
-        let rows = uniqueMembers(vm.state.rows)
+        let rows = displayedAttendanceRows
 
         return VStack(spacing: 0) {
             if rows.isEmpty {
@@ -1430,7 +1538,7 @@ struct AttendanceView: View {
 
             Button {
 
-                guard isAttendanceContextReady else {
+                guard canUseReportAction else {
                     return
                 }
 
@@ -1546,16 +1654,8 @@ struct AttendanceView: View {
                 )
             }
             .buttonStyle(.plain)
-            .disabled(
-                !isAttendanceContextReady
-            )
-            .opacity(
-                (
-                    !isAttendanceContextReady
-                )
-                    ? 0.65
-                    : 1
-            )
+            .disabled(!canUseReportAction)
+            .opacity(canUseReportAction ? 1 : 0.65)
         }
         .padding(14)
         .background(cardSurfaceColor)
@@ -3134,6 +3234,716 @@ private struct AttendancePremiumDatePickerSheet: View {
             \.timeZone,
             ShabbatHolidayCheckerIOS.timeZone
         )
+    }
+}
+
+private struct AttendanceQrRequest: Identifiable {
+    let id = UUID()
+    let uid: String
+    let dateIso: String
+    let dateLabel: String
+    let branch: String
+    let group: String
+}
+
+private struct AttendanceCoachQrSheet: View {
+    let request: AttendanceQrRequest
+    let isEnglish: Bool
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+
+    @State private var work: Work = .lookup(UUID())
+    @State private var phase: Phase = .loading
+    @State private var isPrinting = false
+    @State private var showPrintError = false
+
+    private struct Occurrence: Identifiable, Equatable {
+        let id: String
+        let startMillis: Int64
+        let endMillis: Int64
+    }
+
+    private enum Work: Equatable {
+        case lookup(UUID)
+        case generate(Occurrence)
+    }
+
+    private enum Phase {
+        case loading
+        case choose([Occurrence])
+        case ready(Occurrence, UIImage)
+        case failed(String)
+    }
+
+    private struct Payload: Encodable {
+        let type = "kami_attendance_qr"
+        let occurrenceId: String
+        let token: String
+    }
+
+    private var isGenerating: Bool {
+        guard case .loading = phase,
+              case .generate = work else {
+            return false
+        }
+
+        return true
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 16) {
+                    trainingDetails
+
+                    switch phase {
+                    case .loading:
+                        statusText(
+                            isGenerating
+                                ? tr("מפיק קוד QR מאובטח…", "Generating secure QR…")
+                                : tr("מחפש את האימון שנבחר…", "Finding the selected training…")
+                        )
+
+                        KmiLoadingOverlay()
+                            .frame(height: 132)
+
+                    case let .choose(occurrences):
+                        statusText(
+                            tr(
+                                "נמצאו כמה אימונים. בחר את האימון שעבורו יופק הקוד.",
+                                "Multiple trainings were found. Choose which training to generate a QR for."
+                            )
+                        )
+
+                        ForEach(Array(occurrences.enumerated()), id: \.element.id) { index, occurrence in
+                            Button {
+                                beginGeneration(for: occurrence)
+                            } label: {
+                                Text(
+                                    tr("אימון \(index + 1)", "Training \(index + 1)") +
+                                        " · " + timeRange(for: occurrence)
+                                )
+                                .kmiTypography(.action)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+
+                    case let .ready(occurrence, image):
+                        VStack(spacing: 4) {
+                            Text(
+                                tr(
+                                    "האימון שאליו משויך הברקוד",
+                                    "Training linked to this QR"
+                                )
+                            )
+                            .kmiTypography(.caption)
+                            .fontWeight(.bold)
+
+                            Text(
+                                TrainingCatalogIOS.displayGroup(
+                                    request.group,
+                                    isEnglish: isEnglish
+                                )
+                            )
+                            .kmiTypography(.body)
+                            .fontWeight(.bold)
+
+                            Text(timeRange(for: occurrence))
+                                .kmiTypography(.secondary)
+                        }
+                        .foregroundStyle(
+                            KmiAppTheme.onPrimaryContainer(for: colorScheme)
+                        )
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
+                        .padding(10)
+                        .background(
+                            KmiAppTheme.primaryContainer(for: colorScheme),
+                            in: RoundedRectangle(cornerRadius: 12)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(
+                                    KmiAppTheme.primary(for: colorScheme).opacity(0.20),
+                                    lineWidth: 1
+                                )
+                                .allowsHitTesting(false)
+                        }
+
+                        Image(uiImage: image)
+                            .interpolation(.none)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: 320)
+                            .padding(16)
+                            .background(.white, in: RoundedRectangle(cornerRadius: 16))
+                            .accessibilityLabel(
+                                Text(tr("קוד QR לנוכחות באימון", "Training attendance QR code"))
+                            )
+
+                        Button {
+                            printQr(image, for: occurrence)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "printer")
+                                    .kmiIconSize(.small)
+                                    .accessibilityHidden(true)
+
+                                Text(tr("הדפס QR", "Print QR"))
+                                    .kmiTypography(.action)
+                                    .fontWeight(.bold)
+                            }
+                            .frame(minHeight: 44)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isPrinting)
+
+                        statusText(
+                            tr(
+                                "אפשר לסרוק את הקוד בחלון הזמן המאושר של האימון.",
+                                "Scan the code during the approved training window."
+                            )
+                        )
+
+                    case let .failed(message):
+                        Text(message)
+                            .kmiTypography(.secondary)
+                            .foregroundStyle(KmiAppTheme.error(for: colorScheme))
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Button(tr("נסה שוב", "Try again")) {
+                            phase = .loading
+                            work = .lookup(UUID())
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+                .frame(maxWidth: 480)
+                .padding(16)
+                .frame(maxWidth: .infinity)
+            }
+            .background(KmiAppTheme.surface(for: colorScheme).ignoresSafeArea())
+            .navigationTitle(tr("QR לנוכחות באימון", "Training attendance QR"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(tr("סגור", "Close")) {
+                        dismiss()
+                    }
+                    .disabled(isGenerating || isPrinting)
+                }
+            }
+        }
+        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+        .interactiveDismissDisabled(isGenerating || isPrinting)
+        .alert(
+            tr("לא ניתן להדפיס", "Unable to Print"),
+            isPresented: $showPrintError
+        ) {
+            Button(tr("אישור", "OK"), role: .cancel) {}
+        } message: {
+            Text(
+                tr(
+                    "לא ניתן לפתוח או להשלים את הדפסת קוד ה־QR.",
+                    "Could not open or complete printing for the QR code."
+                )
+            )
+        }
+        .task(id: work) {
+            let currentWork = work
+            await run(currentWork)
+        }
+    }
+
+    private var trainingDetails: some View {
+        VStack(spacing: 4) {
+            statusText(request.dateLabel)
+            statusText(TrainingCatalogIOS.displayBranch(request.branch, isEnglish: isEnglish))
+            statusText(TrainingCatalogIOS.displayGroup(request.group, isEnglish: isEnglish))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(12)
+        .background(
+            KmiAppTheme.surfaceVariant(for: colorScheme),
+            in: RoundedRectangle(cornerRadius: 14)
+        )
+    }
+
+    private func statusText(_ text: String) -> some View {
+        Text(text)
+            .kmiTypography(.secondary)
+            .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func beginGeneration(for occurrence: Occurrence) {
+        phase = .loading
+        work = .generate(occurrence)
+    }
+
+    @MainActor
+    private func run(_ currentWork: Work) async {
+        guard !Task.isCancelled, work == currentWork else {
+            return
+        }
+
+        guard Auth.auth().currentUser?.uid == request.uid else {
+            phase = .failed(signInMessage)
+            return
+        }
+
+        do {
+            switch currentWork {
+            case .lookup:
+                let snapshot = try await Firestore.firestore()
+                    .collection("trainingOccurrences")
+                    .whereField("sessionDate", isEqualTo: request.dateIso)
+                    .getDocuments()
+
+                guard canApplyResult(for: currentWork) else {
+                    return
+                }
+
+                let branch = normalizedIdentity(request.branch)
+                let group = normalizedIdentity(request.group)
+                let occurrences = snapshot.documents.compactMap { document -> Occurrence? in
+                    guard normalizedIdentity(document.get("branch") as? String ?? "") == branch,
+                          normalizedIdentity(document.get("group") as? String ?? "") == group else {
+                        return nil
+                    }
+
+                    return Occurrence(
+                        id: document.documentID,
+                        startMillis: (document.get("effectiveStartMillis") as? NSNumber)?.int64Value ?? 0,
+                        endMillis: (document.get("effectiveEndMillis") as? NSNumber)?.int64Value ?? 0
+                    )
+                }
+                .sorted { left, right in
+                    if left.startMillis == right.startMillis {
+                        return left.id < right.id
+                    }
+
+                    return left.startMillis < right.startMillis
+                }
+
+                if let occurrence = occurrences.first, occurrences.count == 1 {
+                    beginGeneration(for: occurrence)
+                } else if occurrences.isEmpty {
+                    phase = .failed(
+                        tr(
+                            "לא נמצא אימון מתאים לתאריך, לסניף ולקבוצה שנבחרו.",
+                            "No training matched the selected date, branch and group."
+                        )
+                    )
+                } else {
+                    phase = .choose(occurrences)
+                }
+
+            case let .generate(occurrence):
+                let callable = Functions.functions(region: "europe-west1")
+                    .httpsCallable("createKamiAttendanceQr")
+
+                let result = try await callable.call([
+                    "occurrenceId": occurrence.id
+                ])
+
+                guard canApplyResult(for: currentWork) else {
+                    return
+                }
+
+                guard let response = result.data as? [String: Any],
+                      response["accepted"] as? Bool == true,
+                      response["occurrenceId"] as? String == occurrence.id,
+                      let token = response["token"] as? String,
+                      !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    phase = .failed(generationErrorMessage)
+                    return
+                }
+
+                let payload = Payload(occurrenceId: occurrence.id, token: token)
+                guard let image = try qrImage(for: payload) else {
+                    phase = .failed(
+                        tr("לא ניתן להציג את תמונת ה־QR.", "Could not render the QR image.")
+                    )
+                    return
+                }
+
+                phase = .ready(occurrence, image)
+            }
+        } catch {
+            guard canApplyResult(for: currentWork) else {
+                return
+            }
+
+            if case .lookup = currentWork {
+                phase = .failed(
+                    tr(
+                        "לא ניתן לטעון את מופעי האימון. בדוק את החיבור ונסה שוב.",
+                        "Could not load training occurrences. Check your connection and try again."
+                    )
+                )
+            } else {
+                phase = .failed(generationError(for: error))
+            }
+        }
+    }
+
+    @MainActor
+    private func canApplyResult(for currentWork: Work) -> Bool {
+        guard !Task.isCancelled, work == currentWork else {
+            return false
+        }
+
+        guard Auth.auth().currentUser?.uid == request.uid else {
+            phase = .failed(signInMessage)
+            return false
+        }
+
+        return true
+    }
+
+    private func normalizedIdentity(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "־", with: "-")
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: "—", with: "-")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .lowercased()
+    }
+
+    private func timeRange(for occurrence: Occurrence) -> String {
+        guard occurrence.startMillis > 0 else {
+            return tr("שעת האימון אינה זמינה", "Training time unavailable")
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = ShabbatHolidayCheckerIOS.timeZone
+        formatter.dateFormat = "HH:mm"
+
+        let start = Date(timeIntervalSince1970: Double(occurrence.startMillis) / 1_000)
+        let startText = formatter.string(from: start)
+
+        guard occurrence.endMillis > occurrence.startMillis else {
+            return startText
+        }
+
+        let end = Date(timeIntervalSince1970: Double(occurrence.endMillis) / 1_000)
+        let endText = formatter.string(from: end)
+        return "\u{2066}\(startText) – \(endText)\u{2069}"
+    }
+
+    @MainActor
+    private func printQr(_ image: UIImage, for occurrence: Occurrence) {
+        guard !isPrinting else {
+            return
+        }
+
+        guard Auth.auth().currentUser?.uid == request.uid,
+              UIPrintInteractionController.isPrintingAvailable else {
+            showPrintError = true
+            return
+        }
+
+        let page = CGRect(x: 0, y: 0, width: 595, height: 842)
+        let metadata = [
+            request.dateLabel,
+            timeRange(for: occurrence),
+            TrainingCatalogIOS.displayBranch(request.branch, isEnglish: isEnglish),
+            TrainingCatalogIOS.displayGroup(request.group, isEnglish: isEnglish)
+        ].joined(separator: "\n")
+
+        let printNote = tr(
+            "הקוד מיועד לאימון זה. הפקת קוד חדש עשויה לבטל אותו.",
+            "This code is specific to this training. Generating a new QR may invalidate it."
+        )
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.baseWritingDirection = isEnglish ? .leftToRight : .rightToLeft
+        paragraph.lineBreakMode = .byWordWrapping
+
+        var didDrawQr = false
+        let data = UIGraphicsPDFRenderer(bounds: page).pdfData { renderer in
+            renderer.beginPage()
+            let context = renderer.cgContext
+
+            KmiPdfHeader.draw(
+                context: context,
+                pageWidth: page.width,
+                isEnglish: isEnglish,
+                titleHebrew: "QR לנוכחות באימון",
+                titleEnglish: "Training Attendance QR",
+                subtitleHebrew: "רישום נוכחות באימון",
+                subtitleEnglish: "Training check-in"
+            )
+
+            let contentWidth = page.width - 96
+            let metadataText = NSAttributedString(
+                string: metadata,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 15, weight: .semibold),
+                    .foregroundColor: UIColor(KmiAppTheme.onSurface(for: .light)),
+                    .paragraphStyle: paragraph
+                ]
+            )
+
+            let metadataHeight = ceil(
+                metadataText.boundingRect(
+                    with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    context: nil
+                ).height
+            )
+
+            let metadataRect = CGRect(
+                x: 48,
+                y: KmiPdfHeader.CONTENT_TOP + 16,
+                width: contentWidth,
+                height: metadataHeight + 4
+            )
+            metadataText.draw(in: metadataRect)
+
+            let noteText = NSAttributedString(
+                string: printNote,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 12),
+                    .foregroundColor: UIColor(KmiAppTheme.onSurfaceVariant(for: .light)),
+                    .paragraphStyle: paragraph
+                ]
+            )
+            let noteHeight = ceil(
+                noteText.boundingRect(
+                    with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    context: nil
+                ).height
+            ) + 4
+
+            let qrTop = metadataRect.maxY + 26
+            let contentBottom = page.height - KmiPdfFooter.CONTENT_BOTTOM_PADDING
+            let qrSize = min(300, contentBottom - qrTop - noteHeight - 26)
+
+            if qrSize >= 160 {
+                didDrawQr = true
+
+                let qrRect = CGRect(
+                    x: (page.width - qrSize) / 2,
+                    y: qrTop,
+                    width: qrSize,
+                    height: qrSize
+                )
+
+                context.saveGState()
+                context.interpolationQuality = .none
+                image.draw(in: qrRect)
+                context.restoreGState()
+
+                noteText.draw(
+                    in: CGRect(
+                        x: 48,
+                        y: qrRect.maxY + 22,
+                        width: contentWidth,
+                        height: noteHeight
+                    )
+                )
+            }
+
+            KmiPdfFooter.draw(
+                context: context,
+                pageWidth: page.width,
+                pageHeight: page.height,
+                pageNumber: 1,
+                isEnglish: isEnglish
+            )
+        }
+
+        guard didDrawQr else {
+            showPrintError = true
+            return
+        }
+
+        let controller = UIPrintInteractionController.shared
+        let printInfo = UIPrintInfo(dictionary: nil)
+        printInfo.jobName = tr("QR לנוכחות באימון", "Training Attendance QR")
+        printInfo.outputType = .general
+        controller.printInfo = printInfo
+        controller.printingItem = data
+
+        isPrinting = true
+        let presented = controller.present(animated: true) { controller, _, error in
+            Task { @MainActor in
+                controller.printingItem = nil
+                isPrinting = false
+
+                if error != nil {
+                    showPrintError = true
+                }
+            }
+        }
+
+        if !presented {
+            controller.printingItem = nil
+            isPrinting = false
+            showPrintError = true
+        }
+    }
+
+    private func qrImage(for payload: Payload) throws -> UIImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = try JSONEncoder().encode(payload)
+        filter.correctionLevel = "H"
+
+        guard let output = filter.outputImage else {
+            return nil
+        }
+
+        let paddedExtent = output.extent.insetBy(dx: -4, dy: -4)
+        let whiteBackground = CIImage(color: CIColor(red: 1, green: 1, blue: 1))
+            .cropped(to: paddedExtent)
+        let paddedQr = output.composited(over: whiteBackground)
+        let scaled = paddedQr.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
+
+        guard let image = CIContext().createCGImage(scaled, from: scaled.extent) else {
+            return nil
+        }
+
+        return UIImage(cgImage: image)
+    }
+
+    private func generationError(for error: Error) -> String {
+        let details = error as NSError
+        guard details.domain == FunctionsErrorDomain,
+              let code = FunctionsErrorCode(rawValue: details.code) else {
+            return generationErrorMessage
+        }
+
+        switch code {
+        case .unauthenticated:
+            return signInMessage
+
+        case .permissionDenied:
+            return tr(
+                "אין הרשאה להפיק QR לאימון זה.",
+                "You are not authorized to generate a QR for this training."
+            )
+
+        case .failedPrecondition:
+            return generationPreconditionMessage(details)
+
+        case .notFound:
+            return tr(
+                "האימון או שירות ה־QR אינם זמינים כרגע.",
+                "The training or the QR service is currently unavailable."
+            )
+
+        case .invalidArgument:
+            return tr(
+                "השרת דחה את פרטי הבקשה להפקת QR.",
+                "The server rejected the QR request data."
+            )
+
+        case .resourceExhausted:
+            return tr(
+                "שירות ה־QR הגיע למגבלת שימוש זמנית. נסה שוב מאוחר יותר.",
+                "The QR service has reached a temporary usage limit. Try again later."
+            )
+
+        case .unavailable, .deadlineExceeded:
+            return tr(
+                "שירות ה־QR אינו זמין כרגע. נסה שוב.",
+                "The QR service is temporarily unavailable. Try again."
+            )
+
+        default:
+            return generationErrorMessage
+        }
+    }
+
+    private func generationPreconditionMessage(_ error: NSError) -> String {
+        let message = error.localizedDescription.lowercased()
+
+        if message.contains("outside its active window") ||
+            message.contains("qr window has changed") {
+            let details = error.userInfo[FunctionsErrorDetailsKey] as? [String: Any]
+            let start = (details?["windowStartMillis"] as? NSNumber)?.int64Value
+            let end = (details?["windowEndMillis"] as? NSNumber)?.int64Value
+
+            if let start, let end, start > 0, end > start {
+                let range = timeRange(
+                    for: Occurrence(id: "", startMillis: start, endMillis: end)
+                )
+                return tr(
+                    "ניתן להפיק QR לאימון זה בין השעות \(range).",
+                    "A QR can be generated for this training between \(range)."
+                )
+            }
+
+            return tr(
+                "ניתן להפיק QR מ־30 דקות לפני תחילת האימון ועד 30 דקות לאחר סיומו.",
+                "A QR can be generated from 30 minutes before training starts until 30 minutes after it ends."
+            )
+        }
+
+        if message.contains("training has been cancelled") {
+            return tr(
+                "האימון בוטל. לא ניתן להפיק עבורו QR.",
+                "This training was cancelled. A QR cannot be generated."
+            )
+        }
+
+        if message.contains("already saved") {
+            return tr(
+                "דוח הנוכחות לאימון זה כבר נשמר.",
+                "The attendance report for this training has already been saved."
+            )
+        }
+
+        if message.contains("training no longer exists") {
+            return tr(
+                "האימון אינו קיים עוד בשרת.",
+                "This training no longer exists on the server."
+            )
+        }
+
+        if message.contains("identity") {
+            return tr(
+                "פרטי האימון אינם תואמים לנתוני השרת. בדוק את התאריך, הסניף והקבוצה.",
+                "The training details do not match the server. Check the date, branch and group."
+            )
+        }
+
+        if message.contains("schedule") {
+            return tr(
+                "שעות האימון השתנו או אינן תקינות. בדוק את לוח האימונים.",
+                "The training schedule has changed or is invalid. Check the training calendar."
+            )
+        }
+
+        return generationErrorMessage
+    }
+
+    private var signInMessage: String {
+        tr("יש להתחבר מחדש ל־K.M.I.", "Please sign in to K.M.I again.")
+    }
+
+    private var generationErrorMessage: String {
+        tr(
+            "לא ניתן להפיק QR לאימון. נסה שוב.",
+            "Could not generate the training QR. Try again."
+        )
+    }
+
+    private func tr(_ hebrew: String, _ english: String) -> String {
+        isEnglish ? english : hebrew
     }
 }
 

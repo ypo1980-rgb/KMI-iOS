@@ -890,7 +890,7 @@ final class AttendanceRepository {
         }
     }
 
-    private enum OwnAttendanceError: Error {
+    enum OwnAttendanceError: Error {
         case invalidContext
         case trainingAlreadyStarted
         case memberNotResolved
@@ -1361,6 +1361,19 @@ final class AttendanceRepository {
         .collection("records")
         .document(String(memberId))
         .setData(data, merge: true)
+    }
+
+    private func coachAttendanceStatusName(_ status: AttendanceStatus) -> String {
+        switch status {
+        case .present:
+            return "PRESENT"
+        case .excused:
+            return "EXCUSED"
+        case .absent:
+            return "ABSENT"
+        default:
+            return "UNKNOWN"
+        }
     }
 
     private func attendanceStatus(
@@ -1850,10 +1863,64 @@ final class AttendanceRepository {
 
     // MARK: - Records
 
-    func loadAttendanceRecordsFromFirestore(
+    func attendanceRecordSnapshots(
+        ownerUid: String,
         branchName: String,
         groupKey: String,
         dateIso: String
+    ) -> AsyncThrowingStream<QuerySnapshot, Error> {
+        let branch = branchName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let group = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let date = dateIso.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            guard !ownerUid.isEmpty,
+                  Auth.auth().currentUser?.uid == ownerUid,
+                  !branch.isEmpty,
+                  !group.isEmpty,
+                  Self.date(fromIso: date) != nil else {
+                continuation.finish(throwing: OwnAttendanceError.invalidContext)
+                return
+            }
+
+            let registration = attendanceGroupReference(
+                branchName: branch,
+                groupKey: group
+            )
+            .collection("sessions")
+            .document(date)
+            .collection("records")
+            .addSnapshotListener(includeMetadataChanges: true) { snapshot, error in
+                guard Auth.auth().currentUser?.uid == ownerUid else {
+                    continuation.finish(throwing: CancellationError())
+                    return
+                }
+
+                if let error {
+                    continuation.finish(throwing: error)
+                    return
+                }
+
+                guard let snapshot,
+                      !snapshot.metadata.isFromCache,
+                      !snapshot.metadata.hasPendingWrites else {
+                    return
+                }
+
+                continuation.yield(snapshot)
+            }
+
+            continuation.onTermination = { _ in
+                registration.remove()
+            }
+        }
+    }
+
+    func loadAttendanceRecordsFromFirestore(
+        branchName: String,
+        groupKey: String,
+        dateIso: String,
+        source: FirestoreSource = .default
     ) async throws -> [AttendanceRecord] {
         let snapshot: QuerySnapshot
 
@@ -1865,12 +1932,22 @@ final class AttendanceRepository {
             .collection("sessions")
             .document(dateIso)
             .collection("records")
-            .getDocuments()
+            .getDocuments(source: source)
         } catch {
             debugAttendanceReadFailure(stage: "records", error: error)
             throw error
         }
 
+        return try await decodeAttendanceRecords(
+            from: snapshot,
+            dateIso: dateIso
+        )
+    }
+
+    func decodeAttendanceRecords(
+        from snapshot: QuerySnapshot,
+        dateIso: String
+    ) async throws -> [AttendanceRecord] {
         try Task.checkCancellation()
 
         // Android: שעת האימון המעודכנת קודמת לשעה שנשמרה ברשומה.
@@ -1909,7 +1986,7 @@ final class AttendanceRepository {
         try Task.checkCancellation()
         let nowMillis = Int64(Date().timeIntervalSince1970 * 1_000)
 
-        return snapshot.documents.compactMap { document -> AttendanceRecord? in
+        let records = snapshot.documents.compactMap { document -> AttendanceRecord? in
             let data = document.data()
             let storedMemberId = int64Value(data["memberId"])
             let memberId = storedMemberId > 0
@@ -1927,20 +2004,40 @@ final class AttendanceRepository {
             let storedStart = int64Value(data["trainingStartMillis"])
             let trainingStart = effectiveStartByOccurrenceId[occurrenceId]
                 ?? (storedStart > 0 ? storedStart : Int64.max)
-            let preferredStatus = nowMillis < trainingStart
-                ? statusValue("traineeStatus")
-                : statusValue("coachStatus")
+            let coachStatus = statusValue("coachStatus")
+            let traineeStatus = statusValue("traineeStatus")
             let legacyStatus = statusValue("status")
-            let rawStatus = preferredStatus.isEmpty ? legacyStatus : preferredStatus
+
+            let isQrAttendance = data["qrVerified"] as? Bool == true &&
+                !occurrenceId.isEmpty &&
+                statusValue("qrVerifiedOccurrenceId") == occurrenceId &&
+                coachStatus == "PRESENT"
+
+            let rawStatus: String
+
+            if isQrAttendance {
+                rawStatus = "PRESENT"
+            } else if nowMillis < trainingStart {
+                rawStatus = traineeStatus.isEmpty ? legacyStatus : traineeStatus
+            } else if !coachStatus.isEmpty {
+                rawStatus = coachStatus
+            } else if statusValue("markedBy") == "trainee" {
+                rawStatus = "ABSENT"
+            } else {
+                rawStatus = legacyStatus
+            }
 
             return AttendanceRecord(
                 id: "\(dateIso)_\(memberId)",
                 dateIso: dateIso,
                 memberId: String(memberId),
-                status: attendanceStatus(from: rawStatus.isEmpty ? "UNKNOWN" : rawStatus),
+                status: attendanceStatus(from: rawStatus),
                 note: data["note"] as? String ?? ""
             )
         }
+
+        try Task.checkCancellation()
+        return records
     }
 
     private func debugAttendanceReadFailure(stage: String, error: Error) {
@@ -2008,10 +2105,146 @@ final class AttendanceRepository {
         )
     }
 
+    // MARK: - Coach attendance marking
+
+    func markCoachAttendance(
+        ownerUid: String,
+        branchName: String,
+        groupKey: String,
+        dateIso: String,
+        memberId: String,
+        status: AttendanceStatus
+    ) async throws {
+        let branch = branchName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let group = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let date = dateIso.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawMemberId = memberId.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !branch.isEmpty,
+              !group.isEmpty,
+              Self.date(fromIso: date) != nil,
+              let numericMemberId = Int64(rawMemberId),
+              numericMemberId > 0 else {
+            throw OwnAttendanceError.invalidContext
+        }
+
+        try Task.checkCancellation()
+
+        guard !ownerUid.isEmpty,
+              let user = Auth.auth().currentUser,
+              user.uid == ownerUid else {
+            throw OwnAttendanceError.invalidContext
+        }
+
+        let groupReference = attendanceGroupReference(
+            branchName: branch,
+            groupKey: group
+        )
+
+        let sessionReference = groupReference
+            .collection("sessions")
+            .document(date)
+
+        let sessionId = stableAttendanceId("\(branch)|\(group)|\(date)")
+        let recordId = stableAttendanceId("\(sessionId)|\(numericMemberId)")
+
+        let sessionSnapshot = try await sessionReference.getDocument()
+
+        try Task.checkCancellation()
+        guard Auth.auth().currentUser?.uid == ownerUid else {
+            throw CancellationError()
+        }
+
+        if !sessionSnapshot.exists {
+            try await ensureGroupMetadata(
+                branchName: branch,
+                groupKey: group
+            )
+
+            try Task.checkCancellation()
+            guard Auth.auth().currentUser?.uid == ownerUid else {
+                throw CancellationError()
+            }
+
+            let groupSnapshot = try await groupReference.getDocument()
+
+            guard let canonicalBranch = groupSnapshot.get("branch") as? String,
+                  let canonicalGroup = groupSnapshot.get("groupKey") as? String,
+                  normalizedAttendanceIdentity(canonicalBranch) ==
+                    normalizedAttendanceIdentity(branch),
+                  normalizedAttendanceIdentity(canonicalGroup) ==
+                    normalizedAttendanceIdentity(group) else {
+                throw OwnAttendanceError.invalidContext
+            }
+
+            let now = Int64(Date().timeIntervalSince1970 * 1_000)
+            let sessionData: [String: Any] = [
+                "id": sessionId,
+                "date": date,
+                "branch": canonicalBranch,
+                "groupKey": canonicalGroup,
+                "coachUid": ownerUid,
+                "coachEmail": user.email ?? "",
+                "status": "open",
+                "createdAtMillis": now,
+                "updatedAtMillis": now,
+                "updatedAt": FieldValue.serverTimestamp()
+            ]
+
+            try Task.checkCancellation()
+            guard Auth.auth().currentUser?.uid == ownerUid else {
+                throw CancellationError()
+            }
+
+            _ = try await Firestore.firestore().runTransaction { transaction, errorPointer in
+                do {
+                    let currentSession = try transaction.getDocument(sessionReference)
+
+                    if !currentSession.exists {
+                        transaction.setData(sessionData, forDocument: sessionReference)
+                    }
+
+                    return nil
+                } catch let error as NSError {
+                    errorPointer?.pointee = error
+                    return nil
+                }
+            }
+        }
+
+        let now = Int64(Date().timeIntervalSince1970 * 1_000)
+        let statusName = coachAttendanceStatusName(status)
+        let recordData: [String: Any] = [
+            "id": recordId,
+            "sessionId": sessionId,
+            "memberId": numericMemberId,
+            "coachStatus": statusName,
+            "status": statusName,
+            "coachUid": ownerUid,
+            "coachEmail": user.email ?? "",
+            "markedAtMillis": now,
+            "updatedAtMillis": now,
+            "updatedAt": FieldValue.serverTimestamp()
+        ]
+
+        try Task.checkCancellation()
+        guard Auth.auth().currentUser?.uid == ownerUid else {
+            throw CancellationError()
+        }
+
+        try await sessionReference
+            .collection("records")
+            .document(String(numericMemberId))
+            .setData(recordData, merge: true)
+    }
+
+    @discardableResult
     func saveAttendanceReportToFirestore(
         state: AttendanceUiState,
-        records: [AttendanceRecord]
-    ) async throws {
+        records: [AttendanceRecord],
+        useServerRecords: Bool = false,
+        editedNotesByMemberID: [String: String] = [:]
+    ) async throws -> [AttendanceRecord] {
         let branch = state.branchName
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let group = state.groupKey
@@ -2045,8 +2278,16 @@ final class AttendanceRepository {
             )
         }
 
-        // קבוצה + אימון + דוח + רשומה לכל מתאמן.
-        guard records.count <= 497 else {
+        // האצווה כוללת קבוצה, אימון, דוח ורשומות שצריך לעדכן.
+        let recordWriteCount = useServerRecords
+            ? records.filter { record in
+                editedNotesByMemberID[
+                    record.memberId.trimmingCharacters(in: .whitespacesAndNewlines)
+                ] != nil
+            }.count
+            : records.count
+
+        guard recordWriteCount <= 497 else {
             throw NSError(
                 domain: "AttendanceRepository",
                 code: 2,
@@ -2114,11 +2355,35 @@ final class AttendanceRepository {
             merge: true
         )
 
+        let serverRecordsByMemberID: [String: AttendanceRecord]
+
+        if useServerRecords {
+            let serverRecords = try await loadAttendanceRecordsFromFirestore(
+                branchName: branch,
+                groupKey: group,
+                dateIso: dateIso,
+                source: .server
+            )
+
+            try Task.checkCancellation()
+            guard Auth.auth().currentUser?.uid == user.uid else {
+                throw CancellationError()
+            }
+
+            serverRecordsByMemberID = Dictionary(
+                serverRecords.map { ($0.memberId, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        } else {
+            serverRecordsByMemberID = [:]
+        }
+
         var presentCount = 0
         var excusedCount = 0
         var absentCount = 0
 
         var seenMemberIDs = Set<Int64>()
+        var reportRecords: [AttendanceRecord] = []
 
         for record in records {
             let rawMemberId = record.memberId
@@ -2138,25 +2403,55 @@ final class AttendanceRepository {
                 )
             }
 
-            let statusName: String
+            let reportRecord: AttendanceRecord
 
-            switch record.status {
+            if useServerRecords {
+                let serverRecord = serverRecordsByMemberID[String(memberId)]
+                let editedNote = editedNotesByMemberID[rawMemberId]
+
+                reportRecord = AttendanceRecord(
+                    id: serverRecord?.id ?? record.id,
+                    dateIso: dateIso,
+                    memberId: String(memberId),
+                    status: serverRecord?.status ?? .unknown,
+                    note: editedNote ?? serverRecord?.note ?? ""
+                )
+            } else {
+                reportRecord = record
+            }
+
+            reportRecords.append(reportRecord)
+
+            switch reportRecord.status {
             case .present:
-                statusName = "PRESENT"
                 presentCount += 1
-
             case .excused:
-                statusName = "EXCUSED"
                 excusedCount += 1
-
-            case .absent:
-                statusName = "ABSENT"
-                absentCount += 1
-
             default:
-                statusName = "UNKNOWN"
                 absentCount += 1
             }
+
+            if useServerRecords {
+                if let editedNote = editedNotesByMemberID[rawMemberId] {
+                    var noteData = coachFields
+                    noteData["id"] = stableAttendanceId("\(sessionId)|\(memberId)")
+                    noteData["sessionId"] = sessionId
+                    noteData["memberId"] = memberId
+                    noteData["note"] = editedNote
+
+                    batch.setData(
+                        noteData,
+                        forDocument: sessionReference
+                            .collection("records")
+                            .document(String(memberId)),
+                        merge: true
+                    )
+                }
+
+                continue
+            }
+
+            let statusName = coachAttendanceStatusName(record.status)
 
             var recordData = coachFields
             recordData["id"] = stableAttendanceId(
@@ -2228,8 +2523,10 @@ final class AttendanceRepository {
             branchName: branch,
             groupKey: group,
             dateIso: dateIso,
-            records: records
+            records: reportRecords
         )
+
+        return reportRecords
     }
     
     func saveReport(

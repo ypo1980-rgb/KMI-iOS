@@ -1276,8 +1276,11 @@ struct ContentView: View {
                             nav: nav,
                             selectedIcon: .home
                         ) {
-                            MonthlyTrainingBoardView()
-                                .navigationBarBackButtonHidden(true)
+                            MonthlyTrainingBoardView(
+                                summaryOwnerUid: Auth.auth().currentUser?.uid ?? "",
+                                summaryOwnerRole: isCoachUser ? .coach : .trainee
+                            )
+                            .navigationBarBackButtonHidden(true)
                         }
 
                     case .trainingSummary(
@@ -1759,9 +1762,21 @@ struct ContentView: View {
                         
                     // ✅ Payments report
                     case .paymentsReport:
-                        KmiRootLayout(title: "דו״ח תשלומים", nav: nav, selectedIcon: .home) {
+                        KmiRootLayout(
+                            title: tr("דו״ח תשלומים", "Payments Report"),
+                            nav: nav,
+                            selectedIcon: .home,
+                            onShare: {
+                                guard nav.path.last == .paymentsReport else { return }
+
+                                NotificationCenter.default.post(
+                                    name: Notification.Name("KMI_PAYMENTS_REPORT_SHARE_PDF"),
+                                    object: nil
+                                )
+                            }
+                        ) {
                             PaymentsReportView(
-                                isEnglish: false,
+                                isEnglish: isEnglish,
                                 onClose: {
                                     nav.pop()
                                 },
@@ -1782,16 +1797,28 @@ struct ContentView: View {
                                     .navigationBarBackButtonHidden(true)
                             }
 
-                        case .contactUs:
-                            KmiRootLayout(title: tr("צור קשר", "Contact Us"), nav: nav, selectedIcon: .home) {
-                                ContactUsViewIOS(
-                                    isEnglish: isEnglish,
-                                    onClose: {
-                                        nav.pop()
-                                    }
+                    case .contactUs:
+                        KmiRootLayout(
+                            title: tr("צור קשר", "Contact Us"),
+                            nav: nav,
+                            selectedIcon: .home,
+                            onShare: {
+                                guard nav.path.last == .contactUs else { return }
+
+                                NotificationCenter.default.post(
+                                    name: Notification.Name("KMI_CONTACT_US_SHARE_PDF"),
+                                    object: nil
                                 )
-                                .navigationBarBackButtonHidden(true)
                             }
+                        ) {
+                            ContactUsViewIOS(
+                                isEnglish: isEnglish,
+                                onClose: {
+                                    nav.pop()
+                                }
+                            )
+                            .navigationBarBackButtonHidden(true)
+                        }
                      
                     case .weakPoints(let belt):
                         KmiRootLayout(title: "נקודות תורפה", nav: nav, selectedIcon: .home) {

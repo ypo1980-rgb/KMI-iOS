@@ -6,6 +6,17 @@ struct TrainingSummaryView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     @StateObject private var vm: TrainingSummaryViewModel
+
+    @State private var preparedSummaryDate: String?
+    @State private var summaryReloadCount = 0
+
+    private var canEditSummary: Bool {
+        preparedSummaryDate == vm.state.dateIso &&
+            !vm.isLoadingRemoteSummary &&
+            !vm.remoteSummaryLoadFailed &&
+            !vm.state.isSaving
+    }
+
     @ObservedObject private var demoPrivacy = DemoPrivacy.shared
 
     @AppStorage("kmi_app_language")
@@ -96,16 +107,45 @@ struct TrainingSummaryView: View {
 
             ScrollView {
                 VStack(spacing: 12) {
-                    trainingInfoCard
-                    exercisesCard
-                    notesCard
-                    actionsCard
+                    if vm.remoteSummaryLoadFailed {
+                        VStack(spacing: 8) {
+                            Text(tr(
+                                "לא ניתן היה לטעון את הסיכום.",
+                                "Could not load the summary."
+                            ))
+                            .kmiTypography(.secondary)
+                            .multilineTextAlignment(.center)
+
+                            Button(tr("נסה שוב", "Try Again")) {
+                                preparedSummaryDate = nil
+                                summaryReloadCount += 1
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(KmiAppTheme.primary(for: colorScheme))
+                        }
+                    }
+
+                    VStack(spacing: 12) {
+                        trainingInfoCard
+                        exercisesCard
+                        notesCard
+                        actionsCard
+                    }
+                    .disabled(!canEditSummary)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 14)
                 .padding(.bottom, 24)
             }
             .scrollDismissesKeyboard(.interactively)
+
+            if !vm.remoteSummaryLoadFailed &&
+                (preparedSummaryDate != vm.state.dateIso || vm.isLoadingRemoteSummary) {
+                KmiLoadingOverlay()
+                    .accessibilityLabel(
+                        tr("טוען סיכום אימון", "Loading training summary")
+                    )
+            }
 
             if let toastMessage {
                 VStack {
@@ -172,6 +212,18 @@ struct TrainingSummaryView: View {
 
             withAnimation {
                 toastMessage = message
+            }
+        }
+        .task(id: "\(vm.state.dateIso)|\(summaryReloadCount)") {
+            let date = vm.state.dateIso
+            preparedSummaryDate = nil
+
+            await vm.prepareSummaryForEditing(dateIso: date)
+
+            guard !Task.isCancelled, vm.state.dateIso == date else { return }
+
+            if !vm.remoteSummaryLoadFailed {
+                preparedSummaryDate = date
             }
         }
         .task(id: vm.state.saveEventId) {
@@ -800,6 +852,7 @@ struct TrainingSummaryView: View {
 
     @MainActor
     private func shareSummary() {
+        guard canEditSummary else { return }
         guard !showShareSheet else {
             return
         }

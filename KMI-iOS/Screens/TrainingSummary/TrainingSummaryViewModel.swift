@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import FirebaseFirestore
 import Shared
 
 @MainActor
@@ -8,6 +9,11 @@ final class TrainingSummaryViewModel: ObservableObject {
     var state: TrainingSummaryUiState
 
     private let store: TrainingSummaryLocalStore
+
+    @Published private(set) var isLoadingRemoteSummary = false
+    @Published private(set) var remoteSummaryLoadFailed = false
+
+    private var editingRemoteSummary: RemoteSummary?
 
     /*
      * נתוני הסניף והמאמן שהתקבלו בעת פתיחת המסך
@@ -18,7 +24,7 @@ final class TrainingSummaryViewModel: ObservableObject {
     private let initialCoachName: String
 
     init(
-        store: TrainingSummaryLocalStore = .shared,
+        store: TrainingSummaryLocalStore? = nil,
         ownerUid: String,
         ownerRole: SummaryAuthorRole,
         initialBelt: Belt = .green,
@@ -37,7 +43,8 @@ final class TrainingSummaryViewModel: ObservableObject {
         let cleanCoachName =
             initialCoachName.trimmed()
 
-        self.store = store
+        self.store = store ?? TrainingSummaryLocalStore.shared
+
         self.initialDateIso =
             resolvedDateIso
         self.initialBranchName =
@@ -74,10 +81,13 @@ final class TrainingSummaryViewModel: ObservableObject {
             return
         }
 
-        guard state.dateIso != cleanDate else {
+        guard !state.isSaving, state.dateIso != cleanDate else {
             return
         }
 
+        editingRemoteSummary = nil
+        isLoadingRemoteSummary = false
+        remoteSummaryLoadFailed = false
         state.dateIso = cleanDate
 
         /*
@@ -186,7 +196,9 @@ final class TrainingSummaryViewModel: ObservableObject {
     }
 
     func save(onSaved: (() -> Void)? = nil) {
-        guard !state.isSaving else {
+        guard !state.isSaving,
+              !isLoadingRemoteSummary,
+              !remoteSummaryLoadFailed else {
             return
         }
 
@@ -276,6 +288,13 @@ final class TrainingSummaryViewModel: ObservableObject {
             updatedAtMs: 0
         )
 
+        if let remote = editingRemoteSummary, remote.entity.dateIso == cleanDate {
+            Task { @MainActor in
+                await saveRemoteEdit(model, to: remote, onSaved: onSaved)
+            }
+            return
+        }
+
         let didSave = store.saveForOwner(
             ownerUid:
                 state.ownerUid.trimmed(),
@@ -320,6 +339,62 @@ final class TrainingSummaryViewModel: ObservableObject {
             )
         }
 
+        onSaved?()
+    }
+
+    private func saveRemoteEdit(
+        _ model: TrainingSummaryEntity,
+        to remote: RemoteSummary,
+        onSaved: (() -> Void)?
+    ) async {
+        defer { state.isSaving = false }
+
+        let exercises: [[String: Any]] = model.exercises.map { exercise in
+            var fields: [String: Any] = [
+                "exerciseId": exercise.exerciseId,
+                "name": exercise.name,
+                "topic": exercise.topic,
+                "highlight": exercise.highlight,
+                "homePractice": exercise.homePractice,
+                "includeExplanation": exercise.includeExplanation ?? false
+            ]
+
+            if let difficulty = exercise.difficulty {
+                fields["difficulty"] = difficulty
+            }
+
+            return fields
+        }
+
+        do {
+            try await remote.document.updateData([
+                "branchId": model.branchId,
+                "branchName": model.branchName,
+                "coachUid": model.coachUid,
+                "coachName": model.coachName,
+                "groupKey": model.groupKey,
+                "exercises": exercises,
+                "notes": model.notes,
+                "updatedAtMs": Int64(Date().timeIntervalSince1970 * 1_000)
+            ])
+        } catch {
+            publishSaveResult(
+                message: localizedText(
+                    hebrew: "לא ניתן לאשר את עדכון הסיכום. נסה שוב.",
+                    english: "Could not confirm the summary update. Please try again."
+                ),
+                isError: true
+            )
+            return
+        }
+
+        publishSaveResult(
+            message: localizedText(
+                hebrew: "✅ הסיכום נשמר",
+                english: "✅ Summary saved"
+            ),
+            isError: false
+        )
         onSaved?()
     }
 
@@ -566,8 +641,163 @@ final class TrainingSummaryViewModel: ObservableObject {
             : hebrew
     }
 
+    struct RemoteSummary {
+        let entity: TrainingSummaryEntity
+        let document: DocumentReference
+    }
+
+    func prepareSummaryForEditing(dateIso: String) async {
+        guard !Task.isCancelled,
+              !state.isSaving,
+              dateIso == state.dateIso,
+              !state.ownerUid.isEmpty else {
+            return
+        }
+
+        isLoadingRemoteSummary = true
+        remoteSummaryLoadFailed = false
+
+        defer {
+            if state.dateIso == dateIso, !Task.isCancelled {
+                isLoadingRemoteSummary = false
+            }
+        }
+
+        do {
+            let remote = try await Self.loadRemoteSummary(
+                ownerUid: state.ownerUid,
+                ownerRole: state.ownerRole,
+                dateIso: dateIso
+            )
+
+            guard !Task.isCancelled, state.dateIso == dateIso else { return }
+            guard let remote else { return }
+
+            editingRemoteSummary = remote
+            applySavedSummary(remote.entity)
+        } catch {
+            guard !Task.isCancelled, state.dateIso == dateIso else { return }
+            remoteSummaryLoadFailed = true
+        }
+    }
+
+    private func applySavedSummary(_ saved: TrainingSummaryEntity) {
+        state.branchId = saved.branchId
+        state.branchName = saved.branchName
+        state.coachUid = saved.coachUid
+        state.coachName = saved.coachName
+        state.groupKey = saved.groupKey
+        state.notes = saved.notes
+        state.selected = Dictionary(
+            saved.exercises.map { exercise in
+                (
+                    exercise.exerciseId,
+                    SelectedExerciseUi(
+                        exerciseId: exercise.exerciseId,
+                        name: exercise.name,
+                        topic: exercise.topic,
+                        difficulty: exercise.difficulty,
+                        highlight: exercise.highlight,
+                        homePractice: exercise.homePractice,
+                        includeExplanation: exercise.includeExplanation ?? false
+                    )
+                )
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
+    static func loadRemoteSummary(
+        ownerUid: String,
+        ownerRole: SummaryAuthorRole,
+        dateIso: String
+    ) async throws -> RemoteSummary? {
+        let uid = ownerUid.trimmed()
+        guard !uid.isEmpty, let date = normalizedIsoOrNil(dateIso) else {
+            return nil
+        }
+
+        let collection = Firestore.firestore()
+            .collection("users")
+            .document(uid)
+            .collection("training_summaries_\(ownerRole.rawValue)")
+
+        let matching = try await collection
+            .whereField("dateIso", isEqualTo: date)
+            .getDocuments()
+
+        var documents: [DocumentSnapshot] = matching.documents.map { $0 }
+        if !documents.contains(where: { $0.documentID == date }) {
+            let direct = try await collection.document(date).getDocument()
+            if direct.exists {
+                documents.append(direct)
+            }
+        }
+
+        return documents.compactMap { document -> RemoteSummary? in
+            guard let data = document.data() else { return nil }
+
+            let storedDate = (data["dateIso"] as? String ?? "").trimmed()
+            guard storedDate == date ||
+                    (storedDate.isEmpty && document.documentID == date) else {
+                return nil
+            }
+
+            let rawExercises = data["exercises"] as? [[String: Any]] ?? []
+            var seenExerciseIDs = Set<String>()
+            let exercises = rawExercises.compactMap { exercise -> TrainingSummaryExerciseEntity? in
+                let id = (exercise["exerciseId"] as? String ?? "").trimmed()
+                guard !id.isEmpty, seenExerciseIDs.insert(id).inserted else {
+                    return nil
+                }
+
+                return TrainingSummaryExerciseEntity(
+                    exerciseId: id,
+                    name: exercise["name"] as? String ?? "",
+                    topic: exercise["topic"] as? String ?? "",
+                    difficulty: (exercise["difficulty"] as? NSNumber)?.intValue,
+                    highlight: exercise["highlight"] as? String ?? "",
+                    homePractice: exercise["homePractice"] as? Bool ?? false,
+                    includeExplanation: exercise["includeExplanation"] as? Bool ?? false
+                )
+            }
+
+            let entity = TrainingSummaryEntity(
+                id: document.documentID,
+                ownerUid: uid,
+                ownerRole: ownerRole,
+                dateIso: date,
+                branchId: data["branchId"] as? String ?? "",
+                branchName: data["branchName"] as? String ?? "",
+                coachUid: data["coachUid"] as? String ?? "",
+                coachName: data["coachName"] as? String ?? "",
+                groupKey: data["groupKey"] as? String ?? "",
+                exercises: exercises,
+                notes: data["notes"] as? String ?? "",
+                createdAtMs: (data["createdAtMs"] as? NSNumber)?.int64Value ?? 0,
+                updatedAtMs: (data["updatedAtMs"] as? NSNumber)?.int64Value ?? 0
+            )
+
+            return RemoteSummary(entity: entity, document: document.reference)
+        }
+        .max { left, right in
+            let leftRank = (
+                left.entity.exercises.isEmpty ? 0 : 1,
+                left.entity.notes.trimmed().isEmpty ? 0 : 1,
+                left.entity.updatedAtMs
+            )
+            let rightRank = (
+                right.entity.exercises.isEmpty ? 0 : 1,
+                right.entity.notes.trimmed().isEmpty ? 0 : 1,
+                right.entity.updatedAtMs
+            )
+            return leftRank < rightRank
+        }
+    }
+
     private func loadExistingSummaryForCurrentDate() {
         let summaryId = state.dateIso.trimmed()
+
         guard !summaryId.isEmpty else { return }
 
         if let saved = store.loadForOwner(
@@ -575,28 +805,7 @@ final class TrainingSummaryViewModel: ObservableObject {
             role: state.ownerRole,
             summaryId: summaryId
         ) {
-            state.branchId = saved.branchId
-            state.branchName = saved.branchName
-            state.coachUid = saved.coachUid
-            state.coachName = saved.coachName
-            state.groupKey = saved.groupKey
-            state.notes = saved.notes
-            state.selected = Dictionary(
-                uniqueKeysWithValues: saved.exercises.map {
-                    (
-                        $0.exerciseId,
-                        SelectedExerciseUi(
-                            exerciseId: $0.exerciseId,
-                            name: $0.name,
-                            topic: $0.topic,
-                            difficulty: $0.difficulty,
-                            highlight: $0.highlight,
-                            homePractice: $0.homePractice,
-                            includeExplanation: $0.includeExplanation ?? false
-                        )
-                    )
-                }
-            )
+            applySavedSummary(saved)
         } else {
             state.branchId = ""
             state.coachUid = ""

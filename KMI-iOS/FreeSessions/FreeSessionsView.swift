@@ -223,15 +223,11 @@ struct FreeSessionsView: View {
     }
 
     private var screenTextAlignment: TextAlignment {
-        isEnglish
-            ? .leading
-            : .trailing
+        .leading
     }
 
     private var screenFrameAlignment: Alignment {
-        isEnglish
-            ? .leading
-            : .trailing
+        .leading
     }
 
     private func tr(
@@ -242,6 +238,7 @@ struct FreeSessionsView: View {
     }
     
     @State private var showCreateDialog = false
+    @State private var createErrorMessage: String?
     @State private var createTitle = ""
     @State private var createLocation = ""
     @State private var createDate = Date().addingTimeInterval(3600)
@@ -253,11 +250,7 @@ struct FreeSessionsView: View {
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    kmiFreeBgTop,
-                    kmiFreeBgMid,
-                    kmiFreeBgBottom
-                ],
+                colors: KmiAppTheme.screenBackgroundColors(for: colorScheme),
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -307,23 +300,30 @@ struct FreeSessionsView: View {
                     Spacer()
                     
                     Button {
+                        createErrorMessage = nil
                         showCreateDialog = true
                     } label: {
                         Image(systemName: "plus")
-                            .font(.system(size: 24, weight: .black))
-                            .foregroundStyle(.white)
+                            .kmiIconSize(24)
+                            .fontWeight(.black)
+                            .foregroundStyle(KmiAppTheme.onPrimary(for: colorScheme))
                             .frame(width: 58, height: 58)
-                            .background(kmiFreeBorderStrong)
-                            .clipShape(Circle())
-                            .shadow(color: Color.black.opacity(0.16), radius: 10, x: 0, y: 6)
+                            .background(KmiAppTheme.primary(for: colorScheme), in: Circle())
+                            .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(tr("יצירת אימון חופשי", "Create free session"))
                     .padding(.trailing, 20)
                     .padding(.bottom, 28)
                 }
             }
         }
-        .sheet(item: $vm.selectedSession) { session in
+        .sheet(
+            item: $vm.selectedSession,
+            onDismiss: {
+                vm.closeDetails()
+            }
+        ) { session in
             FreeSessionDetailsSheet(
                 vm: vm,
                 session: session,
@@ -415,6 +415,7 @@ struct FreeSessionsView: View {
             createSheet
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
+                .interactiveDismissDisabled(vm.isLoading)
         }
       
         .task {
@@ -432,17 +433,14 @@ struct FreeSessionsView: View {
     }
     
     private var headerCard: some View {
-        VStack(
-            alignment: isEnglish ? .leading : .trailing,
-            spacing: 8
-        ) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(
                 isEnglish
                     ? "Branch: \(branch.trimmingCharacters(in: .whitespacesAndNewlines))"
                     : "סניף: \(branch.trimmingCharacters(in: .whitespacesAndNewlines))"
             )
             .kmiFont(size: 14, weight: .heavy)
-            .foregroundStyle(kmiFreeText)
+            .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
             .frame(
                 maxWidth: .infinity,
                 alignment: screenFrameAlignment
@@ -457,7 +455,7 @@ struct FreeSessionsView: View {
                     : "קבוצה: \(groupKey.trimmingCharacters(in: .whitespacesAndNewlines))"
             )
             .kmiFont(size: 14, weight: .heavy)
-            .foregroundStyle(kmiFreeSubText)
+            .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
             .frame(
                 maxWidth: .infinity,
                 alignment: screenFrameAlignment
@@ -467,7 +465,7 @@ struct FreeSessionsView: View {
             .minimumScaleFactor(0.75)
 
             Divider()
-                .overlay(kmiFreeBorder)
+                .overlay(KmiAppTheme.outlineVariant(for: colorScheme))
 
             Text(
                 tr(
@@ -476,7 +474,7 @@ struct FreeSessionsView: View {
                 )
             )
             .kmiFont(size: 15, weight: .black)
-            .foregroundStyle(kmiFreeText)
+            .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
             .frame(
                 maxWidth: .infinity,
                 alignment: screenFrameAlignment
@@ -493,44 +491,28 @@ struct FreeSessionsView: View {
         )
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(kmiFreeCard)
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 24,
-                style: .continuous
-            )
-            .stroke(kmiFreeBorder, lineWidth: 1)
+        .background(
+            KmiAppTheme.surface(for: colorScheme),
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
         )
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: 24,
-                style: .continuous
-            )
-        )
-        .shadow(
-            color: Color.black.opacity(
-                isDarkMode ? 0.16 : 0.07
-            ),
-            radius: 7,
-            x: 0,
-            y: 3
-        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(KmiAppTheme.outlineVariant(for: colorScheme), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
         .padding(.horizontal, 16)
     }
-    
+
     private var emptyState: some View {
-        VStack(
-            alignment: isEnglish ? .leading : .trailing,
-            spacing: 8
-        ) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(
                 tr(
                     "אין עדיין אימונים מתוכננים",
-                    "No sessions are currently scheduled"
+                    "No free sessions planned yet"
                 )
             )
             .kmiFont(size: 17, weight: .black)
-            .foregroundStyle(kmiFreeText)
+            .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
             .frame(
                 maxWidth: .infinity,
                 alignment: screenFrameAlignment
@@ -544,11 +526,11 @@ struct FreeSessionsView: View {
             Text(
                 tr(
                     "אפשר ליצור אימון חדש ולשלוח הזמנה לכל המתאמנים בקבוצה.",
-                    "You can create a new session and invite all trainees in the group."
+                    "Create a new free session and invite the group."
                 )
             )
             .kmiFont(size: 15, weight: .bold)
-            .foregroundStyle(kmiFreeSubText)
+            .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
             .frame(
                 maxWidth: .infinity,
                 alignment: screenFrameAlignment
@@ -564,39 +546,22 @@ struct FreeSessionsView: View {
             alignment: screenFrameAlignment
         )
         .padding(16)
-        .background(kmiFreeCard)
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 24,
-                style: .continuous
-            )
-            .stroke(kmiFreeBorder, lineWidth: 1)
+        .background(
+            KmiAppTheme.surface(for: colorScheme),
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
         )
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: 24,
-                style: .continuous
-            )
-        )
-        .shadow(
-            color: Color.black.opacity(
-                isDarkMode ? 0.16 : 0.07
-            ),
-            radius: 7,
-            x: 0,
-            y: 3
-        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(KmiAppTheme.outlineVariant(for: colorScheme), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
         .padding(.horizontal, 16)
     }
-    
+
     private var createSheet: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    kmiFreeBorderStrong,
-                    kmiFreeBorder,
-                    kmiFreeBgTop
-                ],
+                colors: KmiAppTheme.screenBackgroundColors(for: colorScheme),
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -613,18 +578,11 @@ struct FreeSessionsView: View {
                             spacing: 12
                         ) {
                             Image(systemName: "clock.fill")
-                                .font(.system(size: 22, weight: .bold))
-                                .foregroundStyle(kmiFreeCyan)
+                                .kmiIconSize(22)
+                                .foregroundStyle(KmiAppTheme.onPrimaryContainer(for: colorScheme))
                                 .frame(width: 46, height: 46)
-                                .background(kmiFreeCardSoft.opacity(0.70))
-                                .clipShape(Circle())
-                                .overlay(
-                                    Circle()
-                                        .stroke(
-                                            kmiFreeBorder,
-                                            lineWidth: 1
-                                        )
-                                )
+                                .background(KmiAppTheme.primaryContainer(for: colorScheme), in: Circle())
+                                .accessibilityHidden(true)
 
                             VStack(
                                 alignment: isEnglish ? .leading : .trailing,
@@ -669,7 +627,8 @@ struct FreeSessionsView: View {
                         }
 
                         Divider()
-                            .overlay(kmiFreeBorder)
+                            .overlay(KmiAppTheme.outlineVariant(for: colorScheme))
+                            .accessibilityHidden(true)
                         
                         VStack(
                             alignment: isEnglish ? .leading : .trailing,
@@ -698,27 +657,23 @@ struct FreeSessionsView: View {
                                         "Title"
                                     )
                                 )
-                                .foregroundStyle(kmiFreeSubText)
+                                .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
                             )
                             .textFieldStyle(.plain)
                             .kmiFont(size: 16, weight: .heavy)
-                            .foregroundStyle(kmiFreeText)
+                            .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
                             .multilineTextAlignment(screenTextAlignment)
                             .padding(14)
-                            .background(kmiFreeCardSoft)
-                            .overlay(
-                                RoundedRectangle(
-                                    cornerRadius: 20,
-                                    style: .continuous
-                                )
-                                .stroke(kmiFreeBorder, lineWidth: 1)
+                            .background(
+                                KmiAppTheme.surfaceVariant(for: colorScheme),
+                                in: RoundedRectangle(cornerRadius: 20, style: .continuous)
                             )
-                            .clipShape(
-                                RoundedRectangle(
-                                    cornerRadius: 20,
-                                    style: .continuous
-                                )
-                            )
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                    .strokeBorder(KmiAppTheme.outlineVariant(for: colorScheme))
+                                    .allowsHitTesting(false)
+                            }
+                            .accessibilityLabel(tr("כותרת", "Title"))
                         }
                         
                         VStack(
@@ -740,34 +695,24 @@ struct FreeSessionsView: View {
                             .multilineTextAlignment(screenTextAlignment)
 
                             HStack(spacing: 8) {
-                                if isEnglish {
-                                    Image(systemName: "mappin.and.ellipse")
-                                        .foregroundStyle(kmiFreeCyan)
+                                Image(systemName: "mappin.and.ellipse")
+                                    .kmiIconSize(16)
+                                    .foregroundStyle(KmiAppTheme.primary(for: colorScheme))
+                                    .accessibilityHidden(true)
 
-                                    createLocationTextField
-
-                                } else {
-                                    createLocationTextField
-
-                                    Image(systemName: "mappin.and.ellipse")
-                                        .foregroundStyle(kmiFreeCyan)
-                                }
+                                createLocationTextField
+                                    .accessibilityLabel(tr("מקום (אופציונלי)", "Location (optional)"))
                             }
                             .padding(14)
-                            .background(kmiFreeCardSoft)
-                            .overlay(
-                                RoundedRectangle(
-                                    cornerRadius: 20,
-                                    style: .continuous
-                                )
-                                .stroke(kmiFreeBorder, lineWidth: 1)
+                            .background(
+                                KmiAppTheme.surfaceVariant(for: colorScheme),
+                                in: RoundedRectangle(cornerRadius: 20, style: .continuous)
                             )
-                            .clipShape(
-                                RoundedRectangle(
-                                    cornerRadius: 20,
-                                    style: .continuous
-                                )
-                            )
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                    .strokeBorder(KmiAppTheme.outlineVariant(for: colorScheme))
+                                    .allowsHitTesting(false)
+                            }
                         }
                         
                         VStack(
@@ -884,6 +829,15 @@ struct FreeSessionsView: View {
                             )
                         }
                         
+                        if let createErrorMessage {
+                            Text(createErrorMessage)
+                                .kmiFont(size: 13, weight: .semibold)
+                                .foregroundStyle(KmiAppTheme.error(for: colorScheme))
+                                .multilineTextAlignment(screenTextAlignment)
+                                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
                         HStack(spacing: 10) {
                             Button {
                                 resetCreateForm()
@@ -917,8 +871,10 @@ struct FreeSessionsView: View {
                                         in: .whitespacesAndNewlines
                                     )
 
+                                createErrorMessage = nil
+
                                 guard !cleanTitle.isEmpty else {
-                                    vm.errorMessage = tr(
+                                    createErrorMessage = tr(
                                         "נא להזין כותרת",
                                         "Please enter a title"
                                     )
@@ -926,20 +882,23 @@ struct FreeSessionsView: View {
                                 }
 
                                 Task {
-                                    await vm.createSession(
+                                    let cleanLocation = createLocation
+                                        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                                    let created = await vm.createSession(
                                         title: cleanTitle,
-                                        locationName:
-                                            createLocation
-                                                .trimmingCharacters(
-                                                    in: .whitespacesAndNewlines
-                                                )
-                                                .isEmpty
-                                            ? nil
-                                            : createLocation,
-                                        startsAt: Int64(
-                                            createDate.timeIntervalSince1970 * 1000
-                                        )
+                                        locationName: cleanLocation.isEmpty ? nil : cleanLocation,
+                                        startsAt: Int64(createDate.timeIntervalSince1970 * 1000)
                                     )
+
+                                    guard created else {
+                                        vm.errorMessage = nil
+                                        createErrorMessage = tr(
+                                            "לא ניתן לאשר שהאימון נוצר. בדוק את רשימת האימונים לפני ניסיון חוזר.",
+                                            "Could not confirm the session was created. Check the sessions list before trying again."
+                                        )
+                                        return
+                                    }
 
                                     resetCreateForm()
                                     showCreateDialog = false
@@ -966,23 +925,10 @@ struct FreeSessionsView: View {
                                     )
                                     .kmiFont(size: 16, weight: .black)
                                 }
-                                .foregroundStyle(
-                                    Color(
-                                        red: 4 / 255,
-                                        green: 16 / 255,
-                                        blue: 31 / 255
-                                    )
-                                )
+                                .foregroundStyle(KmiAppTheme.onPrimary(for: colorScheme))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
-                                .background(kmiFreeCyan)
-                                .clipShape(Capsule())
-                                .shadow(
-                                    color: Color.black.opacity(0.10),
-                                    radius: 6,
-                                    x: 0,
-                                    y: 4
-                                )
+                                .background(KmiAppTheme.primary(for: colorScheme), in: Capsule())
                             }
                             .buttonStyle(.plain)
                             .disabled(vm.isLoading)
@@ -991,32 +937,17 @@ struct FreeSessionsView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.top, 4)
                     }
+                    .disabled(vm.isLoading)
                     .padding(18)
-                    .background(kmiFreeCard)
-                    .overlay(
-                        RoundedRectangle(
-                            cornerRadius: 33,
-                            style: .continuous
-                        )
-                        .stroke(
-                            kmiFreeBorder,
-                            lineWidth: 1
-                        )
+                    .background(
+                        KmiAppTheme.surface(for: colorScheme),
+                        in: RoundedRectangle(cornerRadius: 24, style: .continuous)
                     )
-                    .clipShape(
-                        RoundedRectangle(
-                            cornerRadius: 33,
-                            style: .continuous
-                        )
-                    )
-                    .shadow(
-                        color: Color.black.opacity(
-                            isDarkMode ? 0.20 : 0.09
-                        ),
-                        radius: 10,
-                        x: 0,
-                        y: 5
-                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .strokeBorder(KmiAppTheme.outlineVariant(for: colorScheme))
+                            .allowsHitTesting(false)
+                    }
                     .padding(.horizontal, 16)
                     .padding(.top, 18)
                     .padding(.bottom, 24)
@@ -1111,6 +1042,7 @@ struct FreeSessionsView: View {
     }
     
     private func resetCreateForm() {
+        createErrorMessage = nil
         createTitle = ""
         createLocation = ""
         createDate = Calendar.current.date(
@@ -1141,18 +1073,15 @@ private struct FreeSessionCard: View {
     }
 
     private var cardTextAlignment: TextAlignment {
-        isEnglish ? .leading : .trailing
+        .leading
     }
 
     private var cardFrameAlignment: Alignment {
-        isEnglish ? .leading : .trailing
+        .leading
     }
 
     var body: some View {
-        VStack(
-            alignment: isEnglish ? .leading : .trailing,
-            spacing: 10
-        ) {
+        VStack(alignment: .leading, spacing: 10) {
             sessionHeader
 
             sessionInformation
@@ -1187,13 +1116,7 @@ private struct FreeSessionCard: View {
                 value: session.progressValue
             )
             .progressViewStyle(.linear)
-            .tint(
-                Color(
-                    red: 34 / 255,
-                    green: 197 / 255,
-                    blue: 94 / 255
-                )
-            )
+            .tint(KmiAppTheme.success(for: colorScheme))
             .scaleEffect(
                 x: 1,
                 y: 1.6,
@@ -1206,31 +1129,15 @@ private struct FreeSessionCard: View {
             maxWidth: .infinity,
             alignment: cardFrameAlignment
         )
-        .background(kmiFreeCard)
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 24,
-                style: .continuous
-            )
-            .stroke(
-                kmiFreeBorder,
-                lineWidth: 1
-            )
+        .background(
+            KmiAppTheme.surface(for: colorScheme),
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
         )
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: 24,
-                style: .continuous
-            )
-        )
-        .shadow(
-            color: Color.black.opacity(
-                isDarkMode ? 0.18 : 0.08
-            ),
-            radius: 6,
-            x: 0,
-            y: 4
-        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(KmiAppTheme.outlineVariant(for: colorScheme), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
         .contentShape(
             RoundedRectangle(
                 cornerRadius: 24,
@@ -1244,35 +1151,16 @@ private struct FreeSessionCard: View {
     }
 
     private var sessionHeader: some View {
-        HStack(
-            alignment: .top,
-            spacing: 10
-        ) {
-            if isEnglish {
-                sessionHeading
+        HStack(alignment: .top, spacing: 10) {
+            sessionHeading
+                .layoutPriority(1)
 
-                Spacer(minLength: 0)
-
-                sessionActions
-            } else {
-                sessionActions
-
-                Spacer(minLength: 0)
-
-                sessionHeading
-            }
+            sessionActions
         }
-        .environment(
-            \.layoutDirection,
-            .leftToRight
-        )
     }
 
     private var sessionHeading: some View {
-        VStack(
-            alignment: isEnglish ? .leading : .trailing,
-            spacing: 3
-        ) {
+        VStack(alignment: .leading, spacing: 3) {
             Text(session.title)
                 .kmiFont(size: 17, weight: .black)
                 .foregroundStyle(kmiFreeText)

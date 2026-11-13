@@ -1,5 +1,7 @@
 import SwiftUI
+import Combine
 import FirebaseFirestore
+import FirebaseFunctions
 
 enum PaymentStatus: String, CaseIterable, Identifiable {
     case paid = "PAID"
@@ -32,7 +34,9 @@ struct PaymentReportItem: Identifiable, Equatable {
     var paymentDate: String?
     var notes: String?
 
-    var id: String { traineeId }
+    var id: String {
+        "\(traineeId.utf8.count):\(traineeId)\(branchName)"
+    }
 }
 
 private struct PaymentMergeBucket {
@@ -245,621 +249,159 @@ private extension DocumentSnapshot {
     }
 }
 
+private enum PaymentsReportResponseError: Error {
+    case invalidReport
+    case invalidPayment
+}
+
+private func paymentResponseText(_ value: Any?) -> String {
+    (value as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+private func paymentResponseAmount(_ value: Any?) -> Double? {
+    guard let number = value as? NSNumber else { return nil }
+    let amount = number.doubleValue
+    return amount.isFinite ? amount : nil
+}
+
+private func paymentResponseRow(
+    identity: [String: Any],
+    payment: [String: Any],
+    fallbackRequiredAmount: Double = 150
+) -> PaymentReportItem? {
+    let traineeId = paymentResponseText(identity["traineeId"])
+    let fullName = paymentResponseText(identity["fullName"])
+    guard !traineeId.isEmpty, !fullName.isEmpty else { return nil }
+
+    let rawRequired = paymentResponseAmount(payment["requiredAmount"]) ?? 0
+    let required = rawRequired > 0 ? rawRequired : fallbackRequiredAmount
+    let paid = max(paymentResponseAmount(payment["paidAmount"]) ?? 0, 0)
+
+    let date = paymentResponseText(payment["paymentDate"])
+    let notes = paymentResponseText(payment["notes"])
+
+    return PaymentReportItem(
+        traineeId: traineeId,
+        fullName: fullName,
+        branchName: paymentResponseText(payment["branchName"]),
+        phone: paymentResponseText(identity["phone"]),
+        requiredAmount: required,
+        paidAmount: paid,
+        status: paymentStatusFromAmount(paidAmount: paid, requiredAmount: required),
+        paymentMethod: paymentMethodFromString(payment["paymentMethod"] as? String),
+        paymentDate: date.isEmpty ? nil : date,
+        notes: notes.isEmpty ? nil : notes
+    )
+}
+
 private func loadRealPaymentsReportItems() async throws -> [PaymentReportItem] {
-    let db = Firestore.firestore()
+    let result = try await Functions.functions()
+        .httpsCallable("loadSecurePaymentsReport")
+        .call()
 
-    let usersSnapshot = try await db
-        .collection("users")
-        .getDocuments()
-
-    let usersDocs = usersSnapshot.documents
-        .filter { $0.isPaymentRelevantTrainee() }
-
-    let paymentsSnapshot = try await db
-        .collection("membershipPayments")
-        .getDocuments()
-
-    var paymentDocsByTraineeId: [String: QueryDocumentSnapshot] = [:]
-
-    for doc in paymentsSnapshot.documents {
-        let keys = [
-            doc.documentID,
-            doc.paymentString(["traineeId"]),
-            doc.paymentString(["userDocId"]),
-            doc.paymentString(["uid"]),
-            doc.paymentString(["authUid"])
-        ]
-        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-        .filter { !$0.isEmpty }
-
-        for key in Set(keys) {
-            paymentDocsByTraineeId[key] = doc
-        }
+    guard let payload = result.data as? [String: Any],
+          let rawItems = payload["items"] as? [[String: Any]] else {
+        throw PaymentsReportResponseError.invalidReport
     }
 
-    func normalizedKey(_ value: String) -> String {
-        value
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: "-", with: "")
-            .replacingOccurrences(of: "_", with: "")
-    }
-
-    func looksLikeUid(_ value: String) -> Bool {
-        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !clean.isEmpty else {
-            return true
-        }
-
-        if clean.contains("@") {
-            return false
-        }
-
-        if clean.range(of: #"^[A-Za-z0-9_-]{18,}$"#, options: .regularExpression) != nil {
-            return true
-        }
-
-        if clean.range(of: #"^[0-9a-fA-F]{20,}$"#, options: .regularExpression) != nil {
-            return true
-        }
-
-        return false
-    }
-
-    func bestHumanName(userDoc: QueryDocumentSnapshot, paymentDoc: QueryDocumentSnapshot?) -> String? {
-        let candidates = [
-            paymentDoc?.paymentString(["fullName"]),
-            userDoc.paymentString(["fullName"]),
-            userDoc.paymentString(["name"]),
-            userDoc.paymentString(["displayName"])
-        ]
-        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-        .filter { !$0.isEmpty }
-        .filter { !looksLikeUid($0) }
-
-        return candidates.first
-    }
-
-    func bestPhone(userDoc: QueryDocumentSnapshot, paymentDoc: QueryDocumentSnapshot?) -> String {
-        paymentDoc?.paymentString(["phone"]) ??
-        userDoc.paymentUserPhone()
-    }
-
-    func bestEmail(userDoc: QueryDocumentSnapshot, paymentDoc: QueryDocumentSnapshot?) -> String {
-        paymentDoc?.paymentString(["email"]) ??
-        userDoc.paymentString(["email"]) ??
-        ""
-    }
-
-    func bestBranch(userDoc: QueryDocumentSnapshot, paymentDoc: QueryDocumentSnapshot?) -> String {
-        paymentDoc?.paymentString(["branchName"]) ??
-        userDoc.paymentUserBranch()
-    }
-
-    func normalizedPhone(
-        _ value: String
-    ) -> String {
-        var digits = value.filter {
-            $0.isNumber
-        }
-
-        if digits.hasPrefix("00972") {
-            digits = String(
-                digits.dropFirst(5)
-            )
-
-        } else if digits.hasPrefix("972") {
-            digits = String(
-                digits.dropFirst(3)
-            )
-
-        } else if digits.hasPrefix("0") {
-            digits = String(
-                digits.dropFirst()
-            )
-        }
-
-        if digits.count >= 9 {
-            digits = String(
-                digits.suffix(9)
-            )
-        }
-
-        return digits
-    }
-
-    func normalizedEmail(
-        _ value: String
-    ) -> String {
-        value
-            .trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
-            .lowercased()
-            .replacingOccurrences(
-                of: " ",
-                with: ""
-            )
-    }
-
-    func cleanMergeText(
-        _ value: String
-    ) -> String {
-        value.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
-    }
-
-    func preferredMergeText(
-        _ first: String,
-        _ second: String
-    ) -> String {
-        let cleanFirst =
-            cleanMergeText(first)
-
-        let cleanSecond =
-            cleanMergeText(second)
-
-        if cleanFirst.isEmpty {
-            return cleanSecond
-        }
-
-        if cleanSecond.isEmpty {
-            return cleanFirst
-        }
-
-        return cleanSecond.count >
-            cleanFirst.count
-            ? cleanSecond
-            : cleanFirst
-    }
-
-    func preferredOptionalMergeText(
-        _ first: String?,
-        _ second: String?
-    ) -> String? {
-        let cleanFirst =
-            cleanMergeText(first ?? "")
-
-        let cleanSecond =
-            cleanMergeText(second ?? "")
-
-        if cleanFirst.isEmpty &&
-            cleanSecond.isEmpty {
-            return nil
-        }
-
-        if cleanFirst.isEmpty {
-            return cleanSecond
-        }
-
-        if cleanSecond.isEmpty {
-            return cleanFirst
-        }
-
-        return cleanSecond.count >
-            cleanFirst.count
-            ? cleanSecond
-            : cleanFirst
-    }
-
-    func mergePaymentItems(
-        existing: PaymentReportItem,
-        incoming: PaymentReportItem
-    ) -> PaymentReportItem {
-        /*
-         * לא מחברים סכומים, משום שאותו תשלום
-         * עלול להופיע בשני מסמכים כפולים.
-         */
-        let mergedPaidAmount = max(
-            existing.paidAmount,
-            incoming.paidAmount
-        )
-
-        let mergedRequiredAmount = max(
-            existing.requiredAmount,
-            incoming.requiredAmount
-        )
-
-        let preferredPaymentItem =
-            incoming.paidAmount >
-            existing.paidAmount
-            ? incoming
-            : existing
-
-        return PaymentReportItem(
-            traineeId:
-                existing.traineeId.isEmpty
-                ? incoming.traineeId
-                : existing.traineeId,
-
-            fullName:
-                preferredMergeText(
-                    existing.fullName,
-                    incoming.fullName
-                ),
-
-            branchName:
-                preferredMergeText(
-                    existing.branchName,
-                    incoming.branchName
-                ),
-
-            phone:
-                preferredMergeText(
-                    existing.phone,
-                    incoming.phone
-                ),
-
-            requiredAmount:
-                mergedRequiredAmount,
-
-            paidAmount:
-                mergedPaidAmount,
-
-            status:
-                paymentStatusFromAmount(
-                    paidAmount:
-                        mergedPaidAmount,
-                    requiredAmount:
-                        mergedRequiredAmount
-                ),
-
-            paymentMethod:
-                preferredPaymentItem
-                    .paymentMethod,
-
-            paymentDate:
-                preferredOptionalMergeText(
-                    existing.paymentDate,
-                    incoming.paymentDate
-                ),
-
-            notes:
-                preferredOptionalMergeText(
-                    existing.notes,
-                    incoming.notes
-                )
-        )
-    }
-
-    var mergeBuckets:
-        [PaymentMergeBucket] = []
-
-    for userDoc in usersDocs {
-        let traineeId =
-            userDoc.paymentString(["uid", "authUid"]) ??
-            userDoc.documentID
-
-        let paymentDoc =
-            paymentDocsByTraineeId[traineeId] ??
-            paymentDocsByTraineeId[userDoc.documentID]
-
-        guard let fullName = bestHumanName(userDoc: userDoc, paymentDoc: paymentDoc) else {
-            continue
-        }
-
-        let branchName = bestBranch(userDoc: userDoc, paymentDoc: paymentDoc)
-        let phone = bestPhone(userDoc: userDoc, paymentDoc: paymentDoc)
-        let email = bestEmail(userDoc: userDoc, paymentDoc: paymentDoc)
-
-        let paymentRequiredAmount =
-            paymentDoc?
-                .paymentRequiredAmountFromAny()
-            ?? 0.0
-
-        let userRequiredAmount =
-            userDoc
-                .paymentRequiredAmountFromAny()
-
-        let requiredAmount =
-            paymentRequiredAmount > 0
-            ? paymentRequiredAmount
-            : userRequiredAmount
-
-        let paidAmount =
-            paymentDoc?.paymentDouble(
-                ["paidAmount"]
-            ) ??
-            0.0
-
-        let status = paymentStatusFromAmount(
-            paidAmount: paidAmount,
-            requiredAmount: requiredAmount
-        )
-
-        let method = paymentMethodFromString(
-            paymentDoc?.paymentString(["paymentMethod"])
-        )
-
-        let item = PaymentReportItem(
-            traineeId: traineeId,
-            fullName: fullName,
-            branchName: branchName,
-            phone: phone,
-            requiredAmount: requiredAmount,
-            paidAmount: paidAmount,
-            status: status,
-            paymentMethod: method,
-            paymentDate: paymentDoc?.paymentString(["paymentDate"]),
-            notes: paymentDoc?.paymentString(["notes"])
-        )
-
-        let rawUidValues: [String?] = [
-            traineeId,
-            userDoc.documentID,
-            userDoc.paymentString(
-                ["uid"]
-            ),
-            userDoc.paymentString(
-                ["authUid"]
-            ),
-            paymentDoc?.documentID,
-            paymentDoc?.paymentString(
-                ["traineeId"]
-            ),
-            paymentDoc?.paymentString(
-                ["userDocId"]
-            ),
-            paymentDoc?.paymentString(
-                ["uid"]
-            ),
-            paymentDoc?.paymentString(
-                ["authUid"]
-            )
-        ]
-
-        let uidKeys = Set(
-            rawUidValues
-                .compactMap { $0 }
-                .map { normalizedKey($0) }
-                .filter { !$0.isEmpty }
-        )
-
-        let rawPhoneValues: [String?] = [
-            phone,
-            userDoc.paymentString(
-                ["phone"]
-            ),
-            userDoc.paymentString(
-                ["phoneNumber"]
-            ),
-            userDoc.paymentString(
-                ["phone_number"]
-            ),
-            paymentDoc?.paymentString(
-                ["phone"]
-            ),
-            paymentDoc?.paymentString(
-                ["phoneNumber"]
-            ),
-            paymentDoc?.paymentString(
-                ["phone_number"]
-            )
-        ]
-
-        let phoneKeys = Set(
-            rawPhoneValues
-                .compactMap { $0 }
-                .map { normalizedPhone($0) }
-                .filter { !$0.isEmpty }
-        )
-
-        let rawEmailValues: [String?] = [
-            email,
-            userDoc.paymentString(
-                ["email"]
-            ),
-            userDoc.paymentString(
-                ["emailAddress"]
-            ),
-            userDoc.paymentString(
-                ["email_address"]
-            ),
-            paymentDoc?.paymentString(
-                ["email"]
-            ),
-            paymentDoc?.paymentString(
-                ["emailAddress"]
-            ),
-            paymentDoc?.paymentString(
-                ["email_address"]
-            )
-        ]
-
-        let emailKeys = Set(
-            rawEmailValues
-                .compactMap { $0 }
-                .map { normalizedEmail($0) }
-                .filter { !$0.isEmpty }
-        )
-
-        var incomingBucket =
-            PaymentMergeBucket(
-                item: item,
-                uidKeys: uidKeys,
-                phoneKeys: phoneKeys,
-                emailKeys: emailKeys
-            )
-
-        /*
-         * משתמש חדש יכול לחבר בין יותר משתי רשומות:
-         * לדוגמה, מסמך אחד עם אותו טלפון
-         * ומסמך אחר עם אותו מייל.
-         */
-        let matchingIndexes =
-            mergeBuckets.indices.filter {
-                index in
-
-                let existingBucket =
-                    mergeBuckets[index]
-
-                let sameUid =
-                    !incomingBucket.uidKeys.isEmpty &&
-                    !existingBucket.uidKeys
-                        .isDisjoint(
-                            with:
-                                incomingBucket.uidKeys
-                        )
-
-                let samePhone =
-                    !incomingBucket.phoneKeys.isEmpty &&
-                    !existingBucket.phoneKeys
-                        .isDisjoint(
-                            with:
-                                incomingBucket.phoneKeys
-                        )
-
-                let sameEmail =
-                    !incomingBucket.emailKeys.isEmpty &&
-                    !existingBucket.emailKeys
-                        .isDisjoint(
-                            with:
-                                incomingBucket.emailKeys
-                        )
-
-                return sameUid ||
-                    samePhone ||
-                    sameEmail
+    var rows: [PaymentReportItem] = []
+    var seenRowIDs = Set<String>()
+
+    for rawItem in rawItems {
+        let branchPayments = (rawItem["branchPayments"] as? [[String: Any]] ?? [])
+            .filter { !paymentResponseText($0["branchName"]).isEmpty }
+
+        for payment in branchPayments.isEmpty ? [rawItem] : branchPayments {
+            guard let row = paymentResponseRow(identity: rawItem, payment: payment) else {
+                throw PaymentsReportResponseError.invalidReport
             }
 
-        /*
-         * מוחקים מהסוף להתחלה כדי שמיקומי
-         * המערך לא ישתנו בזמן האיחוד.
-         */
-        for index in matchingIndexes.reversed() {
-            let existingBucket =
-                mergeBuckets.remove(
-                    at: index
-                )
-
-            incomingBucket.item =
-                mergePaymentItems(
-                    existing:
-                        existingBucket.item,
-                    incoming:
-                        incomingBucket.item
-                )
-
-            incomingBucket.uidKeys
-                .formUnion(
-                    existingBucket.uidKeys
-                )
-
-            incomingBucket.phoneKeys
-                .formUnion(
-                    existingBucket.phoneKeys
-                )
-
-            incomingBucket.emailKeys
-                .formUnion(
-                    existingBucket.emailKeys
-                )
-        }
-
-        mergeBuckets.append(
-            incomingBucket
-        )
-        }
-
-        return mergeBuckets
-            .map(\.item)
-            .sorted {
-                if $0.branchName ==
-                    $1.branchName {
-                    return $0.fullName
-                        .localizedCaseInsensitiveCompare(
-                            $1.fullName
-                        ) == .orderedAscending
-                }
-
-                return $0.branchName
-                    .localizedCaseInsensitiveCompare(
-                        $1.branchName
-                    ) == .orderedAscending
+            guard seenRowIDs.insert(row.id).inserted else {
+                throw PaymentsReportResponseError.invalidReport
             }
+
+            rows.append(row)
+        }
+    }
+
+    return rows.sorted {
+        if $0.branchName == $1.branchName {
+            return $0.fullName.localizedCaseInsensitiveCompare($1.fullName)
+                == .orderedAscending
         }
 
+        return $0.branchName.localizedCaseInsensitiveCompare($1.branchName)
+            == .orderedAscending
+    }
+}
+
+private func normalizedPaymentBranch(_ name: String) -> String {
+    name.trimmingCharacters(in: .whitespacesAndNewlines)
+        .replacingOccurrences(of: "[־–—]", with: "-", options: .regularExpression)
+        .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        .lowercased()
+}
 
 private func saveManualMembershipPaymentToFirestore(
     item: PaymentReportItem,
     amountToAdd: Double,
     method: PaymentMethod,
-    notes: String
+    notes: String,
+    requestId: String
 ) async throws -> PaymentReportItem {
-    let db = Firestore.firestore()
+    let branch = item.branchName.trimmingCharacters(in: .whitespacesAndNewlines)
 
-    let newPaidAmount = item.paidAmount + amountToAdd
-    let newStatus = paymentStatusFromAmount(
-        paidAmount: newPaidAmount,
-        requiredAmount: item.requiredAmount
+    guard !branch.isEmpty, amountToAdd.isFinite, amountToAdd > 0 else {
+        throw PaymentsReportResponseError.invalidPayment
+    }
+
+    let result = try await Functions.functions()
+        .httpsCallable("updateSecureMembershipPayment")
+        .call([
+            "traineeId": item.traineeId,
+            "branchName": branch,
+            "amountToAdd": amountToAdd,
+            "paymentMethod": method.rawValue,
+            "notes": notes.trimmingCharacters(in: .whitespacesAndNewlines),
+            "requestId": requestId
+        ] as [String: Any])
+
+    guard let payload = result.data as? [String: Any],
+          let rawItem = payload["item"] as? [String: Any],
+          normalizedPaymentBranch(paymentResponseText(rawItem["branchName"]))
+            == normalizedPaymentBranch(branch),
+          let paidAmount = paymentResponseAmount(rawItem["paidAmount"]),
+          paidAmount >= 0 else {
+        throw PaymentsReportResponseError.invalidPayment
+    }
+
+    var updated = item
+    let required = paymentResponseAmount(rawItem["requiredAmount"]) ?? 0
+    if required > 0 {
+        updated.requiredAmount = required
+    }
+    updated.paidAmount = paidAmount
+    updated.status = paymentStatusFromAmount(
+        paidAmount: updated.paidAmount,
+        requiredAmount: updated.requiredAmount
     )
+    updated.paymentMethod = paymentMethodFromString(rawItem["paymentMethod"] as? String)
 
-    let paymentDate = paymentNowDateText()
-
-    var updatedItem = item
-    updatedItem.paidAmount = newPaidAmount
-    updatedItem.status = newStatus
-    updatedItem.paymentMethod = method
-    updatedItem.paymentDate = paymentDate
-    updatedItem.notes = notes
-
-    let data: [String: Any] = [
-        "traineeId": updatedItem.traineeId,
-        "userDocId": updatedItem.traineeId,
-        "fullName": updatedItem.fullName,
-        "branchName": updatedItem.branchName,
-        "phone": updatedItem.phone,
-        "requiredAmount": updatedItem.requiredAmount,
-        "paidAmount": updatedItem.paidAmount,
-        "status": updatedItem.status.rawValue,
-        "paymentMethod": method.rawValue,
-        "paymentDate": paymentDate,
-        "paymentYear": paymentCurrentYear(),
-        "lastPaymentAmount": amountToAdd,
-        "notes": notes,
-        "updatedAt": FieldValue.serverTimestamp(),
-        "updatedAtMillis": Int64(Date().timeIntervalSince1970 * 1000),
-        "source": "ios_payments_report"
-    ]
-
-    let paymentDocRef = db
-        .collection("membershipPayments")
-        .document(updatedItem.traineeId)
-
-    try await paymentDocRef.setData(data, merge: true)
-
-    let historyData: [String: Any] = [
-        "traineeId": updatedItem.traineeId,
-        "fullName": updatedItem.fullName,
-        "branchName": updatedItem.branchName,
-        "amount": amountToAdd,
-        "paidAmountAfterUpdate": updatedItem.paidAmount,
-        "requiredAmount": updatedItem.requiredAmount,
-        "statusAfterUpdate": updatedItem.status.rawValue,
-        "paymentMethod": method.rawValue,
-        "paymentDate": paymentDate,
-        "paymentYear": paymentCurrentYear(),
-        "notes": notes,
-        "createdAt": FieldValue.serverTimestamp(),
-        "createdAtMillis": Int64(Date().timeIntervalSince1970 * 1000),
-        "source": "ios_payments_report_history"
-    ]
-
-    _ = try await paymentDocRef
-        .collection("history")
-        .addDocument(data: historyData)
-
-    return updatedItem
+    let date = paymentResponseText(rawItem["paymentDate"])
+    let savedNotes = paymentResponseText(rawItem["notes"])
+    updated.paymentDate = date.isEmpty ? nil : date
+    updated.notes = savedNotes.isEmpty ? nil : savedNotes
+    return updated
 }
+
 
 struct PaymentsReportView: View {
     let isEnglish: Bool
     let onClose: () -> Void
     let onOpenTrainees: () -> Void
     let onSaveManualPayment: (String, Double, PaymentMethod, String) -> Void
+
+    @ObservedObject private var demoPrivacy = DemoPrivacy.shared
 
     @Environment(\.colorScheme)
     private var colorScheme
@@ -919,132 +461,48 @@ struct PaymentsReportView: View {
         .leading
     }
 
+    private var reportColorScheme: ColorScheme {
+        preferredScreenColorScheme ?? colorScheme
+    }
+
     private var reportBackgroundColors: [Color] {
-        isDarkMode
-            ? [
-                Color(
-                    red: 0.015,
-                    green: 0.035,
-                    blue: 0.075
-                ),
-                Color(
-                    red: 0.04,
-                    green: 0.08,
-                    blue: 0.15
-                ),
-                Color(
-                    red: 0.06,
-                    green: 0.18,
-                    blue: 0.31
-                ),
-                Color(
-                    red: 0.02,
-                    green: 0.09,
-                    blue: 0.18
-                )
-            ]
-            : [
-                Color(
-                    red: 0.97,
-                    green: 0.985,
-                    blue: 1.00
-                ),
-                Color(
-                    red: 0.92,
-                    green: 0.96,
-                    blue: 0.99
-                ),
-                Color(
-                    red: 0.78,
-                    green: 0.91,
-                    blue: 0.98
-                ),
-                Color(
-                    red: 0.95,
-                    green: 0.98,
-                    blue: 1.00
-                )
-            ]
+        KmiAppTheme.screenBackgroundColors(for: reportColorScheme)
     }
 
     private var reportPanelColor: Color {
-        isDarkMode
-            ? Color(
-                red: 0.055,
-                green: 0.085,
-                blue: 0.145
-            )
-            : Color.white.opacity(0.96)
+        KmiAppTheme.surface(for: reportColorScheme)
     }
 
     private var reportFieldColor: Color {
-        isDarkMode
-            ? Color(
-                red: 0.075,
-                green: 0.115,
-                blue: 0.19
-            )
-            : Color(
-                red: 0.94,
-                green: 0.965,
-                blue: 0.99
-            )
+        KmiAppTheme.surfaceVariant(for: reportColorScheme)
     }
 
     private var reportPrimaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.94)
-            : Color.black.opacity(0.84)
+        KmiAppTheme.onSurface(for: reportColorScheme)
     }
 
     private var reportSecondaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.68)
-            : Color.black.opacity(0.55)
+        KmiAppTheme.onSurfaceVariant(for: reportColorScheme)
     }
 
     private var reportBorderColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.12)
-            : Color.black.opacity(0.09)
+        KmiAppTheme.outlineVariant(for: reportColorScheme)
     }
 
     private var reportDividerColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.11)
-            : Color.black.opacity(0.09)
+        reportBorderColor
     }
 
     private var reportAccentColor: Color {
-        Color(
-            red: 0.11,
-            green: 0.63,
-            blue: 0.95
-        )
+        KmiAppTheme.primary(for: reportColorScheme)
     }
 
     private var reportErrorBackgroundColor: Color {
-        isDarkMode
-            ? Color.red.opacity(0.17)
-            : Color(
-                red: 1.00,
-                green: 0.89,
-                blue: 0.91
-            )
+        KmiAppTheme.errorContainer(for: reportColorScheme)
     }
 
     private var reportErrorTextColor: Color {
-        isDarkMode
-            ? Color(
-                red: 1.00,
-                green: 0.66,
-                blue: 0.68
-            )
-            : Color(
-                red: 0.60,
-                green: 0.10,
-                blue: 0.12
-            )
+        KmiAppTheme.onErrorContainer(for: reportColorScheme)
     }
 
     @State private var items: [PaymentReportItem]
@@ -1052,12 +510,15 @@ struct PaymentsReportView: View {
     @State private var filter: String = "ALL"
     @State private var selectedBranch: String
     @State private var selectedManualItem: PaymentReportItem?
+    @State private var manualPaymentRequestID = UUID()
+    @State private var isSavingManualPayment = false
     @State private var pdfShareItem:
         PaymentsPDFShareItem?
 
     @State private var isCreatingPDF = false
     @State private var isLoadingPayments = true
     @State private var paymentsError: String?
+    @State private var exportError: String?
     @State private var didLoadPayments = false
 
     init(
@@ -1094,14 +555,44 @@ struct PaymentsReportView: View {
         return [allBranchesText] + realBranches
     }
 
-    private var filteredItems: [PaymentReportItem] {
-        items.filter { item in
-            let cleanQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var demoNamesByTraineeID: [String: String] {
+        guard demoPrivacy.isEnabled else { return [:] }
 
+        var names: [String: String] = [:]
+
+        for item in items where names[item.traineeId] == nil {
+            names[item.traineeId] = TraineeDisplayNameMapper.displayName(
+                realName: item.fullName,
+                stableKey: item.traineeId,
+                demoIndex: names.count,
+                isEnglish: isEnglish
+            )
+        }
+
+        return names
+    }
+
+    private func paymentDisplayName(
+        _ item: PaymentReportItem,
+        demoNames: [String: String]
+    ) -> String {
+        guard demoPrivacy.isEnabled else { return item.fullName }
+
+        return demoNames[item.traineeId]
+            ?? (isEnglish ? "Trainee" : "מתאמן")
+    }
+
+    private var filteredItems: [PaymentReportItem] {
+        let cleanQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let demoNames = demoNamesByTraineeID
+
+        return items.filter { item in
+            let displayName = paymentDisplayName(item, demoNames: demoNames)
             let matchesQuery =
                 cleanQuery.isEmpty ||
-                item.fullName.localizedCaseInsensitiveContains(cleanQuery) ||
-                item.phone.localizedCaseInsensitiveContains(cleanQuery) ||
+                displayName.localizedCaseInsensitiveContains(cleanQuery) ||
+                (!demoPrivacy.isEnabled &&
+                    item.phone.localizedCaseInsensitiveContains(cleanQuery)) ||
                 item.branchName.localizedCaseInsensitiveContains(cleanQuery)
 
             let matchesFilter: Bool
@@ -1133,31 +624,27 @@ struct PaymentsReportView: View {
     }
 
     private var totalRequired: Double {
-        items.reduce(0) { $0 + $1.requiredAmount }
+        filteredItems.reduce(0) { $0 + $1.requiredAmount }
     }
 
     private var totalPaid: Double {
-        items.reduce(0) { $0 + $1.paidAmount }
+        filteredItems.reduce(0) { $0 + $1.paidAmount }
     }
 
     private var paidCount: Int {
-        items.filter {
-            $0.status == .paid
-        }
-        .count
+        filteredItems.filter { $0.status == .paid }.count
     }
 
     private var unpaidCount: Int {
-        items.filter {
-            $0.status == .unpaid ||
-            $0.status == .partial
-        }
-        .count
+        filteredItems.filter {
+            $0.status == .unpaid || $0.status == .partial
+        }.count
     }
 
     private var collectionPercent: Double {
-        guard totalRequired > 0 else { return 0 }
-        return min(max((totalPaid / totalRequired) * 100, 0), 100)
+        let required = totalRequired
+        guard required > 0 else { return 0 }
+        return min(max((totalPaid / required) * 100, 0), 100)
     }
 
     var body: some View {
@@ -1201,31 +688,40 @@ struct PaymentsReportView: View {
 
                     LazyVStack(spacing: 10) {
                         if isLoadingPayments {
+                            KmiLoadingOverlay()
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 112)
+                                .accessibilityLabel(
+                                    isEnglish
+                                        ? "Loading payment data"
+                                        : "טוען נתוני תשלומים"
+                                )
+                        }
+
+                        if !isLoadingPayments, let paymentsError {
                             stateMessageCard(
-                                title: isEnglish
-                                    ? "Loading real payment data..."
-                                    : "טוען נתוני תשלום אמיתיים...",
-                                systemImage:
-                                    "clock.arrow.circlepath",
-                                background: reportPanelColor,
-                                foreground:
-                                    reportPrimaryTextColor
+                                title: paymentsError,
+                                systemImage: "exclamationmark.triangle.fill",
+                                background: reportErrorBackgroundColor,
+                                foreground: reportErrorTextColor
                             )
 
-                        } else if let paymentsError {
-                            stateMessageCard(
-                                title: isEnglish
-                                    ? "Failed loading payments: \(paymentsError)"
-                                    : "טעינת התשלומים נכשלה: \(paymentsError)",
-                                systemImage:
-                                    "exclamationmark.triangle.fill",
-                                background:
-                                    reportErrorBackgroundColor,
-                                foreground:
-                                    reportErrorTextColor
-                            )
+                            Button {
+                                Task { await loadPayments() }
+                            } label: {
+                                Label(
+                                    isEnglish ? "Reload Payments" : "טען תשלומים מחדש",
+                                    systemImage: "arrow.clockwise"
+                                )
+                                .kmiFont(size: 14, weight: .bold)
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(reportAccentColor)
+                        }
 
-                        } else if filteredItems.isEmpty {
+                        if !isLoadingPayments {
+                            if filteredItems.isEmpty {
+                                if paymentsError == nil {
                             stateMessageCard(
                                 title: isEnglish
                                     ? "No trainees matched the current filters."
@@ -1237,9 +733,16 @@ struct PaymentsReportView: View {
                                     reportPrimaryTextColor
                             )
 
-                        } else {
-                            ForEach(filteredItems) { item in
-                                paymentRow(item)
+                                }
+                            } else {
+                                let demoNames = demoNamesByTraineeID
+
+                                ForEach(filteredItems) { item in
+                                    paymentRow(
+                                        item,
+                                        displayName: paymentDisplayName(item, demoNames: demoNames)
+                                    )
+                                }
                             }
                         }
 
@@ -1249,6 +752,30 @@ struct PaymentsReportView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
             }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 1) {
+                Text(
+                    isEnglish
+                        ? "Premium payments dashboard"
+                        : "דשבורד תשלומים פרימיום"
+                )
+                .kmiFont(size: 14, weight: .bold)
+                .accessibilityAddTraits(.isHeader)
+
+                Text(
+                    isEnglish
+                        ? "For trainees, coaches and managers"
+                        : "למתאמנים, למאמנים ולמנהלים"
+                )
+                .kmiFont(size: 12, weight: .regular)
+            }
+            .foregroundStyle(KmiAppTheme.sectionHeaderContentColor)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, minHeight: 56)
+            .background(KmiAppTheme.sectionHeaderBrush)
         }
         .environment(
             \.layoutDirection,
@@ -1262,16 +789,33 @@ struct PaymentsReportView: View {
             didLoadPayments = true
             await loadPayments()
         }
-        .onChange(of: allBranchesText) { newValue in
-            if selectedBranch != newValue && selectedBranch.isEmpty {
+        .onChange(of: allBranchesText) { previousValue, newValue in
+            if selectedBranch == previousValue || selectedBranch.isEmpty {
                 selectedBranch = newValue
             }
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name("KMI_PAYMENTS_REPORT_SHARE_PDF")
+            )
+        ) { _ in
+            guard !isLoadingPayments,
+                  !filteredItems.isEmpty,
+                  selectedManualItem == nil,
+                  pdfShareItem == nil else {
+                return
+            }
+
+            createAndSharePaymentsPDF()
         }
         .sheet(item: $selectedManualItem) { item in
             ManualPaymentSheet(
                 isEnglish: isEnglish,
                 item: item,
+                displayName: paymentDisplayName(item, demoNames: demoNamesByTraineeID),
+                isSaving: isSavingManualPayment,
                 onDismiss: {
+                    guard !isSavingManualPayment else { return }
                     selectedManualItem = nil
                 },
                 onSave: { amount, method, notes in
@@ -1288,9 +832,23 @@ struct PaymentsReportView: View {
             .presentationDetents([.medium])
         }
         .sheet(item: $pdfShareItem) { shareItem in
-            PaymentsPDFShareSheet(
-                url: shareItem.url
-            )
+            KmiShareSheet(items: [shareItem.url])
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .alert(
+            isEnglish ? "PDF Export" : "ייצוא PDF",
+            isPresented: Binding(
+                get: { exportError != nil },
+                set: { if !$0 { exportError = nil } }
+            ),
+            presenting: exportError
+        ) { _ in
+            Button(isEnglish ? "OK" : "אישור", role: .cancel) {
+                exportError = nil
+            }
+        } message: { message in
+            Text(message)
         }
     }
 
@@ -1301,8 +859,7 @@ struct PaymentsReportView: View {
         }
 
         guard !filteredItems.isEmpty else {
-            paymentsError =
-                isEnglish
+            exportError = isEnglish
                 ? "There are no payment records to export."
                 : "אין רשומות תשלום לייצוא."
             return
@@ -1310,32 +867,27 @@ struct PaymentsReportView: View {
 
         isCreatingPDF = true
 
+        let demoNames = demoNamesByTraineeID
+        let exportItems = filteredItems.map { item in
+            guard demoPrivacy.isEnabled else { return item }
+
+            var displayItem = item
+            displayItem.fullName = paymentDisplayName(item, demoNames: demoNames)
+            displayItem.phone = ""
+            displayItem.notes = nil
+            return displayItem
+        }
+
         do {
             let pdfURL =
                 try PaymentsReportPDFGenerator
                     .create(
-                        items: filteredItems,
-                        totalRequired:
-                            filteredItems.reduce(0) {
-                                $0 + $1.requiredAmount
-                            },
-                        totalPaid:
-                            filteredItems.reduce(0) {
-                                $0 + $1.paidAmount
-                            },
-                        paidCount:
-                            filteredItems.filter {
-                                $0.status == .paid
-                            }
-                            .count,
-                        unpaidCount:
-                            filteredItems.filter {
-                                $0.status == .unpaid ||
-                                $0.status == .partial
-                            }
-                            .count,
-                        collectionPercent:
-                            filteredCollectionPercent,
+                        items: exportItems,
+                        totalRequired: totalRequired,
+                        totalPaid: totalPaid,
+                        paidCount: paidCount,
+                        unpaidCount: unpaidCount,
+                        collectionPercent: collectionPercent,
                         selectedBranch:
                             selectedBranch,
                         isEnglish:
@@ -1348,38 +900,12 @@ struct PaymentsReportView: View {
                 )
 
         } catch {
-            paymentsError =
-                isEnglish
-                ? "Creating the PDF failed: \(error.localizedDescription)"
-                : "יצירת דוח ה־PDF נכשלה: \(error.localizedDescription)"
+            exportError = isEnglish
+                ? "Could not create the PDF. Please try again."
+                : "לא ניתן ליצור את דוח ה־PDF. יש לנסות שוב."
         }
 
         isCreatingPDF = false
-    }
-
-    private var filteredCollectionPercent:
-        Double {
-        let required =
-            filteredItems.reduce(0) {
-                $0 + $1.requiredAmount
-            }
-
-        let paid =
-            filteredItems.reduce(0) {
-                $0 + $1.paidAmount
-            }
-
-        guard required > 0 else {
-            return 0
-        }
-
-        return min(
-            max(
-                (paid / required) * 100,
-                0
-            ),
-            100
-        )
     }
 
     @MainActor
@@ -1396,7 +922,9 @@ struct PaymentsReportView: View {
                 selectedBranch = allBranchesText
             }
         } catch {
-            paymentsError = error.localizedDescription
+            paymentsError = isEnglish
+                ? "Unable to load payments. Please try again."
+                : "לא ניתן לטעון את התשלומים. יש לנסות שוב."
             isLoadingPayments = false
         }
     }
@@ -1412,61 +940,15 @@ struct PaymentsReportView: View {
 
     private var heroCard: some View {
         VStack(spacing: 10) {
-            VStack(
-                alignment: isEnglish ? .leading : .trailing,
-                spacing: 3
-            ) {
-                Text(
-                    isEnglish
-                        ? "Premium payments dashboard"
-                        : "דשבורד תשלומים פרימיום"
-                )
-                .kmiFont(size: 17, weight: .heavy)
-                .foregroundStyle(reportPrimaryTextColor)
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: screenFrameAlignment
-                )
-                .multilineTextAlignment(
-                    screenTextAlignment
-                )
-                .lineLimit(2)
-                .minimumScaleFactor(0.78)
-
-                Text(
-                    isEnglish
-                        ? "For trainees, coaches and managers"
-                        : "למתאמנים, למאמנים ולמנהלים"
-                )
-                .kmiFont(size: 13, weight: .regular)
-                .foregroundStyle(reportSecondaryTextColor)
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: screenFrameAlignment
-                )
-                .multilineTextAlignment(
-                    screenTextAlignment
-                )
-                .lineLimit(2)
-                .minimumScaleFactor(0.78)
-
-                Text(
-                    isEnglish
-                        ? "Collected ₪\(Int(totalPaid)) of ₪\(Int(totalRequired))"
-                        : "נגבה \(Int(totalPaid)) ₪ מתוך \(Int(totalRequired)) ₪"
-                )
-                .kmiFont(size: 13, weight: .bold)
-                .foregroundStyle(reportAccentColor)
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: screenFrameAlignment
-                )
-                .multilineTextAlignment(
-                    screenTextAlignment
-                )
-                .lineLimit(2)
-                .minimumScaleFactor(0.75)
-            }
+            Text(
+                isEnglish
+                    ? "Collected ₪\(Int(totalPaid)) of ₪\(Int(totalRequired))"
+                    : "נגבה \(Int(totalPaid)) ₪ מתוך \(Int(totalRequired)) ₪"
+            )
+            .kmiFont(size: 13, weight: .bold)
+            .foregroundStyle(reportAccentColor)
+            .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+            .multilineTextAlignment(screenTextAlignment)
 
             Button {
                 createAndSharePaymentsPDF()
@@ -1547,7 +1029,7 @@ struct PaymentsReportView: View {
                         title: isEnglish
                             ? "Trainees"
                             : "מתאמנים",
-                        value: "\(items.count)",
+                        value: "\(Set(items.map(\.traineeId)).count)",
                         systemImage: "person.3.fill",
                         color: Color.purple
                     )
@@ -1592,7 +1074,7 @@ struct PaymentsReportView: View {
 
     private var searchFilterCard: some View {
         VStack(
-            alignment: isEnglish ? .leading : .trailing,
+            alignment: screenHorizontalAlignment,
             spacing: 12
         ) {
             Text(
@@ -1610,69 +1092,25 @@ struct PaymentsReportView: View {
                 screenTextAlignment
             )
 
-            Menu {
-                ForEach(
-                    branchOptions,
-                    id: \.self
-                ) { branch in
-                    Button(branch) {
-                        selectedBranch = branch
+            KmiPremiumDropdown(
+                title: isEnglish ? "Branch" : "סניף",
+                options: branchOptions,
+                selectedValue: $selectedBranch,
+                placeholder: allBranchesText,
+                isEnglish: isEnglish,
+                isEnabled: !isLoadingPayments && branchOptions.count > 1,
+                labelForOption: { branch in
+                    if branch == allBranchesText {
+                        return branch
                     }
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(
-                        systemName:
-                            "building.2.fill"
-                    )
-                    .foregroundStyle(
-                        reportAccentColor
-                    )
 
-                    Text(selectedBranch)
-                        .kmiFont(
-                            size: 14,
-                            weight: .bold
-                        )
-                        .foregroundStyle(
-                            reportPrimaryTextColor
-                        )
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.75)
-
-                    Spacer(minLength: 8)
-
-                    Image(
-                        systemName:
-                            "chevron.down"
+                    return TrainingCatalogIOS.displayBranch(
+                        branch,
+                        isEnglish: isEnglish
                     )
-                    .foregroundStyle(
-                        reportSecondaryTextColor
-                    )
-                }
-                .padding(
-                    .horizontal,
-                    14
-                )
-                .frame(minHeight: 54)
-                .background(reportFieldColor)
-                .overlay(
-                    RoundedRectangle(
-                        cornerRadius: 16,
-                        style: .continuous
-                    )
-                    .stroke(
-                        reportBorderColor,
-                        lineWidth: 1
-                    )
-                )
-                .clipShape(
-                    RoundedRectangle(
-                        cornerRadius: 16,
-                        style: .continuous
-                    )
-                )
-            }
+                },
+                titleInsideField: true
+            )
 
             HStack(spacing: 10) {
                 Image(
@@ -1794,13 +1232,9 @@ struct PaymentsReportView: View {
     ) -> some View {
         VStack(spacing: 5) {
             Image(systemName: systemImage)
-                .font(
-                    .system(
-                        size: 18,
-                        weight: .bold
-                    )
-                )
+                .kmiIconSize(18)
                 .foregroundStyle(Color.white)
+                .accessibilityHidden(true)
                 .frame(
                     width: 32,
                     height: 32
@@ -1857,13 +1291,9 @@ struct PaymentsReportView: View {
         Button(action: onTap) {
             VStack(spacing: 5) {
                 Image(systemName: systemImage)
-                    .font(
-                        .system(
-                            size: 18,
-                            weight: .bold
-                        )
-                    )
+                    .kmiIconSize(18)
                     .foregroundStyle(Color.white)
+                    .accessibilityHidden(true)
                     .frame(
                         width: 32,
                         height: 32
@@ -1982,12 +1412,8 @@ struct PaymentsReportView: View {
     ) -> some View {
         VStack(spacing: 10) {
             Image(systemName: systemImage)
-                .font(
-                    .system(
-                        size: 24,
-                        weight: .bold
-                    )
-                )
+                .kmiIconSize(24)
+                .accessibilityHidden(true)
 
             Text(title)
                 .kmiFont(size: 15, weight: .bold)
@@ -2020,7 +1446,8 @@ struct PaymentsReportView: View {
     }
 
     private func paymentRow(
-        _ item: PaymentReportItem
+        _ item: PaymentReportItem,
+        displayName: String
     ) -> some View {
         VStack(
             alignment:
@@ -2036,7 +1463,7 @@ struct PaymentsReportView: View {
                         screenHorizontalAlignment,
                     spacing: 4
                 ) {
-                    Text(item.fullName)
+                    Text(displayName)
                         .kmiFont(
                             size: 17,
                             weight: .heavy
@@ -2056,7 +1483,9 @@ struct PaymentsReportView: View {
                         .minimumScaleFactor(0.75)
 
                     Text(
-                        "\(item.branchName) • \(item.phone)"
+                        demoPrivacy.isEnabled || item.phone.isEmpty
+                            ? item.branchName
+                            : "\(item.branchName) • \(item.phone)"
                     )
                     .kmiFont(
                         size: 13,
@@ -2178,6 +1607,7 @@ struct PaymentsReportView: View {
             }
 
             Button {
+                manualPaymentRequestID = UUID()
                 selectedManualItem = item
             } label: {
                 Label(
@@ -2199,7 +1629,8 @@ struct PaymentsReportView: View {
                 )
             }
             .buttonStyle(.borderedProminent)
-            .tint(Color.purple)
+            .tint(reportAccentColor)
+            .disabled(item.branchName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(16)
         .background(reportPanelColor)
@@ -2258,26 +1689,33 @@ struct PaymentsReportView: View {
         method: PaymentMethod,
         notes: String
     ) async {
+        guard !isSavingManualPayment else { return }
+
+        isSavingManualPayment = true
         paymentsError = nil
+        defer { isSavingManualPayment = false }
 
         do {
             let updatedItem = try await saveManualMembershipPaymentToFirestore(
                 item: item,
                 amountToAdd: amount,
                 method: method,
-                notes: notes
+                notes: notes,
+                requestId: manualPaymentRequestID.uuidString
             )
 
-            items = items.map { current in
-                current.traineeId == item.traineeId ? updatedItem : current
+            if let index = items.firstIndex(where: { $0.id == item.id }) {
+                items[index] = updatedItem
             }
 
             onSaveManualPayment(item.traineeId, amount, method, notes)
-
             selectedManualItem = nil
         } catch {
-            paymentsError = error.localizedDescription
             selectedManualItem = nil
+            await loadPayments()
+            paymentsError = isEnglish
+                ? "Could not confirm the payment. Check the branch balance before adding it again."
+                : "לא ניתן לאשר את התשלום. יש לבדוק את היתרה בסניף לפני הזנה חוזרת."
         }
     }
 }
@@ -2285,6 +1723,8 @@ struct PaymentsReportView: View {
 private struct ManualPaymentSheet: View {
     let isEnglish: Bool
     let item: PaymentReportItem
+    let displayName: String
+    let isSaving: Bool
     let onDismiss: () -> Void
     let onSave: (Double, PaymentMethod, String) -> Void
     
@@ -2323,7 +1763,7 @@ private struct ManualPaymentSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Text(item.fullName)
+                    Text(displayName)
                         .kmiFont(size: 17, weight: .bold)
                         .frame(
                             maxWidth: .infinity,
@@ -2338,6 +1778,11 @@ private struct ManualPaymentSheet: View {
                             : .trailing
                         )
                     
+                    LabeledContent(isEnglish ? "Branch" : "סניף") {
+                        Text(TrainingCatalogIOS.displayBranch(item.branchName, isEnglish: isEnglish))
+                            .kmiFont(size: 14, weight: .semibold)
+                    }
+
                     TextField(
                         isEnglish
                         ? "Amount"
@@ -2374,11 +1819,11 @@ private struct ManualPaymentSheet: View {
                         : .trailing
                     )
                 }
+                .disabled(isSaving)
+                .interactiveDismissDisabled(isSaving)
                 .environment(
                     \.layoutDirection,
-                     isEnglish
-                     ? .leftToRight
-                     : .rightToLeft
+                    isEnglish ? .leftToRight : .rightToLeft
                 )
                 .preferredColorScheme(
                     preferredSheetColorScheme
@@ -2388,6 +1833,7 @@ private struct ManualPaymentSheet: View {
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button(isEnglish ? "Cancel" : "ביטול", action: onDismiss)
+                            .disabled(isSaving)
                     }
                     
                     ToolbarItem(placement: .confirmationAction) {
@@ -2398,14 +1844,15 @@ private struct ManualPaymentSheet: View {
                                     .replacingOccurrences(of: ",", with: ".")
                             ) ?? 0
                             
-                            guard amount > 0 else { return }
-                            
+                            guard !isSaving, amount.isFinite, amount > 0 else { return }
+
                             onSave(
                                 amount,
                                 method,
                                 notes.trimmingCharacters(in: .whitespacesAndNewlines)
                             )
                         }
+                        .disabled(isSaving)
                     }
                 }
             }

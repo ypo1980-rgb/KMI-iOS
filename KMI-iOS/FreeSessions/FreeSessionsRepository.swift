@@ -145,23 +145,26 @@ final class FreeSessionsRepository {
             "createdByUid": createdByUid,
             "createdByName": safeName,
             "status": "OPEN",
-            "goingCount": 0,
+            "goingCount": 1,
             "onWayCount": 0,
             "arrivedCount": 0,
-            "cantCount": 0
+            "cantCount": 0,
+            "updatedAt": FieldValue.serverTimestamp()
         ]
 
-        try await setDocument(doc, data: compactMapValues(data))
+        let creatorDoc = doc.collection(Paths.colParticipants)
+            .document(createdByUid)
 
-        try await setParticipantState(
-            branch: branch,
-            groupKey: groupKey,
-            sessionId: doc.documentID,
-            uid: createdByUid,
-            name: safeName,
-            state: .going
-        )
+        let batch = db.batch()
+        batch.setData(compactMapValues(data), forDocument: doc)
+        batch.setData([
+            "uid": createdByUid,
+            "name": safeName,
+            "state": ParticipantState.going.rawValue,
+            "updatedAt": now
+        ], forDocument: creatorDoc)
 
+        try await commitBatch(batch)
         return doc.documentID
     }
 

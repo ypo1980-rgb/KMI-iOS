@@ -9,50 +9,27 @@ struct PaymentsPDFShareItem: Identifiable {
     }
 }
 
-struct PaymentsPDFShareSheet:
-    UIViewControllerRepresentable {
-
-    let url: URL
-
-    func makeUIViewController(
-        context: Context
-    ) -> UIActivityViewController {
-        UIActivityViewController(
-            activityItems: [url],
-            applicationActivities: nil
-        )
-    }
-
-    func updateUIViewController(
-        _ uiViewController: UIActivityViewController,
-        context: Context
-    ) {
-    }
-}
-
 enum PaymentsReportPDFGenerator {
-
+    
     private static let pageBounds = CGRect(
         x: 0,
         y: 0,
         width: 595,
         height: 842
     )
-
+    
     private static let horizontalMargin:
-        CGFloat = 40
-
-    private static let topMargin:
-        CGFloat = 38
-
-    private static let bottomMargin:
-        CGFloat = 42
-
+    CGFloat = 40
+    
+    private static var contentBottom: CGFloat {
+        pageBounds.height - KmiPdfFooter.CONTENT_BOTTOM_PADDING
+    }
+    
     private static var contentWidth: CGFloat {
         pageBounds.width -
         (horizontalMargin * 2)
     }
-
+    
     static func create(
         items: [PaymentReportItem],
         totalRequired: Double,
@@ -63,465 +40,301 @@ enum PaymentsReportPDFGenerator {
         selectedBranch: String,
         isEnglish: Bool
     ) throws -> URL {
-        let cleanBranch = selectedBranch
-            .trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
-            .replacingOccurrences(
-                of: "/",
-                with: "-"
-            )
-            .replacingOccurrences(
-                of: "\\",
-                with: "-"
-            )
-            .replacingOccurrences(
-                of: ":",
-                with: "-"
-            )
-
-        let dateFormatter = DateFormatter()
-        dateFormatter.locale = Locale(
-            identifier:
-                isEnglish
-                ? "en_US"
-                : "he_IL"
+        let branch = selectedBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let branchLabel = branch.isEmpty
+        ? (isEnglish ? "All Branches" : "כל הסניפים")
+        : branch
+        
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("shared_pdfs", isDirectory: true)
+        
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: nil
         )
-        dateFormatter.dateFormat =
-            "yyyy-MM-dd_HH-mm"
-
-        let dateSuffix =
-            dateFormatter.string(
-                from: Date()
-            )
-
-        let filename = [
-            isEnglish
-                ? "Payments_Report"
-                : "דוח_תשלומים",
-            cleanBranch.isEmpty
-                ? nil
-                : cleanBranch,
-            dateSuffix
-        ]
-        .compactMap { $0 }
-        .joined(separator: "_")
-        + ".pdf"
-
-        let fileURL =
-            FileManager.default
-                .temporaryDirectory
-                .appendingPathComponent(
-                    filename
-                )
-
-        if FileManager.default
-            .fileExists(
-                atPath: fileURL.path
-            ) {
-            try FileManager.default
-                .removeItem(
-                    at: fileURL
-                )
-        }
-
+        
+        let fileURL = directory.appendingPathComponent(
+            isEnglish ? "Payments Report.pdf" : "דוח תשלומים.pdf"
+        )
+        
         let format =
-            UIGraphicsPDFRendererFormat()
-
+        UIGraphicsPDFRendererFormat()
+        
         let metadata: [String: Any] = [
             kCGPDFContextTitle as String:
                 isEnglish
-                ? "Payments Report"
-                : "דו״ח תשלומים",
-
+            ? "Payments Report"
+            : "דו״ח תשלומים",
+            
             kCGPDFContextAuthor as String:
                 "K.M.I",
-
+            
             kCGPDFContextCreator as String:
                 "KMI iOS"
         ]
-
+        
         format.documentInfo = metadata
-
+        
         let renderer =
-            UIGraphicsPDFRenderer(
-                bounds: pageBounds,
-                format: format
-            )
-
-        try renderer.writePDF(
-            to: fileURL
-        ) { context in
+        UIGraphicsPDFRenderer(
+            bounds: pageBounds,
+            format: format
+        )
+        
+        let summaryHeight: CGFloat = 84
+        let summarySpacing: CGFloat = 18
+        let detailsHeadingHeight: CGFloat = 62
+        let rowHeight: CGFloat = 30
+        let rowSpacing: CGFloat = 4
+        let rowStep = rowHeight + rowSpacing
+        
+        let continuationBodyTop = KmiPdfHeader.CONTENT_TOP + detailsHeadingHeight
+        let firstPageBodyTop = continuationBodyTop + summaryHeight + summarySpacing
+        
+        func rowCapacity(from bodyTop: CGFloat) -> Int {
+            let availableHeight = contentBottom - bodyTop
+            return max(0, Int((availableHeight + rowSpacing) / rowStep))
+        }
+        
+        let firstPageCapacity = rowCapacity(from: firstPageBodyTop)
+        let continuationCapacity = max(1, rowCapacity(from: continuationBodyTop))
+        let remainingRows = max(0, items.count - firstPageCapacity)
+        let totalPages = 1 + (remainingRows + continuationCapacity - 1) / continuationCapacity
+        
+        let data = renderer.pdfData { context in
             var currentY: CGFloat = 0
             var pageNumber = 0
-
+            
             func paragraphStyle(
                 alignment:
-                    NSTextAlignment
+                NSTextAlignment
             ) -> NSMutableParagraphStyle {
                 let style =
-                    NSMutableParagraphStyle()
-
+                NSMutableParagraphStyle()
+                
                 style.alignment = alignment
-                style.lineBreakMode =
-                    .byWordWrapping
-
+                style.baseWritingDirection = isEnglish ? .leftToRight : .rightToLeft
+                style.lineBreakMode = .byWordWrapping
                 return style
             }
-
+            
             func textAlignment()
-                -> NSTextAlignment {
+            -> NSTextAlignment {
                 isEnglish
-                    ? .left
-                    : .right
+                ? .left
+                : .right
             }
-
+            
             func drawText(
                 _ text: String,
                 rect: CGRect,
                 font: UIFont,
                 color: UIColor,
                 alignment:
-                    NSTextAlignment? = nil
+                NSTextAlignment? = nil
             ) {
                 let style =
-                    paragraphStyle(
-                        alignment:
-                            alignment ??
-                            textAlignment()
-                    )
-
+                paragraphStyle(
+                    alignment:
+                        alignment ??
+                    textAlignment()
+                )
+                
                 let attributes:
-                    [NSAttributedString.Key: Any] = [
-                        .font: font,
-                        .foregroundColor: color,
-                        .paragraphStyle: style
-                    ]
-
+                [NSAttributedString.Key: Any] = [
+                    .font: font,
+                    .foregroundColor: color,
+                    .paragraphStyle: style
+                ]
+                
                 (text as NSString).draw(
                     in: rect,
                     withAttributes:
                         attributes
                 )
             }
-
+            
             func drawFooter() {
-                let footerText =
-                    isEnglish
-                    ? "K.M.I • Page \(pageNumber)"
-                    : "ק.מ.י • עמוד \(pageNumber)"
-
-                drawText(
-                    footerText,
-                    rect: CGRect(
-                        x: horizontalMargin,
-                        y:
-                            pageBounds.height -
-                            bottomMargin +
-                            10,
-                        width: contentWidth,
-                        height: 20
-                    ),
-                    font:
-                        .systemFont(
-                            ofSize: 9,
-                            weight: .medium
-                        ),
-                    color:
-                        UIColor.darkGray
-                            .withAlphaComponent(
-                                0.72
-                            ),
-                    alignment: .center
+                KmiPdfFooter.draw(
+                    context: context.cgContext,
+                    pageWidth: pageBounds.width,
+                    pageHeight: pageBounds.height,
+                    pageNumber: pageNumber,
+                    totalPages: totalPages,
+                    isEnglish: isEnglish
                 )
             }
-
-            func beginPage(
-                continuation: Bool
-            ) {
+            
+            func beginPage() {
                 if pageNumber > 0 {
                     drawFooter()
                 }
-
+                
                 context.beginPage()
                 pageNumber += 1
-                currentY = topMargin
-
-                let headerRect = CGRect(
-                    x: horizontalMargin,
-                    y: currentY,
-                    width: contentWidth,
-                    height:
-                        continuation
-                        ? 46
-                        : 62
+                
+                KmiPdfHeader.draw(
+                    context: context.cgContext,
+                    pageWidth: pageBounds.width,
+                    isEnglish: isEnglish,
+                    titleHebrew: "דו״ח תשלומים",
+                    titleEnglish: "Payments Report",
+                    subtitleHebrew: "סניף: \(branchLabel)",
+                    subtitleEnglish: "Branch: \(branchLabel)"
                 )
-
-                UIColor(
-                    red: 0.06,
-                    green: 0.16,
-                    blue: 0.29,
-                    alpha: 1
-                )
-                .setFill()
-
-                UIBezierPath(
-                    roundedRect: headerRect,
-                    cornerRadius: 14
-                )
-                .fill()
-
-                drawText(
-                    continuation
-                        ? (
-                            isEnglish
-                            ? "Payments Report — continued"
-                            : "דו״ח תשלומים — המשך"
-                        )
-                        : (
-                            isEnglish
-                            ? "K.M.I Payments Report"
-                            : "דו״ח תשלומים ק.מ.י"
-                        ),
-                    rect: CGRect(
-                        x:
-                            headerRect.minX +
-                            16,
-                        y:
-                            headerRect.minY +
-                            (
-                                continuation
-                                ? 12
-                                : 10
-                            ),
-                        width:
-                            headerRect.width -
-                            32,
-                        height:
-                            continuation
-                            ? 24
-                            : 28
-                    ),
-                    font:
-                        .systemFont(
-                            ofSize:
-                                continuation
-                                ? 17
-                                : 22,
-                            weight: .heavy
-                        ),
-                    color: .white
-                )
-
-                if !continuation {
-                    let generatedFormatter =
-                        DateFormatter()
-
-                    generatedFormatter.locale =
-                        Locale(
-                            identifier:
-                                isEnglish
-                                ? "en_US"
-                                : "he_IL"
-                        )
-
-                    generatedFormatter.dateFormat =
-                        isEnglish
-                        ? "dd/MM/yyyy HH:mm"
-                        : "dd/MM/yyyy HH:mm"
-
-                    let generatedText =
-                        generatedFormatter.string(
-                            from: Date()
-                        )
-
-                    drawText(
-                        generatedText,
-                        rect: CGRect(
-                            x:
-                                headerRect.minX +
-                                16,
-                            y:
-                                headerRect.minY +
-                                38,
-                            width:
-                                headerRect.width -
-                                32,
-                            height: 16
-                        ),
-                        font:
-                            .systemFont(
-                                ofSize: 10,
-                                weight: .medium
-                            ),
-                        color:
-                            UIColor.white
-                                .withAlphaComponent(
-                                    0.76
-                                )
-                    )
-                }
-
-                currentY =
-                    headerRect.maxY + 18
+                
+                currentY = KmiPdfHeader.CONTENT_TOP
             }
-
-            func ensureSpace(
-                _ requiredHeight:
-                    CGFloat
+            
+            let tableWidths: [CGFloat] = [0.23, 0.25, 0.12, 0.12, 0.14, 0.14]
+            
+            func tableCell(_ index: Int, y: CGFloat, height: CGFloat) -> CGRect {
+                let offset = tableWidths.prefix(index).reduce(0, +) * contentWidth
+                let width = tableWidths[index] * contentWidth
+                let x = isEnglish
+                ? horizontalMargin + offset
+                : pageBounds.width - horizontalMargin - offset - width
+                
+                return CGRect(x: x + 5, y: y, width: width - 10, height: height)
+            }
+            
+            func drawTableCell(
+                _ value: String,
+                index: Int,
+                y: CGFloat,
+                font: UIFont,
+                color: UIColor,
+                alignment: NSTextAlignment? = nil
             ) {
-                let availableBottom =
-                    pageBounds.height -
-                    bottomMargin -
-                    10
-
-                if currentY +
-                    requiredHeight >
-                    availableBottom {
-                    beginPage(
-                        continuation: true
-                    )
-                }
+                let style = paragraphStyle(alignment: alignment ?? textAlignment())
+                style.lineBreakMode = .byTruncatingTail
+                
+                (value as NSString).draw(
+                    in: tableCell(index, y: y, height: ceil(font.lineHeight) + 1),
+                    withAttributes: [
+                        .font: font,
+                        .foregroundColor: color,
+                        .paragraphStyle: style
+                    ]
+                )
             }
-
-            beginPage(
-                continuation: false
-            )
-
-            let branchText =
-                selectedBranch
-                    .trimmingCharacters(
-                        in:
-                            .whitespacesAndNewlines
-                    )
-
-            if !branchText.isEmpty {
+            
+            func drawDetailsHeading() {
+                let title = pageNumber == 1
+                ? (isEnglish ? "Payment details" : "פירוט תשלומים")
+                : (isEnglish ? "Payment details — continued" : "פירוט תשלומים — המשך")
+                
                 drawText(
-                    isEnglish
-                        ? "Branch: \(branchText)"
-                        : "סניף: \(branchText)",
+                    title,
                     rect: CGRect(
                         x: horizontalMargin,
                         y: currentY,
                         width: contentWidth,
-                        height: 22
+                        height: 26
                     ),
-                    font:
-                        .systemFont(
-                            ofSize: 13,
-                            weight: .bold
-                        ),
-                    color:
-                        UIColor(
-                            red: 0.10,
-                            green: 0.25,
-                            blue: 0.43,
-                            alpha: 1
-                        )
+                    font: .systemFont(ofSize: 17, weight: .heavy),
+                    color: UIColor(KmiAppTheme.primary(for: .light))
                 )
-
-                currentY += 28
-            }
-
-            let summaryHeight: CGFloat = 84
-            let summaryRect = CGRect(
-                x: horizontalMargin,
-                y: currentY,
-                width: contentWidth,
-                height: summaryHeight
-            )
-
-            UIColor(
-                red: 0.94,
-                green: 0.97,
-                blue: 1.00,
-                alpha: 1
-            )
-            .setFill()
-
-            UIBezierPath(
-                roundedRect: summaryRect,
-                cornerRadius: 14
-            )
-            .fill()
-
-            let summaryText =
-                isEnglish
-                ? """
-                Collection: \(Int(collectionPercent.rounded()))%   •   Trainees: \(items.count)
-                Paid: \(paidCount)   •   Not fully paid: \(unpaidCount)
-                Collected: ₪\(Int(totalPaid)) of ₪\(Int(totalRequired))
-                """
-                : """
-                אחוז גבייה: \(Int(collectionPercent.rounded()))%   •   מתאמנים: \(items.count)
-                שילמו: \(paidCount)   •   לא שילמו מלא: \(unpaidCount)
-                נגבה: \(Int(totalPaid)) ₪ מתוך \(Int(totalRequired)) ₪
-                """
-
-            drawText(
-                summaryText,
-                rect: CGRect(
-                    x:
-                        summaryRect.minX +
-                        14,
-                    y:
-                        summaryRect.minY +
-                        11,
-                    width:
-                        summaryRect.width -
-                        28,
-                    height:
-                        summaryRect.height -
-                        18
-                ),
-                font:
-                    .systemFont(
-                        ofSize: 13,
-                        weight: .semibold
-                    ),
-                color:
-                    UIColor(
-                        red: 0.08,
-                        green: 0.16,
-                        blue: 0.28,
-                        alpha: 1
+                
+                let tableHeaderY = currentY + 28
+                let headerRect = CGRect(
+                    x: horizontalMargin,
+                    y: tableHeaderY,
+                    width: contentWidth,
+                    height: 28
+                )
+                
+                UIColor(KmiAppTheme.primary(for: .light)).setFill()
+                UIBezierPath(roundedRect: headerRect, cornerRadius: 8).fill()
+                
+                let titles = isEnglish
+                ? ["Name", "Branch", "Required", "Paid", "Status", "Phone"]
+                : ["שם", "סניף", "נדרש", "שולם", "סטטוס", "טלפון"]
+                
+                for (index, title) in titles.enumerated() {
+                    drawTableCell(
+                        title,
+                        index: index,
+                        y: tableHeaderY + 7,
+                        font: .systemFont(ofSize: 9, weight: .bold),
+                        color: UIColor(KmiAppTheme.onPrimary(for: .light))
                     )
-            )
-
-            currentY =
-                summaryRect.maxY + 18
-
+                }
+                
+                currentY += detailsHeadingHeight
+            }
+            
+            beginPage()
+            
             drawText(
-                isEnglish
-                    ? "Payment details"
-                    : "פירוט תשלומים",
+                isEnglish ? "Collection Summary" : "סיכום גבייה",
                 rect: CGRect(
                     x: horizontalMargin,
                     y: currentY,
                     width: contentWidth,
-                    height: 26
+                    height: 22
                 ),
-                font:
-                    .systemFont(
-                        ofSize: 17,
-                        weight: .heavy
-                    ),
-                color:
-                    UIColor(
-                        red: 0.08,
-                        green: 0.18,
-                        blue: 0.32,
-                        alpha: 1
-                    )
+                font: .systemFont(ofSize: 16, weight: .bold),
+                color: UIColor(KmiAppTheme.primary(for: .light))
             )
-
-            currentY += 34
-
+            
+            let summaryTiles = [
+                (isEnglish ? "Collection" : "גבייה",
+                 String(format: "%.0f%%", collectionPercent)),
+                (isEnglish ? "Paid / Required" : "נגבה / נדרש",
+                 String(format: "₪%.0f / ₪%.0f", totalPaid, totalRequired)),
+                (isEnglish ? "Paid branch records" : "רשומות סניף ששולמו",
+                 String(paidCount)),
+                (isEnglish ? "Unpaid branch records" : "רשומות סניף שלא שולמו במלואן",
+                 String(unpaidCount))
+            ]
+            
+            let tileGap: CGFloat = 8
+            let tileWidth = (contentWidth - 3 * tileGap) / 4
+            
+            for (index, tile) in summaryTiles.enumerated() {
+                let column = isEnglish ? index : summaryTiles.count - 1 - index
+                let rect = CGRect(
+                    x: horizontalMargin + CGFloat(column) * (tileWidth + tileGap),
+                    y: currentY + 26,
+                    width: tileWidth,
+                    height: 58
+                )
+                
+                let tilePath = UIBezierPath(roundedRect: rect, cornerRadius: 10)
+                UIColor(KmiAppTheme.surfaceVariant(for: .light)).setFill()
+                tilePath.fill()
+                UIColor(KmiAppTheme.outlineVariant(for: .light)).setStroke()
+                tilePath.lineWidth = 0.75
+                tilePath.stroke()
+                
+                drawText(
+                    tile.1,
+                    rect: CGRect(x: rect.minX + 4, y: rect.minY + 8,
+                                 width: rect.width - 8, height: 18),
+                    font: .systemFont(ofSize: 12, weight: .bold),
+                    color: UIColor(KmiAppTheme.onSurface(for: .light)),
+                    alignment: .center
+                )
+                drawText(
+                    tile.0,
+                    rect: CGRect(x: rect.minX + 4, y: rect.minY + 29,
+                                 width: rect.width - 8, height: 26),
+                    font: .systemFont(ofSize: 8.5, weight: .medium),
+                    color: UIColor(KmiAppTheme.onSurfaceVariant(for: .light)),
+                    alignment: .center
+                )
+            }
+            
+            currentY += summaryHeight + summarySpacing
+            drawDetailsHeading()
+            
             if items.isEmpty {
                 drawText(
                     isEnglish
-                        ? "No trainees matched the selected filters."
-                        : "לא נמצאו מתאמנים בהתאם לסינון שנבחר.",
+                    ? "No trainees matched the selected filters."
+                    : "לא נמצאו מתאמנים בהתאם לסינון שנבחר.",
                     rect: CGRect(
                         x: horizontalMargin,
                         y: currentY,
@@ -529,286 +342,85 @@ enum PaymentsReportPDFGenerator {
                         height: 44
                     ),
                     font:
-                        .systemFont(
-                            ofSize: 14,
-                            weight: .semibold
-                        ),
+                            .systemFont(
+                                ofSize: 14,
+                                weight: .semibold
+                            ),
                     color: .darkGray,
                     alignment: .center
                 )
-
+                
                 currentY += 50
             }
-
-            for (index, item)
-                in items.enumerated() {
-                let rowHeight: CGFloat = 96
-
-                ensureSpace(
-                    rowHeight + 10
-                )
-
+            
+            for (index, item) in items.enumerated() {
+                if index >= firstPageCapacity,
+                   (index - firstPageCapacity).isMultiple(of: continuationCapacity) {
+                    beginPage()
+                    drawDetailsHeading()
+                }
+                
                 let rowRect = CGRect(
                     x: horizontalMargin,
                     y: currentY,
                     width: contentWidth,
                     height: rowHeight
                 )
-
-                let backgroundColor =
-                    index.isMultiple(of: 2)
-                    ? UIColor(
-                        red: 0.975,
-                        green: 0.985,
-                        blue: 1.00,
-                        alpha: 1
-                    )
-                    : UIColor(
-                        red: 0.94,
-                        green: 0.96,
-                        blue: 0.985,
-                        alpha: 1
-                    )
-
-                backgroundColor.setFill()
-
-                UIBezierPath(
-                    roundedRect: rowRect,
-                    cornerRadius: 11
-                )
-                .fill()
-
-                let statusText:
-                    String
-
-                let statusColor:
-                    UIColor
-
+                
+                let rowColor = index.isMultiple(of: 2)
+                ? KmiAppTheme.surface(for: .light)
+                : KmiAppTheme.surfaceVariant(for: .light)
+                
+                UIColor(rowColor).setFill()
+                UIBezierPath(roundedRect: rowRect, cornerRadius: 6).fill()
+                
+                let statusText: String
+                let statusColor: UIColor
+                
                 switch item.status {
                 case .paid:
-                    statusText =
-                        isEnglish
-                        ? "Paid"
-                        : "שולם"
-
-                    statusColor =
-                        UIColor(
-                            red: 0.08,
-                            green: 0.58,
-                            blue: 0.25,
-                            alpha: 1
-                        )
-
+                    statusText = isEnglish ? "Paid" : "שולם"
+                    statusColor = UIColor(KmiAppTheme.success(for: .light))
                 case .unpaid:
-                    statusText =
-                        isEnglish
-                        ? "Unpaid"
-                        : "לא שולם"
-
-                    statusColor =
-                        UIColor(
-                            red: 0.78,
-                            green: 0.12,
-                            blue: 0.16,
-                            alpha: 1
-                        )
-
+                    statusText = isEnglish ? "Unpaid" : "לא שולם"
+                    statusColor = UIColor(KmiAppTheme.error(for: .light))
                 case .partial:
-                    statusText =
-                        isEnglish
-                        ? "Partial"
-                        : "שולם חלקית"
-
-                    statusColor =
-                        UIColor(
-                            red: 0.86,
-                            green: 0.48,
-                            blue: 0.05,
-                            alpha: 1
-                        )
+                    statusText = isEnglish ? "Partial" : "שולם חלקית"
+                    statusColor = UIColor(KmiAppTheme.warning(for: .light))
                 }
-
-                let paymentMethodText =
-                    methodLabel(
-                        item.paymentMethod,
-                        isEnglish:
-                            isEnglish
+                
+                let branch = item.branchName.trimmingCharacters(in: .whitespacesAndNewlines)
+                let phone = item.phone.trimmingCharacters(in: .whitespacesAndNewlines)
+                let values = [
+                    item.fullName,
+                    branch.isEmpty ? "—" : branch,
+                    String(format: "₪%.0f", item.requiredAmount),
+                    String(format: "₪%.0f", item.paidAmount),
+                    statusText,
+                    phone.isEmpty ? "—" : phone
+                ]
+                
+                for (column, value) in values.enumerated() {
+                    drawTableCell(
+                        value,
+                        index: column,
+                        y: currentY + 8,
+                        font: .systemFont(ofSize: 9, weight: column == 4 ? .bold : .regular),
+                        color: column == 4
+                        ? statusColor
+                        : UIColor(KmiAppTheme.onSurface(for: .light)),
+                        alignment: [2, 3, 5].contains(column) ? .left : nil
                     )
-
-                let titleLine =
-                    "\(index + 1). \(item.fullName)"
-
-                let detailsLine =
-                    [
-                        item.branchName,
-                        item.phone
-                    ]
-                    .filter {
-                        !$0.trimmingCharacters(
-                            in:
-                                .whitespacesAndNewlines
-                        )
-                        .isEmpty
-                    }
-                    .joined(
-                        separator: " • "
-                    )
-
-                let amountLine =
-                    isEnglish
-                    ? "Membership fee: ₪\(Int(item.paidAmount)) / ₪\(Int(item.requiredAmount))"
-                    : "דמי חבר: \(Int(item.paidAmount)) ₪ / \(Int(item.requiredAmount)) ₪"
-
-                drawText(
-                    titleLine,
-                    rect: CGRect(
-                        x:
-                            rowRect.minX +
-                            14,
-                        y:
-                            rowRect.minY +
-                            9,
-                        width:
-                            rowRect.width -
-                            28,
-                        height: 22
-                    ),
-                    font:
-                        .systemFont(
-                            ofSize: 14,
-                            weight: .bold
-                        ),
-                    color:
-                        UIColor(
-                            red: 0.07,
-                            green: 0.14,
-                            blue: 0.25,
-                            alpha: 1
-                        )
-                )
-
-                drawText(
-                    detailsLine,
-                    rect: CGRect(
-                        x:
-                            rowRect.minX +
-                            14,
-                        y:
-                            rowRect.minY +
-                            32,
-                        width:
-                            rowRect.width -
-                            28,
-                        height: 18
-                    ),
-                    font:
-                        .systemFont(
-                            ofSize: 10,
-                            weight: .regular
-                        ),
-                    color:
-                        UIColor.darkGray
-                )
-
-                drawText(
-                    amountLine,
-                    rect: CGRect(
-                        x:
-                            rowRect.minX +
-                            14,
-                        y:
-                            rowRect.minY +
-                            51,
-                        width:
-                            rowRect.width -
-                            28,
-                        height: 18
-                    ),
-                    font:
-                        .systemFont(
-                            ofSize: 11,
-                            weight: .semibold
-                        ),
-                    color:
-                        UIColor(
-                            red: 0.08,
-                            green: 0.18,
-                            blue: 0.32,
-                            alpha: 1
-                        )
-                )
-
-                let bottomLine =
-                    isEnglish
-                    ? "\(statusText) • Payment method: \(paymentMethodText)"
-                    : "\(statusText) • אמצעי תשלום: \(paymentMethodText)"
-
-                drawText(
-                    bottomLine,
-                    rect: CGRect(
-                        x:
-                            rowRect.minX +
-                            14,
-                        y:
-                            rowRect.minY +
-                            71,
-                        width:
-                            rowRect.width -
-                            28,
-                        height: 17
-                    ),
-                    font:
-                        .systemFont(
-                            ofSize: 10,
-                            weight: .bold
-                        ),
-                    color: statusColor
-                )
-
-                currentY =
-                    rowRect.maxY + 9
+                }
+                
+                currentY = rowRect.maxY + rowSpacing
             }
-
+            
             drawFooter()
         }
-
+        
+        try data.write(to: fileURL, options: .atomic)
         return fileURL
     }
-
-    private static func methodLabel(
-        _ method: PaymentMethod,
-        isEnglish: Bool
-    ) -> String {
-        switch method {
-        case .cash:
-            return isEnglish
-                ? "Cash"
-                : "מזומן"
-
-        case .creditCard:
-            return isEnglish
-                ? "Credit card"
-                : "כרטיס אשראי"
-
-        case .bankTransfer:
-            return isEnglish
-                ? "Bank transfer"
-                : "העברה בנקאית"
-
-        case .bit:
-            return isEnglish
-                ? "Bit"
-                : "ביט"
-
-        case .website:
-            return isEnglish
-                ? "Website payment"
-                : "תשלום באתר"
-
-        case .manual:
-            return isEnglish
-                ? "Manual"
-                : "ידני"
-        }
-    }
+    
 }

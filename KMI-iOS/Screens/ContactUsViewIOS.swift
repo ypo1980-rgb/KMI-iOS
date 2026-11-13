@@ -1,7 +1,9 @@
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseFunctions
 import UIKit
+import CoreText
 
 struct ContactUsViewIOS: View {
     let isEnglish: Bool
@@ -18,62 +20,54 @@ struct ContactUsViewIOS: View {
     @State private var isSubmitting: Bool = false
     @State private var toastText: String? = nil
     @State private var didPrefill: Bool = false
+    @State private var contactPdfShareItem: ContactPdfShareItem?
+
+    private struct ContactPdfShareItem: Identifiable {
+        let id = UUID()
+        let url: URL
+    }
 
     private var isDarkMode: Bool {
         colorScheme == .dark
     }
 
     private var primaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.94)
-            : Color(hex: 0xFF1E2A3D)
+        KmiAppTheme.onSurface(for: colorScheme)
     }
 
     private var secondaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.68)
-            : Color(hex: 0xFF5E6C80)
+        KmiAppTheme.onSurfaceVariant(for: colorScheme)
     }
 
     private var cardColor: Color {
-        isDarkMode
-            ? Color(hex: 0xFF111827).opacity(0.96)
-            : Color(hex: 0xFFEAF2FF)
+        KmiAppTheme.surfaceVariant(for: colorScheme)
     }
 
     private var fieldColor: Color {
-        isDarkMode
-            ? Color(hex: 0xFF1E293B).opacity(0.96)
-            : Color.white
+        KmiAppTheme.surface(for: colorScheme)
     }
 
     private var dividerColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.12)
-            : Color(hex: 0xFFBFD0E8)
+        KmiAppTheme.outlineVariant(for: colorScheme)
     }
     
     private func tr(_ he: String, _ en: String) -> String {
         isEnglish ? en : he
     }
 
-    private var textAlignment: TextAlignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    private var frameAlignment: Alignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    private var stackAlignment: HorizontalAlignment {
-        isEnglish ? .leading : .trailing
-    }
+    private var textAlignment: TextAlignment { .leading }
+    private var frameAlignment: Alignment { .leading }
+    private var stackAlignment: HorizontalAlignment { .leading }
 
     private var isFormValid: Bool {
-        !fullName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let emailPattern = #"\A[a-zA-Z0-9+._%\-]{1,256}@[a-zA-Z0-9][a-zA-Z0-9\-]{0,64}(?:\.[a-zA-Z0-9][a-zA-Z0-9\-]{0,25})+\z"#
+
+        return !fullName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            cleanEmail.range(of: emailPattern, options: .regularExpression) != nil &&
+            !subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -98,15 +92,27 @@ struct ContactUsViewIOS: View {
             )
             .ignoresSafeArea()
 
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: stackAlignment, spacing: 16) {
-                    introCard
-                    formCard
-                    Spacer(minLength: 24)
-                }
+            VStack(spacing: 0) {
+                Text(
+                    tr(
+                        "השאירו פרטים ונציג העמותה\nיחזור אליכם",
+                        "Leave your details and an association representative\nwill contact you"
+                    )
+                )
+                .kmiFont(size: 14, weight: .black)
+                .foregroundStyle(KmiAppTheme.sectionHeaderContentColor)
+                .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 28)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, minHeight: 56)
+                .background(KmiAppTheme.sectionHeaderBrush)
+
+                ScrollView(showsIndicators: false) {
+                    formCard
+                        .disabled(isSubmitting)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                }
             }
 
             if let toastText {
@@ -135,6 +141,27 @@ struct ContactUsViewIOS: View {
             guard !didPrefill else { return }
             didPrefill = true
             prefillUserDetails()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name("KMI_CONTACT_US_SHARE_PDF")
+            )
+        ) { _ in
+            guard contactPdfShareItem == nil else { return }
+            shareContactPDF()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name("KMI_CONTACT_US_SHARE_PDF")
+            )
+        ) { _ in
+            guard contactPdfShareItem == nil else { return }
+            shareContactPDF()
+        }
+        .sheet(item: $contactPdfShareItem) { item in
+            KmiShareSheet(items: [item.url])
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
     }
 
@@ -221,32 +248,28 @@ struct ContactUsViewIOS: View {
                 title: tr("שם מלא", "Full Name"),
                 text: $fullName,
                 systemImage: "person.fill",
-                keyboardType: .default,
-                isEnglish: isEnglish
+                keyboardType: .default
             )
 
             ContactTextFieldIOS(
                 title: tr("טלפון", "Phone Number"),
                 text: $phone,
                 systemImage: "phone.fill",
-                keyboardType: .phonePad,
-                isEnglish: isEnglish
+                keyboardType: .phonePad
             )
 
             ContactTextFieldIOS(
                 title: tr("אימייל", "Email"),
                 text: $email,
                 systemImage: "envelope.fill",
-                keyboardType: .emailAddress,
-                isEnglish: isEnglish
+                keyboardType: .emailAddress
             )
 
             ContactTextFieldIOS(
                 title: tr("נושא הפנייה", "Subject"),
                 text: $subject,
                 systemImage: "message.fill",
-                keyboardType: .default,
-                isEnglish: isEnglish
+                keyboardType: .default
             )
 
             messageEditor
@@ -256,90 +279,100 @@ struct ContactUsViewIOS: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "paperplane.fill")
-                        .font(.system(size: 15, weight: .black))
+                        .kmiIconSize(15)
+                        .accessibilityHidden(true)
 
-                    Text(isSubmitting ? tr("שולח...", "Sending...") : tr("שלח פנייה", "Send Request"))
-                        .font(.system(size: 17, weight: .black))
+                    Text(
+                        isSubmitting
+                            ? tr("שולח...", "Sending...")
+                            : tr("שלח פנייה", "Send Request")
+                    )
+                    .kmiFont(size: 17, weight: .black)
                 }
-                .foregroundStyle(Color.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 54)
-                .background(
+                .foregroundStyle(
+                    isFormValid && !isSubmitting
+                        ? KmiAppTheme.onPrimary(for: colorScheme)
+                        : secondaryTextColor.opacity(0.62)
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background {
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .fill(
-                            LinearGradient(
-                                colors: isFormValid && !isSubmitting
-                                ? [
-                                    Color(hex: 0xFF7C5CE6),
-                                    Color(hex: 0xFF5B35D5)
-                                ]
-                                : [
-                                    Color(hex: 0xFF8FA7D8),
-                                    Color(hex: 0xFF6F86BD)
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
+                            isFormValid && !isSubmitting
+                                ? KmiAppTheme.primary(for: colorScheme)
+                                : fieldColor
                         )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(Color.white.opacity(0.42), lineWidth: 1)
-                )
-                .shadow(
-                    color: Color.black.opacity(0.16),
-                    radius: 9,
-                    x: 0,
-                    y: 5
-                )
-                .opacity(isSubmitting ? 0.72 : 1.0)
+                }
             }
             .buttonStyle(.plain)
-            .allowsHitTesting(!isSubmitting)
+            .disabled(!isFormValid || isSubmitting)
             .padding(.top, 6)
             .padding(.bottom, 2)
+
+            if let managementEmailURL = URL(string: "mailto:management@kami.org.il") {
+                Link(destination: managementEmailURL) {
+                    Text(
+                        tr(
+                            "מייל ליצירת קשר: management@kami.org.il",
+                            "Contact email: management@kami.org.il"
+                        )
+                    )
+                    .kmiFont(size: 14, weight: .semibold)
+                    .foregroundStyle(KmiAppTheme.primary(for: colorScheme))
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
         .background(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(hex: 0xFFEAF2FF))
+                .fill(cardColor)
         )
-        .shadow(color: Color.black.opacity(0.14), radius: 10, x: 0, y: 5)
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(dividerColor.opacity(0.5), lineWidth: 1)
+        )
     }
 
     private var messageEditor: some View {
         VStack(alignment: stackAlignment, spacing: 6) {
             Text(tr("הודעה", "Message"))
-                .font(.system(size: 11.5, weight: .black))
-                .foregroundStyle(Color(hex: 0xFF5E6C80))
+                .kmiFont(size: 11.5, weight: .black)
+                .foregroundStyle(secondaryTextColor)
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
+                .accessibilityHidden(true)
 
-            ZStack(alignment: isEnglish ? .topLeading : .topTrailing) {
-                if message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            ZStack(alignment: .topLeading) {
+                if message.isEmpty {
                     Text(tr("כתוב כאן את תוכן הפנייה", "Write your message here"))
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0xFF6B778B).opacity(0.72))
-                        .padding(.horizontal, 15)
+                        .kmiFont(size: 15, weight: .semibold)
+                        .foregroundStyle(secondaryTextColor.opacity(0.72))
+                        .padding(.horizontal, 13)
                         .padding(.vertical, 16)
                         .multilineTextAlignment(textAlignment)
+                        .accessibilityHidden(true)
+                        .allowsHitTesting(false)
                 }
 
                 TextEditor(text: $message)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0xFF1E2A3D))
+                    .kmiFont(size: 15, weight: .semibold)
+                    .foregroundStyle(primaryTextColor)
                     .scrollContentBackground(.hidden)
-                    .background(Color.clear)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 8)
+                    .padding(8)
                     .frame(minHeight: 118)
                     .multilineTextAlignment(textAlignment)
+                    .accessibilityLabel(tr("הודעה", "Message"))
             }
-            .background(Color.white)
+            .background(fieldColor)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color(hex: 0xFFD8E3F5), lineWidth: 1)
+                    .strokeBorder(dividerColor, lineWidth: 1)
+                    .allowsHitTesting(false)
             )
         }
     }
@@ -416,101 +449,313 @@ struct ContactUsViewIOS: View {
     }
 
     private func submitContactRequest() {
-        guard !isSubmitting else {
-            return
-        }
+        guard !isSubmitting, isFormValid else { return }
 
-        let cleanFullName = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanPhone = phone.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanSubject = subject.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !cleanFullName.isEmpty,
-              !cleanPhone.isEmpty,
-              !cleanSubject.isEmpty,
-              !cleanMessage.isEmpty else {
-            showToast(tr("יש למלא שם, טלפון, נושא והודעה", "Please fill name, phone, subject and message"))
-            return
-        }
+        let payload = [
+            "fullName": fullName.trimmingCharacters(in: .whitespacesAndNewlines),
+            "phone": phone.trimmingCharacters(in: .whitespacesAndNewlines),
+            "email": email.trimmingCharacters(in: .whitespacesAndNewlines),
+            "subject": subject.trimmingCharacters(in: .whitespacesAndNewlines),
+            "message": message.trimmingCharacters(in: .whitespacesAndNewlines),
+            "appLanguage": isEnglish ? "en" : "he"
+        ]
 
         isSubmitting = true
 
-        let authUser = Auth.auth().currentUser
-        let db = Firestore.firestore()
-        let contactRef = db.collection("contactRequests").document()
-        let notificationRef = db.collection("appNotificationQueue").document()
-        let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
+        Task { @MainActor in
+            defer { isSubmitting = false }
 
-        let contactData: [String: Any] = [
-            "requestId": contactRef.documentID,
-            "fullName": cleanFullName,
-            "phone": cleanPhone,
-            "email": cleanEmail,
-            "subject": cleanSubject,
-            "message": cleanMessage,
-            "userUid": authUser?.uid ?? "",
-            "userEmail": authUser?.email ?? "",
-            "status": "open",
-            "source": "ios_contact_us",
-            "notifyEnabled": true,
-            "notifyStatus": "pending",
-            "notifyTargetType": "association_contact_manager",
-            "notifyTargetUid": "",
-            "notifyTargetEmail": "",
-            "notifyTargetPhone": "",
-            "notifyCreatedAtMillis": nowMillis,
-            "createdAt": FieldValue.serverTimestamp(),
-            "createdAtMillis": nowMillis
+            let unconfirmedMessage = tr(
+                "לא ניתן לאשר את קליטת הפנייה. יש לבדוק את מצבה לפני שליחה חוזרת.",
+                "Could not confirm your request. Please check its status before sending again."
+            )
+
+            do {
+                let result = try await Functions.functions(region: "europe-west1")
+                    .httpsCallable("submitKamiContactRequest")
+                    .call(payload)
+
+                guard let response = result.data as? [String: Any],
+                      response["accepted"] as? Bool == true,
+                      let requestId = response["requestId"] as? String,
+                      !requestId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    showToast(unconfirmedMessage)
+                    return
+                }
+
+                fullName = ""
+                phone = ""
+                email = ""
+                subject = ""
+                message = ""
+
+                showToast(
+                    tr(
+                        "הפנייה התקבלה והועברה להמשך טיפול.",
+                        "Your request has been received and forwarded for further handling."
+                    )
+                )
+            } catch {
+                showToast(unconfirmedMessage)
+            }
+        }
+    }
+
+    @MainActor
+    private func shareContactPDF() {
+        do {
+            let url = try makeContactPDF(
+                privacyEnabled: DemoPrivacy.shared.isEnabled
+            )
+            contactPdfShareItem = ContactPdfShareItem(url: url)
+        } catch {
+            showToast(
+                tr(
+                    "לא ניתן היה להכין את קובץ ה־PDF.",
+                    "Could not create the PDF."
+                )
+            )
+        }
+    }
+
+    private enum ContactPdfError: Error {
+        case contentDoesNotFit
+    }
+
+    @MainActor
+    private func makeContactPDF(privacyEnabled: Bool) throws -> URL {
+        let hidden = tr("מוסתר במצב הדגמה", "Hidden in demo mode")
+
+        func displayValue(_ value: String) -> String {
+            if privacyEnabled { return hidden }
+
+            let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return clean.isEmpty ? "—" : clean
+        }
+
+        let fields = [
+            (tr("שם מלא", "Full Name"), fullName),
+            (tr("טלפון", "Phone"), phone),
+            (tr("אימייל", "Email"), email),
+            (tr("נושא הפנייה", "Subject"), subject),
+            (tr("הודעה", "Message"), message)
         ]
 
-        let notificationData: [String: Any] = [
-            "notificationId": notificationRef.documentID,
-            "type": "contact_request",
-            "status": "pending",
-            "source": "ios_contact_us",
-            "targetType": "association_contact_manager",
-            "targetUid": "",
-            "targetEmail": "",
-            "targetPhone": "",
-            "contactRequestId": contactRef.documentID,
-            "relatedCollection": "contactRequests",
-            "relatedDocumentId": contactRef.documentID,
-            "titleHe": "פנייה חדשה מהאפליקציה",
-            "titleEn": "New contact request from the app",
-            "bodyHe": "התקבלה פנייה חדשה מאת \(cleanFullName) בנושא: \(cleanSubject)",
-            "bodyEn": "A new contact request was received from \(cleanFullName) regarding: \(cleanSubject)",
-            "fullName": cleanFullName,
-            "phone": cleanPhone,
-            "email": cleanEmail,
-            "subject": cleanSubject,
-            "messagePreview": String(cleanMessage.prefix(180)),
-            "userUid": authUser?.uid ?? "",
-            "userEmail": authUser?.email ?? "",
-            "createdAt": FieldValue.serverTimestamp(),
-            "createdAtMillis": nowMillis
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.baseWritingDirection = isEnglish ? .leftToRight : .rightToLeft
+        paragraph.alignment = isEnglish ? .left : .right
+        paragraph.lineBreakMode = .byWordWrapping
+        paragraph.lineSpacing = 4
+        paragraph.firstLineHeadIndent = 12
+        paragraph.headIndent = 12
+        paragraph.tailIndent = -12
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 12),
+            .foregroundColor: UIColor(KmiAppTheme.onSurface(for: .light)),
+            .paragraphStyle: paragraph
         ]
 
-        let batch = db.batch()
-        batch.setData(contactData, forDocument: contactRef)
-        batch.setData(notificationData, forDocument: notificationRef)
+        var labelAttributes = attributes
+        labelAttributes[.font] = UIFont.boldSystemFont(ofSize: 13)
 
-        batch.commit { error in
-            isSubmitting = false
+        var headingAttributes = attributes
+        headingAttributes[.font] = UIFont.boldSystemFont(ofSize: 16)
+        headingAttributes[.foregroundColor] = UIColor(
+            KmiAppTheme.primary(for: .light)
+        )
 
-            if error != nil {
-                showToast(tr("שליחת הפנייה נכשלה. נסה שוב.", "Sending failed. Please try again."))
-                return
+        let headingParagraph = NSMutableParagraphStyle()
+        headingParagraph.baseWritingDirection = paragraph.baseWritingDirection
+        headingParagraph.alignment = paragraph.alignment
+        headingAttributes[.paragraphStyle] = headingParagraph
+
+        let text = NSMutableAttributedString(
+            string: tr("פרטי הפנייה", "Request details"),
+            attributes: headingAttributes
+        )
+        var fieldRanges: [NSRange] = []
+
+        for (label, value) in fields {
+            if text.length > 0 {
+                text.append(NSAttributedString(
+                    string: "\n\n",
+                    attributes: attributes
+                ))
             }
 
-            fullName = ""
-            phone = ""
-            email = ""
-            subject = ""
-            message = ""
+            let start = text.length
 
-            showToast(tr("הפנייה נשלחה בהצלחה", "Your request was sent successfully"))
+            text.append(NSAttributedString(
+                string: "\(label)\n",
+                attributes: labelAttributes
+            ))
+            text.append(NSAttributedString(
+                string: "\(displayValue(value))",
+                attributes: attributes
+            ))
+
+            fieldRanges.append(NSRange(
+                location: start,
+                length: text.length - start
+            ))
         }
+
+        let page = CGRect(x: 0, y: 0, width: 595, height: 842)
+        let contentTop = KmiPdfHeader.CONTENT_TOP
+        let content = CGRect(
+            x: 34,
+            y: contentTop,
+            width: page.width - 68,
+            height: page.height - contentTop - KmiPdfFooter.CONTENT_BOTTOM_PADDING
+        )
+
+        let path = CGPath(
+            rect: CGRect(origin: .zero, size: content.size),
+            transform: nil
+        )
+        let framesetter = CTFramesetterCreateWithAttributedString(
+            text as CFAttributedString
+        )
+
+        var frames: [CTFrame] = []
+        var offset = 0
+
+        while offset < text.length {
+            let frame = CTFramesetterCreateFrame(
+                framesetter,
+                CFRange(location: offset, length: 0),
+                path,
+                nil
+            )
+            let visible = CTFrameGetVisibleStringRange(frame)
+            guard visible.location == offset,
+                  visible.length > 0,
+                  visible.length <= text.length - offset else {
+                throw ContactPdfError.contentDoesNotFit
+            }
+
+            frames.append(frame)
+            offset += visible.length
+        }
+
+        let data = UIGraphicsPDFRenderer(bounds: page).pdfData { renderer in
+            for (index, frame) in frames.enumerated() {
+                renderer.beginPage()
+                let context = renderer.cgContext
+
+                KmiPdfHeader.draw(
+                    context: context,
+                    pageWidth: page.width,
+                    isEnglish: isEnglish,
+                    titleHebrew: "צור קשר",
+                    titleEnglish: "Contact Us",
+                    subtitleHebrew: "פנייה לעמותת ק.מ.י",
+                    subtitleEnglish: "KAMI Contact Request"
+                )
+
+                context.saveGState()
+                context.translateBy(x: content.minX, y: content.maxY)
+                context.scaleBy(x: 1, y: -1)
+
+                if let lines = CTFrameGetLines(frame) as? [CTLine],
+                   !lines.isEmpty {
+                    var origins = Array(repeating: CGPoint.zero, count: lines.count)
+                    origins.withUnsafeMutableBufferPointer { buffer in
+                        if let baseAddress = buffer.baseAddress {
+                            CTFrameGetLineOrigins(
+                                frame,
+                                CFRange(location: 0, length: 0),
+                                baseAddress
+                            )
+                        }
+                    }
+
+                    let pageBounds = CGRect(origin: .zero, size: content.size)
+                    let cardFill = UIColor(
+                        KmiAppTheme.surfaceVariant(for: .light)
+                    ).cgColor
+                    let cardBorder = UIColor(
+                        KmiAppTheme.outlineVariant(for: .light)
+                    ).cgColor
+
+                    context.saveGState()
+                    context.clip(to: pageBounds)
+                    context.setFillColor(cardFill)
+                    context.setStrokeColor(cardBorder)
+                    context.setLineWidth(0.75)
+
+                    for fieldRange in fieldRanges {
+                        var bounds = CGRect.null
+
+                        for (index, line) in lines.enumerated() {
+                            let range = CTLineGetStringRange(line)
+                            let lineRange = NSRange(
+                                location: range.location,
+                                length: range.length
+                            )
+                            guard NSIntersectionRange(fieldRange, lineRange).length > 0 else {
+                                continue
+                            }
+
+                            var ascent: CGFloat = 0
+                            var descent: CGFloat = 0
+                            CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+
+                            bounds = bounds.union(CGRect(
+                                x: 1,
+                                y: origins[index].y - descent - 4,
+                                width: content.width - 2,
+                                height: ascent + descent + 8
+                            ))
+                        }
+
+                        let visibleBounds = bounds.intersection(
+                            pageBounds.insetBy(dx: 0.5, dy: 0.5)
+                        )
+                        guard !visibleBounds.isEmpty else { continue }
+
+                        let radius = min(8, visibleBounds.height / 2)
+                        context.addPath(CGPath(
+                            roundedRect: visibleBounds,
+                            cornerWidth: radius,
+                            cornerHeight: radius,
+                            transform: nil
+                        ))
+                        context.drawPath(using: .fillStroke)
+                    }
+
+                    context.restoreGState()
+                }
+
+                context.textMatrix = .identity
+                CTFrameDraw(frame, context)
+                context.restoreGState()
+
+                KmiPdfFooter.draw(
+                    context: context,
+                    pageWidth: page.width,
+                    pageHeight: page.height,
+                    pageNumber: index + 1,
+                    totalPages: frames.count,
+                    isEnglish: isEnglish
+                )
+            }
+        }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("shared_pdfs", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+
+        let url = directory.appendingPathComponent(
+            tr("צור קשר.pdf", "Contact Us.pdf")
+        )
+        try data.write(to: url, options: .atomic)
+        return url
     }
 
     private func showToast(_ text: String) {
@@ -531,45 +776,34 @@ private struct ContactTextFieldIOS: View {
     @Binding var text: String
     let systemImage: String
     let keyboardType: UIKeyboardType
-    let isEnglish: Bool
 
-    private var textAlignment: TextAlignment {
-        isEnglish ? .leading : .trailing
-    }
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 9) {
-            if isEnglish {
-                icon
-            }
+            Image(systemName: systemImage)
+                .kmiIconSize(15)
+                .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
+                .frame(minWidth: 20)
+                .accessibilityHidden(true)
 
             TextField(title, text: $text)
                 .keyboardType(keyboardType)
-                .textInputAutocapitalization(keyboardType == .emailAddress ? .never : .words)
+                .textInputAutocapitalization(keyboardType == .default ? .words : .never)
                 .autocorrectionDisabled(true)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color(hex: 0xFF1E2A3D))
-                .multilineTextAlignment(textAlignment)
-
-            if !isEnglish {
-                icon
-            }
+                .kmiFont(size: 15, weight: .semibold)
+                .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
+                .multilineTextAlignment(.leading)
         }
         .padding(.horizontal, 12)
-        .frame(height: 52)
-        .background(Color.white)
+        .padding(.vertical, 10)
+        .frame(minHeight: 52)
+        .background(KmiAppTheme.surface(for: colorScheme))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color(hex: 0xFFD8E3F5), lineWidth: 1)
+                .strokeBorder(KmiAppTheme.outlineVariant(for: colorScheme), lineWidth: 1)
+                .allowsHitTesting(false)
         )
-        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
-    }
-
-    private var icon: some View {
-        Image(systemName: systemImage)
-            .font(.system(size: 15, weight: .bold))
-            .foregroundStyle(Color(hex: 0xFF6B778B))
-            .frame(width: 20)
     }
 }

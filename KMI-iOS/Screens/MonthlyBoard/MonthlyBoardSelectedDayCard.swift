@@ -8,6 +8,8 @@ struct MonthlyBoardSelectedDayCard: View {
 
     let details: MonthlyBoardSelectedDayDetails?
     let onAddSummaryTap: (() -> Void)?
+    var hasSummary = false
+    var onOpenSummaryPdf: (() -> Void)? = nil
 
     private var isEnglish: Bool {
         layoutDirection == .leftToRight
@@ -21,21 +23,45 @@ struct MonthlyBoardSelectedDayCard: View {
         VStack(alignment: .leading, spacing: 10) {
             if let details {
                 let holidays = holidayTitles(for: details)
+                let trainings = details.trainings.sorted {
+                    $0.timeText.localizedStandardCompare($1.timeText) == .orderedAscending
+                }
 
-                Text(dateTitle(details.date))
-                    .kmiFont(size: 17, weight: .heavy)
-                    .foregroundStyle(
-                        KmiAppTheme.onSurface(for: colorScheme)
-                    )
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(
+                            tr(
+                                "יום נבחר: \(dateTitle(details.date, format: "EEEE d"))",
+                                "Selected day: \(dateTitle(details.date, format: "EEEE d"))"
+                            )
+                        )
+                        .kmiFont(size: 17, weight: .heavy)
+                        .accessibilityAddTraits(.isHeader)
+
+                        Text(dateTitle(details.date, format: "LLLL yyyy"))
+                            .kmiFont(size: 15, weight: .bold)
+                    }
+                    .foregroundStyle(KmiAppTheme.onPrimaryContainer(for: colorScheme))
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                if holidays.isEmpty && details.trainings.isEmpty {
+                    Image(systemName: "calendar")
+                        .kmiIconSize(21)
+                        .foregroundStyle(KmiAppTheme.onPrimaryContainer(for: colorScheme))
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(KmiAppTheme.primary(for: colorScheme).opacity(0.14))
+                        )
+                        .accessibilityHidden(true)
+                }
+
+                if holidays.isEmpty && trainings.isEmpty {
                     Text(
                         tr(
-                            "אין אימונים או חגים בתאריך זה.",
-                            "No trainings or holidays on this date."
+                            "אין אירועים ביום זה.",
+                            "No events on this day."
                         )
                     )
                     .kmiFont(size: 13, weight: .regular)
@@ -45,18 +71,10 @@ struct MonthlyBoardSelectedDayCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                if !holidays.isEmpty {
-                    sectionTitle(tr("חגים ומועדים", "Holidays and occasions"))
+                if !trainings.isEmpty {
+                    sectionTitle(tr("פירוט אימונים", "Training details"))
 
-                    ForEach(holidays, id: \.self) { title in
-                        infoRow(title: title, subtitle: "")
-                    }
-                }
-
-                if !details.trainings.isEmpty {
-                    sectionTitle(tr("אימונים", "Trainings"))
-
-                    ForEach(details.trainings) { training in
+                    ForEach(trainings) { training in
                         VStack(alignment: .leading, spacing: 6) {
                             infoRow(
                                 title: TrainingCatalogIOS.displayGroup(
@@ -92,25 +110,36 @@ struct MonthlyBoardSelectedDayCard: View {
                         }
                         .padding(.vertical, 4)
 
-                        Rectangle()
-                            .fill(
-                                KmiAppTheme.outlineVariant(for: colorScheme)
-                            )
-                            .frame(height: 1)
+                        if training.id != trainings.last?.id {
+                            Rectangle()
+                                .fill(
+                                    KmiAppTheme.outlineVariant(for: colorScheme)
+                                )
+                                .frame(height: 1)
+                        }
                     }
+                }
 
+                if !holidays.isEmpty {
+                    sectionTitle(tr("חגים ומועדים", "Holidays and occasions"))
+
+                    ForEach(holidays, id: \.self) { title in
+                        infoRow(title: title, subtitle: "")
+                    }
+                }
+
+                if hasSummary || !trainings.isEmpty {
                     if let onAddSummaryTap {
                         Button(action: onAddSummaryTap) {
                             HStack(spacing: 7) {
-                                Image(systemName: "doc.badge.plus")
+                                Image(systemName: hasSummary ? "square.and.pencil" : "doc.badge.plus")
                                     .kmiIconSize(17)
                                     .accessibilityHidden(true)
 
                                 Text(
-                                    tr(
-                                        "הוסף סיכום אימון",
-                                        "Add training summary"
-                                    )
+                                    hasSummary
+                                    ? tr("ערוך סיכום", "Edit summary")
+                                    : tr("הוסף סיכום אימון", "Add training summary")
                                 )
                                 .kmiFont(size: 15, weight: .bold)
                                 .multilineTextAlignment(.center)
@@ -122,6 +151,24 @@ struct MonthlyBoardSelectedDayCard: View {
                         .tint(KmiAppTheme.primary(for: colorScheme))
                         .padding(.top, 4)
                     }
+                }
+
+                if hasSummary, let onOpenSummaryPdf {
+                    Button(action: onOpenSummaryPdf) {
+                        HStack(spacing: 7) {
+                            Image(systemName: "doc.text")
+                                .kmiIconSize(17)
+                                .accessibilityHidden(true)
+
+                            Text(tr("הצג סיכום", "View summary"))
+                                .kmiFont(size: 15, weight: .bold)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(KmiAppTheme.primary(for: colorScheme))
                 }
             } else {
                 Text(
@@ -140,21 +187,33 @@ struct MonthlyBoardSelectedDayCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(KmiAppTheme.surface(for: colorScheme))
+            RoundedRectangle(cornerRadius: 26)
+                .fill(
+                    LinearGradient(
+                        stops: [
+                            .init(color: KmiAppTheme.primaryContainer(for: colorScheme), location: 0),
+                            .init(color: KmiAppTheme.surface(for: colorScheme), location: 0.55),
+                            .init(color: KmiAppTheme.surface(for: colorScheme), location: 1)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(
-                    KmiAppTheme.outlineVariant(for: colorScheme),
+            RoundedRectangle(cornerRadius: 26)
+                .strokeBorder(
+                    KmiAppTheme.primary(for: colorScheme).opacity(0.30),
                     lineWidth: 1
                 )
+                .allowsHitTesting(false)
         )
     }
 
     private func sectionTitle(_ text: String) -> some View {
         Text(text)
             .kmiFont(size: 14, weight: .heavy)
+            .accessibilityAddTraits(.isHeader)
             .foregroundStyle(
                 KmiAppTheme.primary(for: colorScheme)
             )
@@ -191,14 +250,12 @@ struct MonthlyBoardSelectedDayCard: View {
         .padding(.vertical, 2)
     }
 
-    private func dateTitle(_ date: Date) -> String {
+    private func dateTitle(_ date: Date, format: String) -> String {
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: isEnglish ? "en_US" : "he_IL")
         formatter.calendar = ShabbatHolidayCheckerIOS.calendar
         formatter.timeZone = ShabbatHolidayCheckerIOS.timeZone
-        formatter.locale = Locale(
-            identifier: isEnglish ? "en_US" : "he_IL"
-        )
-        formatter.dateFormat = "EEEE, d MMMM yyyy"
+        formatter.dateFormat = format
         return formatter.string(from: date)
     }
 

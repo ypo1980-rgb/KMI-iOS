@@ -4,12 +4,21 @@ import UserNotifications
 struct FreeSessionDetailsSheet: View {
 
     @ObservedObject var vm: FreeSessionsViewModel
+    @ObservedObject private var demoPrivacy = DemoPrivacy.shared
+
     let session: FreeSession
     let currentUid: String
     let onClose: () -> Void
 
     @State
     private var actionMessage: String?
+
+    @State private var showDeleteConfirmation = false
+    @State private var isDeletingSession = false
+    @State private var isUpdatingStatus = false
+
+    @State private var locationShareMessage = ""
+    @State private var showLocationShare = false
 
     @Environment(\.colorScheme)
     private var colorScheme
@@ -59,66 +68,32 @@ struct FreeSessionDetailsSheet: View {
             : .rightToLeft
     }
 
-    private var screenTextAlignment: TextAlignment {
-        isEnglish
-            ? .leading
-            : .trailing
-    }
+    private var screenTextAlignment: TextAlignment { .leading }
 
-    private var screenFrameAlignment: Alignment {
-        isEnglish
-            ? .leading
-            : .trailing
-    }
+    private var screenFrameAlignment: Alignment { .leading }
 
     private var cardColor: Color {
-        isDarkMode
-            ? Color(
-                red: 15 / 255,
-                green: 23 / 255,
-                blue: 42 / 255
-            )
-            : Color.white.opacity(0.96)
+        KmiAppTheme.surface(for: colorScheme)
     }
 
     private var elevatedColor: Color {
-        isDarkMode
-            ? Color(
-                red: 30 / 255,
-                green: 41 / 255,
-                blue: 59 / 255
-            )
-            : Color(
-                red: 247 / 255,
-                green: 251 / 255,
-                blue: 255 / 255
-            )
+        KmiAppTheme.surfaceVariant(for: colorScheme)
     }
 
     private var primaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.94)
-            : Color.black.opacity(0.86)
+        KmiAppTheme.onSurface(for: colorScheme)
     }
 
     private var secondaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.66)
-            : Color.black.opacity(0.56)
+        KmiAppTheme.onSurfaceVariant(for: colorScheme)
     }
 
     private var borderColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.12)
-            : Color.black.opacity(0.09)
+        KmiAppTheme.outlineVariant(for: colorScheme)
     }
 
     private var accentColor: Color {
-        Color(
-            red: 34 / 255,
-            green: 211 / 255,
-            blue: 238 / 255
-        )
+        KmiAppTheme.primary(for: colorScheme)
     }
 
     private var myState: ParticipantState? {
@@ -157,41 +132,7 @@ struct FreeSessionDetailsSheet: View {
         NavigationStack {
             ZStack {
                 LinearGradient(
-                    colors: isDarkMode
-                        ? [
-                            Color(
-                                red: 15 / 255,
-                                green: 23 / 255,
-                                blue: 42 / 255
-                            ),
-                            Color(
-                                red: 30 / 255,
-                                green: 41 / 255,
-                                blue: 59 / 255
-                            ),
-                            Color(
-                                red: 3 / 255,
-                                green: 105 / 255,
-                                blue: 161 / 255
-                            )
-                        ]
-                        : [
-                            Color(
-                                red: 248 / 255,
-                                green: 251 / 255,
-                                blue: 255 / 255
-                            ),
-                            Color(
-                                red: 234 / 255,
-                                green: 244 / 255,
-                                blue: 255 / 255
-                            ),
-                            Color(
-                                red: 14 / 255,
-                                green: 165 / 255,
-                                blue: 215 / 255
-                            )
-                        ],
+                    colors: KmiAppTheme.screenBackgroundColors(for: colorScheme),
                     startPoint: .top,
                     endPoint: .bottom
                 )
@@ -244,6 +185,31 @@ struct FreeSessionDetailsSheet: View {
             \.layoutDirection,
             screenLayoutDirection
         )
+        .sheet(isPresented: $showLocationShare) {
+            KmiShareSheet(items: [locationShareMessage])
+        }
+        .alert(
+            tr("מחיקת אימון", "Delete session"),
+            isPresented: $showDeleteConfirmation
+        ) {
+            Button(tr("ביטול", "Cancel"), role: .cancel) {}
+
+            Button(tr("מחק", "Delete"), role: .destructive) {
+                guard vm.canManage(session), !isDeletingSession else { return }
+
+                isDeletingSession = true
+
+                Task { @MainActor in
+                    defer { isDeletingSession = false }
+                    await vm.deleteSession(sessionId: session.id)
+                }
+            }
+        } message: {
+            Text(tr(
+                "למחוק את האימון ״\(session.title)״?",
+                "Delete the session “\(session.title)”?"
+            ))
+        }
         .alert(
             tr(
                 "עדכון",
@@ -297,11 +263,11 @@ extension FreeSessionDetailsSheet {
                     vertical: true
                 )
 
-            Text(
-                isEnglish
-                    ? "Created by \(session.createdByName)"
-                    : "נוצר ע״י \(session.createdByName)"
-            )
+            let creatorName = demoPrivacy.isEnabled
+                ? tr("משתמש", "User")
+                : session.createdByName
+
+            Text(tr("נוצר ע״י \(creatorName)", "Created by \(creatorName)"))
             .kmiFont(size: 13, weight: .bold)
             .foregroundStyle(secondaryTextColor)
             .frame(
@@ -372,47 +338,19 @@ extension FreeSessionDetailsSheet {
         accent: Color
     ) -> some View {
         HStack(spacing: 8) {
-            if isEnglish {
-                Image(systemName: icon)
-                    .foregroundStyle(accent)
-                    .frame(width: 22)
+            Image(systemName: icon)
+                .kmiIconSize(16)
+                .foregroundStyle(accent)
+                .frame(minWidth: 22)
+                .accessibilityHidden(true)
 
-                Text(text)
-                    .kmiFont(
-                        size: 14,
-                        weight: .semibold
-                    )
-                    .foregroundStyle(primaryTextColor)
-                    .frame(
-                        maxWidth: .infinity,
-                        alignment: .leading
-                    )
-                    .multilineTextAlignment(.leading)
-
-            } else {
-                Spacer(minLength: 0)
-
-                Text(text)
-                    .kmiFont(
-                        size: 14,
-                        weight: .semibold
-                    )
-                    .foregroundStyle(primaryTextColor)
-                    .multilineTextAlignment(.trailing)
-
-                Image(systemName: icon)
-                    .foregroundStyle(accent)
-                    .frame(width: 22)
-            }
+            Text(text)
+                .kmiFont(size: 14, weight: .semibold)
+                .foregroundStyle(primaryTextColor)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .environment(
-            \.layoutDirection,
-            .leftToRight
-        )
-        .frame(
-            maxWidth: .infinity,
-            alignment: screenFrameAlignment
-        )
     }
 
     private var statusSelector: some View {
@@ -446,7 +384,7 @@ extension FreeSessionDetailsSheet {
                 spacing: 8
             ) {
                 ForEach(
-                    ParticipantState.allCases
+                    [ParticipantState.going, .onWay, .arrived, .cant]
                 ) { state in
                     statusButton(state)
                 }
@@ -479,7 +417,12 @@ extension FreeSessionDetailsSheet {
         let color = stateColor(state)
 
         return Button {
-            Task {
+            guard !isSelected, !isUpdatingStatus, !isDeletingSession else { return }
+
+            isUpdatingStatus = true
+
+            Task { @MainActor in
+                defer { isUpdatingStatus = false }
                 await vm.setMyState(
                     sessionId: session.id,
                     state: state
@@ -513,6 +456,7 @@ extension FreeSessionDetailsSheet {
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
+        .disabled(isUpdatingStatus || isDeletingSession)
         .accessibilityAddTraits(
             isSelected ? .isSelected : []
         )
@@ -562,8 +506,8 @@ extension FreeSessionDetailsSheet {
 
             } else {
                 LazyVStack(spacing: 8) {
-                    ForEach(vm.participants) { part in
-                        participantRow(part)
+                    ForEach(Array(vm.participants.enumerated()), id: \.element.id) { entry in
+                        participantRow(entry.element, demoIndex: entry.offset)
                     }
                 }
             }
@@ -593,11 +537,19 @@ extension FreeSessionDetailsSheet {
     }
 
     private func participantRow(
-        _ part: FreeSessionPart
+        _ part: FreeSessionPart,
+        demoIndex: Int
     ) -> some View {
         HStack(spacing: 10) {
             if isEnglish {
-                Text(part.name)
+                Text(
+                    TraineeDisplayNameMapper.displayName(
+                        realName: part.name,
+                        stableKey: part.uid,
+                        demoIndex: demoIndex,
+                        isEnglish: isEnglish
+                    )
+                )
                     .kmiFont(
                         size: 15,
                         weight: .semibold
@@ -618,7 +570,14 @@ extension FreeSessionDetailsSheet {
                     part.state
                 )
 
-                Text(part.name)
+                Text(
+                    TraineeDisplayNameMapper.displayName(
+                        realName: part.name,
+                        stableKey: part.uid,
+                        demoIndex: demoIndex,
+                        isEnglish: isEnglish
+                    )
+                )
                     .kmiFont(
                         size: 15,
                         weight: .semibold
@@ -687,28 +646,24 @@ extension FreeSessionDetailsSheet {
 
     private var actionButtons: some View {
         VStack(spacing: 10) {
-            detailsActionButton(
-                title: tr(
-                    "פתח ניווט",
-                    "Open navigation"
-                ),
-                icon: "location.fill",
-                foreground: Color.white,
-                background: Color.blue
-            ) {
-                openNavigation()
-            }
+            if let url = wazeURL {
+                detailsActionButton(
+                    title: tr("שתף מיקום לקבוצה", "Share location with group"),
+                    icon: "square.and.arrow.up",
+                    foreground: primaryTextColor,
+                    background: cardColor
+                ) {
+                    shareLocation(url)
+                }
 
-            detailsActionButton(
-                title: tr(
-                    "שתף ב־WhatsApp",
-                    "Share on WhatsApp"
-                ),
-                icon: "paperplane.fill",
-                foreground: primaryTextColor,
-                background: cardColor
-            ) {
-                shareSession()
+                detailsActionButton(
+                    title: tr("פתח בוויז", "Open in Waze"),
+                    icon: "location.fill",
+                    foreground: KmiAppTheme.onPrimary(for: colorScheme),
+                    background: accentColor
+                ) {
+                    openWaze(url)
+                }
             }
 
             detailsActionButton(
@@ -730,14 +685,11 @@ extension FreeSessionDetailsSheet {
                         "Delete session"
                     ),
                     icon: "trash.fill",
-                    foreground: Color.red,
+                    foreground: KmiAppTheme.error(for: colorScheme),
                     background: cardColor
                 ) {
-                    Task {
-                        await vm.deleteSession(
-                            sessionId: session.id
-                        )
-                    }
+                    guard !isDeletingSession, !isUpdatingStatus else { return }
+                    showDeleteConfirmation = true
                 }
             }
         }
@@ -753,12 +705,8 @@ extension FreeSessionDetailsSheet {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: icon)
-                    .font(
-                        .system(
-                            size: 15,
-                            weight: .bold
-                        )
-                    )
+                    .kmiIconSize(15)
+                    .accessibilityHidden(true)
 
                 Text(title)
                     .kmiFont(
@@ -785,162 +733,70 @@ extension FreeSessionDetailsSheet {
 
 extension FreeSessionDetailsSheet {
 
-    private func shareSession() {
-        let cleanLocation =
-            session.locationName?
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                ) ?? ""
-
-        let message: String
-
-        if isEnglish {
-            message =
-            """
-            Israeli Krav Magen session 💪
-
-            \(session.title)
-
-            🕒 \(formattedSessionTime(session.startsAt))
-            \(cleanLocation.isEmpty ? "" : "📍 \(cleanLocation)")
-
-            You're invited to join!
-            """
-
-        } else {
-            message =
-            """
-            אימון קרב מגן ישראלי 💪
-
-            \(session.title)
-
-            🕒 \(formattedSessionTime(session.startsAt))
-            \(cleanLocation.isEmpty ? "" : "📍 \(cleanLocation)")
-
-            מוזמנים להצטרף!
-            """
-        }
-
-        var components = URLComponents(
-            string: "https://wa.me/"
-        )
-
-        components?.queryItems = [
-            URLQueryItem(
-                name: "text",
-                value: message
-            )
-        ]
-
-        guard let url = components?.url else {
-            actionMessage = tr(
-                "לא ניתן להכין את הודעת השיתוף.",
-                "The share message could not be prepared."
-            )
-            return
-        }
-
-        UIApplication.shared.open(
-            url,
-            options: [:]
-        ) { opened in
-            if !opened {
-                DispatchQueue.main.async {
-                    actionMessage = tr(
-                        "לא ניתן לפתוח את WhatsApp.",
-                        "WhatsApp could not be opened."
-                    )
-                }
-            }
-        }
+    private var cleanLocationName: String {
+        session.locationName?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
-    
-    private func openNavigation() {
+
+    private var wazeURL: URL? {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "waze.com"
+        components.path = "/ul"
+
+        let destination: URLQueryItem
+
         if let latitude = session.lat,
-           let longitude = session.lng {
-
-            let wazeURL = URL(
-                string:
-                    "waze://?ll=\(latitude),\(longitude)&navigate=yes"
-            )
-
-            if let wazeURL,
-               UIApplication.shared.canOpenURL(
-                    wazeURL
-               ) {
-                UIApplication.shared.open(
-                    wazeURL
-                )
-                return
-            }
-
-            var appleComponents = URLComponents(
-                string: "https://maps.apple.com/"
-            )
-
-            appleComponents?.queryItems = [
-                URLQueryItem(
-                    name: "ll",
-                    value:
-                        "\(latitude),\(longitude)"
-                ),
-                URLQueryItem(
-                    name: "dirflg",
-                    value: "d"
-                )
-            ]
-
-            if let appleURL =
-                appleComponents?.url {
-                UIApplication.shared.open(
-                    appleURL
-                )
-                return
-            }
+           let longitude = session.lng,
+           (-90.0...90.0).contains(latitude),
+           (-180.0...180.0).contains(longitude) {
+            destination = URLQueryItem(name: "ll", value: "\(latitude),\(longitude)")
+        } else if !cleanLocationName.isEmpty {
+            destination = URLQueryItem(name: "q", value: cleanLocationName)
+        } else {
+            return nil
         }
 
-        let cleanLocation =
-            session.locationName?
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                ) ?? ""
-
-        guard !cleanLocation.isEmpty else {
-            actionMessage = tr(
-                "לא הוגדר מקום לאימון הזה.",
-                "No location was provided for this session."
-            )
-            return
-        }
-
-        var searchComponents = URLComponents(
-            string: "https://maps.apple.com/"
-        )
-
-        searchComponents?.queryItems = [
-            URLQueryItem(
-                name: "q",
-                value: cleanLocation
-            ),
-            URLQueryItem(
-                name: "dirflg",
-                value: "d"
-            )
+        components.queryItems = [
+            destination,
+            URLQueryItem(name: "navigate", value: "true")
         ]
+        return components.url
+    }
 
-        guard let searchURL =
-            searchComponents?.url else {
-            actionMessage = tr(
-                "לא ניתן לפתוח ניווט למקום האימון.",
-                "Navigation to the session could not be opened."
-            )
-            return
+    private func openWaze(_ url: URL) {
+        UIApplication.shared.open(url, options: [:]) { opened in
+            guard !opened else { return }
+
+            DispatchQueue.main.async {
+                actionMessage = tr(
+                    "לא ניתן לפתוח את הקישור ל־Waze.",
+                    "Could not open the Waze link."
+                )
+            }
+        }
+    }
+
+    private func shareLocation(_ url: URL) {
+        var lines: [String] = []
+
+        if !cleanLocationName.isEmpty {
+            lines.append(tr(
+                "מיקום לאימון: \(cleanLocationName)",
+                "Training location: \(cleanLocationName)"
+            ))
         }
 
-        UIApplication.shared.open(
-            searchURL
-        )
+        let title = session.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty {
+            lines.append(tr("אימון: \(title)", "Session: \(title)"))
+        }
+
+        lines.append("Waze: \(url.absoluteString)")
+        locationShareMessage = lines.joined(separator: "\n")
+        showLocationShare = true
     }
+
 
     private func scheduleReminder() {
         let sessionDate = Date(

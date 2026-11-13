@@ -127,7 +127,8 @@ extension TrainingSummaryUiState {
 
     func makeShareText(
         isEnglish: Bool,
-        privacyEnabled: Bool
+        privacyEnabled: Bool,
+        onBeltHeading: ((Belt?, NSRange) -> Void)? = nil
     ) -> String {
         func tr(_ hebrew: String, _ english: String) -> String {
             isEnglish ? english : hebrew
@@ -243,13 +244,25 @@ extension TrainingSummaryUiState {
                 let item = entry.item
 
                 if entry.beltIndex != previousBeltIndex {
-                    if belts.indices.contains(entry.beltIndex) {
-                        let belt = belts[entry.beltIndex]
-                        lines.append(isEnglish ? belt.en : belt.heb)
-                    } else {
-                        lines.append(tr("ללא חגורה", "No belt"))
+                    let belt = belts.indices.contains(entry.beltIndex)
+                        ? belts[entry.beltIndex]
+                        : nil
+
+                    let heading = belt.map { isEnglish ? $0.en : $0.heb }
+                        ?? tr("ללא חגורה", "No belt")
+
+                    if let onBeltHeading {
+                        let headingStart = lines.reduce(0) { offset, line in
+                            offset + line.utf16.count + 1
+                        }
+
+                        onBeltHeading(
+                            belt,
+                            NSRange(location: headingStart, length: heading.utf16.count)
+                        )
                     }
 
+                    lines.append(heading)
                     previousBeltIndex = entry.beltIndex
                 }
 

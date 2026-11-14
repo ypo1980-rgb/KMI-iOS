@@ -1295,6 +1295,10 @@ struct KmiRootLayout<Content: View>: View {
             return nil
         }
 
+        if case .beltQuestionsByBelt(_)? = nav.path.last {
+            return nil
+        }
+
         return {
             showGlobalIconMenu = false
             drawerOpen = false

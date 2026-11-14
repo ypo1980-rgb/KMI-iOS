@@ -155,6 +155,7 @@ struct HomeView: View {
     
     @StateObject private var trainingsVm = HomeTrainingsViewModel()
     @State private var isInitialTrainingsLoadPending = true
+    @State private var isHomeGlobalLoadingActive = false
 
     private var isWaitingForTrainingProfile: Bool {
         guard let uid = Auth.auth().currentUser?.uid else {
@@ -1916,6 +1917,9 @@ struct HomeView: View {
                 .overlay(alignment: .topLeading) {
                     quickMenuOverlay
                 }
+                .opacity(isHomeTrainingsLoading ? 0 : 1)
+                .allowsHitTesting(!isHomeTrainingsLoading)
+                .accessibilityHidden(isHomeTrainingsLoading)
 
                 )
 
@@ -1956,12 +1960,31 @@ struct HomeView: View {
             reloadTrainingsIfNeeded()
         }
                 .onAppear {
+                    if isHomeTrainingsLoading && !isHomeGlobalLoadingActive {
+                        isHomeGlobalLoadingActive = true
+                        nav.beginLoading()
+                    }
+
                     clearExpiredSubscriptionFlagsIfNeeded()
                     startCoachBroadcastListener()
                     startTrainingOverrideListener()
                     openPendingCoachBroadcastIfNeeded()
                 }
+                .onChange(of: isHomeTrainingsLoading) { _, isLoading in
+                    if isLoading && nav.path.isEmpty && !isHomeGlobalLoadingActive {
+                        isHomeGlobalLoadingActive = true
+                        nav.beginLoading()
+                    } else if !isLoading && isHomeGlobalLoadingActive {
+                        isHomeGlobalLoadingActive = false
+                        nav.endLoading()
+                    }
+                }
                 .onDisappear {
+                    if isHomeGlobalLoadingActive {
+                        isHomeGlobalLoadingActive = false
+                        nav.endLoading()
+                    }
+
                     stopCoachBroadcastListener()
                     stopTrainingOverrideListener()
                 }
@@ -6400,7 +6423,38 @@ private struct CoachMessagesCard: View {
         let onDelete: (String) -> Void
         let onRetry: () -> Void
         let onClose: () -> Void
-    
+
+        private enum MessageFilter: Hashable {
+            case all
+            case unread
+        }
+
+        @State private var selectedFilter: MessageFilter = .all
+
+        private var unreadMessages: [CoachHomeMessage] {
+            messages.filter { message in
+                !message.isTrainingEvent && !readMessageIds.contains(message.id)
+            }
+        }
+
+        private var visibleMessages: [CoachHomeMessage] {
+            selectedFilter == .unread ? unreadMessages : messages
+        }
+
+        private var unreadTabTitle: String {
+            let title = isEnglish ? "Unread" : "לא נקראו"
+            let count = unreadMessages.count
+            return count > 0 ? "\(title) (\(count))" : title
+        }
+
+        private var emptyMessage: String {
+            if selectedFilter == .unread {
+                return isEnglish ? "No unread messages" : "אין הודעות שלא נקראו"
+            }
+
+            return isEnglish ? "No messages right now." : "אין הודעות כרגע."
+        }
+
     private var textAlignment: TextAlignment {
         isEnglish ? .leading : .trailing
     }
@@ -6470,7 +6524,7 @@ private struct CoachMessagesCard: View {
                                 .padding(16)
                             }
 
-                            if messages.isEmpty && !isLoading && !hasError {
+                            if visibleMessages.isEmpty && !isLoading && !hasError {
                             VStack(spacing: 8) {
 
                                 Image(
@@ -6486,11 +6540,7 @@ private struct CoachMessagesCard: View {
                                     .opacity(0.78)
                                 )
                                 .accessibilityHidden(true)
-                                Text(
-                                    isEnglish
-                                        ? "No messages right now."
-                                        : "אין הודעות כרגע."
-                                )
+                                Text(emptyMessage)
                                 .kmiTypography(.body)
                                 .fontWeight(.bold)
                                 .foregroundStyle(
@@ -6534,7 +6584,7 @@ private struct CoachMessagesCard: View {
 
                         } else {
 
-                            ForEach(messages) { message in
+                            ForEach(visibleMessages) { message in
                                 VStack(spacing: 6) {
                                     CoachMessageHistoryCard(
                                         message: message,
@@ -6625,6 +6675,22 @@ private struct CoachMessagesCard: View {
                     .padding(.bottom, 28)
                 }
             }
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    Picker(
+                        isEnglish ? "Message filter" : "סינון הודעות",
+                        selection: $selectedFilter
+                    ) {
+                        Text(isEnglish ? "All messages" : "כל ההודעות")
+                            .tag(MessageFilter.all)
+
+                        Text(unreadTabTitle)
+                            .tag(MessageFilter.unread)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 8)
+                    .background(KmiAppTheme.surface(for: colorScheme))
+                }
                 .overlay {
                     if isLoading {
                         KmiLoadingOverlay()

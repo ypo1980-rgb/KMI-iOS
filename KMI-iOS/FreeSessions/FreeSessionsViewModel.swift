@@ -21,6 +21,7 @@ final class FreeSessionsViewModel: ObservableObject {
     private var myName: String = ""
 
     private var upcomingListener: ListenerRegistration?
+    private var upcomingBindingID = UUID()
     private var participantsListener: ListenerRegistration?
 
     private var participantResponses: [FreeSessionPart] = []
@@ -44,28 +45,47 @@ final class FreeSessionsViewModel: ObservableObject {
         myUid: String,
         myName: String
     ) {
-        self.branch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.groupKey = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.myUid = myUid.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanUid = myUid.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if self.branch != cleanBranch ||
+            self.groupKey != cleanGroup ||
+            self.myUid != cleanUid {
+            upcoming = []
+            closeDetails()
+        }
+
+        self.branch = cleanBranch
+        self.groupKey = cleanGroup
+        self.myUid = cleanUid
         self.myName = myName.trimmingCharacters(in: .whitespacesAndNewlines)
 
         bindUpcoming()
     }
 
     func bindUpcoming() {
+        let bindingID = UUID()
+        upcomingBindingID = bindingID
+
+        upcomingListener?.remove()
+        upcomingListener = nil
+
         guard !branch.isEmpty, !groupKey.isEmpty else {
             upcoming = []
             return
         }
 
-        upcomingListener?.remove()
         upcomingListener = repo.observeUpcoming(
             branch: branch,
             groupKey: groupKey,
             nowMillis: systemNowMillisCompat()
         ) { [weak self] items in
             DispatchQueue.main.async {
-                self?.upcoming = items
+                guard let self,
+                      self.upcomingBindingID == bindingID else { return }
+
+                self.upcoming = items
             }
         }
     }

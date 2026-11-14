@@ -13,6 +13,8 @@ struct KmiExamRunnerView: View {
     let onFinish: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("kmi_app_language") private var languageCode = "he"
 
     @State private var shuffledItems: [String]
     @State private var currentIndex: Int = 0
@@ -49,13 +51,12 @@ struct KmiExamRunnerView: View {
         )
     }
 
-    private var total: Int {
-        max(shuffledItems.count, 1)
-    }
+    private var isEnglish: Bool {
+        let code = languageCode
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
 
-    private var progress: Double {
-        guard !shuffledItems.isEmpty else { return 0 }
-        return Double(currentIndex + 1) / Double(total)
+        return code == "en" || code == "english"
     }
 
     private var currentItem: String {
@@ -134,7 +135,7 @@ struct KmiExamRunnerView: View {
     }
 
     private var timerColor: Color {
-        accent
+        KmiAppTheme.onSurfaceVariant(for: colorScheme)
     }
 
     private var isLastFiveSeconds: Bool {
@@ -158,11 +159,7 @@ struct KmiExamRunnerView: View {
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    Color(red: 0.97, green: 0.95, blue: 1.00),
-                    Color(red: 0.93, green: 0.89, blue: 1.00),
-                    Color(red: 0.89, green: 0.95, blue: 1.00)
-                ],
+                colors: KmiAppTheme.screenBackgroundColors(for: colorScheme),
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -181,6 +178,7 @@ struct KmiExamRunnerView: View {
                 .padding(.bottom, 20)
             }
         }
+        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
         .navigationBarBackButtonHidden(true)
         .toolbar(
             .hidden,
@@ -199,6 +197,7 @@ struct KmiExamRunnerView: View {
                 rawItem: currentItem,
                 displayItem: currentDisplayItem,
                 accent: accent,
+                isEnglish: isEnglish,
                 onClose: {
                     showHelp = false
                 }
@@ -213,32 +212,23 @@ struct KmiExamRunnerView: View {
             Spacer()
 
             Image(systemName: "exclamationmark.circle")
-                .font(.system(size: 34, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .kmiIconSize(34)
+                .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
+                .accessibilityHidden(true)
 
-            Text("אין תרגילים זמינים")
-                .font(.title3.weight(.heavy))
-                .foregroundStyle(Color.black.opacity(0.75))
+            Text(isEnglish ? "No exercises available" : "אין תרגילים זמינים")
+                .kmiTypography(.body)
+                .fontWeight(.heavy)
+                .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
                 .padding(.top, 8)
 
             Spacer()
 
-            Button {
-                finish()
-            } label: {
-                Text("סיום מבחן")
-                    .font(.headline.weight(.heavy))
-                    .foregroundStyle(Color.black.opacity(0.78))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(Color.white.opacity(0.88))
-                    )
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 20)
+            finishButton
+                .padding(.horizontal, 16)
+                .padding(.bottom, 20)
         }
     }
 
@@ -247,24 +237,31 @@ struct KmiExamRunnerView: View {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(subtitle)
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(Color.black.opacity(0.82))
+                        .kmiTypography(.body)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
 
-                    Text("תרגיל \(min(currentIndex + 1, shuffledItems.count)) מתוך \(shuffledItems.count)")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.gray)
+                    Text(
+                        isEnglish
+                            ? "Exercise \(min(currentIndex + 1, shuffledItems.count)) of \(shuffledItems.count)"
+                            : "תרגיל \(min(currentIndex + 1, shuffledItems.count)) מתוך \(shuffledItems.count)"
+                    )
+                    .kmiTypography(.secondary)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
                 }
 
                 Spacer()
 
                 Text(String(format: "%02d", timeLeft))
-                    .font(.title3.weight(.heavy))
+                    .kmiFont(size: 20, weight: .heavy)
+                    .monospacedDigit()
                     .foregroundStyle(timerColor)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 7)
                     .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color.white.opacity(0.92))
+                        KmiAppTheme.surfaceVariant(for: colorScheme),
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
                     )
                     .scaleEffect(
                         isLastFiveSeconds
@@ -277,63 +274,27 @@ struct KmiExamRunnerView: View {
                     )
             }
 
-            ProgressView(value: progress)
-                .tint(accent)
-                .scaleEffect(x: 1, y: 1.3, anchor: .center)
-                .animation(.easeInOut(duration: 0.25), value: progress)
-            
-            ScrollViewReader { proxy in
-                ScrollView(
-                    .horizontal,
-                    showsIndicators: false
-                ) {
-                    HStack(spacing: 6) {
-                        ForEach(
-                            Array(shuffledItems.indices),
-                            id: \.self
-                        ) { idx in
-                            RoundedRectangle(
-                                cornerRadius: 999,
-                                style: .continuous
-                            )
-                            .fill(
-                                idx == currentIndex
-                                ? accent
-                                : accent.opacity(0.25)
-                            )
-                            .frame(
-                                width: idx == currentIndex
-                                ? 28
-                                : 14,
-                                height: 6
-                            )
-                            .id(idx)
-                            .animation(
-                                .easeInOut(duration: 0.20),
-                                value: currentIndex
-                            )
-                        }
-                    }
-                    .padding(.horizontal, 2)
-                }
-                .frame(maxWidth: .infinity)
-                .onChange(of: currentIndex) { _, newIndex in
-                    withAnimation(
-                        .easeInOut(duration: 0.25)
-                    ) {
-                        proxy.scrollTo(
-                            newIndex,
-                            anchor: .center
-                        )
-                    }
-                }
-            }
+            PracticeExerciseProgressDots(
+                beltColor: accent,
+                currentIndex: currentIndex,
+                totalCount: shuffledItems.count,
+                isEnglish: isEnglish
+            )
+            .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
         }
         .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(accent.opacity(0.10))
+            KmiAppTheme.surface(for: colorScheme),
+            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
         )
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(
+                    KmiAppTheme.outlineVariant(for: colorScheme),
+                    lineWidth: 1
+                )
+                .allowsHitTesting(false)
+        }
     }
 
     private var questionCard: some View {
@@ -346,33 +307,47 @@ struct KmiExamRunnerView: View {
                         .font(.system(size: 42, weight: .bold))
                         .foregroundStyle(accent)
 
-                    Text("המבחן הסתיים")
-                        .font(.system(size: 26, weight: .black))
-                        .foregroundStyle(
-                            Color.black.opacity(0.84)
-                        )
+                    Text(isEnglish ? "Exam complete" : "המבחן הסתיים")
+                        .kmiFont(size: 26, weight: .black)
+                        .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
 
-                    Text("עברת על כל תרגילי המבחן")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color.gray)
+                    Text(
+                        isEnglish
+                            ? "You went through all the exam exercises"
+                            : "עברת על כל תרגילי המבחן"
+                    )
+                    .kmiTypography(.secondary)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
                 }
                 .frame(maxWidth: .infinity)
             } else if examStarted {
-                Text(currentDisplayItem)
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(Color.black.opacity(0.84))
+                Text(KmiEnglishTitleResolver.title(
+                    for: currentDisplayItem,
+                    isEnglish: isEnglish
+                ))
+                .kmiFont(size: 22, weight: .bold)
+                .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 8)
             } else {
                 VStack(spacing: 12) {
-                    Text("המבחן מתחיל")
-                        .font(.system(size: 26, weight: .bold))
-                        .foregroundStyle(Color.black.opacity(0.82))
+                    Text(isEnglish ? "The exam is starting" : "המבחן מתחיל")
+                        .kmiFont(size: 26, weight: .bold)
+                        .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
+                        .multilineTextAlignment(.center)
 
-                    Text(isStartingCountdown ? "התכונן..." : "טוען מבחן...")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(Color.gray)
+                    Text(
+                        isStartingCountdown
+                            ? (isEnglish ? "Get ready..." : "התכונן...")
+                            : (isEnglish ? "Loading exam..." : "טוען מבחן...")
+                    )
+                    .kmiTypography(.secondary)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
+                    .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 8)
@@ -391,12 +366,16 @@ struct KmiExamRunnerView: View {
                     }
                 } label: {
                     Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(accent)
+                        .kmiIconSize(20)
+                        .fontWeight(.bold)
+                        .foregroundStyle(KmiAppTheme.onSecondaryContainer(for: colorScheme))
                         .frame(width: 50, height: 50)
-                        .background(
-                            Circle().fill(Color.white)
-                        )
+                        .background(KmiAppTheme.secondaryContainer(for: colorScheme), in: Circle())
+                        .accessibilityLabel(Text(
+                            isMuted
+                                ? (isEnglish ? "Unmute" : "הפעל שמע")
+                                : (isEnglish ? "Mute" : "השתק")
+                        ))
                 }
                 .buttonStyle(.plain)
                 .disabled(!examStarted)
@@ -405,27 +384,17 @@ struct KmiExamRunnerView: View {
                     guard examStarted else { return }
                     showHelp = true
                 } label: {
-                    Text("עזרה")
-                        .font(.headline.weight(.heavy))
-                        .foregroundStyle(accent)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 13)
+                    Text(isEnglish ? "Help" : "עזרה")
+                        .kmiTypography(.action)
+                        .fontWeight(.heavy)
+                        .foregroundStyle(KmiAppTheme.onSecondaryContainer(for: colorScheme))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .frame(minHeight: 48)
                         .background(
-                            RoundedRectangle(
-                                cornerRadius: 18,
-                                style: .continuous
-                            )
-                            .fill(Color.white)
-                        )
-                        .overlay(
-                            RoundedRectangle(
-                                cornerRadius: 18,
-                                style: .continuous
-                            )
-                            .stroke(
-                                accent.opacity(0.35),
-                                lineWidth: 1
-                            )
+                            KmiAppTheme.secondaryContainer(for: colorScheme),
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
                         )
                 }
                 .buttonStyle(.plain)
@@ -442,17 +411,17 @@ struct KmiExamRunnerView: View {
                 Button {
                     skipToNext()
                 } label: {
-                    Text("דלג")
-                        .font(.headline.weight(.heavy))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
+                    Text(isEnglish ? "Skip" : "דלג")
+                        .kmiTypography(.action)
+                        .fontWeight(.heavy)
+                        .foregroundStyle(KmiAppTheme.onPrimary(for: colorScheme))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, minHeight: 48)
                         .background(
-                            RoundedRectangle(
-                                cornerRadius: 18,
-                                style: .continuous
-                            )
-                            .fill(accent.opacity(0.92))
+                            KmiAppTheme.primary(for: colorScheme),
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
                         )
                 }
                 .buttonStyle(.plain)
@@ -464,9 +433,14 @@ struct KmiExamRunnerView: View {
         .frame(maxWidth: .infinity)
         .frame(maxHeight: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(Color.white)
+            KmiAppTheme.surface(for: colorScheme),
+            in: RoundedRectangle(cornerRadius: 26, style: .continuous)
         )
+        .overlay {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .strokeBorder(KmiAppTheme.outlineVariant(for: colorScheme), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
         .contentShape(
             RoundedRectangle(
                 cornerRadius: 26,
@@ -484,17 +458,18 @@ struct KmiExamRunnerView: View {
     }
 
     private var finishButton: some View {
-        Button {
-            finish()
-        } label: {
-            Text("סיום מבחן")
-                .font(.headline.weight(.heavy))
-                .foregroundStyle(Color.black.opacity(0.78))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
+        Button(action: finish) {
+            Text(isEnglish ? "Finish exam" : "סיום מבחן")
+                .kmiTypography(.action)
+                .fontWeight(.heavy)
+                .foregroundStyle(KmiAppTheme.onPrimaryContainer(for: colorScheme))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, minHeight: 48)
                 .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color.white.opacity(0.90))
+                    KmiAppTheme.primaryContainer(for: colorScheme),
+                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
                 )
         }
         .buttonStyle(.plain)
@@ -756,11 +731,13 @@ struct KmiExamRunnerView: View {
 }
 
 private struct KmiExamHelpSheet: View {
+    @Environment(\.colorScheme) private var colorScheme
 
     let belt: Belt
     let rawItem: String
     let displayItem: String
     let accent: Color
+    let isEnglish: Bool
     let onClose: () -> Void
 
     @State private var favoriteIds: Set<String> = {
@@ -808,7 +785,7 @@ private struct KmiExamHelpSheet: View {
                 belt: belt,
                 topic: "",
                 item: rawItem,
-                isEnglish: false
+                isEnglish: isEnglish
             )
             .trimmingCharacters(
                 in: .whitespacesAndNewlines
@@ -824,29 +801,21 @@ private struct KmiExamHelpSheet: View {
                 belt: belt,
                 topic: "",
                 item: displayItem,
-                isEnglish: false
+                isEnglish: isEnglish
             )
             .trimmingCharacters(
                 in: .whitespacesAndNewlines
             )
 
         return fallback.isEmpty
-            ? "אין כרגע הסבר לתרגיל הזה."
+            ? (isEnglish ? "No explanation is available for this exercise." : "אין כרגע הסבר לתרגיל הזה.")
             : fallback
     }
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    Color.white,
-                    accent.opacity(0.08),
-                    Color.white
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            KmiAppTheme.surface(for: colorScheme)
+                .ignoresSafeArea()
 
             VStack(spacing: 16) {
                 HStack(spacing: 12) {
@@ -871,21 +840,14 @@ private struct KmiExamHelpSheet: View {
                     }
                     .buttonStyle(.plain)
 
-                    Text(displayItem)
-                        .font(
-                            .system(
-                                size: 20,
-                                weight: .black
-                            )
-                        )
-                        .foregroundStyle(
-                            Color.black.opacity(0.86)
-                        )
-                        .multilineTextAlignment(.trailing)
-                        .frame(
-                            maxWidth: .infinity,
-                            alignment: .trailing
-                        )
+                    Text(KmiEnglishTitleResolver.title(
+                        for: displayItem,
+                        isEnglish: isEnglish
+                    ))
+                    .kmiFont(size: 20, weight: .black)
+                    .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button {
                         toggleFavorite()
@@ -914,11 +876,11 @@ private struct KmiExamHelpSheet: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(
+                    .accessibilityLabel(Text(
                         isFavorite
-                        ? "הסר ממועדפים"
-                        : "הוסף למועדפים"
-                    )
+                            ? (isEnglish ? "Remove from favorites" : "הסר ממועדפים")
+                            : (isEnglish ? "Add to favorites" : "הוסף למועדפים")
+                    ))
                 }
 
                 Text("חגורה \(belt.heb)")
@@ -931,28 +893,16 @@ private struct KmiExamHelpSheet: View {
 
                 ScrollView {
                     Text(explanation)
-                        .font(
-                            .system(
-                                size: 16,
-                                weight: .semibold
-                            )
-                        )
-                        .foregroundStyle(
-                            Color.black.opacity(0.76)
-                        )
+                        .kmiTypography(.body)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
                         .lineSpacing(5)
-                        .multilineTextAlignment(.trailing)
-                        .frame(
-                            maxWidth: .infinity,
-                            alignment: .trailing
-                        )
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(16)
                         .background(
-                            RoundedRectangle(
-                                cornerRadius: 24,
-                                style: .continuous
-                            )
-                            .fill(Color.white.opacity(0.97))
+                            KmiAppTheme.surfaceVariant(for: colorScheme),
+                            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
                         )
                         .overlay(
                             RoundedRectangle(
@@ -970,6 +920,6 @@ private struct KmiExamHelpSheet: View {
             }
             .padding(18)
         }
-        .environment(\.layoutDirection, .rightToLeft)
+        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
     }
 }

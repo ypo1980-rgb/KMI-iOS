@@ -1,5 +1,7 @@
 import SwiftUI
+import Combine
 import UIKit
+import MapKit
 import Shared
 
 private func kmiFreeAdaptiveColor(
@@ -172,6 +174,8 @@ struct FreeSessionsView: View {
     let currentUid: String
     let currentName: String
 
+    @EnvironmentObject private var auth: AuthViewModel
+
     @Environment(\.colorScheme)
     private var colorScheme
 
@@ -241,12 +245,90 @@ struct FreeSessionsView: View {
     @State private var createErrorMessage: String?
     @State private var createTitle = ""
     @State private var createLocation = ""
+    @State private var chosenBranch = ""
+    @State private var chosenGroup = ""
+    @State private var selectedPlace: SessionPlace?
+    @State private var placeSuggestions: [SessionPlace] = []
+    @State private var suggestionsSearchID: [String] = []
     @State private var createDate = Date().addingTimeInterval(3600)
+
+    private struct SessionPlace: Identifiable {
+        let name: String
+        let coordinate: CLLocationCoordinate2D
+
+        var id: String {
+            "\(coordinate.latitude),\(coordinate.longitude)|\(name)"
+        }
+    }
+
+    private var groupsByBranch: [String: [String]] {
+        var result: [String: [String]] = [:]
+
+        for assignment in auth.userBranchAssignments {
+            let name = assignment.branch.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { continue }
+
+            for value in assignment.groups {
+                let group = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !group.isEmpty else { continue }
+
+                if !result[name, default: []].contains(group) {
+                    result[name, default: []].append(group)
+                }
+            }
+        }
+
+        if auth.userBranchAssignments.isEmpty {
+            let name = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+            let group = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty, !group.isEmpty {
+                result[name] = [group]
+            }
+        }
+
+        return result
+    }
+
+    private var branchOptions: [String] {
+        groupsByBranch.keys.sorted()
+    }
+
+    private var activeBranch: String {
+        if branchOptions.contains(chosenBranch) { return chosenBranch }
+
+        let initial = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        return branchOptions.contains(initial) ? initial : (branchOptions.first ?? "")
+    }
+
+    private var groupOptions: [String] {
+        groupsByBranch[activeBranch] ?? []
+    }
+
+    private var activeGroup: String {
+        if groupOptions.contains(chosenGroup) { return chosenGroup }
+
+        let initial = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        return groupOptions.contains(initial) ? initial : (groupOptions.first ?? "")
+    }
+
+    private var placeSearchID: [String] {
+        [
+            activeBranch,
+            createLocation.trimmingCharacters(in: .whitespacesAndNewlines),
+            selectedPlace?.id ?? ""
+        ]
+    }
     @State private var showCreateDatePicker = false
     @State private var showCreateTimePicker = false
     
     @State private var pendingDelete: FreeSession?
-    
+    @State private var freeSessionsPDF: FreeSessionsPDFShareItem?
+
+    private struct FreeSessionsPDFShareItem: Identifiable {
+        let url: URL
+        var id: URL { url }
+    }
+
     var body: some View {
         ZStack {
             LinearGradient(
@@ -418,10 +500,28 @@ struct FreeSessionsView: View {
                 .interactiveDismissDisabled(vm.isLoading)
         }
       
-        .task {
+        .sheet(item: $freeSessionsPDF) { item in
+            KmiShareSheet(items: [item.url])
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name("KMI_FREE_SESSIONS_SHARE_PDF")
+            )
+        ) { _ in
+            guard !showCreateDialog,
+                  !vm.isLoading,
+                  vm.selectedSession == nil,
+                  pendingDelete == nil,
+                  freeSessionsPDF == nil else { return }
+
+            shareFreeSessionsPDF()
+        }
+        .task(id: [activeBranch, activeGroup, currentUid, currentName]) {
             vm.setContext(
-                branch: branch,
-                groupKey: groupKey,
+                branch: activeBranch,
+                groupKey: activeGroup,
                 myUid: currentUid,
                 myName: currentName
             )
@@ -434,26 +534,25 @@ struct FreeSessionsView: View {
     
     private var headerCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(
-                isEnglish
-                    ? "Branch: \(branch.trimmingCharacters(in: .whitespacesAndNewlines))"
-                    : "סניף: \(branch.trimmingCharacters(in: .whitespacesAndNewlines))"
-            )
-            .kmiFont(size: 14, weight: .heavy)
-            .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
-            .frame(
-                maxWidth: .infinity,
-                alignment: screenFrameAlignment
-            )
-            .multilineTextAlignment(screenTextAlignment)
-            .lineLimit(2)
-            .minimumScaleFactor(0.75)
+            let branchLabel = activeBranch.isEmpty
+                ? "—"
+                : TrainingCatalogIOS.displayBranch(activeBranch, isEnglish: isEnglish)
+            let groupLabel = activeGroup.isEmpty
+                ? "—"
+                : TrainingCatalogIOS.displayGroup(activeGroup, isEnglish: isEnglish)
 
-            Text(
-                isEnglish
-                    ? "Group: \(groupKey.trimmingCharacters(in: .whitespacesAndNewlines))"
-                    : "קבוצה: \(groupKey.trimmingCharacters(in: .whitespacesAndNewlines))"
-            )
+            Text(tr("סניף: \(branchLabel)", "Branch: \(branchLabel)"))
+                .kmiFont(size: 14, weight: .heavy)
+                .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: screenFrameAlignment
+                )
+                .multilineTextAlignment(screenTextAlignment)
+                .lineLimit(2)
+                .minimumScaleFactor(0.75)
+
+            Text(tr("קבוצה: \(groupLabel)", "Group: \(groupLabel)"))
             .kmiFont(size: 14, weight: .heavy)
             .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
             .frame(
@@ -629,6 +728,47 @@ struct FreeSessionsView: View {
                         Divider()
                             .overlay(KmiAppTheme.outlineVariant(for: colorScheme))
                             .accessibilityHidden(true)
+
+                        KmiPremiumDropdown(
+                            title: tr("סניף", "Branch"),
+                            options: branchOptions,
+                            selectedValue: Binding(
+                                get: { activeBranch },
+                                set: { value in
+                                    guard branchOptions.contains(value),
+                                          value != activeBranch else { return }
+
+                                    chosenBranch = value
+                                    chosenGroup = groupsByBranch[value]?.first ?? ""
+                                }
+                            ),
+                            placeholder: tr("אין סניף משויך", "No assigned branch"),
+                            isEnglish: isEnglish,
+                            isEnabled: branchOptions.count > 1 && !vm.isLoading,
+                            labelForOption: {
+                                TrainingCatalogIOS.displayBranch($0, isEnglish: isEnglish)
+                            },
+                            titleInsideField: true
+                        )
+
+                        KmiPremiumDropdown(
+                            title: tr("קבוצה", "Group"),
+                            options: groupOptions,
+                            selectedValue: Binding(
+                                get: { activeGroup },
+                                set: { value in
+                                    guard groupOptions.contains(value) else { return }
+                                    chosenGroup = value
+                                }
+                            ),
+                            placeholder: tr("אין קבוצה משויכת", "No assigned group"),
+                            isEnglish: isEnglish,
+                            isEnabled: groupOptions.count > 1 && !vm.isLoading,
+                            labelForOption: {
+                                TrainingCatalogIOS.displayGroup($0, isEnglish: isEnglish)
+                            },
+                            titleInsideField: true
+                        )
                         
                         VStack(
                             alignment: isEnglish ? .leading : .trailing,
@@ -712,6 +852,23 @@ struct FreeSessionsView: View {
                                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                                     .strokeBorder(KmiAppTheme.outlineVariant(for: colorScheme))
                                     .allowsHitTesting(false)
+                            }
+
+                            if selectedPlace == nil, suggestionsSearchID == placeSearchID {
+                                ForEach(placeSuggestions) { place in
+                                    Button {
+                                        selectedPlace = place
+                                        createLocation = place.name
+                                    } label: {
+                                        Label(place.name, systemImage: "mappin.circle")
+                                            .kmiFont(size: 13, weight: .semibold)
+                                            .multilineTextAlignment(.leading)
+                                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .foregroundStyle(KmiAppTheme.primary(for: colorScheme))
+                                }
                             }
                         }
                         
@@ -881,14 +1038,39 @@ struct FreeSessionsView: View {
                                     return
                                 }
 
-                                Task {
-                                    let cleanLocation = createLocation
-                                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                                guard !activeBranch.isEmpty, !activeGroup.isEmpty else {
+                                    createErrorMessage = tr(
+                                        "יש לבחור סניף וקבוצה משויכים.",
+                                        "Select an assigned branch and group."
+                                    )
+                                    return
+                                }
+
+                                let sessionBranch = activeBranch
+                                let sessionGroup = activeGroup
+                                let place = selectedPlace
+                                let cleanLocation = createLocation
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                                let startsAt = Int64(createDate.timeIntervalSince1970 * 1000)
+
+                                Task { @MainActor in
+                                    guard !vm.isLoading,
+                                          activeBranch == sessionBranch,
+                                          activeGroup == sessionGroup else { return }
+
+                                    vm.setContext(
+                                        branch: sessionBranch,
+                                        groupKey: sessionGroup,
+                                        myUid: currentUid,
+                                        myName: currentName
+                                    )
 
                                     let created = await vm.createSession(
                                         title: cleanTitle,
                                         locationName: cleanLocation.isEmpty ? nil : cleanLocation,
-                                        startsAt: Int64(createDate.timeIntervalSince1970 * 1000)
+                                        lat: place?.coordinate.latitude,
+                                        lng: place?.coordinate.longitude,
+                                        startsAt: startsAt
                                     )
 
                                     guard created else {
@@ -1026,25 +1208,336 @@ struct FreeSessionsView: View {
     private var createLocationTextField: some View {
         TextField(
             "",
-            text: $createLocation,
+            text: Binding(
+                get: { createLocation },
+                set: { value in
+                    guard value != createLocation else { return }
+                    selectedPlace = nil
+                    placeSuggestions = []
+                    suggestionsSearchID = []
+                    createLocation = value
+                }
+            ),
             prompt: Text(
                 tr(
                     "הקלד מקום, כתובת או עיר",
                     "Enter a location, address or city"
                 )
             )
-            .foregroundStyle(kmiFreeSubText)
+            .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
         )
         .textFieldStyle(.plain)
         .kmiFont(size: 16, weight: .heavy)
-        .foregroundStyle(kmiFreeText)
+        .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
         .multilineTextAlignment(screenTextAlignment)
+        .task(id: placeSearchID) {
+            let searchID = placeSearchID
+            await loadPlaceSuggestions(for: searchID)
+        }
     }
-    
+
+    @MainActor
+    private func loadPlaceSuggestions(for searchID: [String]) async {
+        let query = createLocation.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard selectedPlace == nil, query.count >= 3 else { return }
+
+        do {
+            try await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled, searchID == placeSearchID else { return }
+
+            let request = MKLocalSearch.Request()
+            request.naturalLanguageQuery = query
+            let response = try await MKLocalSearch(request: request).start()
+
+            guard !Task.isCancelled, searchID == placeSearchID else { return }
+
+            var seen = Set<String>()
+            let results = response.mapItems.compactMap { item -> SessionPlace? in
+                let name = item.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let address = [
+                    item.placemark.thoroughfare,
+                    item.placemark.locality
+                ]
+                .compactMap { $0 }
+                .joined(separator: ", ")
+                let label = [name, address].filter { !$0.isEmpty }.joined(separator: " · ")
+                let coordinate = item.placemark.coordinate
+                guard !label.isEmpty, CLLocationCoordinate2DIsValid(coordinate) else {
+                    return nil
+                }
+
+                let place = SessionPlace(name: label, coordinate: coordinate)
+                return seen.insert(place.id).inserted ? place : nil
+            }
+
+            placeSuggestions = Array(results.prefix(5))
+            suggestionsSearchID = searchID
+        } catch {
+            guard !Task.isCancelled, searchID == placeSearchID else { return }
+            placeSuggestions = []
+            suggestionsSearchID = searchID
+        }
+    }
+
+    @MainActor
+    private func shareFreeSessionsPDF() {
+        do {
+            let url = try makeFreeSessionsPDF(sessions: vm.upcoming)
+            freeSessionsPDF = FreeSessionsPDFShareItem(url: url)
+        } catch {
+            vm.errorMessage = tr(
+                "לא ניתן היה ליצור את דוח האימונים החופשיים.",
+                "Could not create the free sessions report."
+            )
+        }
+    }
+
+    @MainActor
+    private func makeFreeSessionsPDF(sessions: [FreeSession]) throws -> URL {
+        let page = CGRect(x: 0, y: 0, width: 595, height: 842)
+        let margin: CGFloat = 32
+        let contentWidth = page.width - 2 * margin
+        let contentBottom = page.height - KmiPdfFooter.CONTENT_BOTTOM_PADDING
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = isEnglish ? .left : .right
+        paragraph.baseWritingDirection = isEnglish ? .leftToRight : .rightToLeft
+        paragraph.lineBreakMode = .byTruncatingTail
+
+        let bodyColor = UIColor(KmiAppTheme.onSurface(for: .light))
+        let cardColor = UIColor(KmiAppTheme.surfaceVariant(for: .light))
+        let borderColor = UIColor(KmiAppTheme.outlineVariant(for: .light))
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale = Locale(identifier: isEnglish ? "en_US" : "he_IL")
+        dateFormatter.dateFormat = "dd/MM/yyyy · HH:mm"
+
+        let branchLabel = activeBranch.isEmpty
+            ? "—"
+            : TrainingCatalogIOS.displayBranch(activeBranch, isEnglish: isEnglish)
+        let groupLabel = activeGroup.isEmpty
+            ? "—"
+            : TrainingCatalogIOS.displayGroup(activeGroup, isEnglish: isEnglish)
+
+        let renderer = UIGraphicsPDFRenderer(bounds: page)
+        let data = renderer.pdfData { output in
+            var pageNumber = 0
+            var y: CGFloat = 0
+
+            func drawLine(
+                _ text: String,
+                x: CGFloat,
+                y: CGFloat,
+                width: CGFloat,
+                font: UIFont
+            ) {
+                let rect = CGRect(x: x, y: y, width: width, height: ceil(font.lineHeight) + 2)
+                (text as NSString).draw(
+                    with: rect,
+                    options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                    attributes: [
+                        .font: font,
+                        .foregroundColor: bodyColor,
+                        .paragraphStyle: paragraph
+                    ],
+                    context: nil
+                )
+            }
+
+            func cardText(
+                _ text: String,
+                font: UIFont
+            ) -> NSAttributedString {
+                let style = NSMutableParagraphStyle()
+                style.alignment = paragraph.alignment
+                style.baseWritingDirection = paragraph.baseWritingDirection
+                style.lineBreakMode = .byWordWrapping
+
+                return NSAttributedString(
+                    string: text,
+                    attributes: [
+                        .font: font,
+                        .foregroundColor: bodyColor,
+                        .paragraphStyle: style
+                    ]
+                )
+            }
+
+            let textDrawingOptions: NSStringDrawingOptions = [
+                .usesLineFragmentOrigin,
+                .usesFontLeading
+            ]
+
+            func measuredHeight(_ text: NSAttributedString, width: CGFloat) -> CGFloat {
+                ceil(text.boundingRect(
+                    with: CGSize(width: width, height: .greatestFiniteMagnitude),
+                    options: textDrawingOptions,
+                    context: nil
+                ).height)
+            }
+
+            func drawFooter() {
+                KmiPdfFooter.draw(
+                    context: output.cgContext,
+                    pageWidth: page.width,
+                    pageHeight: page.height,
+                    pageNumber: pageNumber,
+                    isEnglish: isEnglish
+                )
+            }
+
+            func beginPage() {
+                if pageNumber > 0 {
+                    drawFooter()
+                }
+
+                output.beginPage()
+                pageNumber += 1
+
+                KmiPdfHeader.draw(
+                    context: output.cgContext,
+                    pageWidth: page.width,
+                    isEnglish: isEnglish,
+                    titleHebrew: "אימונים חופשיים",
+                    titleEnglish: "Free Sessions",
+                    subtitleHebrew: "רשימת האימונים החופשיים הפעילים",
+                    subtitleEnglish: "Active free sessions"
+                )
+
+                y = KmiPdfHeader.CONTENT_TOP
+            }
+
+            beginPage()
+
+            let summary = [
+                tr("סניף: \(branchLabel)", "Branch: \(branchLabel)"),
+                tr("קבוצה: \(groupLabel)", "Group: \(groupLabel)"),
+                tr("מספר אימונים: \(sessions.count)", "Sessions: \(sessions.count)")
+            ]
+
+            for line in summary {
+                drawLine(line, x: margin, y: y, width: contentWidth,
+                         font: .systemFont(ofSize: 12, weight: .semibold))
+                y += 20
+            }
+            y += 6
+
+            if sessions.isEmpty {
+                drawLine(
+                    tr(
+                        "אין אימונים חופשיים מתוכננים כרגע.",
+                        "No free sessions are currently scheduled."
+                    ),
+                    x: margin,
+                    y: y,
+                    width: contentWidth,
+                    font: .systemFont(ofSize: 12)
+                )
+            }
+
+            for (index, session) in sessions.enumerated() {
+                let location = session.locationName?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let textWidth = contentWidth - 24
+                let titleFont = UIFont.systemFont(ofSize: 14, weight: .bold)
+                let detailFont = UIFont.systemFont(ofSize: 11)
+                let detailLineHeight = ceil(detailFont.lineHeight) + 2
+
+                let title = "\(index + 1). \(session.title)"
+                let locationLine = tr("מקום: \(location)", "Location: \(location)")
+                let wrappedTitle = cardText(title, font: titleFont)
+                let wrappedLocation = cardText(locationLine, font: detailFont)
+
+                let locationHeight = location.isEmpty
+                    ? 0
+                    : min(
+                        measuredHeight(wrappedLocation, width: textWidth) + 2,
+                        2 * detailLineHeight
+                    )
+                let fixedHeight: CGFloat = 22 + 36 + (location.isEmpty ? 0 : 2)
+                let maxTitleHeight = max(
+                    ceil(titleFont.lineHeight) + 2,
+                    contentBottom - KmiPdfHeader.CONTENT_TOP - fixedHeight - locationHeight
+                )
+                let fullTitleHeight = measuredHeight(wrappedTitle, width: textWidth) + 2
+                let titleHeight = min(fullTitleHeight, maxTitleHeight)
+                let cardHeight = fixedHeight + titleHeight + locationHeight
+
+                if y + cardHeight > contentBottom {
+                    beginPage()
+                }
+
+                let rect = CGRect(x: margin, y: y, width: contentWidth, height: cardHeight)
+                let path = UIBezierPath(roundedRect: rect, cornerRadius: 14)
+                cardColor.setFill()
+                path.fill()
+                borderColor.setStroke()
+                path.lineWidth = 0.75
+                path.stroke()
+
+                let date = Date(timeIntervalSince1970: TimeInterval(session.startsAt) / 1_000)
+                let time = dateFormatter.string(from: date)
+                let count = session.goingCount + session.onWayCount
+                    + session.arrivedCount + session.cantCount
+
+                let x = rect.minX + 12
+                let titleY = rect.minY + 10
+
+                wrappedTitle.draw(
+                    with: CGRect(x: x, y: titleY, width: textWidth, height: titleHeight),
+                    options: textDrawingOptions.union(.truncatesLastVisibleLine),
+                    context: nil
+                )
+
+                let detailsY = titleY + titleHeight + 2
+                drawLine(
+                    tr("שעה: \(time)", "Time: \(time)"),
+                    x: x, y: detailsY, width: textWidth, font: detailFont
+                )
+                drawLine(
+                    tr("משתתפים: \(count)", "Participants: \(count)"),
+                    x: x, y: detailsY + 18, width: textWidth, font: detailFont
+                )
+
+                if !location.isEmpty {
+                    wrappedLocation.draw(
+                        with: CGRect(
+                            x: x, y: detailsY + 36,
+                            width: textWidth, height: locationHeight
+                        ),
+                        options: textDrawingOptions.union(.truncatesLastVisibleLine),
+                        context: nil
+                    )
+                }
+
+                y = rect.maxY + 12
+            }
+
+            drawFooter()
+        }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("free_sessions_pdfs", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+
+        let url = directory.appendingPathComponent(
+            tr("אימונים חופשיים.pdf", "Free Sessions.pdf")
+        )
+        try data.write(to: url, options: .atomic)
+        return url
+    }
+
     private func resetCreateForm() {
         createErrorMessage = nil
         createTitle = ""
         createLocation = ""
+        selectedPlace = nil
+        placeSuggestions = []
+        suggestionsSearchID = []
         createDate = Calendar.current.date(
             byAdding: .hour,
             value: 1,
@@ -1065,8 +1558,18 @@ private struct FreeSessionCard: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
 
+    @ObservedObject private var demoPrivacy = DemoPrivacy.shared
+
     @Environment(\.colorScheme)
     private var colorScheme
+
+    private var displayedCreatorName: String {
+        if demoPrivacy.isEnabled {
+            return isEnglish ? "User" : "משתמש"
+        }
+
+        return session.createdByName
+    }
 
     private var isDarkMode: Bool {
         colorScheme == .dark
@@ -1177,11 +1680,11 @@ private struct FreeSessionCard: View {
 
             Text(
                 isEnglish
-                    ? "Created by \(session.createdByName)"
-                    : "נוצר ע״י \(session.createdByName)"
+                    ? "Created by \(displayedCreatorName)"
+                    : "נוצר ע״י \(displayedCreatorName)"
             )
             .kmiFont(size: 12, weight: .bold)
-            .foregroundStyle(kmiFreeSubText)
+            .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
             .frame(
                 maxWidth: .infinity,
                 alignment: cardFrameAlignment

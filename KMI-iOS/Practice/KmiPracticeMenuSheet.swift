@@ -21,6 +21,7 @@ struct KmiPracticeMenuSheet: View {
 
     let onDismiss: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var showsTopicPicker =
         false
 
@@ -96,25 +97,9 @@ struct KmiPracticeMenuSheet: View {
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    Color(
-                        red: 0.97,
-                        green: 0.95,
-                        blue: 0.98
-                    ),
-                    Color(
-                        red: 0.94,
-                        green: 0.91,
-                        blue: 0.97
-                    ),
-                    Color(
-                        red: 0.98,
-                        green: 0.96,
-                        blue: 0.99
-                    )
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                colors: KmiAppTheme.screenBackgroundColors(for: colorScheme),
+                startPoint: .top,
+                endPoint: .bottom
             )
             .ignoresSafeArea()
 
@@ -135,7 +120,14 @@ struct KmiPracticeMenuSheet: View {
                         )
                     )
             } else {
-                mainMenuContent
+                VStack(spacing: 0) {
+                    practicePathHeader
+
+                    ScrollView(showsIndicators: false) {
+                        mainMenuContent
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .transition(
                         .asymmetric(
                             insertion:
@@ -158,33 +150,41 @@ struct KmiPracticeMenuSheet: View {
         )
     }
 
-    private var mainMenuContent:
-        some View {
-        VStack(spacing: 16) {
-            premiumHeader(
-                title:
-                    tr(
-                        "תרגול",
-                        "Practice"
-                    ),
-                subtitle:
-                    tr(
-                        "בחר פעולה כדי להתחיל",
-                        "Choose an action to begin"
-                    ),
-                systemImage:
-                    "figure.martial.arts",
-                headerAccent:
-                    accent
-            )
+    private var practicePathHeader: some View {
+        VStack(spacing: 2) {
+            Text(tr("בחרו את מסלול התרגול", "Choose your practice path"))
+                .kmiTypography(.body)
+                .fontWeight(.black)
+                .accessibilityAddTraits(.isHeader)
 
-            VStack(spacing: 12) {
+            Text(tr(
+                "שפרו את היכולות שלכם, צעד אחר צעד",
+                "Improve your skills, step by step"
+            ))
+            .kmiTypography(.secondary)
+            .fontWeight(.semibold)
+        }
+        .foregroundStyle(KmiAppTheme.sectionHeaderContentColor)
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity)
+        .background(KmiAppTheme.sectionHeaderBrush)
+    }
+
+    private var mainMenuContent: some View {
+        VStack(spacing: 16) {
                 actionRow(
                     title:
                         tr(
-                            "תרגול אקראי – (\(beltName))",
-                            "Random Practice – (\(beltName))"
+                            "תרגול אקראי",
+                            "Random practice"
                         ),
+                    subtitle: tr(
+                        "תרגול מגוון מכל חומר החגורה",
+                        "A varied practice from the belt material"
+                    ),
                     systemImage:
                         "dice.fill",
                     enabled:
@@ -198,9 +198,13 @@ struct KmiPracticeMenuSheet: View {
                 actionRow(
                     title:
                         tr(
-                            "מבחן מסכם – (\(beltName))",
-                            "Final Exam – (\(beltName))"
+                            "מבחן מסכם",
+                            "Final exam"
                         ),
+                    subtitle: tr(
+                        "בדיקת ידע והתקדמות בחגורה",
+                        "Test your belt knowledge and progress"
+                    ),
                     systemImage:
                         "checkmark.seal.fill",
                     enabled:
@@ -215,8 +219,12 @@ struct KmiPracticeMenuSheet: View {
                     title:
                         tr(
                             "תרגול לפי נושא",
-                            "Practice by Topic"
+                            "Practice by topic"
                         ),
+                    subtitle: tr(
+                        "בחירת חגורה ונושא",
+                        "Choose a belt and topic"
+                    ),
                     systemImage:
                         "list.bullet.rectangle.fill",
                     enabled:
@@ -233,41 +241,14 @@ struct KmiPracticeMenuSheet: View {
                     }
                 }
 
-                if !canUseExtras {
-                    subscriptionMessage
-                }
+            if !canUseExtras {
+                subscriptionMessage
             }
-            .padding(14)
-            .background(
-                RoundedRectangle(
-                    cornerRadius: 28,
-                    style: .continuous
-                )
-                .fill(
-                    Color.white.opacity(
-                        0.64
-                    )
-                )
-            )
-            .overlay(
-                RoundedRectangle(
-                    cornerRadius: 28,
-                    style: .continuous
-                )
-                .stroke(
-                    Color.black.opacity(
-                        0.08
-                    ),
-                    lineWidth: 1
-                )
-            )
-
-            closeButton
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 20)
+        .padding(.horizontal, 16)
+        .padding(.top, 28)
+        .padding(.bottom, 14)
     }
-
     private var topicPickerContent:
         some View {
         VStack(spacing: 16) {
@@ -417,43 +398,24 @@ struct KmiPracticeMenuSheet: View {
                         : .trailing
             )
 
-            Menu {
-                ForEach(
-                    availableBelts,
-                    id: \.self
-                ) { belt in
-                    Button {
-                        selectedBelt =
-                            belt
-                    } label: {
-                        Text(
-                            localizedBeltName(
-                                belt
-                            )
-                        )
+            KmiPremiumDropdown(
+                title: tr("חגורה", "Belt"),
+                options: availableBelts.map { localizedBeltName($0) },
+                selectedValue: Binding(
+                    get: { selectedBelt.map { localizedBeltName($0) } ?? "" },
+                    set: { value in
+                        guard let belt = availableBelts.first(where: {
+                            localizedBeltName($0) == value
+                        }) else { return }
+
+                        selectedBelt = belt
                     }
-                }
-            } label: {
-                pickerField(
-                    title:
-                        selectedBelt.map {
-                            localizedBeltName(
-                                $0
-                            )
-                        } ??
-                        tr(
-                            "בחר חגורה",
-                            "Choose Belt"
-                        ),
-                    systemImage:
-                        "circle.fill",
-                    accent:
-                        selectedAccent,
-                    enabled:
-                        true
-                )
-            }
-            .buttonStyle(.plain)
+                ),
+                placeholder: tr("בחר חגורה", "Choose a belt"),
+                isEnglish: isEnglish,
+                isEnabled: true,
+                titleInsideField: true
+            )
         }
         .padding(16)
         .background(
@@ -683,6 +645,7 @@ struct KmiPracticeMenuSheet: View {
 
     private func actionRow(
         title: String,
+        subtitle: String,
         systemImage: String,
         enabled: Bool,
         action: @escaping () -> Void
@@ -696,58 +659,41 @@ struct KmiPracticeMenuSheet: View {
         } label: {
             HStack(spacing: 12) {
                 ZStack {
-                    Circle()
-                        .fill(
-                            accent.opacity(
-                                enabled
-                                    ? 0.11
-                                    : 0.06
-                            )
-                        )
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .fill(accent.opacity(enabled ? 0.13 : 0.06))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                                .strokeBorder(
+                                    accent.opacity(enabled ? 0.30 : 0.15),
+                                    lineWidth: 1
+                                )
+                        }
 
-                    Image(
-                        systemName:
-                            systemImage
-                    )
-                    .font(
-                        .system(
-                            size: 18,
-                            weight: .bold
+                    Image(systemName: systemImage)
+                        .kmiIconSize(23)
+                        .fontWeight(.bold)
+                        .foregroundStyle(
+                            enabled
+                                ? accent
+                                : KmiAppTheme.onSurfaceVariant(for: colorScheme).opacity(0.60)
                         )
-                    )
-                    .foregroundStyle(
-                        enabled
-                            ? accent
-                            : Color.gray
-                                .opacity(0.46)
-                    )
+                        .accessibilityHidden(true)
                 }
-                .frame(
-                    width: 44,
-                    height: 44
-                )
+                .frame(width: 46, height: 46)
 
-                Text(title)
-                    .font(
-                        .system(
-                            size: 16,
-                            weight: .semibold
-                        )
-                    )
-                    .foregroundStyle(
-                        enabled
-                            ? Color.black
-                                .opacity(0.82)
-                            : Color.gray
-                                .opacity(0.52)
-                    )
-                    .frame(
-                        maxWidth: .infinity,
-                        alignment:
-                            isEnglish
-                                ? .leading
-                                : .trailing
-                    )
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .kmiFont(size: 19, weight: .heavy)
+                        .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
+
+                    Text(subtitle)
+                        .kmiFont(size: 15, weight: .medium)
+                        .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
+                }
+                .opacity(enabled ? 1 : 0.60)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Image(
                     systemName:
@@ -773,35 +719,20 @@ struct KmiPracticeMenuSheet: View {
                 .horizontal,
                 14
             )
-            .padding(
-                .vertical,
-                10
-            )
+            .padding(.vertical, 13)
+            .frame(minHeight: 108)
             .background(
-                RoundedRectangle(
-                    cornerRadius: 22,
-                    style: .continuous
-                )
-                .fill(
-                    Color.white.opacity(
-                        enabled
-                            ? 0.86
-                            : 0.60
+                KmiAppTheme.surface(for: colorScheme)
+                    .opacity(enabled ? 1 : 0.65),
+                in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(
+                        KmiAppTheme.outlineVariant(for: colorScheme),
+                        lineWidth: 1
                     )
-                )
-            )
-            .overlay(
-                RoundedRectangle(
-                    cornerRadius: 22,
-                    style: .continuous
-                )
-                .stroke(
-                    Color.black.opacity(
-                        0.08
-                    ),
-                    lineWidth: 1
-                )
-            )
+            }
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
@@ -815,51 +746,23 @@ struct KmiPracticeMenuSheet: View {
                 "Practice options are available only with Extras or subscription access."
             )
         )
-        .font(
-            .system(
-                size: 13,
-                weight: .medium
-            )
-        )
-        .foregroundStyle(
-            Color.red.opacity(0.82)
-        )
-        .multilineTextAlignment(
-            isEnglish
-                ? .leading
-                : .trailing
-        )
-        .frame(
-            maxWidth: .infinity,
-            alignment:
-                isEnglish
-                    ? .leading
-                    : .trailing
-        )
+        .kmiTypography(.secondary)
+        .fontWeight(.medium)
+        .foregroundStyle(KmiAppTheme.error(for: colorScheme))
+        .multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(
-            RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
-            )
-            .fill(
-                Color.red.opacity(
-                    0.07
+            KmiAppTheme.error(for: colorScheme).opacity(0.08),
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(
+                    KmiAppTheme.error(for: colorScheme).opacity(0.18),
+                    lineWidth: 1
                 )
-            )
-        )
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
-            )
-            .stroke(
-                Color.red.opacity(
-                    0.17
-                ),
-                lineWidth: 1
-            )
-        )
+        }
     }
 
     private var closeButton:
@@ -1003,11 +906,7 @@ struct KmiPracticeMenuSheet: View {
             cornerRadius: 26,
             style: .continuous
         )
-        .fill(
-            Color.white.opacity(
-                0.70
-            )
-        )
+        .fill(KmiAppTheme.surface(for: colorScheme))
         .overlay(
             RoundedRectangle(
                 cornerRadius: 26,

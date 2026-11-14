@@ -215,18 +215,27 @@ final class KmiPushManager: NSObject {
         saveFcmToken(pending)
     }
 
-    func handleRemoteNotification(userInfo: [AnyHashable: Any]) {
+    func handleRemoteNotification(
+        userInfo: [AnyHashable: Any],
+        openedByUser: Bool = true
+    ) {
         lastPayload = userInfo
-
-        prepareForumPayloadIfNeeded(userInfo)
 
         guard let route = extractRoute(from: userInfo) else {
             return
         }
 
+        if route == "forum" {
+            guard openedByUser else { return }
+            prepareForumPayloadIfNeeded(userInfo)
+        }
+
         lastOpenedRoute = route
 
         guard let nav = KMI_iOS.AppNavModel.sharedInstance else {
+            if route == "forum" {
+                hasDeferredForumNavigation = true
+            }
             return
         }
 
@@ -241,14 +250,32 @@ final class KmiPushManager: NSObject {
             case "adminUsers":
                 nav.push(KMI_iOS.AppRoute.settings)
 
-            case "forum", "forumRoom", "forum_message", "forumMessage":
-                // הפורום יקרא את נתוני הפתיחה מ־UserDefaults.
-                // לא מוסיפים כאן AppRoute כדי לא לשבור Build אם שם ה־Route שונה בפרויקט.
-                break
+            case "forum":
+                self.openForum(using: nav)
 
             default:
                 break
             }
+        }
+    }
+
+    private var hasDeferredForumNavigation = false
+
+    func resumeDeferredForumNavigation(using nav: KMI_iOS.AppNavModel) {
+        guard hasDeferredForumNavigation else { return }
+        openForum(using: nav)
+    }
+
+    private func openForum(using nav: KMI_iOS.AppNavModel) {
+        hasDeferredForumNavigation = false
+
+        if nav.path.last == .forum {
+            NotificationCenter.default.post(
+                name: Notification.Name("KMI_FORUM_PUSH_OPEN_REQUEST"),
+                object: nil
+            )
+        } else {
+            nav.push(.forum)
         }
     }
 
@@ -439,7 +466,10 @@ extension KmiPushManager: UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         Task { @MainActor in
-            self.handleRemoteNotification(userInfo: notification.request.content.userInfo)
+            self.handleRemoteNotification(
+                userInfo: notification.request.content.userInfo,
+                openedByUser: false
+            )
         }
 
         completionHandler([.banner, .badge, .sound])

@@ -1,12 +1,18 @@
 import SwiftUI
 import FirebaseAuth
-import FirebaseFirestore
+import FirebaseFunctions
 import UIKit
 
 struct CoachBroadcastView: View {
 
     @EnvironmentObject
     private var auth: AuthViewModel
+
+    @EnvironmentObject
+    private var nav: AppNavModel
+
+    @State private var isBroadcastVisible = false
+    @State private var hasBroadcastLoadingRequest = false
 
     @ObservedObject
     private var demoPrivacy = DemoPrivacy.shared
@@ -26,6 +32,15 @@ struct CoachBroadcastView: View {
     @State private var isLoadingRecipients = false
 
     @State private var activeRecipientsRequestID = UUID()
+    @State private var loadedRecipientsContext: RecipientsContext?
+
+    private struct RecipientsContext: Equatable {
+        let uid: String
+        let region: String
+        let branch: String
+        let scope: String
+        let groups: [String]
+    }
 
     @State private var isPreloadingDefaults = false
 
@@ -71,11 +86,11 @@ struct CoachBroadcastView: View {
     }
 
     private var screenTextAlignment: TextAlignment {
-        isEnglish ? .leading : .trailing
+        .leading
     }
 
     private var screenFrameAlignment: Alignment {
-        isEnglish ? .leading : .trailing
+        .leading
     }
 
     private var normalizedThemeMode: String {
@@ -509,8 +524,8 @@ struct CoachBroadcastView: View {
                             demoIndex: index,
                             isEnglish: isEnglish
                         ),
-                    phone: recipient.phone,
-                    email: recipient.email,
+                    phone: demoPrivacy.isEnabled ? "" : recipient.phone,
+                    email: demoPrivacy.isEnabled ? "" : recipient.email,
                     selected: recipient.selected
                 )
 
@@ -610,6 +625,22 @@ struct CoachBroadcastView: View {
             .sorted()
     }
 
+    private var recipientsContext: RecipientsContext {
+        RecipientsContext(
+            uid: Auth.auth().currentUser?.uid ?? "",
+            region: region.trimmingCharacters(in: .whitespacesAndNewlines),
+            branch: branch.trimmingCharacters(in: .whitespacesAndNewlines),
+            scope: sendScope,
+            groups: effectiveGroupKeys
+        )
+    }
+
+    private var canUseLoadedRecipients: Bool {
+        isCoach &&
+            !isLoadingRecipients &&
+            loadedRecipientsContext == recipientsContext
+    }
+
     private var selectedGroupsSummary: String {
         effectiveGroupKeys.joined(separator: ", ")
     }
@@ -631,6 +662,23 @@ struct CoachBroadcastView: View {
             "שליחת הודעה ל-\(selectedRecipients.count) מתאמנים",
             "Send message to \(selectedRecipients.count) trainees"
         )
+    }
+
+    private var needsBroadcastLoading: Bool {
+        !isPreloadingDefaults && (isLoadingRecipients || isSending)
+    }
+
+    private func syncBroadcastLoading() {
+        let shouldRequestLoading = isBroadcastVisible && needsBroadcastLoading
+        guard shouldRequestLoading != hasBroadcastLoadingRequest else { return }
+
+        hasBroadcastLoadingRequest = shouldRequestLoading
+
+        if shouldRequestLoading {
+            nav.beginLoading()
+        } else {
+            nav.endLoading()
+        }
     }
 
     var body: some View {
@@ -695,7 +743,28 @@ struct CoachBroadcastView: View {
                             inputFormCard
                             audienceCard
                             recipientsCard
-                            selectedCountCard
+
+                            if !branch.isEmpty,
+                               !isLoadingRecipients,
+                               !isSending,
+                               !canUseLoadedRecipients {
+                                Button {
+                                    loadRecipients()
+                                } label: {
+                                    Label(
+                                        tr("טען נמענים מחדש", "Reload recipients"),
+                                        systemImage: "arrow.clockwise"
+                                    )
+                                    .kmiFont(size: 14, weight: .bold)
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(accentColor)
+                            }
+
+                            if canUseLoadedRecipients {
+                                selectedCountCard
+                            }
+
                             sendButtons
 
                         }
@@ -714,14 +783,6 @@ struct CoachBroadcastView: View {
                 }
 
             }
-
-            if
-                !isPreloadingDefaults &&
-                (isLoadingRecipients || isSending) {
-
-                KmiLoadingOverlay()
-
-            }
         }
 
         .environment(
@@ -732,14 +793,20 @@ struct CoachBroadcastView: View {
             preferredScreenColorScheme
         )
         .onAppear {
-
+            isBroadcastVisible = true
             activeRecipientsRequestID = UUID()
             isLoadingRecipients = false
 
             auth.reloadProfileIfSignedIn()
-
             preloadDefaults()
-
+            syncBroadcastLoading()
+        }
+        .onChange(of: needsBroadcastLoading) { _, _ in
+            syncBroadcastLoading()
+        }
+        .onDisappear {
+            isBroadcastVisible = false
+            syncBroadcastLoading()
         }
         .onChange(of: region) { _, _ in
 
@@ -884,11 +951,7 @@ struct CoachBroadcastView: View {
 
         }
         .sheet(item: $pdfShareItem) { item in
-
-            CoachBroadcastPdfShareSheet(
-                items: [item.url]
-            )
-
+            KmiShareSheet(items: [item.url])
         }
 
     }
@@ -959,10 +1022,7 @@ struct CoachBroadcastView: View {
     private var audienceCard: some View {
         Group {
             if !branch.isEmpty {
-                VStack(
-                    alignment: isEnglish ? .leading : .trailing,
-                    spacing: 12
-                ) {
+                VStack(alignment: .leading, spacing: 12) {
                     Text(
                         tr(
                             "בחירת קבוצות לשליחה",
@@ -1465,12 +1525,7 @@ struct CoachBroadcastView: View {
                 screenTextAlignment
             )
 
-            ZStack(
-                alignment:
-                    isEnglish
-                        ? .topLeading
-                        : .topTrailing
-            ) {
+            ZStack(alignment: .topLeading) {
 
                 if message.isEmpty {
 
@@ -1513,10 +1568,7 @@ struct CoachBroadcastView: View {
                 .frame(
                     maxWidth: .infinity,
                     minHeight: 112,
-                    alignment:
-                        isEnglish
-                            ? .topLeading
-                            : .topTrailing
+                    alignment: .topLeading
                 )
                 .scrollContentBackground(.hidden)
                 .padding(8)
@@ -1561,40 +1613,16 @@ struct CoachBroadcastView: View {
     }
 
     private var recipientsCard: some View {
-        VStack(
-            alignment: isEnglish ? .leading : .trailing,
-            spacing: 10
-        ) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                if isEnglish {
-                    Text(recipientsTitleText)
-                        .kmiFont(size: 14, weight: .bold)
-                        .foregroundStyle(primaryTextColor)
-                        .frame(
-                            maxWidth: .infinity,
-                            alignment: .leading
-                        )
-                        .multilineTextAlignment(.leading)
+                Text(recipientsTitleText)
+                    .kmiFont(size: 14, weight: .bold)
+                    .foregroundStyle(primaryTextColor)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
 
-                    selectAllButton
-
-                } else {
-                    selectAllButton
-
-                    Text(recipientsTitleText)
-                        .kmiFont(size: 14, weight: .bold)
-                        .foregroundStyle(primaryTextColor)
-                        .frame(
-                            maxWidth: .infinity,
-                            alignment: .trailing
-                        )
-                        .multilineTextAlignment(.trailing)
-                }
+                selectAllButton
             }
-            .environment(
-                \.layoutDirection,
-                .leftToRight
-            )
 
             if isLoadingRecipients {
 
@@ -1604,6 +1632,17 @@ struct CoachBroadcastView: View {
                         minHeight: 54
                     )
                     .accessibilityHidden(true)
+
+            } else if !branch.isEmpty && !canUseLoadedRecipients {
+                Text(tr(
+                    "יש לטעון מחדש את רשימת הנמענים.",
+                    "Reload the recipient list."
+                ))
+                .kmiFont(size: 15, weight: .semibold)
+                .foregroundStyle(secondaryTextColor)
+                .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
+                .multilineTextAlignment(screenTextAlignment)
+                .padding(.vertical, 10)
 
             } else if
                 !region.isEmpty &&
@@ -1857,40 +1896,15 @@ struct CoachBroadcastView: View {
 
         return Button {
             selectionBinding.wrappedValue.toggle()
-
         } label: {
             HStack(spacing: 10) {
-                if isEnglish {
-                    recipientTexts(
-                        recipient,
-                        isSelected: isSelected
-                    )
+                recipientTexts(recipient, isSelected: isSelected)
 
-                    Toggle(
-                        "",
-                        isOn: selectionBinding
-                    )
+                Toggle("", isOn: selectionBinding)
                     .labelsHidden()
                     .allowsHitTesting(false)
-
-                } else {
-                    Toggle(
-                        "",
-                        isOn: selectionBinding
-                    )
-                    .labelsHidden()
-                    .allowsHitTesting(false)
-
-                    recipientTexts(
-                        recipient,
-                        isSelected: isSelected
-                    )
-                }
+                    .accessibilityHidden(true)
             }
-            .environment(
-                \.layoutDirection,
-                .leftToRight
-            )
             .padding(.horizontal, 12)
             .padding(.vertical, 11)
             .background(
@@ -1950,74 +1964,30 @@ struct CoachBroadcastView: View {
         _ recipient: CoachBroadcastRecipient,
         isSelected: Bool
     ) -> some View {
-        VStack(
-            alignment: isEnglish ? .leading : .trailing,
-            spacing: 4
-        ) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(recipient.name)
                 .kmiFont(size: 16, weight: .bold)
                 .foregroundStyle(primaryTextColor)
-                .frame(
-                    maxWidth: .infinity,
-                    alignment:
-                        isEnglish
-                        ? .leading
-                        : .trailing
-                )
-                .multilineTextAlignment(
-                    isEnglish
-                    ? .leading
-                    : .trailing
-                )
+                .multilineTextAlignment(.leading)
                 .lineLimit(2)
 
             Text(
                 demoPrivacy.isEnabled
-                    ? tr(
-                        "מספר מוסתר",
-                        "Hidden number"
-                    )
+                    ? tr("מספר מוסתר", "Hidden number")
                     : recipient.phone.isEmpty
-                    ? tr(
-                        "ללא מספר טלפון",
-                        "No phone number"
-                    )
-                    : recipient.phone
+                        ? tr("ללא מספר טלפון", "No phone number")
+                        : recipient.phone
             )
             .kmiFont(size: 13, weight: .medium)
-            .foregroundStyle(
-                isSelected
-                    ? accentColor
-                    : secondaryTextColor
-            )
-            .frame(
-                maxWidth: .infinity,
-                alignment:
-                    isEnglish
-                    ? .leading
-                    : .trailing
-            )
-            .multilineTextAlignment(
-                isEnglish
-                    ? .leading
-                    : .trailing
-            )
+            .foregroundStyle(isSelected ? accentColor : secondaryTextColor)
+            .multilineTextAlignment(.leading)
             .lineLimit(2)
         }
-        .frame(
-            maxWidth: .infinity,
-            alignment:
-                isEnglish
-                ? .leading
-                : .trailing
-        )
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var selectedCountCard: some View {
-        VStack(
-            alignment: isEnglish ? .leading : .trailing,
-            spacing: 5
-        ) {
+        VStack(alignment: .leading, spacing: 5) {
             Text(
                 sendScope == "branch"
                     ? tr(
@@ -2083,6 +2053,7 @@ struct CoachBroadcastView: View {
     private var sendButtons: some View {
         let isDisabled =
             isSending ||
+            !canUseLoadedRecipients ||
             message
                 .trimmingCharacters(
                     in: .whitespacesAndNewlines
@@ -2098,14 +2069,9 @@ struct CoachBroadcastView: View {
 
             HStack(spacing: 8) {
 
-                Image(
-                    systemName: "paperplane.fill"
-                )
-                .kmiFont(
-                    size: 15,
-                    weight: .bold
-                )
-                .accessibilityHidden(true)
+                Image(systemName: "paperplane.fill")
+                    .kmiIconSize(15)
+                    .accessibilityHidden(true)
 
                 Text(
                     isSending
@@ -2259,1073 +2225,138 @@ struct CoachBroadcastView: View {
     }
 
     private func loadRecipients() {
+        let context = recipientsContext
+        let requestID = UUID()
+        activeRecipientsRequestID = requestID
 
-        let cleanRegion =
-            region.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
-
-        let cleanBranch =
-            branch.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
-
-        guard
-            !cleanRegion.isEmpty,
-            !cleanBranch.isEmpty
-        else {
-
+        guard isCoach,
+              !context.uid.isEmpty,
+              !context.region.isEmpty,
+              !context.branch.isEmpty else {
             isLoadingRecipients = false
+            loadedRecipientsContext = nil
             recipients = []
             availableBranchGroups = []
             availableBranchGroupCounts = [:]
             return
-
         }
 
-        func norm(_ value: String) -> String {
-            value
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-                .replacingOccurrences(
-                    of: "־",
-                    with: "-"
-                )
-                .replacingOccurrences(
-                    of: "–",
-                    with: "-"
-                )
-                .replacingOccurrences(
-                    of: "—",
-                    with: "-"
-                )
-                .replacingOccurrences(
-                    of: "\\s+",
-                    with: " ",
-                    options: .regularExpression
-                )
-        }
-
-        func normalizedPhone(
-            _ value: String
-        ) -> String {
-            var digits = value.filter {
-                $0.isNumber
-            }
-
-            if digits.hasPrefix("00972") {
-                digits = String(
-                    digits.dropFirst(5)
-                )
-
-            } else if digits.hasPrefix("972") {
-                digits = String(
-                    digits.dropFirst(3)
-                )
-
-            } else if digits.hasPrefix("0") {
-                digits = String(
-                    digits.dropFirst()
-                )
-            }
-
-            if digits.count >= 9 {
-                digits = String(
-                    digits.suffix(9)
-                )
-            }
-
-            return digits
-        }
-
-        func primaryBranch(_ value: String) -> String {
-            value
-                .split(whereSeparator: { char in
-                    char == "," || char == "•" || char == "|"
-                })
-                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-                .first { !$0.isEmpty } ?? value.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        func splitTokens(_ value: String) -> [String] {
-            value
-                .replacingOccurrences(of: " • ", with: ",")
-                .replacingOccurrences(of: "|", with: ",")
-                .replacingOccurrences(of: "\n", with: ",")
-                .split(whereSeparator: { char in
-                    char == "," || char == ";" || char == "；"
-                })
-                .map { norm(String($0)) }
-                .filter { !$0.isEmpty }
-        }
-
-        func groupAliases(
-            _ value: String
-        ) -> Set<String> {
-            let clean = norm(value)
-
-            guard !clean.isEmpty else {
-                return []
-            }
-
-            var aliases = Set<String>()
-
-            aliases.insert(clean)
-
-            for token in splitTokens(clean) {
-                aliases.insert(token)
-            }
-
-            switch clean.lowercased() {
-            case "children", "kids":
-                aliases.insert("ילדים")
-
-            case "youth":
-                aliases.insert("נוער")
-
-            case "adult", "adults":
-                aliases.insert("בוגרים")
-
-            default:
-                break
-            }
-
-            /*
-             * "נוער + בוגרים" נשארת קבוצה עצמאית.
-             * אין לפרק אותה ל"נוער" ול"בוגרים".
-             */
-            return Set(
-                aliases
-                    .map { norm($0) }
-                    .filter { !$0.isEmpty }
-            )
-        }
-
-        func stringValue(
-            _ data: [String: Any],
-            _ key: String
-        ) -> String {
-            if let value = data[key] as? String {
-                return value
-            }
-
-            if let value = data[key] as? NSNumber {
-                return value.stringValue
-            }
-
-            return ""
-        }
-
-        func stringArrayValue(
-            _ data: [String: Any],
-            _ key: String
-        ) -> [String] {
-            if let values = data[key] as? [String] {
-                return values
-            }
-
-            if let values = data[key] as? [Any] {
-                return values.compactMap {
-                    if let value = $0 as? String {
-                        return value
-                    }
-
-                    if let value = $0 as? NSNumber {
-                        return value.stringValue
-                    }
-
-                    return nil
-                }
-            }
-
-            return []
-        }
-
-        func groupValues(
-            from data: [String: Any]
-        ) -> Set<String> {
-            var values = Set<String>()
-
-            for value in stringArrayValue(
-                data,
-                "groups"
-            ) {
-                values.formUnion(
-                    groupAliases(value)
-                )
-            }
-
-            let keys = [
-                "primaryGroup",
-                "activeGroup",
-                "active_group",
-                "groupKey",
-                "group_key",
-                "group",
-                "groupName",
-                "groupsCsv",
-                "groupCsv",
-                "age_group",
-                "ageGroup",
-                "coach_groupKey",
-                "selected_groupKey",
-                "current_groupKey"
-            ]
-
-            for key in keys {
-                let rawValue = stringValue(
-                    data,
-                    key
-                )
-
-                let tokens = splitTokens(
-                    rawValue
-                )
-
-                if tokens.isEmpty {
-                    let clean = norm(rawValue)
-
-                    if !clean.isEmpty {
-                        values.formUnion(
-                            groupAliases(clean)
-                        )
-                    }
-                } else {
-                    for token in tokens {
-                        values.formUnion(
-                            groupAliases(token)
-                        )
-                    }
-                }
-            }
-
-            return Set(
-                values
-                    .map { norm($0) }
-                    .filter { !$0.isEmpty }
-            )
-        }
-
-        func groupDisplayValues(
-            from data: [String: Any]
-        ) -> Set<String> {
-            var values = Set<String>()
-
-            for value in stringArrayValue(
-                data,
-                "groups"
-            ) {
-                let clean = norm(value)
-
-                if !clean.isEmpty {
-                    values.insert(clean)
-                }
-            }
-
-            let keys = [
-                "primaryGroup",
-                "activeGroup",
-                "active_group",
-                "groupKey",
-                "group_key",
-                "group",
-                "groupName",
-                "groupsCsv",
-                "groupCsv",
-                "age_group",
-                "ageGroup",
-                "coach_groupKey",
-                "selected_groupKey",
-                "current_groupKey"
-            ]
-
-            for key in keys {
-                let rawValue = stringValue(
-                    data,
-                    key
-                )
-
-                let tokens = splitTokens(
-                    rawValue
-                )
-
-                if tokens.isEmpty {
-                    let clean = norm(rawValue)
-
-                    if !clean.isEmpty {
-                        values.insert(clean)
-                    }
-                } else {
-                    for token in tokens {
-                        let clean = norm(token)
-
-                        if !clean.isEmpty {
-                            values.insert(clean)
-                        }
-                    }
-                }
-            }
-
-            return values
-        }
-
-        func regionValues(
-            from data: [String: Any]
-        ) -> Set<String> {
-            var values = Set<String>()
-
-            for value in stringArrayValue(
-                data,
-                "regions"
-            ) {
-                let clean = norm(value)
-
-                if !clean.isEmpty {
-                    values.insert(clean)
-                }
-            }
-
-            let keys = [
-                "region",
-                "activeRegion",
-                "active_region",
-                "userRegion",
-                "selected_region",
-                "current_region"
-            ]
-
-            for key in keys {
-                let rawValue = stringValue(
-                    data,
-                    key
-                )
-
-                let tokens = splitTokens(
-                    rawValue
-                )
-
-                if tokens.isEmpty {
-                    let clean = norm(rawValue)
-
-                    if !clean.isEmpty {
-                        values.insert(clean)
-                    }
-                } else {
-                    values.formUnion(tokens)
-                }
-            }
-
-            return values
-        }
-
-        func branchValues(
-            from data: [String: Any]
-        ) -> Set<String> {
-            var values = Set<String>()
-
-            for value in stringArrayValue(
-                data,
-                "branches"
-            ) {
-                let clean = norm(value)
-
-                if !clean.isEmpty {
-                    values.insert(clean)
-                }
-            }
-
-            let keys = [
-                "branch",
-                "activeBranch",
-                "active_branch",
-                "branchesCsv",
-                "coach_branch",
-                "selected_branch",
-                "current_branch"
-            ]
-
-            for key in keys {
-                let rawValue = stringValue(
-                    data,
-                    key
-                )
-
-                let tokens = splitTokens(
-                    rawValue
-                )
-
-                if tokens.isEmpty {
-                    let clean = norm(rawValue)
-
-                    if !clean.isEmpty {
-                        values.insert(clean)
-                    }
-                } else {
-                    values.formUnion(tokens)
-                }
-            }
-
-            return values
-        }
-        
-        func hasSoftMatch(
-            storedValues: Set<String>,
-            candidates: Set<String>
-        ) -> Bool {
-            if candidates.isEmpty {
-                return true
-            }
-
-            if !storedValues.isDisjoint(with: candidates) {
-                return true
-            }
-
-            for stored in storedValues {
-                for candidate in candidates {
-                    if stored.count >= 2,
-                       candidate.count >= 2,
-                       stored.contains(candidate) || candidate.contains(stored) {
-                        return true
-                    }
-                }
-            }
-
-            return false
-        }
-
-        func hasExactMatch(
-            storedValues: Set<String>,
-            candidates: Set<String>
-        ) -> Bool {
-            guard
-                !storedValues.isEmpty,
-                !candidates.isEmpty
-            else {
-                return false
-            }
-
-            let normalizedStoredValues =
-                Set(
-                    storedValues
-                        .map {
-                            norm($0).lowercased()
-                        }
-                        .filter { !$0.isEmpty }
-                )
-
-            let normalizedCandidates =
-                Set(
-                    candidates
-                        .map {
-                            norm($0).lowercased()
-                        }
-                        .filter { !$0.isEmpty }
-                )
-
-            return !normalizedStoredValues
-                .isDisjoint(
-                    with: normalizedCandidates
-                )
-        }
-
-        func recipientIdentityKey(
-            uid: String,
-            phone: String,
-            email: String
-        ) -> String {
-
-            let phoneKey =
-                normalizedPhone(phone)
-
-            if !phoneKey.isEmpty {
-
-                return "phone:\(phoneKey)"
-
-            }
-
-            let emailKey =
-                email
-                    .trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    )
-                    .lowercased()
-
-            if !emailKey.isEmpty {
-
-                return "email:\(emailKey)"
-
-            }
-
-            let uidKey =
-                uid.trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-
-            if !uidKey.isEmpty {
-
-                return "uid:\(uidKey)"
-
-            }
-
-            return ""
-
-        }
-
-        let regionNorm = norm(region)
-        let branchPrimary = primaryBranch(norm(branch))
-
-        let groupCandidates = Set(
-            effectiveGroupKeys.flatMap {
-                Array(groupAliases($0))
-            }
+        let previousSelection = Dictionary(
+            recipients.map { ($0.uid, $0.selected) },
+            uniquingKeysWith: { first, _ in first }
         )
 
-        guard !regionNorm.isEmpty, !branchPrimary.isEmpty else {
-            recipients = []
-            return
-        }
-
-        var previousSelectionByIdentity: [String: Bool] = [:]
-
-        for recipient in recipients {
-
-            let identityKey = recipientIdentityKey(
-                uid: recipient.uid,
-                phone: recipient.phone,
-                email: recipient.email
-            )
-
-            guard !identityKey.isEmpty else {
-
-                continue
-
-            }
-
-            previousSelectionByIdentity[identityKey] =
-                recipient.selected
-
-        }
-
-        let requestID = UUID()
-
-        activeRecipientsRequestID = requestID
         isLoadingRecipients = true
+        loadedRecipientsContext = nil
 
-        let branchCandidates = Set([
-            branchPrimary,
-            branchPrimary.replacingOccurrences(of: "-", with: "–"),
-            branchPrimary.replacingOccurrences(of: "-", with: "—"),
-            branchPrimary.replacingOccurrences(of: "-", with: "־"),
-            branchPrimary.replacingOccurrences(of: "–", with: "-"),
-            branchPrimary.replacingOccurrences(of: "—", with: "-"),
-            branchPrimary.replacingOccurrences(of: "־", with: "-")
-        ].map { norm($0) }.filter { !$0.isEmpty })
-
-        let query = Firestore.firestore()
-            .collection("users")
-
-        query.getDocuments { snapshot, error in
-
-            guard
-                activeRecipientsRequestID == requestID
-            else {
-
-                return
-
+        Task { @MainActor in
+            defer {
+                if activeRecipientsRequestID == requestID {
+                    isLoadingRecipients = false
+                }
             }
 
-            isLoadingRecipients = false
+            do {
+                let result = try await Functions.functions()
+                    .httpsCallable("loadSecureCoachBroadcastRecipients")
+                    .call([
+                        "branch": context.branch,
+                        "groups": context.groups
+                    ] as [String: Any])
 
-            if error != nil {
+                guard activeRecipientsRequestID == requestID,
+                      recipientsContext == context else { return }
 
-                showError(
-                    tr(
-                        "לא ניתן לעדכן כרגע את רשימת הנמענים. הרשימה האחרונה נשארה מוצגת.",
-                        "The recipient list cannot be refreshed right now. The last list remains displayed."
-                    )
-                )
+                guard let payload = result.data as? [String: Any],
+                      let rawRecipients = payload["recipients"] as? [[String: Any]],
+                      let rawGroups = payload["availableGroups"] as? [String] else {
+                    showError(tr(
+                        "השרת לא החזיר רשימת נמענים תקינה.",
+                        "The server returned an invalid recipient list."
+                    ))
+                    return
+                }
 
-                return
+                let groups = Set(rawGroups.map(trimmedBroadcastValue).filter { !$0.isEmpty })
+                availableBranchGroups = groups.sorted()
 
-            }
+                let rawCounts = payload["groupCounts"] as? [String: Any] ?? [:]
+                var counts: [String: Int] = [:]
 
-            guard let docs = snapshot?.documents else {
+                for (rawGroup, value) in rawCounts {
+                    let group = trimmedBroadcastValue(rawGroup)
+                    guard groups.contains(group) else { continue }
 
-                showError(
-                    tr(
-                        "לא ניתן לעדכן כרגע את רשימת הנמענים. הרשימה האחרונה נשארה מוצגת.",
-                        "The recipient list cannot be refreshed right now. The last list remains displayed."
-                    )
-                )
+                    let count = (value as? NSNumber)?.intValue
+                        ?? (value as? String).flatMap { Int(trimmedBroadcastValue($0)) }
 
-                return
-
-            }
-
-            var uniqueRecipients:
-                [String: CoachBroadcastRecipient] = [:]
-
-            var discoveredGroupMembers:
-                [String: Set<String>] = [:]
-
-            for doc in docs {
-                let data = doc.data()
-
-                let activeBoolean =
-                    data["isActive"] as? Bool
-
-                let activeText =
-                    [
-                        stringValue(data, "status"),
-                        stringValue(data, "active")
-                    ]
-                    .map { norm($0).lowercased() }
-                    .first { !$0.isEmpty }
-                    ?? ""
-
-                let isActive =
-                    activeBoolean != false &&
-                    activeText != "inactive" &&
-                    activeText != "disabled" &&
-                    activeText != "blocked" &&
-                    activeText != "לא פעיל"
-
-                guard isActive else { continue }
-
-                let role =
-                    [
-                        stringValue(data, "role"),
-                        stringValue(data, "userType"),
-                        stringValue(data, "type")
-                    ]
-                    .map { norm($0).lowercased() }
-                    .first { !$0.isEmpty }
-                    ?? ""
-
-                let isTrainee =
-                    role.isEmpty ||
-                    role == "trainee" ||
-                    role.contains("trainee") ||
-                    role.contains("student") ||
-                    role.contains("מתאמן") ||
-                    role.contains("חניך")
-
-                guard isTrainee else { continue }
-
-                let storedRegions =
-                    regionValues(from: data)
-
-                let regionMatches =
-                    storedRegions.isEmpty ||
-                    hasSoftMatch(
-                        storedValues:
-                            storedRegions,
-                        candidates:
-                            Set([regionNorm])
-                    )
-
-                guard regionMatches else { continue }
-
-                let storedBranches =
-                    branchValues(from: data)
-
-                let branchMatches =
-                    hasExactMatch(
-                        storedValues:
-                            storedBranches,
-                        candidates:
-                            branchCandidates
-                    )
-
-                guard branchMatches else { continue }
-
-                let storedGroupValues =
-                    groupValues(from: data)
-
-                let displayGroupValues =
-                    groupDisplayValues(from: data)
-
-                let countingPhone = (
-                    stringValue(data, "phone").isEmpty
-                    ? (
-                        stringValue(data, "phoneNumber").isEmpty
-                        ? stringValue(data, "phone_number")
-                        : stringValue(data, "phoneNumber")
-                    )
-                    : stringValue(data, "phone")
-                )
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-
-                let countingEmail =
-                    stringValue(data, "email")
-                        .trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        )
-                        .lowercased()
-
-                let countingUidValue =
-                    [
-                        stringValue(data, "uid"),
-                        stringValue(data, "authUid")
-                    ]
-                    .map {
-                        $0.trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        )
-                    }
-                    .first { !$0.isEmpty }
-                    ?? ""
-
-                let countingUid =
-                    countingUidValue.isEmpty
-                        ? doc.documentID
-                        : countingUidValue
-
-                let countingIdentityKey =
-                    recipientIdentityKey(
-                        uid: countingUid,
-                        phone: countingPhone,
-                        email: countingEmail
-                    )
-
-                if !countingIdentityKey.isEmpty {
-                    for groupName in displayGroupValues
-                        where !groupName.isEmpty {
-                        discoveredGroupMembers[
-                            groupName,
-                            default: []
-                        ]
-                        .insert(countingIdentityKey)
+                    if let count, count >= 0 {
+                        counts[group] = count
                     }
                 }
 
-                let groupMatches: Bool
+                availableBranchGroupCounts = counts
 
-                if sendScope == "branch" {
-                    groupMatches = true
-                } else {
-                    groupMatches =
-                        !groupCandidates.isEmpty &&
-                        hasExactMatch(
-                            storedValues:
-                                storedGroupValues,
-                            candidates:
-                                groupCandidates
-                        )
+                let validGroups = Set(context.groups).intersection(groups)
+                if context.scope != "branch", validGroups != Set(context.groups) {
+                    recipients = []
+                    selectedTargetGroups = validGroups
+                    return
                 }
 
-                guard groupMatches else { continue }
-
-                let phone = (
-                    stringValue(data, "phone").isEmpty
-                    ? (
-                        stringValue(data, "phoneNumber").isEmpty
-                        ? stringValue(data, "phone_number")
-                        : stringValue(data, "phoneNumber")
-                    )
-                    : stringValue(data, "phone")
-                )
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-
-                let phoneKey = normalizedPhone(phone)
-
-                let email = stringValue(
-                    data,
-                    "email"
-                )
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-                .lowercased()
-
-                let fullName = stringValue(
-                    data,
-                    "fullName"
-                )
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-
-                let nameValue = stringValue(
-                    data,
-                    "name"
-                )
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-
-                let displayName = stringValue(
-                    data,
-                    "displayName"
-                )
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-
-                let uidValue =
-                    [
-                        stringValue(data, "uid"),
-                        stringValue(data, "authUid")
-                    ]
-                    .map {
-                        $0.trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        )
-                    }
-                    .first { !$0.isEmpty }
-                    ?? ""
-
-                let uid =
-                    uidValue.isEmpty
-                        ? doc.documentID
-                        : uidValue
-
-                let identityKey = recipientIdentityKey(
-                    uid: uid,
-                    phone: phone,
-                    email: email
-                )
-
-                guard !identityKey.isEmpty else {
-                    continue
+                // קריאה עם groups ריק משמשת לגילוי קבוצות גם במצב בחירת קבוצות.
+                // במצב הזה מציגים נמענים רק לאחר בחירת קבוצה.
+                guard context.scope == "branch" || !context.groups.isEmpty else {
+                    recipients = []
+                    loadedRecipientsContext = context
+                    return
                 }
 
-                let resolvedName =
-                    !fullName.isEmpty ? fullName :
-                    !nameValue.isEmpty ? nameValue :
-                    !displayName.isEmpty ? displayName :
-                    !email.isEmpty ? email :
-                    phone
+                var seenUids = Set<String>()
+                recipients = rawRecipients.compactMap { data -> CoachBroadcastRecipient? in
+                    let uid = trimmedBroadcastValue(data["uid"] as? String ?? "")
+                    guard !uid.isEmpty, seenUids.insert(uid).inserted else { return nil }
 
-                let name =
-                    resolvedName.isEmpty
-                        ? tr(
-                            "מתאמן ללא שם",
-                            "Unnamed trainee"
-                        )
-                        : resolvedName
+                    let phone = trimmedBroadcastValue(data["phone"] as? String ?? "")
+                    let email = trimmedBroadcastValue(data["email"] as? String ?? "")
+                    let name = trimmedBroadcastValue(data["name"] as? String ?? "")
+                    let displayName = [name, email, phone].first { !$0.isEmpty }
+                        ?? tr("מתאמן ללא שם", "Unnamed trainee")
 
-                let incomingRecipient =
-                    CoachBroadcastRecipient(
-                        id: uid.isEmpty
-                            ? (!phoneKey.isEmpty ? phoneKey : email)
-                            : uid,
+                    return CoachBroadcastRecipient(
+                        id: uid,
                         uid: uid,
-                        name: name,
+                        name: displayName,
                         phone: phone,
                         email: email,
-                        selected:
-                            previousSelectionByIdentity[identityKey]
-                            ?? true
-                        )
-
-                let normalizedCurrentPhone =
-                    normalizedPhone(phone)
-
-                let normalizedCurrentEmail =
-                    email
-                        .trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        )
-                        .lowercased()
-
-                let normalizedCurrentUid =
-                    uid.trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    )
-
-                let existingEntry =
-                    uniqueRecipients.first {
-                        _, existingRecipient in
-
-                        let existingPhone =
-                            normalizedPhone(
-                                existingRecipient.phone
-                            )
-
-                        let existingEmail =
-                            existingRecipient.email
-                                .trimmingCharacters(
-                                    in: .whitespacesAndNewlines
-                                )
-                                .lowercased()
-
-                        let existingUid =
-                            existingRecipient.uid
-                                .trimmingCharacters(
-                                    in: .whitespacesAndNewlines
-                                )
-
-                        let samePhone =
-                            !normalizedCurrentPhone.isEmpty &&
-                            !existingPhone.isEmpty &&
-                            normalizedCurrentPhone ==
-                                existingPhone
-
-                        let sameEmail =
-                            !normalizedCurrentEmail.isEmpty &&
-                            !existingEmail.isEmpty &&
-                            normalizedCurrentEmail ==
-                                existingEmail
-
-                        let sameUid =
-                            !normalizedCurrentUid.isEmpty &&
-                            !existingUid.isEmpty &&
-                            normalizedCurrentUid ==
-                                existingUid
-
-                        return
-                            samePhone ||
-                            sameEmail ||
-                            sameUid
-
-                    }
-
-                if let existingEntry {
-
-                    let existingKey =
-                        existingEntry.key
-
-                    let existing =
-                        existingEntry.value
-
-                    let preferredName =
-                        existing.name.count >= name.count
-                            ? existing.name
-                            : name
-
-                    let preferredPhone =
-                        existing.phone.count >= phone.count
-                            ? existing.phone
-                            : phone
-
-                    let preferredEmail =
-                        existing.email.isEmpty
-                            ? email
-                            : existing.email
-
-                    let preferredUid =
-                        existing.uid.isEmpty
-                            ? uid
-                            : existing.uid
-
-                    uniqueRecipients[existingKey] =
-                        CoachBroadcastRecipient(
-                            id: existing.id,
-                            uid: preferredUid,
-                            name: preferredName,
-                            phone: preferredPhone,
-                            email: preferredEmail,
-                            selected:
-                                existing.selected ||
-                                incomingRecipient.selected
-                        )
-
-                } else {
-
-                    uniqueRecipients[identityKey] =
-                        incomingRecipient
-
-                }
-            }
-
-            guard
-                activeRecipientsRequestID == requestID
-            else {
-
-                return
-
-            }
-
-            availableBranchGroupCounts =
-                discoveredGroupMembers.mapValues {
-
-                    $0.count
-
-                }
-
-            availableBranchGroups =
-                discoveredGroupMembers.keys
-                    .sorted {
-                        $0.localizedCaseInsensitiveCompare(
-                            $1
-                        ) == .orderedAscending
-                    }
-
-            var resolvedSelectedGroups =
-                Set<String>()
-
-            for selectedGroup in selectedTargetGroups {
-                let selectedAliases =
-                    groupAliases(selectedGroup)
-
-                if let exactGroup =
-                    availableBranchGroups.first(
-                        where: {
-                            norm($0) == norm(selectedGroup)
-                        }
-                    ) {
-                    resolvedSelectedGroups.insert(
-                        exactGroup
-                    )
-                    continue
-                }
-
-                if let matchingGroup =
-                    availableBranchGroups.first(
-                        where: { availableGroup in
-                            hasExactMatch(
-                                storedValues:
-                                    groupAliases(availableGroup),
-                                candidates:
-                                    selectedAliases
-                            )
-                        }
-                    ) {
-                    resolvedSelectedGroups.insert(
-                        matchingGroup
+                        selected: previousSelection[uid] ?? true
                     )
                 }
-            }
-
-            if resolvedSelectedGroups.isEmpty,
-               sendScope != "branch",
-               let coachGroup =
-                   availableBranchGroups.first(
-                    where: { availableGroup in
-                        hasExactMatch(
-                            storedValues:
-                                groupAliases(availableGroup),
-                            candidates:
-                                groupAliases(coachGroupKey)
-                        )
-                    }
-                   ) {
-                resolvedSelectedGroups.insert(
-                    coachGroup
-                )
-            }
-
-            if resolvedSelectedGroups != selectedTargetGroups {
-                selectedTargetGroups =
-                    resolvedSelectedGroups
-            }
-
-            recipients = uniqueRecipients
-                .map(\.value)
                 .sorted {
-                    $0.name.localizedCaseInsensitiveCompare(
-                        $1.name
-                    ) == .orderedAscending
+                    let order = $0.name.localizedCaseInsensitiveCompare($1.name)
+                    return order == .orderedSame ? $0.uid < $1.uid : order == .orderedAscending
                 }
+
+                loadedRecipientsContext = context
+            } catch {
+                guard activeRecipientsRequestID == requestID,
+                      recipientsContext == context else { return }
+
+                showError(tr(
+                    "לא ניתן לאמת את רשימת הנמענים כרגע. יש לטעון אותה מחדש לפני השליחה.",
+                    "Could not verify the recipient list. Reload it before sending."
+                ))
+            }
         }
     }
 
+    private func trimmedBroadcastValue(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+
     private func sendSmsToSelected() {
-        guard !isSending else {
+        guard !isSending, canUseLoadedRecipients else {
             return
         }
 
@@ -3354,33 +2385,32 @@ struct CoachBroadcastView: View {
             return
         }
 
+        let context = recipientsContext
+        let targetUids = selectedUids
+        let targetPhones = selectedPhones
+
         isSending = true
 
         persistBroadcast(
-            region: region,
-            branch: branch,
+            context: context,
             message: cleanMessage,
-            targetUids: selectedUids,
-            targetRecipients: selectedRecipients,
-            targetGroups:
-                sendScope == "branch"
-                ? []
-                : effectiveGroupKeys
-            ) { succeeded in
-            guard succeeded else {
-                return
-            }
+            targetUids: targetUids
+        ) { succeeded in
+            guard succeeded else { return }
 
             openMessagesApp(
-                message: cleanMessage
+                message: cleanMessage,
+                phones: targetPhones
             )
         }
     }
 
     private func openMessagesApp(
-        message cleanMessage: String
+        message cleanMessage: String,
+        phones: [String]
     ) {
-        let numbers = selectedPhones
+        let smsNumberCount = phones.count
+        let numbers = phones
             .map {
                 $0.trimmingCharacters(
                     in: .whitespacesAndNewlines
@@ -3439,8 +2469,8 @@ struct CoachBroadcastView: View {
 
                     showError(
                         tr(
-                            "ההודעה נשמרה ונפתחה אפליקציית ההודעות עבור \(selectedRecipients.count) מתאמנים.",
-                            "The message was saved and the messaging app opened for \(selectedRecipients.count) trainees."
+                            "השידור הועבר לעיבוד ונפתח מסך SMS עם \(smsNumberCount) מספרי טלפון.",
+                            "The broadcast was queued and the SMS composer opened with \(smsNumberCount) phone numbers."
                         )
                     )
                 } else {
@@ -3456,6 +2486,18 @@ struct CoachBroadcastView: View {
     }
 
     private func shareBroadcastPdf() {
+        guard isCoach,
+              !isSending,
+              !isLoadingRecipients,
+              pdfShareItem == nil else { return }
+
+        guard branch.isEmpty || canUseLoadedRecipients else {
+            showError(tr(
+                "יש לטעון מחדש את רשימת הנמענים לפני ייצוא הדוח.",
+                "Reload the recipient list before exporting the report."
+            ))
+            return
+        }
 
         do {
 
@@ -3556,16 +2598,6 @@ struct CoachBroadcastView: View {
                 isDirectory: false
             )
 
-        if FileManager.default.fileExists(
-            atPath: fileURL.path
-        ) {
-
-            try FileManager.default.removeItem(
-                at: fileURL
-            )
-
-        }
-
         let rendererFormat =
             UIGraphicsPDFRendererFormat()
 
@@ -3584,18 +2616,16 @@ struct CoachBroadcastView: View {
                 format: rendererFormat
             )
 
-        let selectedPdfRecipients =
-            displayedRecipients.filter {
-                $0.selected
-            }
+        let selectedPdfRecipients = canUseLoadedRecipients
+            ? displayedRecipients.filter { $0.selected }
+            : []
 
         let cleanGroups =
             sendScope == "branch"
                 ? []
                 : effectiveGroupKeys
 
-        try renderer.writePDF(to: fileURL) {
-            rendererContext in
+        let data = renderer.pdfData { rendererContext in
 
             let context =
                 rendererContext.cgContext
@@ -4116,323 +3146,59 @@ struct CoachBroadcastView: View {
 
         }
 
+        try data.write(to: fileURL, options: .atomic)
         return fileURL
 
     }
 
     private func persistBroadcast(
-        region: String,
-        branch: String,
+        context: RecipientsContext,
         message: String,
         targetUids: [String],
-        targetRecipients: [CoachBroadcastRecipient],
-        targetGroups: [String],
         completion: @escaping (Bool) -> Void
     ) {
-        guard let currentUser =
-            Auth.auth().currentUser else {
-
-            isSending = false
-
-            showError(
-                tr(
-                    "לא נמצא משתמש מחובר",
-                    "No logged-in user was found"
-                )
-            )
-
-            completion(false)
-            return
-        }
-
-        let currentUid = currentUser.uid
-
-        let cleanRegion =
-            region.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
-
-        let cleanBranch =
-            branch.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
-
-        let cleanMessage =
-            message.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
-
-        guard
-            !cleanRegion.isEmpty,
-            !cleanBranch.isEmpty
-        else {
-
-            isSending = false
-
-            showError(
-                tr(
-                    "יש לבחור אזור וסניף לפני שליחת ההודעה.",
-                    "Choose a region and branch before sending the message."
-                )
-            )
-
-            completion(false)
-            return
-
-        }
-
-        guard !cleanMessage.isEmpty else {
-
-            isSending = false
-
-            showError(
-                tr(
-                    "נא לכתוב טקסט להודעה.",
-                    "Please write a message."
-                )
-            )
-
-            completion(false)
-            return
-
-        }
-
-        let cleanTargetUids = Array(
-            Set(
-                targetUids
-                    .map {
-                        $0.trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        )
-                    }
-                    .filter { !$0.isEmpty }
-            )
-        )
-        .sorted()
-
-        guard !cleanTargetUids.isEmpty else {
-
-            isSending = false
-
-            showError(
-                tr(
-                    "לא נבחרו נמענים – סמן לפחות מתאמן אחד.",
-                    "No recipients were selected — select at least one trainee."
-                )
-            )
-
-            completion(false)
-            return
-
-        }
-
-        var seenTargetGroups = Set<String>()
-
-        let cleanTargetGroups =
-            targetGroups
-                .map {
-
-                    $0.trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    )
-
-                }
-                .filter { !$0.isEmpty }
-                .filter { group in
-
-                    seenTargetGroups
-                        .insert(group)
-                        .inserted
-
-                }
-
-        let rawRecipientSnapshots: [[String: String]] =
-
-            targetRecipients
-                .map { selectedRecipient in
-
-                    let realRecipient =
-                        recipients.first {
-                            $0.id == selectedRecipient.id
-                        } ?? selectedRecipient
-
-                    return [
-                        "uid": realRecipient.uid.trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        ),
-                        "name": realRecipient.name.trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        ),
-                        "phone": realRecipient.phone.trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        ),
-                        "email": realRecipient.email.trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        )
-                    ]
-
-                }
-                .filter {
-
-                    !($0["uid"] ?? "").isEmpty ||
-                    !($0["phone"] ?? "").isEmpty ||
-                    !($0["email"] ?? "").isEmpty
-
-                }
-
-        var seenRecipientKeys = Set<String>()
-
-        let recipientSnapshots =
-            rawRecipientSnapshots.filter { recipient in
-
-                let uid =
-                    recipient["uid"] ?? ""
-
-                let phone =
-                    recipient["phone"] ?? ""
-
-                let email =
-                    recipient["email"] ?? ""
-
-                let identityKey =
-                    !uid.isEmpty
-                        ? "uid:\(uid)"
-                        : !phone.isEmpty
-                        ? "phone:\(phone)"
-                        : "email:\(email.lowercased())"
-
-                return seenRecipientKeys
-                    .insert(identityKey)
-                    .inserted
-
+        Task { @MainActor in
+            guard canUseLoadedRecipients,
+                  recipientsContext == context,
+                  !context.uid.isEmpty,
+                  !context.branch.isEmpty,
+                  !message.isEmpty,
+                  !targetUids.isEmpty,
+                  context.scope == "branch" || !context.groups.isEmpty else {
+                isSending = false
+                completion(false)
+                return
             }
 
-        let targetPhones = Array(
-            Set(
-                recipientSnapshots
-                    .compactMap { $0["phone"] }
-                    .filter { !$0.isEmpty }
-            )
-        )
-        .sorted()
+            do {
+                _ = try await Functions.functions()
+                    .httpsCallable("createSecureCoachBroadcast")
+                    .call([
+                        "region": context.region,
+                        "branch": context.branch,
+                        "message": message,
+                        "groups": context.groups,
+                        "targetUids": targetUids
+                    ] as [String: Any])
 
-        let targetNames = Array(
-            Set(
-                recipientSnapshots
-                    .compactMap { $0["name"] }
-                    .filter { !$0.isEmpty }
-            )
-        )
-        .sorted()
-
-        let targetEmails = Array(
-            Set(
-                recipientSnapshots
-                    .compactMap { $0["email"] }
-                    .filter { !$0.isEmpty }
-            )
-        )
-        .sorted()
-
-        let coachName = [
-
-            currentUser.displayName,
-            currentUser.email
-
-        ]
-        .compactMap { $0 }
-        .map {
-
-            $0.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
-
-        }
-        .first { !$0.isEmpty }
-
-        ?? "מאמן"
-
-        let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
-        let expiresAt = Date().addingTimeInterval(30 * 24 * 60 * 60)
-        let expiresAtMillis = Int64(expiresAt.timeIntervalSince1970 * 1000)
-
-        let docRef = Firestore.firestore()
-            .collection("coachBroadcasts")
-            .document()
-
-        let broadcastId = docRef.documentID
-
-        let data: [String: Any] = [
-            "broadcastId": broadcastId,
-            "type": "coach_broadcast",
-
-            "authorUid": currentUid,
-            "coachUid": currentUid,
-            "coachName": coachName,
-
-            "region": cleanRegion,
-            "branch": cleanBranch,
-
-            "group": cleanTargetGroups.joined(separator: ", "),
-            "groupKey": cleanTargetGroups.joined(separator: ", "),
-            "groups": cleanTargetGroups,
-            "targetGroup": cleanTargetGroups.joined(separator: ", "),
-            "targetGroups": cleanTargetGroups,
-            "selectedGroups": cleanTargetGroups,
-
-            "text": cleanMessage,
-            "message": cleanMessage,
-            "body": cleanMessage,
-
-            "targetUids": cleanTargetUids,
-            "targetUidCount": cleanTargetUids.count,
-            "targetCount": cleanTargetUids.count,
-
-            "targetRecipients": recipientSnapshots,
-            "targetPhones": targetPhones,
-            "targetNames": targetNames,
-            "targetEmails": targetEmails,
-            "targetRecipientSnapshotCount": recipientSnapshots.count,
-
-            "pushEnabled": true,
-            "pushTarget": "targetUids",
-            "pushStatus": "pending",
-            "pushCreatedBy": "ios_coach_broadcast",
-
-            "createdAt": FieldValue.serverTimestamp(),
-            "createdAtMillis": nowMillis,
-            "sentAtMillis": nowMillis,
-
-            "expiresAt": Timestamp(date: expiresAt),
-            "expiresAtMillis": expiresAtMillis,
-
-            "source": "ios_coach_broadcast"
-        ]
-
-        docRef.setData(
-            data,
-            merge: true
-        ) { error in
-            DispatchQueue.main.async {
-                if error != nil {
-
+                guard Auth.auth().currentUser?.uid == context.uid else {
                     isSending = false
-
-                    showError(
-                        tr(
-                            "לא ניתן לשמור ולשלוח כרגע את ההודעה. בדוק את החיבור ונסה שוב.",
-                            "The message cannot be saved and sent right now. Check your connection and try again."
-                        )
-                    )
-
                     completion(false)
-
-                } else {
-                    completion(true)
+                    return
                 }
+
+                completion(true)
+            } catch {
+                isSending = false
+                showError(tr(
+                    "לא ניתן לאשר את שליחת השידור. בדוק אם ההודעה כבר נשלחה לפני ניסיון חוזר.",
+                    "Could not confirm the broadcast. Check whether the message was sent before trying again."
+                ))
+                completion(false)
             }
         }
     }
+
 
     private func showError(_ text: String) {
         alertText = text
@@ -4445,31 +3211,6 @@ private struct CoachBroadcastPdfShareItem:
 
     let id = UUID()
     let url: URL
-
-}
-
-private struct CoachBroadcastPdfShareSheet:
-    UIViewControllerRepresentable {
-
-    let items: [Any]
-
-    func makeUIViewController(
-        context: Context
-    ) -> UIActivityViewController {
-
-        UIActivityViewController(
-            activityItems: items,
-            applicationActivities: nil
-        )
-
-    }
-
-    func updateUIViewController(
-        _ uiViewController:
-            UIActivityViewController,
-        context: Context
-    ) {
-    }
 
 }
 

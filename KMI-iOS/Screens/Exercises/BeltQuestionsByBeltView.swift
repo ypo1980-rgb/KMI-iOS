@@ -231,7 +231,6 @@ struct BeltQuestionsByBeltView: View {
 
     // מצב התפריט הצידי.
     @State private var quickMenuOpen: Bool = false
-    @State private var showPracticeMenu: Bool = false
     @State private var expandedTopic: String? = nil
 
     @State private var accessRefreshTick: Int = 0
@@ -866,9 +865,12 @@ struct BeltQuestionsByBeltView: View {
                     title:
                         practiceTitle
                 ) {
-
-                    showPracticeMenu =
-                        true
+                    nav.push(
+                        .practiceMenu(
+                            belt: quickMenuBelt,
+                            canUseExtras: true
+                        )
+                    )
                 }
             },
 
@@ -2871,98 +2873,6 @@ struct BeltQuestionsByBeltView: View {
                 branch: "",
                 groupKey: "",
                 isEnglish: isEnglish
-            )
-        }
-        .sheet(
-            isPresented:
-                $showPracticeMenu
-        ) {
-            KmiPracticeMenuSheet(
-                defaultBelt:
-                    quickMenuBelt,
-                canUseExtras:
-                    true,
-                isEnglish:
-                    isEnglish,
-                onRandomPractice: {
-                    selectedPracticeBelt in
-
-                    showPracticeMenu = false
-                    practiceTokenFromLists =
-                        "__ALL__"
-
-                    DispatchQueue.main
-                        .asyncAfter(
-                            deadline:
-                                .now() + 0.22
-                        ) {
-                            nav.push(
-                                .practice(
-                                    belt:
-                                        selectedPracticeBelt,
-                                    topicTitle:
-                                        "__ALL__"
-                                )
-                            )
-                        }
-                },
-                onFinalExam: {
-                    selectedPracticeBelt in
-
-                    showPracticeMenu = false
-
-                    DispatchQueue.main
-                        .asyncAfter(
-                            deadline:
-                                .now() + 0.22
-                        ) {
-                            nav.push(
-                                .beltFinalExam(
-                                    belt:
-                                        selectedPracticeBelt
-                                )
-                            )
-                        }
-                },
-                onPracticeByTopic: {
-                    selectedPracticeBelt,
-                    selectedTopicTitle in
-
-                    showPracticeMenu = false
-                    selectedBelt =
-                        selectedPracticeBelt
-
-                    practiceTokenFromLists =
-                        selectedTopicTitle
-
-                    DispatchQueue.main
-                        .asyncAfter(
-                            deadline:
-                                .now() + 0.22
-                        ) {
-                            nav.push(
-                                .practice(
-                                    belt:
-                                        selectedPracticeBelt,
-                                    topicTitle:
-                                        selectedTopicTitle
-                                )
-                            )
-                        }
-                },
-                onDismiss: {
-                    showPracticeMenu = false
-                }
-            )
-            .presentationDetents([
-                .medium,
-                .large
-            ])
-            .presentationDragIndicator(
-                .visible
-            )
-            .interactiveDismissDisabled(
-                false
             )
         }
         .sheet(

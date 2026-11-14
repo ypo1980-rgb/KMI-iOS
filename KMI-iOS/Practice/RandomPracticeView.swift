@@ -11,6 +11,7 @@ import FirebaseAuth
 struct RandomPracticeView: View {
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
 
     @ObservedObject var nav: AppNavModel
 
@@ -174,38 +175,26 @@ struct RandomPracticeView: View {
 
     private var beltColor: Color { KmiBeltPalette.color(for: belt) }
 
-    private var practiceBackgroundColor: Color {
-        switch belt.id.lowercased() {
-        case "white":
-            return Color(red: 0.96, green: 0.96, blue: 0.96)
-        case "yellow":
-            return Color(red: 1.00, green: 0.98, blue: 0.76)
-        case "orange":
-            return Color(red: 1.00, green: 0.89, blue: 0.72)
-        case "green":
-            return Color(red: 0.84, green: 0.94, blue: 0.82)
-        case "blue":
-            return Color(red: 0.82, green: 0.90, blue: 1.00)
-        case "brown":
-            return Color(red: 0.86, green: 0.76, blue: 0.66)
-        case "black":
-            return Color(red: 0.14, green: 0.14, blue: 0.16)
-        default:
-            return beltColor.opacity(0.18)
-        }
-    }
+    private var practiceSectionHeader: some View {
+        let topic = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = topic.isEmpty || topic == "__ALL__"
+            ? tr(
+                "תרגלו ושפרו את הידע\nוהביצועים שלכם",
+                "Practice and improve\nyour skills"
+            )
+            : topicTitleForUi(topic)
 
-    private var exerciseCardColor: Color {
-        switch belt.id.lowercased() {
-        case "black":
-            return Color.white.opacity(0.92)
-        default:
-            return Color(red: 1.00, green: 0.97, blue: 0.73)
-        }
-    }
-
-    private var timerAccentColor: Color {
-        Color.purple.opacity(0.86)
+        return Text(title)
+            .kmiTypography(.secondary)
+            .fontWeight(.black)
+            .foregroundStyle(KmiAppTheme.sectionHeaderContentColor)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, minHeight: 56)
+            .background(KmiAppTheme.sectionHeaderBrush)
+            .accessibilityAddTraits(.isHeader)
     }
 
     private var effectiveLanguageCode: String {
@@ -677,6 +666,7 @@ struct RandomPracticeView: View {
         }
 
         currentIndex += 1
+        resetTimer()
         refreshCurrentPracticeStatus()
 
         if isRunning,
@@ -784,9 +774,8 @@ struct RandomPracticeView: View {
             }
         }
 
-        // זמן נגמר -> תרגיל הבא + איפוס
+        // בסיום הזמן עוברים לתרגיל הבא, אם יש כזה.
         if timeLeft == 0 {
-            resetTimer()
             advanceToNextItem()
         }
     }
@@ -947,34 +936,31 @@ struct RandomPracticeView: View {
             return beltColor.opacity(0.72)
         }
     }
-    
-    var body: some View {
-        ZStack {
-            practiceBackgroundColor
-                .ignoresSafeArea()
 
+    private var practiceContent: some View {
+        ZStack {
             LinearGradient(
-                    colors: [
-                        Color.white.opacity(belt.id.lowercased() == "black" ? 0.04 : 0.24),
-                        practiceBackgroundColor,
-                        Color.white.opacity(belt.id.lowercased() == "black" ? 0.02 : 0.18)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
+                colors: KmiAppTheme.screenBackgroundColors(for: colorScheme),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
 
                 VStack(spacing: 14) {
+                    practiceSectionHeader
 
                     // Timer row — נקי כמו Android, ללא כרטיס חיצוני
                     HStack(spacing: 10) {
-                        Text("⏳")
-                            .font(.system(size: 30, weight: .heavy))
+                        Image(systemName: "hourglass")
+                            .kmiIconSize(26)
+                            .fontWeight(.heavy)
+                            .foregroundStyle(KmiAppTheme.primary(for: colorScheme))
+                            .accessibilityHidden(true)
 
                         Text(formatTime(timeLeft))
-                            .font(.system(size: 34, weight: .black))
+                            .kmiFont(size: 34, weight: .black)
                             .monospacedDigit()
-                            .foregroundStyle(timerAccentColor)
+                            .foregroundStyle(KmiAppTheme.primary(for: colorScheme))
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.horizontal, 16)
@@ -983,12 +969,14 @@ struct RandomPracticeView: View {
                     // Current exercise card
                     ZStack(alignment: .topLeading) {
                         RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .fill(exerciseCardColor)
-                            .overlay(
+                            .fill(KmiAppTheme.surface(for: colorScheme))
+                            .overlay {
                                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                    .stroke(Color.white.opacity(0.70), lineWidth: 1)
-                            )
-                            .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 7)
+                                    .strokeBorder(
+                                        KmiAppTheme.outlineVariant(for: colorScheme),
+                                        lineWidth: 1
+                                    )
+                            }
 
                         Text(
                             currentItem.map {
@@ -998,10 +986,10 @@ struct RandomPracticeView: View {
                                 "Choose duration and start"
                             )
                         )
-                        .font(.system(size: 28, weight: .black))
-                        .foregroundStyle(Color.black.opacity(0.90))
+                        .kmiFont(size: 28, weight: .black)
+                        .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
                         .multilineTextAlignment(.center)
-                        .minimumScaleFactor(0.72)
+                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, 22)
                         .padding(.vertical, 30)
@@ -1111,11 +1099,24 @@ struct RandomPracticeView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.horizontal, 16)
 
-                    Spacer(minLength: 0)
+                    Group {
+                        if weightedItems.isEmpty {
+                            Spacer(minLength: 0)
+                        } else {
+                            PracticeExerciseProgressDots(
+                                beltColor: beltColor,
+                                currentIndex: currentIndex,
+                                totalCount: weightedItems.count,
+                                isEnglish: isEnglish
+                            )
+                            .frame(maxHeight: .infinity)
+                        }
+                    }
 
-                    RandomPracticeBottomActionCard(
+                    PracticeBottomControls(
                         isEnglish: isEnglish,
                         canShowHelp: currentItem != nil,
+                        canSkip: currentIndex < weightedItems.count - 1,
                         onHelp: {
                             showExplanationSheet = true
                         },
@@ -1129,7 +1130,19 @@ struct RandomPracticeView: View {
                     .padding(.horizontal, 16)
                     .padding(.bottom, 18)
                 }
-            }
+                .opacity(showDurationSheet ? 0 : 1)
+                .allowsHitTesting(!showDurationSheet)
+                .accessibilityHidden(showDurationSheet)
+                .overlay(alignment: .top) {
+                    if showDurationSheet {
+                        practiceSectionHeader
+                    }
+                }
+        }
+    }
+
+    var body: some View {
+        practiceContent
             .environment(\.layoutDirection, screenLayoutDirection)
             .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
                 tick()
@@ -1211,7 +1224,6 @@ struct RandomPracticeView: View {
             }
             .sheet(isPresented: $showDurationSheet) {
                 PracticeDurationPickerSheet(
-                    belt: belt,
                     isEnglish: isEnglish,
                     selectedMinutes: $durationMinutes,
                     alertHalfTime: $alertHalfTime,
@@ -1229,8 +1241,10 @@ struct RandomPracticeView: View {
                     }
                 )
                 .environment(\.layoutDirection, screenLayoutDirection)
-                .presentationDetents([.fraction(0.46)])
+                .presentationDetents([.fraction(0.76), .large])
                 .presentationDragIndicator(.visible)
+                .presentationBackground(KmiAppTheme.surface(for: colorScheme))
+                .interactiveDismissDisabled()
             }
             .sheet(isPresented: $showExplanationSheet) {
                 let displayedItem =
@@ -1289,233 +1303,6 @@ struct RandomPracticeView: View {
             }
         }
     }
-
-    // MARK: - Bottom Action Card
-
-private struct RandomPracticeBottomActionCard: View {
-
-    let isEnglish: Bool
-    let canShowHelp: Bool
-    let onHelp: () -> Void
-    let onSkip: () -> Void
-    let onFinish: () -> Void
-
-    private func tr(_ he: String, _ en: String) -> String {
-        isEnglish ? en : he
-    }
-
-    var body: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 14) {
-                Button(action: onHelp) {
-                    Label(tr("עזרה", "Help"), systemImage: "info.circle")
-                        .font(.system(size: 15, weight: .black))
-                        .foregroundStyle(Color.purple.opacity(0.92))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 58)
-                        .background(
-                            Capsule()
-                                .fill(Color(red: 0.93, green: 0.90, blue: 1.00))
-                                .overlay(
-                                    Capsule()
-                                        .stroke(Color.white.opacity(0.62), lineWidth: 1)
-                                )
-                                .shadow(color: Color.black.opacity(0.10), radius: 8, x: 0, y: 5)
-                        )
-                }
-                .buttonStyle(.plain)
-                .disabled(!canShowHelp)
-                .opacity(canShowHelp ? 1.0 : 0.45)
-
-                Button(action: onSkip) {
-                    Label(tr("דלג", "Skip"), systemImage: "play.fill")
-                        .font(.system(size: 15, weight: .black))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 58)
-                        .background(
-                            Capsule()
-                                .fill(Color.purple.opacity(0.80))
-                                .overlay(
-                                    Capsule()
-                                        .stroke(Color.white.opacity(0.42), lineWidth: 1)
-                                )
-                                .shadow(color: Color.black.opacity(0.14), radius: 9, x: 0, y: 6)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-
-            Button(action: onFinish) {
-                Text(tr("סיום וחזרה", "Finish and Return"))
-                    .font(.system(size: 20, weight: .black))
-                    .foregroundStyle(Color.black.opacity(0.86))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 58)
-                    .background(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .fill(Color.white.opacity(0.98))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
-                            )
-                            .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 5)
-                    )
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background(
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .fill(Color.white.opacity(0.92))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 30, style: .continuous)
-                        .stroke(Color.white.opacity(0.82), lineWidth: 1)
-                )
-                .shadow(color: Color.black.opacity(0.14), radius: 14, x: 0, y: 8)
-        )
-    }
-}
-
-// MARK: - Picker Sheet
-
-private struct PracticeDurationPickerSheet: View {
-
-    let belt: Belt
-    let isEnglish: Bool
-
-    @Binding var selectedMinutes: Int
-    @Binding var alertHalfTime: Bool
-    @Binding var beepLast10: Bool
-
-    let onStart: () -> Void
-    let onCancel: () -> Void
-
-    private var beltColor: Color { KmiBeltPalette.color(for: belt) }
-    private let options: [Int] = [1, 3, 5]
-
-    private var textAlignment: TextAlignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    private var frameAlignment: Alignment {
-        isEnglish ? .leading : .trailing
-    }
-
-    private func tr(_ he: String, _ en: String) -> String {
-        isEnglish ? en : he
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 14) {
-
-                Text(tr("בחר זמן תרגול", "Choose Practice Duration"))
-                    .font(.title2.weight(.heavy))
-                    .foregroundStyle(Color.black.opacity(0.85))
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 10)
-
-                Text(String(format: "%02d:00", selectedMinutes))
-                    .font(.system(size: 28, weight: .heavy))
-                    .foregroundStyle(beltColor)
-                    .padding(.bottom, 2)
-
-                HStack(spacing: 10) {
-                    ForEach(options, id: \.self) { m in
-                        let isSel = (m == selectedMinutes)
-
-                        Button {
-                            selectedMinutes = m
-                        } label: {
-                            VStack(spacing: 6) {
-                                Text("\(m)")
-                                    .font(.system(size: 20, weight: .heavy))
-
-                                Text(tr("דק׳", "min"))
-                                    .font(.system(size: 12, weight: .bold))
-                                    .opacity(0.85)
-                            }
-                            .foregroundStyle(isSel ? Color.white : Color.black.opacity(0.80))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(isSel ? beltColor.opacity(0.85) : Color.black.opacity(0.06))
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 16)
-
-                VStack(spacing: 10) {
-                    Toggle(isOn: $alertHalfTime) {
-                        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 2) {
-                            Text(tr("התראה באמצע הזמן", "Mid-time alert"))
-                                .font(.system(size: 16, weight: .heavy))
-                                .multilineTextAlignment(textAlignment)
-
-                            Text(tr("צפצוף + הודעה קולית בחצי הזמן", "Beep + voice announcement at halfway point"))
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Color.black.opacity(0.55))
-                                .multilineTextAlignment(textAlignment)
-                        }
-                        .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    }
-
-                    Toggle(isOn: $beepLast10) {
-                        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 2) {
-                            Text(tr("צליל ב-10 השניות האחרונות", "Sound in the last 10 seconds"))
-                                .font(.system(size: 16, weight: .heavy))
-                                .multilineTextAlignment(textAlignment)
-
-                            Text(tr("צפצוף קצר כל שנייה עד לסיום", "Short beep every second until the end"))
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Color.black.opacity(0.55))
-                                .multilineTextAlignment(textAlignment)
-                        }
-                        .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    }
-                }
-                .toggleStyle(SwitchToggleStyle(tint: beltColor.opacity(0.85)))
-                .padding(.horizontal, 16)
-
-                HStack(spacing: 12) {
-                    Button(action: onStart) {
-                        Text(tr("התחל", "Start"))
-                            .font(.system(size: 16, weight: .heavy))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(beltColor.opacity(0.85))
-                            )
-                    }
-                    .buttonStyle(.plain)
-
-                    Button(action: onCancel) {
-                        Text(tr("בטל", "Cancel"))
-                            .font(.system(size: 16, weight: .heavy))
-                            .foregroundStyle(Color.black.opacity(0.72))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(Color.black.opacity(0.06))
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 10)
-            }
-            .padding(.top, 6)
-        }
-    }
-}
 
 // MARK: - Explanation Sheet
 

@@ -419,31 +419,26 @@ struct KmiStartupLoadingScreen: View {
                 Button {
                     finishOnce()
                 } label: {
-                    Text(
-                        isEnglish
-                            ? "Skip"
-                            : "דלג"
-                    )
-                    .kmiTypography(.action)
-                    .foregroundColor(
-                        progressTextColor
-                    )
+                    Text(isEnglish ? "Skip" : "דלג")
+                        .kmiFont(size: 19, weight: .bold)
+                        .foregroundColor(progressTextColor)
+                        .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+
                 Spacer()
-                Text(
-                    isEnglish
-                        ? "Please wait..."
-                        : "אנא המתן..."
-                )
-                .kmiTypography(.secondary)
-                .foregroundColor(
-                    progressTextColor
-                )
+
+                Text(isEnglish ? "Please wait..." : "אנא המתן...")
+                    .kmiFont(size: 19, weight: .bold)
+                    .foregroundColor(progressTextColor)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 Spacer()
                     .frame(width: 52)
             }
-            .frame(height: 34)
+            .frame(minHeight: 44)
         }
         .padding(.horizontal, 18)
         .padding(.top, 18)
@@ -517,8 +512,7 @@ struct KmiStartupLoadingScreen: View {
                                 value: done
                             )
                             Text(stage.titleEn)
-                                .kmiTypography(.body)
-                                .fontWeight(active ? .bold : .semibold)
+                                .kmiFont(size: 17, weight: active ? .bold : .semibold)
                                 .multilineTextAlignment(.leading)
                                 .fixedSize(
                                     horizontal: false,
@@ -537,8 +531,7 @@ struct KmiStartupLoadingScreen: View {
                     } else {
                         HStack(spacing: 8) {
                             Text(stage.titleHe)
-                                .kmiTypography(.body)
-                                .fontWeight(active ? .bold : .semibold)
+                                .kmiFont(size: 17, weight: active ? .bold : .semibold)
                                 .multilineTextAlignment(.trailing)
                                 .fixedSize(
                                     horizontal: false,

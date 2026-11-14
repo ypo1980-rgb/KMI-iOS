@@ -1,6 +1,7 @@
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseFunctions
 import PhotosUI
 import UniformTypeIdentifiers
 import AVKit
@@ -35,9 +36,6 @@ private struct ForumParticipantUi: Identifiable, Hashable {
     let name: String
     let isMe: Bool
 }
-
-private let forumMessageRetentionDays: Int = 90
-private let forumMessageRetentionSeconds: TimeInterval = 90 * 24 * 60 * 60
 
 private struct ForumExerciseHit: Identifiable, Hashable {
     let belt: Belt
@@ -99,6 +97,12 @@ struct ForumView: View {
     @AppStorage("is_manager")
     private var isManagerOverride: Bool = false
 
+    @EnvironmentObject private var auth: AuthViewModel
+    @EnvironmentObject private var nav: AppNavModel
+
+    @State private var isForumVisible = false
+    @State private var hasForumLoadingRequest = false
+
     @Environment(\.colorScheme)
     private var colorScheme
 
@@ -110,10 +114,16 @@ struct ForumView: View {
     @State private var lockText: String = ""
     @State private var branch: String = ""
     @State private var groupKey: String = ""
+    @State private var legacyForumBranch = ""
+    @State private var legacyForumGroup = ""
+    @State private var isSendingForumMessage = false
+    @State private var isDeletingForumMessage = false
     @State private var fullName: String = ""
     @State private var email: String = ""
     @State private var messages: [ForumUiMessage] = []
+    @State private var pendingForumMessageID: String?
     @State private var isMessagesLoading: Bool = false
+    @State private var didFailLoadingMessages = false
     @State private var showParticipantsSheet: Bool = false
 
     // רשימת משתתפים אמיתיים לפי users בסניף — כמו באנדרואיד.
@@ -137,9 +147,11 @@ struct ForumView: View {
 
     @State private var imagePickerItem: PhotosPickerItem? = nil
     @State private var videoPickerItem: PhotosPickerItem? = nil
+    @State private var attachmentLoadID = UUID()
     #endif
 
-    @State private var listener: ListenerRegistration? = nil
+    @State private var forumLoadID = UUID()
+    @State private var messageRequestID = UUID()
 
     private var db: Firestore {
         Firestore.firestore()
@@ -468,81 +480,72 @@ private var forumStatusBackButtonColor: Color {
     private var currentFirebaseUid: String {
         Auth.auth().currentUser?.uid ?? ""
     }
-
-    private var isCurrentUserForumParticipant: Bool {
-        let defaults = UserDefaults.standard
-
-        if defaults.bool(forKey: "is_manager") {
-            return true
-        }
-
-        let cleanUid = currentFirebaseUid.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let cleanName = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        return participantsByUsers.contains { participant in
-            if participant.isMe {
-                return true
-            }
-
-            if !cleanUid.isEmpty && participant.id == cleanUid {
-                return true
-            }
-
-            if !cleanEmail.isEmpty && participant.id.lowercased() == cleanEmail {
-                return true
-            }
-
-            if !cleanName.isEmpty && participant.name.trimmingCharacters(in: .whitespacesAndNewlines) == cleanName {
-                return true
-            }
-
-            return false
-        }
-    }
-
-    private func messagePreviewText(
-        text: String,
-        mediaType: String?
-    ) -> String {
-        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if !cleanText.isEmpty {
-            return String(cleanText.prefix(120))
-        }
-
-        if mediaType == "image" {
-            return tr("תמונה חדשה", "New image")
-        }
-
-        if mediaType == "video" {
-            return tr("סרטון חדש", "New video")
-        }
-
-        return tr("הודעה חדשה", "New message")
-    }
     
+    private var needsForumLoading: Bool {
+        canUseExtras &&
+            !branch.isEmpty &&
+            !groupKey.isEmpty &&
+            (isMessagesLoading || isParticipantsLoading ||
+                isSendingForumMessage || isDeletingForumMessage)
+    }
+
+    private func syncForumLoading() {
+        let shouldRequestLoading = isForumVisible && needsForumLoading
+        guard shouldRequestLoading != hasForumLoadingRequest else { return }
+
+        hasForumLoadingRequest = shouldRequestLoading
+
+        if shouldRequestLoading {
+            nav.beginLoading()
+        } else {
+            nav.endLoading()
+        }
+    }
+
     var body: some View {
         ZStack {
             gradient.ignoresSafeArea()
             if !canUseExtras {
                 lockedView
-            } else if branch.isEmpty || groupKey.isEmpty {
+            } else if forumBranchOptions.isEmpty {
                 missingGroupView
             } else {
-                chatView
-            }
+                VStack(spacing: 0) {
+                    forumSectionHeader
 
-            if canUseExtras &&
-                (!branch.isEmpty && !groupKey.isEmpty) &&
-                (isMessagesLoading || isParticipantsLoading) {
-                KmiLoadingOverlay()
-            }
+                    if branch.isEmpty || groupKey.isEmpty {
+                        roomLabelCard
+                            .padding(12)
 
+                        Spacer(minLength: 0)
+                    } else {
+                        chatView
+                    }
+                }
+            }
         }
 
-        .onAppear { boot() }
-        .onDisappear { stopListener() }
+        .onAppear {
+            isForumVisible = true
+            boot()
+            syncForumLoading()
+        }
+        .onChange(of: needsForumLoading) { _, _ in
+            syncForumLoading()
+        }
+        .onDisappear {
+            isForumVisible = false
+            syncForumLoading()
+            forumLoadID = UUID()
+            stopListener()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name("KMI_FORUM_PUSH_OPEN_REQUEST")
+            )
+        ) { _ in
+            _ = openPendingForumRoom()
+        }
         .onReceive(
             NotificationCenter.default.publisher(
                 for: Notification.Name("KMI_GLOBAL_SEARCH_PICK")
@@ -618,14 +621,28 @@ private var forumStatusBackButtonColor: Color {
         }
 
         #if canImport(FirebaseStorage)
-.onChange(of: imagePickerItem) { _, newItem in
-    guard let newItem else { return }
-    Task { await loadPickedImage(newItem) }
-}
-.onChange(of: videoPickerItem) { _, newItem in
-    guard let newItem else { return }
-    Task { await loadPickedVideo(newItem) }
-}
+        .onChange(of: imagePickerItem) { _, newItem in
+            guard let newItem else { return }
+
+            let requestID = UUID()
+            let roomLoadID = forumLoadID
+            attachmentLoadID = requestID
+
+            Task {
+                await loadPickedImage(newItem, requestID: requestID, roomLoadID: roomLoadID)
+            }
+        }
+        .onChange(of: videoPickerItem) { _, newItem in
+            guard let newItem else { return }
+
+            let requestID = UUID()
+            let roomLoadID = forumLoadID
+            attachmentLoadID = requestID
+
+            Task {
+                await loadPickedVideo(newItem, requestID: requestID, roomLoadID: roomLoadID)
+            }
+        }
 #endif
 .environment(\.layoutDirection, layoutDirection)
 }
@@ -825,14 +842,10 @@ private var forumStatusBackButtonColor: Color {
         VStack(spacing: 14) {
             Spacer(minLength: 44)
 
-            Image(
-                systemName:
-                    "person.crop.circle.badge.exclamationmark"
-            )
-            .kmiFont(size: 34, weight: .heavy)
-            .foregroundStyle(
-                KmiAppTheme.error(for: colorScheme)
-            )
+            Image(systemName: "person.crop.circle.badge.exclamationmark")
+                .kmiIconSize(34)
+                .foregroundStyle(KmiAppTheme.error(for: colorScheme))
+                .accessibilityHidden(true)
             .frame(width: 68, height: 68)
             .background(
                 Circle()
@@ -917,6 +930,25 @@ private var forumStatusBackButtonColor: Color {
         .padding(.horizontal, 18)
     }
 
+    private var forumSectionHeader: some View {
+        Text(
+            tr(
+                "שיח, עדכונים ושיתוף\nבקבוצת האימון",
+                "Discussion, updates and sharing\nin the training group"
+            )
+        )
+        .kmiTypography(.secondary)
+        .fontWeight(.black)
+        .foregroundStyle(KmiAppTheme.sectionHeaderContentColor)
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, minHeight: 56)
+        .background(KmiAppTheme.sectionHeaderBrush)
+        .accessibilityAddTraits(.isHeader)
+    }
+
     private var chatView: some View {
         VStack(spacing: 8) {
 
@@ -935,8 +967,26 @@ private var forumStatusBackButtonColor: Color {
                     LazyVStack(spacing: 6) {
                         if messages.isEmpty {
                             if !isMessagesLoading {
-                                emptyForumMessagesView
+                                if didFailLoadingMessages {
+                                    Button {
+                                        let loadID = forumLoadID
+                                        Task {
+                                            await refreshForumMessages(loadID: loadID)
+                                        }
+                                    } label: {
+                                        Label(
+                                            tr("טען הודעות מחדש", "Reload messages"),
+                                            systemImage: "arrow.clockwise"
+                                        )
+                                        .kmiTypography(.secondary)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .tint(KmiAppTheme.primary(for: colorScheme))
                                     .padding(.top, 18)
+                                } else {
+                                    emptyForumMessagesView
+                                        .padding(.top, 18)
+                                }
                             }
                         } else {
                             ForEach(messages) { msg in
@@ -952,10 +1002,52 @@ private var forumStatusBackButtonColor: Color {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                 }
-                .onChange(of: messages) { _, _ in
+                .refreshable {
+                    let loadID = forumLoadID
+                    await refreshForumMessages(loadID: loadID)
+
+                    if forumLoadID == loadID, !isParticipantsLoading {
+                        await loadForumParticipantsForBranch(branch, loadID: loadID)
+                    }
+                }
+                .onChange(of: messages) { previous, updated in
+                    let pendingID = pendingForumMessageID
+                    let target = pendingID.flatMap { id in
+                        updated.first { $0.id == id || $0.messageId == id }
+                    }
+
+                    let scrollID: String
+                    let anchor: UnitPoint
+
+                    if let target {
+                        scrollID = target.id
+                        anchor = .center
+                    } else {
+                        guard let last = updated.last,
+                              previous.last?.id != last.id else { return }
+
+                        scrollID = "__BOTTOM__"
+                        anchor = .bottom
+                    }
+
+                    let loadID = forumLoadID
+
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        guard forumLoadID == loadID,
+                              pendingForumMessageID == pendingID else { return }
+
+                        if target != nil {
+                            guard messages.contains(where: { $0.id == scrollID }) else {
+                                return
+                            }
+                        }
+
                         withAnimation(.easeOut(duration: 0.25)) {
-                            proxy.scrollTo("__BOTTOM__", anchor: .bottom)
+                            proxy.scrollTo(scrollID, anchor: anchor)
+                        }
+
+                        if target != nil {
+                            pendingForumMessageID = nil
                         }
                     }
                 }
@@ -1100,9 +1192,10 @@ if let attachedMediaType {
 }
 #endif
 
-composer
-    .padding(.horizontal, 12)
-    .padding(.bottom, 10)
+            composer
+                .disabled(isSendingForumMessage || isDeletingForumMessage)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
         }
     }
 
@@ -1662,74 +1755,84 @@ composer
         .shadow(color: Color.black.opacity(isDarkMode ? 0.10 : 0.06), radius: 3, x: 0, y: 2)
     }
     
-    private var roomLabelCard: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "mappin.and.ellipse")
-                .font(
-                    .system(
-                        size: 13,
-                        weight: .bold
-                    )
-                )
-                .foregroundStyle(
-                    Color(
-                        red: 37.0 / 255.0,
-                        green: 99.0 / 255.0,
-                        blue: 235.0 / 255.0
-                    )
-                )
+    private var forumGroupsByBranch: [String: [String]] {
+        var result: [String: [String]] = [:]
 
-            Text(
-                isEnglish
-                    ? "Branch: \(branch) • Group: \(groupKey)"
-                    : "סניף: \(branch) • קבוצה: \(groupKey)"
-            )
-            .kmiFont(
-                size: 11,
-                weight: .bold
-            )
-            .foregroundStyle(
-                forumSecondaryTextColor
-            )
-            .multilineTextAlignment(
-                textAlignment
-            )
-            .lineLimit(2)
-            .minimumScaleFactor(0.74)
-            .frame(
-                maxWidth: .infinity,
-                alignment: frameAlignment
-            )
+        for assignment in auth.userBranchAssignments {
+            let assignedBranch = assignment.branch
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !assignedBranch.isEmpty else { continue }
+
+            for value in assignment.groups {
+                let assignedGroup = value
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                if !assignedGroup.isEmpty,
+                   !result[assignedBranch, default: []].contains(assignedGroup) {
+                    result[assignedBranch, default: []].append(assignedGroup)
+                }
+            }
         }
-        .environment(
-            \.layoutDirection,
-            isEnglish
-                ? .leftToRight
-                : .rightToLeft
-        )
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
+
+        if auth.userBranchAssignments.isEmpty,
+           !legacyForumBranch.isEmpty, !legacyForumGroup.isEmpty {
+            result[legacyForumBranch] = [legacyForumGroup]
+        }
+
+        return result
+    }
+
+    private var forumBranchOptions: [String] {
+        forumGroupsByBranch.keys.sorted()
+    }
+
+    private var roomLabelCard: some View {
+        let groups = forumGroupsByBranch[branch] ?? []
+
+        return VStack(spacing: 8) {
+            KmiPremiumDropdown(
+                title: tr("סניף", "Branch"),
+                options: forumBranchOptions,
+                selectedValue: Binding(
+                    get: { branch },
+                    set: { value in
+                        guard forumBranchOptions.contains(value),
+                              value != branch else { return }
+
+                        selectForumRoom(branch: value, group: "")
+                    }
+                ),
+                placeholder: tr("בחר סניף", "Select branch"),
+                isEnglish: isEnglish,
+                isEnabled: !isSendingForumMessage && !forumBranchOptions.isEmpty,
+                labelForOption: {
+                    TrainingCatalogIOS.displayBranch($0, isEnglish: isEnglish)
+                },
+                titleInsideField: true
             )
-            .fill(
-                KmiAppTheme.surface(for: colorScheme)
-            )
-        )
-        .overlay {
-            RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
-            )
-            .stroke(
-                forumCardBorderColor,
-                lineWidth: 1
+
+            KmiPremiumDropdown(
+                title: tr("קבוצה", "Group"),
+                options: groups,
+                selectedValue: Binding(
+                    get: { groupKey },
+                    set: { value in
+                        guard groups.contains(value), value != groupKey else { return }
+
+                        selectForumRoom(branch: branch, group: value)
+                    }
+                ),
+                placeholder: tr("בחר קבוצה", "Select group"),
+                isEnglish: isEnglish,
+                isEnabled: !isSendingForumMessage && !groups.isEmpty,
+                labelForOption: {
+                    TrainingCatalogIOS.displayGroup($0, isEnglish: isEnglish)
+                },
+                titleInsideField: true
             )
         }
     }
+
     
 private func forumDisplayPersonName(
     realName: String?,
@@ -2095,7 +2198,15 @@ private func participantAvatar(
     private func canModifyMessage(
         _ message: ForumUiMessage
     ) -> Bool {
-        message.isMine || isManagerOverride
+        guard canUseExtras,
+              let uid = Auth.auth().currentUser?.uid,
+              !uid.isEmpty,
+              message.branch == branch,
+              message.groupKey == groupKey else {
+            return false
+        }
+
+        return message.authorUid == uid || isManagerOverride
     }
 
     private func messageAuthorLabel(
@@ -2191,8 +2302,9 @@ private func participantAvatar(
                             }
                         } label: {
                             Image(systemName: "ellipsis")
-                                .font(.system(size: 15, weight: .bold))
+                                .kmiIconSize(15)
                                 .foregroundStyle(metaTextColor)
+                                .accessibilityLabel(tr("פעולות הודעה", "Message actions"))
                                 .frame(width: 25, height: 25)
                                 .background(
                                     Circle()
@@ -2200,6 +2312,7 @@ private func participantAvatar(
                                 )
                         }
                         .buttonStyle(.plain)
+                        .disabled(isSendingForumMessage || isDeletingForumMessage)
                     }
 
                     Spacer(minLength: 0)
@@ -2274,9 +2387,9 @@ private func participantAvatar(
                         AsyncImage(url: url) { phase in
                             switch phase {
                             case .empty:
-                                ProgressView()
-                                    .tint(.white)
-                                    .frame(width: 260, height: 150)
+                                KmiAppTheme.surfaceVariant(for: colorScheme)
+                                    .frame(width: 260, height: 174)
+                                    .accessibilityLabel(tr("טוען תמונה", "Loading image"))
 
                             case .success(let image):
                                 image
@@ -2287,9 +2400,12 @@ private func participantAvatar(
 
                             default:
                                 Text(tr("שגיאה בטעינת תמונה", "Failed to load image"))
-                                    .font(.footnote.weight(.semibold))
+                                    .kmiTypography(.caption)
+                                    .fontWeight(.semibold)
                                     .foregroundStyle(mainTextColor.opacity(0.85))
-                                    .frame(width: 260, height: 110)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 12)
+                                    .frame(width: 260, height: 174)
                             }
                         }
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -2300,7 +2416,8 @@ private func participantAvatar(
                         } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: "video.fill")
-                                    .font(.system(size: 17, weight: .bold))
+                                    .kmiIconSize(17)
+                                    .accessibilityHidden(true)
 
                                 VStack(alignment: isEnglish ? .leading : .trailing, spacing: 1) {
                                     Text(
@@ -2830,19 +2947,33 @@ private func participantAvatar(
     }
 
     private var canSend: Bool {
-        let txt = currentComposerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard canUseExtras,
+              !isSendingForumMessage,
+              !isDeletingForumMessage else { return false }
+
+        let text = currentComposerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty { return true }
+
         #if canImport(FirebaseStorage)
-        return !txt.isEmpty || attachedMediaType != nil
-        #else
-        return !txt.isEmpty
+        if attachedMediaType != nil { return true }
         #endif
+
+        guard let editID = editingMessageId else { return false }
+
+        return messages.contains { message in
+            message.id == editID &&
+                canModifyMessage(message) &&
+                message.mediaUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }
     }
 
     // MARK: - Boot / Listener
 
     private func boot() {
+        forumLoadID = UUID()
         errorText = nil
         stopListener()
+        messages = []
 
         canUseExtras = false
         lockText = ""
@@ -2882,12 +3013,16 @@ private func participantAvatar(
             return
         }
 
+        let loadID = forumLoadID
+
         Task {
-            await loadUserBranchAndGroup()
+            await loadUserBranchAndGroup(loadID: loadID)
         }
     }
 
-    private func loadUserBranchAndGroup() async {
+    @MainActor
+    private func loadUserBranchAndGroup(loadID: UUID) async {
+        guard forumLoadID == loadID else { return }
 
         guard let uid = Auth.auth().currentUser?.uid else {
             await MainActor.run {
@@ -2967,39 +3102,42 @@ private func participantAvatar(
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
             await MainActor.run {
-                branch = branchVal
-                groupKey = groupVal
+                guard forumLoadID == loadID,
+                      Auth.auth().currentUser?.uid == uid else { return }
+
+                legacyForumBranch = branchVal
+                legacyForumGroup = groupVal
                 fullName = nameVal
                 email = emailVal
-
-                let hasBranchAndGroup = !branchVal.isEmpty && !groupVal.isEmpty
-
                 canUseExtras = true
+                lockText = ""
 
-                if !hasBranchAndGroup {
-                    lockText = tr(
-                        "לא אותרו סניף או קבוצה במשתמש.\nיש להשלים את פרטי הסניף והקבוצה כדי להשתמש בפורום.",
-                        "No branch or group was found for this user.\nPlease complete your branch and group details to use the forum."
-                    )
+                guard let firstBranch = forumBranchOptions.first else {
+                    branch = ""
+                    groupKey = ""
                     stopListener()
                     return
                 }
 
-                UserDefaults.standard.set(
-                    Date().timeIntervalSince1970 * 1000,
-                    forKey: "forum_last_read_at_\(branchVal.trimmingCharacters(in: .whitespacesAndNewlines))"
-                )
+                let initialBranch = forumBranchOptions.contains(branchVal)
+                    ? branchVal
+                    : firstBranch
 
-                lockText = ""
-                startListener()
+                let groups = forumGroupsByBranch[initialBranch] ?? []
+                let initialGroup = groups.contains(groupVal)
+                    ? groupVal
+                    : (groups.first ?? "")
 
-                Task {
-                    await loadForumParticipantsForBranch(branchVal)
+                if !openPendingForumRoom() {
+                    selectForumRoom(branch: initialBranch, group: initialGroup)
                 }
             }
 
         } catch {
             await MainActor.run {
+                guard forumLoadID == loadID,
+                      Auth.auth().currentUser?.uid == uid else { return }
+
                 canUseExtras = false
                 lockText = tr("שגיאה בטעינת פרטי המשתמש.", "Failed to load user details.")
                 errorText = tr(
@@ -3011,525 +3149,298 @@ private func participantAvatar(
         }
     }
     
-    private func stopListener() {
-        listener?.remove()
-        listener = nil
-        participantsByUsers = []
-        isMessagesLoading = false
-        isParticipantsLoading = false
+    @MainActor
+    private func openPendingForumRoom() -> Bool {
+        guard canUseExtras, !isSendingForumMessage else { return false }
 
-    }
-    
-    private func loadForumParticipantsForBranch(_ branchValue: String) async {
-        let cleanBranch = branchValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: "forum_open_from_push") else { return false }
 
-        await MainActor.run {
-            participantsByUsers = []
-            isParticipantsLoading = true
-        }
-
-        guard !cleanBranch.isEmpty, !cleanGroup.isEmpty else {
-            await MainActor.run {
-                participantsByUsers = []
-                isParticipantsLoading = false
-            }
-
-            return
-        }
-
-        let currentUid = Auth.auth().currentUser?.uid
-        let currentEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let currentName = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        func normalizeForumText(_ value: String) -> String {
-            var output = ""
-            var lastWasSpace = false
-
-            for rawChar in value.trimmingCharacters(in: .whitespacesAndNewlines) {
-                let char: Character
-
-                switch rawChar {
-                case "-", "–", "—", "־":
-                    char = "-"
-                default:
-                    char = rawChar
-                }
-
-                if char.isWhitespace {
-                    if !lastWasSpace {
-                        output.append(" ")
-                    }
-                    lastWasSpace = true
-                } else {
-                    output.append(char)
-                    lastWasSpace = false
-                }
-            }
-
-            return output.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        func swapDash(_ value: String, to replacement: Character) -> String {
-            String(
-                value.map { char in
-                    switch char {
-                    case "-", "–", "—", "־":
-                        return replacement
-                    default:
-                        return char
-                    }
-                }
-            )
-        }
-
-        func splitTokens(_ raw: String?) -> [String] {
-            guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return []
-            }
-
-            return raw
-                .replacingOccurrences(of: " • ", with: ",")
-                .replacingOccurrences(of: "|", with: ",")
-                .replacingOccurrences(of: "\n", with: ",")
-                .split { char in
-                    char == "," || char == ";" || char == "；"
-                }
-                .map { normalizeForumText(String($0)) }
-                .filter { !$0.isEmpty }
-        }
-
-        func userName(from data: [String: Any]) -> String? {
-            let value =
-                (data["fullName"] as? String) ??
-                (data["name"] as? String) ??
-                (data["displayName"] as? String) ??
-                (data["email"] as? String)
-
-            let clean = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return clean.isEmpty ? nil : clean
-        }
-
-        func roleText(from data: [String: Any]) -> String {
-            ((data["role"] as? String) ??
-             (data["userType"] as? String) ??
-             (data["type"] as? String) ??
-             "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        }
-
-        func isAllowedForumRole(_ data: [String: Any]) -> Bool {
-            let role = roleText(from: data)
-
-            return role.isEmpty ||
-                role.contains("trainee") ||
-                role.contains("coach") ||
-                role.contains("trainer") ||
-                role.contains("instructor") ||
-                role.contains("מתאמן") ||
-                role.contains("מאמן")
-        }
-
-        func branchTokens(from data: [String: Any]) -> [String] {
-            var out: [String] = []
-
-            if let branches = data["branches"] as? [String] {
-                out.append(contentsOf: branches.map { normalizeForumText($0) })
-            }
-
-            out.append(contentsOf: splitTokens(data["branchesCsv"] as? String))
-            out.append(contentsOf: splitTokens(data["branch"] as? String))
-            out.append(contentsOf: splitTokens(data["activeBranch"] as? String))
-            out.append(contentsOf: splitTokens(data["active_branch"] as? String))
-
-            return Array(Set(out.filter { !$0.isEmpty }))
-        }
-
-        func groupTokens(from data: [String: Any]) -> [String] {
-            var out: [String] = []
-
-            if let groups = data["groups"] as? [String] {
-                out.append(contentsOf: groups.map { normalizeForumText($0) })
-            }
-
-            if let groupNames = data["groupNames"] as? [String] {
-                out.append(contentsOf: groupNames.map { normalizeForumText($0) })
-            }
-
-            out.append(contentsOf: splitTokens(data["groupsCsv"] as? String))
-            out.append(contentsOf: splitTokens(data["group"] as? String))
-            out.append(contentsOf: splitTokens(data["groupKey"] as? String))
-            out.append(contentsOf: splitTokens(data["activeGroup"] as? String))
-            out.append(contentsOf: splitTokens(data["active_group"] as? String))
-
-            return Array(Set(out.filter { !$0.isEmpty }))
-        }
-
-        func matchesBranch(tokens: [String], candidates: Set<String>) -> Bool {
-            guard !tokens.isEmpty, !candidates.isEmpty else { return false }
-
-            return tokens.contains { token in
-                candidates.contains(token) ||
-                candidates.contains { candidate in
-                    candidate.count >= 4 &&
-                    token.count >= 4 &&
-                    (token.contains(candidate) || candidate.contains(token))
-                }
-            }
-        }
-
-        func participantUniqueKey(id: String, data: [String: Any]) -> String {
-            let uid =
-                ((data["uid"] as? String) ??
-                 (data["authUid"] as? String) ??
-                 "")
+        func value(_ key: String) -> String {
+            (defaults.string(forKey: key) ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-
-            let docEmail =
-                ((data["email"] as? String) ??
-                 (data["emailLower"] as? String) ??
-                 (data["userEmail"] as? String) ??
-                 (data["user_email"] as? String) ??
-                 "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-
-            let rawPhone =
-                ((data["phone"] as? String) ??
-                 (data["phoneNumber"] as? String) ??
-                 (data["phone_number"] as? String) ??
-                 (data["mobile"] as? String) ??
-                 "")
-
-            let digits = rawPhone.filter(\.isNumber)
-
-            let normalizedPhone: String
-            if digits.hasPrefix("972"), digits.count >= 11 {
-                normalizedPhone = "0" + digits.dropFirst(3)
-            } else if digits.hasPrefix("05") {
-                normalizedPhone = digits
-            } else if digits.count == 9, digits.hasPrefix("5") {
-                normalizedPhone = "0\(digits)"
-            } else {
-                normalizedPhone = digits
-            }
-
-            let name = userName(from: data) ?? ""
-
-            if !docEmail.isEmpty {
-                return "email:\(docEmail)"
-            }
-
-            if !normalizedPhone.isEmpty {
-                return "phone:\(normalizedPhone)"
-            }
-
-            if !uid.isEmpty {
-                return "uid:\(uid)"
-            }
-
-            if !name.isEmpty {
-                return "name:\(normalizeForumText(name).lowercased())"
-            }
-
-            return "doc:\(id)"
         }
 
-        func fetchUsers(field: String, equals value: String) async -> [QueryDocumentSnapshot] {
-            do {
-                let snap = try await db.collection("users")
-                    .whereField(field, isEqualTo: value)
-                    .getDocuments()
+        let targetBranch = value("forum_push_branch_id")
+        let targetGroup = value("forum_push_group_key")
+        let targetRoomID = value("forum_push_room_id")
+        let targetMessageID = value("forum_push_message_id")
 
-                return snap.documents
-            } catch {
-                return []
-            }
+        defaults.set(false, forKey: "forum_open_from_push")
+
+        if !targetBranch.isEmpty,
+           !targetGroup.isEmpty,
+           (forumGroupsByBranch[targetBranch] ?? []).contains(targetGroup),
+           targetRoomID.isEmpty ||
+               forumRoomDocumentId(branch: targetBranch, groupKey: targetGroup) == targetRoomID {
+            selectForumRoom(branch: targetBranch, group: targetGroup)
+            pendingForumMessageID = targetMessageID.isEmpty ? nil : targetMessageID
+            return true
         }
 
-        func fetchUsersArrayContains(field: String, value: String) async -> [QueryDocumentSnapshot] {
-            do {
-                let snap = try await db.collection("users")
-                    .whereField(field, arrayContains: value)
-                    .getDocuments()
+        guard !targetRoomID.isEmpty else { return false }
 
-                return snap.documents
-            } catch {
-                return []
-            }
-        }
-
-        let candidates = Array(
-            Set([
-                cleanBranch,
-                swapDash(cleanBranch, to: "-"),
-                swapDash(cleanBranch, to: "–"),
-                swapDash(cleanBranch, to: "—"),
-                swapDash(cleanBranch, to: "־"),
-                cleanBranch.replacingOccurrences(of: "  ", with: " ")
-            ].map {
-                $0.trimmingCharacters(in: .whitespacesAndNewlines)
-            }.filter {
-                !$0.isEmpty
-            })
-        )
-
-        let normalizedGroupCandidates = Set(
-            [
-                cleanGroup,
-                cleanGroup.replacingOccurrences(of: " + ", with: " ו"),
-                cleanGroup.replacingOccurrences(of: " ו", with: " + "),
-                swapDash(cleanGroup, to: "-"),
-                swapDash(cleanGroup, to: "–"),
-                swapDash(cleanGroup, to: "—"),
-                swapDash(cleanGroup, to: "־")
-            ]
-            .flatMap { value in
-                [value] + splitTokens(value)
-            }
-            .map { normalizeForumText($0) }
-            .filter { !$0.isEmpty }
-        )
-
-        func matchesGroup(tokens: [String]) -> Bool {
-            guard !normalizedGroupCandidates.isEmpty else {
-                return true
-            }
-
-            guard !tokens.isEmpty else {
-                return false
-            }
-
-            return tokens.contains { token in
-                normalizedGroupCandidates.contains(
-                    normalizeForumText(token)
-                )
-            }
-        }
-
-        var docsById: [String: QueryDocumentSnapshot] = [:]
-
-        for candidate in candidates {
-            for doc in await fetchUsersArrayContains(field: "branches", value: candidate) {
-                docsById[doc.documentID] = doc
-            }
-
-            for field in ["branchesCsv", "branch", "activeBranch", "active_branch"] {
-                for doc in await fetchUsers(field: field, equals: candidate) {
-                    docsById[doc.documentID] = doc
-                }
-            }
-        }
-
-        if docsById.isEmpty {
-            do {
-                let snap = try await db.collection("users").limit(to: 5000).getDocuments()
-                let normalizedCandidates = Set(candidates.map { normalizeForumText($0) })
-
-                for doc in snap.documents {
-                    let data = doc.data()
-                    if matchesBranch(tokens: branchTokens(from: data), candidates: normalizedCandidates) {
-                        docsById[doc.documentID] = doc
-                    }
-                }
-            } catch {
-                docsById = [:]
-            }
-        }
-
-        var grouped: [String: QueryDocumentSnapshot] = [:]
-
-        for doc in docsById.values {
-            let data = doc.data()
-
-            guard isAllowedForumRole(data),
-                  userName(from: data) != nil,
-                  matchesGroup(tokens: groupTokens(from: data)) else {
-                continue
-            }
-
-            let key = participantUniqueKey(
-                id: doc.documentID,
-                data: data
-            )
-
-            grouped[key] = doc
-        }
-
-        let participants = grouped.values.compactMap { doc -> ForumParticipantUi? in
-            let data = doc.data()
-            guard let name = userName(from: data) else { return nil }
-
-            let docEmail =
-                ((data["email"] as? String) ??
-                 (data["emailLower"] as? String) ??
-                 (data["userEmail"] as? String) ??
-                 (data["user_email"] as? String) ??
-                 "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-
-            let docUid =
-                ((data["uid"] as? String) ??
-                 (data["authUid"] as? String) ??
-                 doc.documentID)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-
-            return ForumParticipantUi(
-                id: docUid.isEmpty ? doc.documentID : docUid,
-                name: name,
-                isMe: (
-                    (currentUid != nil && docUid == currentUid) ||
-                    (!currentEmail.isEmpty && docEmail == currentEmail) ||
-                    (
-                        !currentName.isEmpty &&
-                        name.trimmingCharacters(in: .whitespacesAndNewlines)
-                            .caseInsensitiveCompare(currentName) == .orderedSame
-                    )
-                )
-            )
-        }
-        .reduce(into: [String: ForumParticipantUi]()) { result, participant in
-            let key = normalizeForumText(participant.name).lowercased()
-            result[key] = participant
-        }
-        .values
-        .sorted {
-            if $0.isMe != $1.isMe {
-                return $0.isMe && !$1.isMe
-            }
-            return $0.name.localizedCompare($1.name) == .orderedAscending
-        }
-
-        await MainActor.run {
-            participantsByUsers = participants
-            isParticipantsLoading = false
-        }
-    }
-    
-    private func startListener() {
-
-        stopListener()
-
-        let cleanBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let cleanGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !cleanBranch.isEmpty, !cleanGroup.isEmpty else {
-
-            messages = []
-
-            isMessagesLoading = false
-
-            return
-
-        }
-
-        isMessagesLoading = true
-
-        UserDefaults.standard.set(
-            Date().timeIntervalSince1970 * 1000,
-            forKey: "forum_last_read_at_\(cleanBranch)_\(cleanGroup)"
-        )
-
-        let query = db.collection("branches")
-            .document(cleanBranch)
-            .collection("forumRooms")
-            .document(forumRoomDocumentId(branch: cleanBranch, groupKey: cleanGroup))
-            .collection("messages")
-            .order(by: "createdAt", descending: true)
-            .limit(to: 200)
-
-        listener = query.addSnapshotListener { snap, err in
-
-            if err != nil {
-
-                isMessagesLoading = false
-
-                errorText = tr(
-
-                    "לא הצלחנו לטעון את הודעות הפורום. נסו שוב מאוחר יותר.",
-
-                    "We could not load the forum messages. Please try again later."
-
-                )
-
-                return
-
-            }
-
-            let currentUid = Auth.auth().currentUser?.uid
-
-            let list: [ForumUiMessage] = snap?.documents.compactMap { doc in
-                let data = doc.data()
-
-                guard let ts = (data["createdAt"] as? Timestamp)?.dateValue() else {
+        let matches = forumGroupsByBranch.flatMap { entry in
+            entry.value.compactMap { group -> (branch: String, group: String)? in
+                guard forumRoomDocumentId(branch: entry.key, groupKey: group) == targetRoomID else {
                     return nil
                 }
-
-                let authorName =
-                    (data["authorName"] as? String) ??
-                    (data["fullName"] as? String) ??
-                    (data["name"] as? String) ??
-                    (data["displayName"] as? String) ??
-                    ""
-
-                let authorEmail = data["authorEmail"] as? String ?? ""
-                let authorUid = data["authorUid"] as? String
-                let txt = data["text"] as? String ?? ""
-                let mediaUrl = data["mediaUrl"] as? String
-                let mediaType = data["mediaType"] as? String
-
-                let createdAtMillis: Int64
-
-                if let millis = data["createdAtMillis"] as? Int64 {
-                    createdAtMillis = millis
-                } else if let millis = data["createdAtMillis"] as? Int {
-                    createdAtMillis = Int64(millis)
-                } else if let millis = data["createdAtMillis"] as? Double {
-                    createdAtMillis = Int64(millis)
-                } else {
-                    createdAtMillis = Int64(ts.timeIntervalSince1970 * 1000)
-                }
-
-                let updatedAtMillis: Int64?
-
-                if let millis = data["updatedAtMillis"] as? Int64 {
-                    updatedAtMillis = millis
-                } else if let millis = data["updatedAtMillis"] as? Int {
-                    updatedAtMillis = Int64(millis)
-                } else if let millis = data["updatedAtMillis"] as? Double {
-                    updatedAtMillis = Int64(millis)
-                } else {
-                    updatedAtMillis = nil
-                }
-
-                var msg = ForumUiMessage(
-                    id: doc.documentID,
-                    messageId: data["messageId"] as? String ?? doc.documentID,
-                    branch: data["branch"] as? String ?? cleanBranch,
-                    groupKey: data["groupKey"] as? String ?? cleanGroup,
-                    authorName: authorName,
-                    authorEmail: authorEmail,
-                    authorUid: authorUid,
-                    text: txt,
-                    createdAt: ts,
-                    createdAtMillis: createdAtMillis,
-                    updatedAtMillis: updatedAtMillis,
-                    mediaUrl: mediaUrl,
-                    mediaType: mediaType
-                )
-                msg.isMine = (authorUid != nil && authorUid == currentUid)
-                return msg
-            } ?? []
-
-            messages = list.sorted { $0.createdAt < $1.createdAt }
-
-            isMessagesLoading = false
-
+                return (entry.key, group)
+            }
         }
 
+        guard matches.count == 1, let room = matches.first else { return false }
+
+        selectForumRoom(branch: room.branch, group: room.group)
+        pendingForumMessageID = targetMessageID.isEmpty ? nil : targetMessageID
+        return true
+    }
+
+    @MainActor
+    private func selectForumRoom(branch nextBranch: String, group nextGroup: String) {
+        guard canUseExtras, !isSendingForumMessage,
+              forumBranchOptions.contains(nextBranch),
+              nextGroup.isEmpty ||
+                (forumGroupsByBranch[nextBranch] ?? []).contains(nextGroup) else {
+            return
+        }
+
+        forumLoadID = UUID()
+        stopListener()
+
+        messages = []
+        pendingForumMessageID = nil
+        errorText = nil
+        editingMessageId = nil
+        editText = ""
+        input = ""
+        isComposerFocused = false
+        showParticipantsSheet = false
+
+        #if canImport(FirebaseStorage)
+        clearAttachment()
+        #endif
+
+        branch = nextBranch
+        groupKey = nextGroup
+
+        guard !nextGroup.isEmpty else { return }
+
+        showRoomDetails = false
+        isForumControlsCollapsed = true
+
+        let loadID = forumLoadID
+
+        Task {
+            await refreshForumMessages(loadID: loadID)
+        }
+
+        Task {
+            await loadForumParticipantsForBranch(nextBranch, loadID: loadID)
+        }
+    }
+
+    private func stopListener() {
+        messageRequestID = UUID()
+        participantsByUsers = []
+        isMessagesLoading = false
+        didFailLoadingMessages = false
+        isParticipantsLoading = false
+    }
+    
+    @MainActor
+    private func loadForumParticipantsForBranch(
+        _ branchValue: String,
+        loadID: UUID
+    ) async {
+        let roomBranch = branchValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let roomGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard canUseExtras,
+              forumLoadID == loadID,
+              branch == roomBranch,
+              !roomBranch.isEmpty,
+              !roomGroup.isEmpty,
+              let uid = Auth.auth().currentUser?.uid,
+              !uid.isEmpty else { return }
+
+        isParticipantsLoading = true
+        defer {
+            if forumLoadID == loadID {
+                isParticipantsLoading = false
+            }
+        }
+
+        do {
+            let items = try await loadForumItems(
+                "loadSecureForumParticipants",
+                branch: roomBranch,
+                group: roomGroup
+            )
+
+            guard !Task.isCancelled,
+                  forumLoadID == loadID,
+                  Auth.auth().currentUser?.uid == uid else { return }
+
+            var seenUIDs = Set<String>()
+
+            participantsByUsers = items.compactMap { item -> ForumParticipantUi? in
+                let participantUID = forumItemString(item, key: "uid")
+                let name = forumItemString(item, key: "name")
+                    .split(whereSeparator: \.isWhitespace)
+                    .joined(separator: " ")
+
+                guard !participantUID.isEmpty,
+                      !name.isEmpty,
+                      seenUIDs.insert(participantUID).inserted else { return nil }
+
+                return ForumParticipantUi(
+                    id: participantUID,
+                    name: name,
+                    isMe: participantUID == uid
+                )
+            }
+            .sorted {
+                let order = $0.name.localizedCaseInsensitiveCompare($1.name)
+                return order == .orderedSame
+                    ? $0.id < $1.id
+                    : order == .orderedAscending
+            }
+        } catch {
+            guard !Task.isCancelled,
+                  forumLoadID == loadID,
+                  Auth.auth().currentUser?.uid == uid else { return }
+
+            errorText = tr(
+                "לא הצלחנו לטעון את משתתפי החדר.",
+                "We could not load the room participants."
+            )
+        }
+    }
+
+    
+    private enum ForumLoadError: Error {
+        case invalidResponse
+    }
+
+    @MainActor
+    private func loadForumItems(
+        _ functionName: String,
+        branch: String,
+        group: String
+    ) async throws -> [[String: Any]] {
+        let result = try await Functions.functions()
+            .httpsCallable(functionName)
+            .call([
+                "branch": branch,
+                "group": group
+            ])
+
+        guard let payload = result.data as? [String: Any],
+              let items = payload["items"] as? [[String: Any]] else {
+            throw ForumLoadError.invalidResponse
+        }
+
+        return items
+    }
+
+    private func forumItemString(_ item: [String: Any], key: String) -> String {
+        (item[key] as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    @MainActor
+    private func refreshForumMessages(loadID: UUID) async {
+        let roomBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let roomGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard canUseExtras,
+              forumLoadID == loadID,
+              !roomBranch.isEmpty,
+              !roomGroup.isEmpty,
+              let uid = Auth.auth().currentUser?.uid,
+              !uid.isEmpty else { return }
+
+        let requestID = UUID()
+        messageRequestID = requestID
+        isMessagesLoading = true
+        didFailLoadingMessages = false
+
+        defer {
+            if forumLoadID == loadID, messageRequestID == requestID {
+                isMessagesLoading = false
+            }
+        }
+
+        do {
+            let items = try await loadForumItems(
+                "loadSecureForumMessages",
+                branch: roomBranch,
+                group: roomGroup
+            )
+
+            guard !Task.isCancelled,
+                  forumLoadID == loadID,
+                  messageRequestID == requestID,
+                  Auth.auth().currentUser?.uid == uid else { return }
+
+            var seenIDs = Set<String>()
+
+            messages = items.compactMap { item -> ForumUiMessage? in
+                let id = forumItemString(item, key: "id")
+                let messageID = forumItemString(item, key: "messageId")
+                let authorUID = forumItemString(item, key: "authorUid")
+                let created = (item["createdAtMillis"] as? NSNumber)?.int64Value ?? 0
+
+                guard !id.isEmpty,
+                      !messageID.isEmpty,
+                      !authorUID.isEmpty,
+                      created > 0,
+                      seenIDs.insert(id).inserted else { return nil }
+
+                let updated = (item["updatedAtMillis"] as? NSNumber)?.int64Value ?? 0
+                let mediaURL = forumItemString(item, key: "mediaUrl")
+                let mediaType = forumItemString(item, key: "mediaType")
+
+                return ForumUiMessage(
+                    id: id,
+                    messageId: messageID,
+                    branch: roomBranch,
+                    groupKey: roomGroup,
+                    authorName: forumItemString(item, key: "authorName"),
+                    authorEmail: "",
+                    authorUid: authorUID,
+                    text: item["text"] as? String ?? "",
+                    createdAt: Date(timeIntervalSince1970: TimeInterval(created) / 1_000),
+                    createdAtMillis: created,
+                    updatedAtMillis: updated > 0 ? updated : nil,
+                    mediaUrl: mediaURL.isEmpty ? nil : mediaURL,
+                    mediaType: mediaType.isEmpty ? nil : mediaType,
+                    isMine: authorUID == uid
+                )
+            }
+            .sorted {
+                $0.createdAtMillis == $1.createdAtMillis
+                    ? $0.id < $1.id
+                    : $0.createdAtMillis < $1.createdAtMillis
+            }
+
+            UserDefaults.standard.set(
+                Date().timeIntervalSince1970 * 1_000,
+                forKey: "forum_last_read_at_\(roomBranch)_\(roomGroup)"
+            )
+        } catch {
+            guard !Task.isCancelled,
+                  forumLoadID == loadID,
+                  messageRequestID == requestID,
+                  Auth.auth().currentUser?.uid == uid else { return }
+
+            didFailLoadingMessages = true
+            errorText = tr(
+                "לא הצלחנו לטעון את הודעות הפורום. אפשר למשוך מטה כדי לנסות שוב.",
+                "We could not load the forum messages. Pull down to try again."
+            )
+        }
     }
 
     // MARK: - Forum PDF
@@ -4013,406 +3924,145 @@ private func participantAvatar(
     
     // MARK: - Send / Update / Delete
 
+    @MainActor
     private func sendOrUpdate() async {
+        guard canSend else { return }
+
+        guard let uid = Auth.auth().currentUser?.uid, !uid.isEmpty else {
+            errorText = tr(
+                "לא ניתן לשלוח הודעה לפני התחברות משתמש.",
+                "You must be signed in before sending a message."
+            )
+            return
+        }
+
+        let cleanBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanBranch.isEmpty, !cleanGroup.isEmpty else { return }
+
+        let loadID = forumLoadID
+        let editID = editingMessageId
+        let text = currentComposerText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let editID {
+            guard let original = messages.first(where: { $0.id == editID }),
+                  canModifyMessage(original) else {
+                errorText = tr(
+                    "אין הרשאה לערוך הודעה זו.",
+                    "You do not have permission to edit this message."
+                )
+                return
+            }
+        }
+
+        #if canImport(FirebaseStorage)
+        let pickedImage = attachedImageData
+        let pickedVideo = attachedVideoUrl
+        let pickedMediaType = attachedMediaType
+        #endif
+
+        isSendingForumMessage = true
         errorText = nil
-
-        let trimmed = currentComposerText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if trimmed.isEmpty {
-            #if canImport(FirebaseStorage)
-            if attachedMediaType == nil { return }
-            #else
-            return
-            #endif
-        }
-
-        if branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-            groupKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return
-        }
-
-        let currentUser = Auth.auth().currentUser
-        let uid = currentUser?.uid
-
-        guard currentUser != nil, !(uid ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            await MainActor.run {
-                errorText = tr(
-                    "לא ניתן לשלוח הודעה לפני התחברות משתמש.",
-                    "You must be signed in before sending a message."
-                )
-            }
-            return
-        }
-
-        guard isCurrentUserForumParticipant else {
-
-            await MainActor.run {
-
-                errorText = tr(
-
-                    "אין הרשאה לשלוח הודעות בחדר הקבוצה הזה.",
-
-                    "You do not have permission to send messages in this group room."
-
-                )
-
-            }
-
-            return
-
-        }
+        defer { isSendingForumMessage = false }
 
         do {
-
-            if let editId = editingMessageId {
-
-                guard
-                    let messageBeingEdited =
-                        messages.first(
-                            where: { $0.id == editId }
-                        ),
-                    canModifyMessage(messageBeingEdited)
-                else {
-
-                    await MainActor.run {
-
-                        errorText = tr(
-
-                            "אין הרשאה לערוך הודעה זו.",
-
-                            "You do not have permission to edit this message."
-
-                        )
-
-                    }
-
-                    return
-
-                }
-
-            }
-
-            let safeAuthorName = fullName
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .ifEmpty(
-                    UserDefaults.standard.string(
-                        forKey: "displayName"
-                    ) ?? ""
-                )
-                .ifEmpty(
-                    UserDefaults.standard.string(
-                        forKey: "name"
-                    ) ?? ""
-                )
-                .ifEmpty(email)
-                .ifEmpty(
-                    tr(
-                        "משתתף",
-                        "Participant"
-                    )
-                )
-
-            let cleanBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
-            let cleanGroup = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            let roomId = forumRoomDocumentId(
-                branch: cleanBranch,
-                groupKey: cleanGroup
-            )
-
-            let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
-            let expiresAtDate = Date().addingTimeInterval(forumMessageRetentionSeconds)
-
-            var base: [String: Any] = [
-
-                "roomId": roomId,
-
+            var payload: [String: Any] = [
                 "branch": cleanBranch,
-
-                "groupKey": cleanGroup,
-
-                "authorName": safeAuthorName,
-
-                "authorEmail": email,
-
-                "authorUid": uid ?? "",
-
-                "authorIsManager": isManagerOverride,
-
-                "text": trimmed,
-
-                "createdAtMillis": nowMillis,
-
-                "expiresAt": Timestamp(date: expiresAtDate),
-
-                "retentionDays": forumMessageRetentionDays,
-
-                "isPinned": false,
-
-                "pushStatus": "pending",
-
-                "pushCreatedBy": "ios_forum",
-
-                "source": "ios_forum"
-
+                "group": cleanGroup,
+                "text": text,
+                "messageId": editID ?? ""
             ]
 
             #if canImport(FirebaseStorage)
-            var mediaUrl: String? = nil
-            var mediaType: String? = nil
-
-            if attachedMediaType == "image", let data = attachedImageData {
-                mediaType = "image"
-                mediaUrl = try await uploadImage(data: data, uid: uid)
-            } else if attachedMediaType == "video", let url = attachedVideoUrl {
-                mediaType = "video"
-                mediaUrl = try await uploadVideo(fileUrl: url, uid: uid)
-            }
-
-            if let mediaUrl, let mediaType {
-                base["mediaUrl"] = mediaUrl
-                base["mediaType"] = mediaType
+            if pickedMediaType == "image", let pickedImage {
+                payload["mediaUrl"] = try await uploadImage(data: pickedImage, uid: uid)
+                payload["mediaType"] = "image"
+            } else if pickedMediaType == "video", let pickedVideo {
+                payload["mediaUrl"] = try await uploadVideo(fileUrl: pickedVideo, uid: uid)
+                payload["mediaType"] = "video"
             }
             #endif
 
-            let roomRef = db.collection("branches")
-                .document(cleanBranch)
-                .collection("forumRooms")
-                .document(roomId)
+            guard !Task.isCancelled,
+                  forumLoadID == loadID,
+                  Auth.auth().currentUser?.uid == uid else { return }
 
-            let messagePreview = messagePreviewText(
-
-                text: trimmed,
-
-                mediaType: base["mediaType"] as? String
-
-            )
-
-            base["messagePreview"] = messagePreview
-
-            base["hasMedia"] =
-                base["mediaUrl"] != nil
-
-            try? await roomRef.setData(
-                [
-                    "roomId": roomId,
-                    "branch": cleanBranch,
-                    "groupKey": cleanGroup,
-                    "participantCount": participantsByUsers.count,
-                    "participantIds": Array(participantsByUsers.map { $0.id }.prefix(200)),
-                    "participantNames": Array(participantsByUsers.map { $0.name }.prefix(200)),
-                    "participantSource": "users_by_branch_and_group",
-                    "pushEnabled": true,
-                    "pushTarget": "forum_room_participants",
-                    "updatedAt": FieldValue.serverTimestamp(),
-                    "updatedAtMillis": nowMillis,
-                    "lastMessagePreview": messagePreview,
-
-                    "lastMessageSenderName": safeAuthorName,
-
-                    "lastMessageSenderUid": uid ?? "",
-
-                    "lastMessageAuthorName": safeAuthorName,
-
-                    "lastMessageAuthorUid": uid ?? "",
-
-                    "lastMessageHasMedia":
-                        base["mediaUrl"] != nil,
-
-                    "lastMessageMediaType":
-                        base["mediaType"] as? String ?? "",
-
-                    "source": "ios_forum"
-
-                    ],
-
-                    merge: true
-            )
-
-            let col = roomRef.collection("messages")
-
-            if let editId = editingMessageId {
-
-                base.removeValue(
-                    forKey: "createdAtMillis"
-                )
-
-                base.removeValue(
-                    forKey: "expiresAt"
-                )
-
-                base.removeValue(
-                    forKey: "retentionDays"
-                )
-
-                base.removeValue(
-                    forKey: "isPinned"
-                )
-
-                if let originalMessage =
-                    messages.first(
-                        where: { $0.id == editId }
-                    ) {
-
-                    base["messageId"] =
-                        originalMessage.messageId
-
-                }
-
-                base["updatedAt"] =
-                    FieldValue.serverTimestamp()
-
-                base["updatedAtMillis"] =
-                    nowMillis
-
-                base["edited"] = true
-
-                try await col
-                    .document(editId)
-                    .setData(
-                        base,
-                        merge: true
-                    )
-            } else {
-
-                let newDoc = col.document()
-
-                base["messageId"] =
-                    newDoc.documentID
-
-                base["createdAt"] =
-                    FieldValue.serverTimestamp()
-
-                base["updatedAtMillis"] =
-                    nowMillis
-
-                try await newDoc.setData(
-                    base,
-                    merge: true
-                )
-
-                try? await roomRef.setData(
-
-                    [
-
-                        "lastMessageId":
-                            newDoc.documentID,
-
-                        "lastMessagePreview":
-                            messagePreview,
-
-                        "lastMessageAuthorUid":
-                            uid ?? "",
-
-                        "lastMessageAuthorName":
-                            safeAuthorName,
-
-                        "lastMessageAt":
-                            FieldValue.serverTimestamp(),
-
-                        "lastMessageAtMillis":
-                            nowMillis,
-
-                        "lastMessageHasMedia":
-                            base["mediaUrl"] != nil,
-
-                        "lastMessageMediaType":
-                            base["mediaType"] as? String ?? "",
-
-                        "pendingPushMessageId":
-                            newDoc.documentID,
-
-                        "pendingPushAuthorUid":
-                            uid ?? "",
-
-                        "pendingPushPreview":
-                            messagePreview,
-
-                        "pendingPushAt":
-                            FieldValue.serverTimestamp(),
-
-                        "pendingPushAtMillis":
-                            nowMillis,
-
-                        "updatedAt":
-                            FieldValue.serverTimestamp(),
-
-                        "updatedAtMillis":
-                            nowMillis
-
-                    ],
-
-                    merge: true
-
-                )
-
+            guard editID != nil || !text.isEmpty || payload["mediaUrl"] != nil else {
+                return
             }
 
-            await MainActor.run {
-                input = ""
-                editText = ""
-                editingMessageId = nil
-                isComposerFocused = false
-                errorText = nil
+            _ = try await Functions.functions()
+                .httpsCallable("saveSecureForumMessage")
+                .call(payload)
 
-                #if canImport(FirebaseStorage)
-                clearAttachment()
-                #endif
-            }
-            
+            guard forumLoadID == loadID,
+                  Auth.auth().currentUser?.uid == uid else { return }
+
+            input = ""
+            editText = ""
+            editingMessageId = nil
+            isComposerFocused = false
+
+            #if canImport(FirebaseStorage)
+            clearAttachment()
+            #endif
+
+            await refreshForumMessages(loadID: loadID)
         } catch {
-            await MainActor.run {
-                errorText = tr(
-                    "לא הצלחנו לשמור את ההודעה. נסו שוב.",
-                    "We could not save the message. Please try again."
-                )
-            }
+            guard forumLoadID == loadID,
+                  Auth.auth().currentUser?.uid == uid else { return }
+
+            errorText = tr(
+                "לא ניתן לאשר את שמירת ההודעה. בדוק אם היא מופיעה בחדר לפני ניסיון חוזר.",
+                "Could not confirm that the message was saved. Check the room before trying again."
+            )
         }
     }
 
+
+    @MainActor
     private func deleteMessage(_ msg: ForumUiMessage) async {
-        guard canModifyMessage(msg) else {
+        guard !isSendingForumMessage, !isDeletingForumMessage else { return }
 
-            await MainActor.run {
-
-                errorText = tr(
-                    "אין הרשאה למחוק הודעה זו.",
-                    "You do not have permission to delete this message."
-                )
-
-            }
-
-            return
-
-        }
-
-        let messageBranch = msg.branch.trimmingCharacters(in: .whitespacesAndNewlines)
-        let messageGroup = msg.groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !messageBranch.isEmpty, !messageGroup.isEmpty else {
-            await MainActor.run {
-                errorText = tr(
-                    "שגיאה במחיקה: לא נמצא סניף או קבוצה להודעה.",
-                    "Delete failed: message branch or group was not found."
-                )
-            }
+        guard canModifyMessage(msg),
+              let uid = Auth.auth().currentUser?.uid else {
+            errorText = tr(
+                "אין הרשאה למחוק הודעה זו.",
+                "You do not have permission to delete this message."
+            )
             return
         }
+
+        let loadID = forumLoadID
+        isDeletingForumMessage = true
+        defer { isDeletingForumMessage = false }
 
         do {
-            try await db.collection("branches")
-                .document(messageBranch)
-                .collection("forumRooms")
-                .document(forumRoomDocumentId(branch: messageBranch, groupKey: messageGroup))
-                .collection("messages")
-                .document(msg.id)
-                .delete()
-        } catch {
-            await MainActor.run {
-                errorText = tr(
-                    "לא הצלחנו למחוק את ההודעה. נסו שוב.",
-                    "We could not delete the message. Please try again."
-                )
+            _ = try await Functions.functions()
+                .httpsCallable("deleteSecureForumMessage")
+                .call([
+                    "branch": msg.branch,
+                    "group": msg.groupKey,
+                    "messageId": msg.id
+                ])
+
+            guard forumLoadID == loadID,
+                  Auth.auth().currentUser?.uid == uid else { return }
+
+            if editingMessageId == msg.id {
+                editingMessageId = nil
+                editText = ""
             }
+
+            await refreshForumMessages(loadID: loadID)
+        } catch {
+            guard forumLoadID == loadID,
+                  Auth.auth().currentUser?.uid == uid else { return }
+
+            errorText = tr(
+                "לא ניתן למחוק את ההודעה כרגע.",
+                "The message cannot be deleted right now."
+            )
         }
     }
 
@@ -4451,45 +4101,66 @@ private func participantAvatar(
         return url.absoluteString
     }
 
-    private func loadPickedImage(_ item: PhotosPickerItem) async {
+    @MainActor
+    private func loadPickedImage(
+        _ item: PhotosPickerItem,
+        requestID: UUID,
+        roomLoadID: UUID
+    ) async {
         do {
-            if let data = try await item.loadTransferable(type: Data.self) {
-                await MainActor.run {
-                    attachedImageData = data
-                    attachedVideoUrl = nil
-                    attachedMediaType = "image"
-                }
-            }
+            guard let data = try await item.loadTransferable(type: Data.self),
+                  attachmentLoadID == requestID,
+                  forumLoadID == roomLoadID,
+                  !isSendingForumMessage else { return }
+
+            attachedImageData = data
+            attachedVideoUrl = nil
+            attachedMediaType = "image"
         } catch {
-            await MainActor.run {
-                errorText = tr(
-                    "לא הצלחנו לטעון את התמונה.",
-                    "We could not load the image."
-                )
-            }
+            guard attachmentLoadID == requestID,
+                  forumLoadID == roomLoadID else { return }
+
+            errorText = tr(
+                "לא הצלחנו לטעון את התמונה.",
+                "We could not load the image."
+            )
         }
     }
 
-    private func loadPickedVideo(_ item: PhotosPickerItem) async {
+    @MainActor
+    private func loadPickedVideo(
+        _ item: PhotosPickerItem,
+        requestID: UUID,
+        roomLoadID: UUID
+    ) async {
         do {
-            if let movie = try await item.loadTransferable(type: MovieFile.self) {
-                await MainActor.run {
-                    attachedVideoUrl = movie.url
-                    attachedImageData = nil
-                    attachedMediaType = "video"
-                }
+            guard let movie = try await item.loadTransferable(type: MovieFile.self) else {
+                return
             }
+
+            guard attachmentLoadID == requestID,
+                  forumLoadID == roomLoadID,
+                  !isSendingForumMessage else {
+                try? FileManager.default.removeItem(at: movie.url)
+                return
+            }
+
+            attachedVideoUrl = movie.url
+            attachedImageData = nil
+            attachedMediaType = "video"
         } catch {
-            await MainActor.run {
-                errorText = tr(
-                    "לא הצלחנו לטעון את הסרטון.",
-                    "We could not load the video."
-                )
-            }
+            guard attachmentLoadID == requestID,
+                  forumLoadID == roomLoadID else { return }
+
+            errorText = tr(
+                "לא הצלחנו לטעון את הסרטון.",
+                "We could not load the video."
+            )
         }
     }
 
     private func clearAttachment() {
+        attachmentLoadID = UUID()
         attachedImageData = nil
         attachedVideoUrl = nil
         attachedMediaType = nil

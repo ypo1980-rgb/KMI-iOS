@@ -171,6 +171,7 @@ enum AppRoute: Hashable {
 
     case weakPoints(belt: Belt)
     case allLists(belt: Belt)
+    case practiceMenu(belt: Belt, canUseExtras: Bool)
     case practice(
         belt: Belt,
         topicTitle: String
@@ -1553,11 +1554,15 @@ struct ContentView: View {
                             }
                         
                         // ✅ תרגילים לפי נושא
-                        case .beltQuestionsByTopic(let belt):
-                            KmiRootLayout(title: beltTitleForUi(belt), nav: nav, selectedIcon: .home) {
-                                BeltQuestionsByTopicView(belt: belt)
-                                    .navigationBarBackButtonHidden(true)
-                            }
+                    case .beltQuestionsByTopic(let belt):
+                        KmiRootLayout(
+                            title: tr("תרגילים לפי נושא", "Exercises by Topic"),
+                            nav: nav,
+                            selectedIcon: .home
+                        ) {
+                            BeltQuestionsByTopicView(belt: belt)
+                                .navigationBarBackButtonHidden(true)
+                        }
                         
                         // ✅ נושא אמיתי לפי TopicsBySubjectRegistry
                         case .subjectAcrossBelts(
@@ -1682,10 +1687,20 @@ struct ContentView: View {
                         KmiRootLayout(
                             title: tr(
                                 "אימונים חופשיים",
-                                "Free Trainings"
+                                "Free Sessions"
                             ),
                             nav: nav,
-                            selectedIcon: .home
+                            selectedIcon: .home,
+                            onShare: {
+                                guard case .freeSessions(_, _, _, _)? = nav.path.last else {
+                                    return
+                                }
+
+                                NotificationCenter.default.post(
+                                    name: Notification.Name("KMI_FREE_SESSIONS_SHARE_PDF"),
+                                    object: nil
+                                )
+                            }
                         ) {
                             FreeSessionsView(
                                 branch: branch,
@@ -1898,6 +1913,42 @@ struct ContentView: View {
                             .navigationBarBackButtonHidden(
                                 true
                             )
+                        }
+
+                    case .practiceMenu(let belt, let canUseExtras):
+                        KmiRootLayout(
+                            title: tr("תרגול", "Practice"),
+                            nav: nav,
+                            selectedIcon: .home
+                        ) {
+                            KmiPracticeMenuSheet(
+                                defaultBelt: belt,
+                                canUseExtras: canUseExtras,
+                                isEnglish: isEnglish,
+                                onRandomPractice: { selectedBelt in
+                                    nav.push(
+                                        .practice(
+                                            belt: selectedBelt,
+                                            topicTitle: "__ALL__"
+                                        )
+                                    )
+                                },
+                                onFinalExam: { selectedBelt in
+                                    nav.push(.beltFinalExam(belt: selectedBelt))
+                                },
+                                onPracticeByTopic: { selectedBelt, topicTitle in
+                                    nav.push(
+                                        .practice(
+                                            belt: selectedBelt,
+                                            topicTitle: topicTitle
+                                        )
+                                    )
+                                },
+                                onDismiss: {
+                                    nav.pop()
+                                }
+                            )
+                            .navigationBarBackButtonHidden(true)
                         }
 
                     case .practice(
@@ -2381,6 +2432,8 @@ struct ContentView: View {
                 auth.reloadProfileIfSignedIn()
                 bindVoiceCommandActions()
                 openOnboardingIfNeeded()
+
+                KmiPushManager.shared.resumeDeferredForumNavigation(using: nav)
             }
             .onDisappear {
                 voiceCommands.unbind()

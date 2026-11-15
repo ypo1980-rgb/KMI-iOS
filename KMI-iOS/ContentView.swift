@@ -451,6 +451,7 @@ struct ContentView: View {
 
     @State private var showEditedProfileTerms = false
     @State private var editedProfileDraftRole: UserRole?
+    @State private var editedProfileRequestedRole: UserRole?
 
     @State private var isSavingEditedProfile = false
     @State private var editedProfileSaveError: String?
@@ -1526,7 +1527,17 @@ struct ContentView: View {
                             title: "עריכת פרופיל",
                             nav: nav,
                             selectedIcon: .settings,
-                            modePillIsCoach: editedProfileDraftRole.map { $0 == .coach },
+                            modePillIsCoach: editedProfileDraftRole.map { $0 == .coach }
+                                ?? isCoachRole(auth.userRole),
+                            canSelectCoachMode: auth.canSelectCoachMode,
+                            onRoleModeSelected: { selectCoach in
+                                guard !isSavingEditedProfile,
+                                      !auth.isLoading else {
+                                    return
+                                }
+
+                                editedProfileRequestedRole = selectCoach ? .coach : .trainee
+                            },
                             onPickSearchResult: { key in
                                 NotificationCenter.default.post(
                                     name: Notification.Name("KMI_GLOBAL_SEARCH_PICK"),
@@ -1556,6 +1567,7 @@ struct ContentView: View {
                                 submitTitle: "שמירת שינויים",
                                 submittingTitle: "שומר שינויים...",
                                 isSavingProfile: isSavingEditedProfile,
+                                roleTabSelection: $editedProfileRequestedRole,
                                 onBack: {
                                     nav.pop()
                                 },
@@ -1575,6 +1587,7 @@ struct ContentView: View {
                             )
                             .onDisappear {
                                 editedProfileDraftRole = nil
+                                editedProfileRequestedRole = nil
                             }
                             .disabled(isSavingEditedProfile)
                             .navigationDestination(

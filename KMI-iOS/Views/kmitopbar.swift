@@ -592,6 +592,8 @@ struct KmiTopBar: View {
     let roleLabel: String
     let title: String
     let onMenu: () -> Void
+    private let canSelectCoachMode: Bool
+    private let onRoleModeSelected: ((Bool) -> Void)?
     let onBack: (() -> Void)?
     let rightText: String?
     let topBeltImageName: String?
@@ -736,10 +738,14 @@ struct KmiTopBar: View {
         showTopBeltIcon: Bool = false,
         centersBeltBelowTitle: Bool = false,
         onBack: (() -> Void)? = nil,
+        canSelectCoachMode: Bool = false,
+        onRoleModeSelected: ((Bool) -> Void)? = nil,
         onMenu: @escaping () -> Void
     ) {
         self.roleLabel = roleLabel
         self.title = title
+        self.canSelectCoachMode = canSelectCoachMode
+        self.onRoleModeSelected = onRoleModeSelected
         self.rightText = rightText
         self.titleColor = titleColor
         self.topBeltImageName = topBeltImageName
@@ -749,14 +755,16 @@ struct KmiTopBar: View {
         self.onMenu = onMenu
     }
     
+    static let heightWithRoleBadge: CGFloat = 80
+
     var body: some View {
         let hasRole = !localizedRoleLabel.isEmpty
         let centeredBeltImageName = centersBeltBelowTitle
             ? resolvedTopBeltImageName
             : nil
-        let baseHeight: CGFloat = centeredBeltImageName != nil
-            ? 78
-            : (hasRole ? 68 : 64)
+        let baseHeight: CGFloat = hasRole
+            ? Self.heightWithRoleBadge
+            : (centeredBeltImageName != nil ? 78 : 64)
         let barHeight = baseHeight * max(1, displayScale)
 
         return ZStack {
@@ -840,37 +848,72 @@ struct KmiTopBar: View {
                     }
 
                     if hasRole {
-                        Text(localizedRoleLabel)
-                            .kmiTypography(.secondary)
-                            .fontWeight(.bold)
-                            .foregroundStyle(
-                                isCoachRole
-                                    ? KmiAppTheme.onPrimary(for: colorScheme)
-                                    : KmiAppTheme.onSecondary(for: colorScheme)
+                        let badgeScale = max(1, displayScale)
+                        let badgeShape = UnevenRoundedRectangle(
+                            topTrailingRadius: 18,
+                            style: .continuous
+                        )
+                        let badgeBackground = isCoachRole
+                            ? KmiAppTheme.primary(for: colorScheme)
+                            : KmiAppTheme.secondary(for: colorScheme)
+                        let badgeForeground = isCoachRole
+                            ? KmiAppTheme.onPrimary(for: colorScheme)
+                            : KmiAppTheme.onSecondary(for: colorScheme)
+
+                        let rolePill = HStack(spacing: 3) {
+                            Text(localizedRoleLabel)
+                                .kmiTypography(.body)
+                                .fontWeight(.bold)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+
+                            if onRoleModeSelected != nil {
+                                Image(systemName: "chevron.down")
+                                    .kmiIconSize(9)
+                                    .fontWeight(.bold)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                        .environment(
+                            \.layoutDirection,
+                            isEnglish ? .leftToRight : .rightToLeft
+                        )
+                        .foregroundStyle(badgeForeground)
+                        .padding(.horizontal, 5)
+                        .frame(width: 66 * badgeScale, height: 26 * badgeScale)
+                        .background {
+                            badgeShape
+                                .fill(badgeBackground.opacity(0.96))
+                                .environment(\.layoutDirection, .leftToRight)
+                        }
+                        .overlay {
+                            badgeShape
+                                .strokeBorder(Color.white.opacity(0.70), lineWidth: 1.4)
+                                .environment(\.layoutDirection, .leftToRight)
+                        }
+                        .contentShape(Rectangle())
+
+                        if let onRoleModeSelected {
+                            Menu {
+                                Button(isEnglish ? "Trainee" : "מתאמן") {
+                                    onRoleModeSelected(false)
+                                }
+
+                                Button(isEnglish ? "Coach" : "מאמן") {
+                                    guard canSelectCoachMode else { return }
+                                    onRoleModeSelected(true)
+                                }
+                                .disabled(!canSelectCoachMode)
+                            } label: {
+                                rolePill
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint(
+                                Text(isEnglish ? "Choose active mode" : "בחירת מצב פעיל")
                             )
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 2)
-                            .background(
-                                Capsule()
-                                    .fill(
-                                        isCoachRole
-                                            ? KmiAppTheme.primary(
-                                                for: colorScheme
-                                            )
-                                            : KmiAppTheme.secondary(
-                                                for: colorScheme
-                                            )
-                                    )
-                            )
-                            .overlay(
-                                Capsule()
-                                    .stroke(
-                                        Color.white.opacity(0.28),
-                                        lineWidth: 1
-                                    )
-                            )
+                        } else {
+                            rolePill
+                        }
                     }
                 }
 
@@ -1161,6 +1204,8 @@ struct KmiRootLayout<Content: View>: View {
      */
     let showRoleBadge: Bool
     let modePillIsCoach: Bool?
+    private let canSelectCoachMode: Bool
+    private let onRoleModeSelected: ((Bool) -> Void)?
 
     /*
      * תמונת חגורה אופציונלית בכותרת.
@@ -1216,6 +1261,8 @@ struct KmiRootLayout<Content: View>: View {
         showShareAction: Bool = true,
         showRoleBadge: Bool = true,
         modePillIsCoach: Bool? = nil,
+        canSelectCoachMode: Bool = false,
+        onRoleModeSelected: ((Bool) -> Void)? = nil,
         topBeltImageName: String? = nil,
         showTopBeltIcon: Bool = false,
         isInsideAssistant: Bool = false,
@@ -1239,6 +1286,8 @@ struct KmiRootLayout<Content: View>: View {
         self.showShareAction = showShareAction
         self.showRoleBadge = showRoleBadge
         self.modePillIsCoach = modePillIsCoach
+        self.canSelectCoachMode = canSelectCoachMode
+        self.onRoleModeSelected = onRoleModeSelected
         self.topBeltImageName = topBeltImageName
         self.showTopBeltIcon = showTopBeltIcon
         self.isInsideAssistant = isInsideAssistant
@@ -1337,9 +1386,45 @@ struct KmiRootLayout<Content: View>: View {
         )
     }
 
+    private var effectiveCanSelectCoachMode: Bool {
+        if onRoleModeSelected != nil {
+            return canSelectCoachMode
+        }
+
+        return auth.canSelectCoachMode
+    }
+
+    private var effectiveRoleModeSelection: ((Bool) -> Void)? {
+        if let onRoleModeSelected {
+            return onRoleModeSelected
+        }
+
+        guard modePillIsCoach == nil,
+              auth.isSignedIn,
+              let uid = Auth.auth().currentUser?.uid,
+              auth.loadedProfileUID == uid else {
+            return nil
+        }
+
+        return selectGlobalRoleMode
+    }
+
+    private func selectGlobalRoleMode(_ isCoach: Bool) {
+        Task { @MainActor in
+            guard await auth.selectActiveMode(isCoach: isCoach) else {
+                return
+            }
+
+            showGlobalIconMenu = false
+            drawerOpen = false
+            nav.popToRoot()
+        }
+    }
+
     private var globalTopBarHeight: CGFloat {
-        let baseHeight: CGFloat =
-            globalRoleBadgeText.isEmpty ? 64 : 68
+        let baseHeight: CGFloat = globalRoleBadgeText.isEmpty
+            ? (isByBeltScreen ? 78 : 64)
+            : KmiTopBar.heightWithRoleBadge
 
         return baseHeight * max(1, displayScale)
     }
@@ -1694,6 +1779,8 @@ struct KmiRootLayout<Content: View>: View {
                         showTopBeltIcon: showTopBeltIcon,
                         centersBeltBelowTitle: isByBeltScreen,
                         onBack: resolvedBackAction,
+                        canSelectCoachMode: effectiveCanSelectCoachMode,
+                        onRoleModeSelected: effectiveRoleModeSelection,
                         onMenu: {
                             showGlobalIconMenu = false
                             drawerOpen = true

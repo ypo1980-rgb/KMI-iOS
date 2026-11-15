@@ -17,6 +17,8 @@ struct RegisterFormView: View {
     let onReadMoreTerms: () -> Void
     let onRoleChange: (UserRole) -> Void
 
+    private let roleTabSelection: Binding<UserRole?>?
+
     @State private var s: RegistrationFormState
     @EnvironmentObject private var auth: AuthViewModel
 
@@ -886,6 +888,7 @@ struct RegisterFormView: View {
         submitTitle: String = "סיום רישום",
         submittingTitle: String = "שומר...",
         isSavingProfile: Bool = false,
+        roleTabSelection: Binding<UserRole?>? = nil,
         onBack: @escaping () -> Void,
         onSubmit: @escaping (RegistrationFormState) -> Void,
         onReadMoreTerms: @escaping () -> Void = {},
@@ -898,6 +901,7 @@ struct RegisterFormView: View {
         self.submitTitle = submitTitle
         self.submittingTitle = submittingTitle
         self.isSavingProfile = isSavingProfile
+        self.roleTabSelection = roleTabSelection
         self.onBack = onBack
         self.onSubmit = onSubmit
         self.onReadMoreTerms = onReadMoreTerms
@@ -975,6 +979,16 @@ struct RegisterFormView: View {
             }
             .onChange(of: normalizedEmail) { _, _ in
                 applyRoleGate()
+            }
+            .onChange(of: roleTabSelection?.wrappedValue) { _, requestedRole in
+                guard isEditingProfile,
+                      let roleTabSelection,
+                      let requestedRole else {
+                    return
+                }
+
+                roleTabSelection.wrappedValue = nil
+                switchRegistrationRole(to: requestedRole)
             }
     }
     

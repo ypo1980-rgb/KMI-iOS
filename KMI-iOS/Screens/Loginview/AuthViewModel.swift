@@ -42,6 +42,19 @@ final class AuthViewModel: ObservableObject {
     @Published private(set) var isProfileLoading = false
     @Published private(set) var profileLoadFailed = false
     @Published private(set) var loadedProfileUID: String?
+    @Published private var verifiedCoachModeUID: String?
+
+    var canSelectCoachMode: Bool {
+        #if canImport(FirebaseAuth)
+        guard let uid = Auth.auth().currentUser?.uid else {
+            return false
+        }
+
+        return loadedProfileUID == uid && verifiedCoachModeUID == uid
+        #else
+        return false
+        #endif
+    }
 
     private var profileLoadRequestID = UUID()
 
@@ -519,7 +532,8 @@ final class AuthViewModel: ObservableObject {
     #endif
 
     private func hasServerCoachAccess(
-        uid: String
+        uid: String,
+        requiresModePermission: Bool = false
     ) async -> Bool {
         guard !Task.isCancelled,
               Auth.auth().currentUser?.uid == uid else {
@@ -547,10 +561,21 @@ final class AuthViewModel: ObservableObject {
                role == "coach",
                !Task.isCancelled,
                Auth.auth().currentUser?.uid == uid {
+                if requiresModePermission {
+                    return data["accessRevokedByAdmin"] as? Bool != true &&
+                        data["canOpenCoachDrawer"] as? Bool == true
+                }
+
                 return true
             }
         } catch {
-            // ממשיכים לבדיקת הרשאת מנהל.
+            if requiresModePermission {
+                return false
+            }
+        }
+
+        guard !requiresModePermission else {
+            return false
         }
 
         do {
@@ -818,6 +843,33 @@ isLoading = true
                 }
             }
         })
+        #endif
+    }
+
+    func selectActiveMode(isCoach: Bool) async -> Bool {
+        #if canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        guard let uid = Auth.auth().currentUser?.uid,
+              loadedProfileUID == uid,
+              !isProfileLoading,
+              !isCoach || canSelectCoachMode else {
+            return false
+        }
+
+        let targetRole = isCoach ? "coach" : "trainee"
+
+        await loadUserProfileFromFirestore(
+            uid: uid,
+            requestedMode: targetRole
+        )
+
+        return !Task.isCancelled &&
+            Auth.auth().currentUser?.uid == uid &&
+            loadedProfileUID == uid &&
+            !isProfileLoading &&
+            !profileLoadFailed &&
+            userRole == targetRole
+        #else
+        return false
         #endif
     }
 
@@ -2325,7 +2377,10 @@ do {
     #endif
 
 #if canImport(FirebaseFirestore)
-    private func loadUserProfileFromFirestore(uid: String) async {
+    private func loadUserProfileFromFirestore(
+        uid: String,
+        requestedMode: String? = nil
+    ) async {
         guard Auth.auth().currentUser?.uid == uid else {
             return
         }
@@ -2443,8 +2498,19 @@ do {
                 )
             }
             .first { !$0.isEmpty } ?? ""
-            let serverAllowsCoach =
-                await hasServerCoachAccess(uid: uid)
+            let accessType = (data["accessType"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            let serverAllowsCoach: Bool
+            if accessType == "trainee" {
+                serverAllowsCoach = false
+            } else {
+                serverAllowsCoach = await hasServerCoachAccess(
+                    uid: uid,
+                    requiresModePermission: true
+                )
+            }
 
             /*
              * בזמן בדיקת ההרשאה ייתכן שהמשתמש
@@ -2482,7 +2548,7 @@ do {
 
             let requestedRole =
                 normalizedActiveRole(
-                    storedActiveRole ?? normalizedRole
+                    requestedMode ?? storedActiveRole ?? normalizedRole
                 )
 
             let resolvedRole =
@@ -2553,10 +2619,6 @@ do {
             let isCoachMode = resolvedRole == "coach"
             let traineeAssignmentsKey = "traineeBranchAssignments"
             let assignmentsKey = isCoachMode ? codec.firestoreKey : traineeAssignmentsKey
-
-            let accessType = (data["accessType"] as? String ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
 
             let canUseLegacyAssignments =
                 data[assignmentsKey] == nil &&
@@ -2945,6 +3007,7 @@ do {
         ud.set(primaryGroup, forKey: "activeGroup")
         ud.set(primaryGroup, forKey: "active_group")
 
+            self.verifiedCoachModeUID = serverAllowsCoach ? uid : nil
             self.loadedProfileUID = uid
             self.profileLoadFailed = false
             self.setActiveUserRole(resolvedRole)

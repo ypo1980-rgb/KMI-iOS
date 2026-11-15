@@ -131,7 +131,6 @@ struct HomeView: View {
     @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
     
     @AppStorage("fullName") private var storedFullName: String = ""
-    @AppStorage("user_role") private var storedUserRole: String = "trainee"
     @AppStorage("region") private var storedRegion: String = ""
     @AppStorage("branch") private var storedBranch: String = ""
     @AppStorage("active_branch") private var storedActiveBranch: String = ""
@@ -175,14 +174,22 @@ struct HomeView: View {
 
     @State private var selectedTraining: TrainingData? = nil
     @State private var showAttendanceQrScanner = false
+    @State private var attendanceQrRequest: AttendanceQrRequest?
     @State private var attendanceRefreshID = UUID()
 
     @State private var activeTrainingOverrides:
         [String: TrainingOverride] = [:]
 
+    private struct TrainingOverrideContext: Equatable {
+        let uid: String
+        let isCoach: Bool
+        let occurrenceKeys: Set<String>
+    }
+
     @State private var trainingOverrideListener:
         TrainingOverrideListenerHandle?
 
+    @State private var trainingOverrideContext: TrainingOverrideContext?
     @State private var isLoadingTrainingOverrides = false
 
     @State private var trainingOverrideRequestID = UUID()
@@ -537,12 +544,9 @@ struct HomeView: View {
     }
     
     private var resolvedUserRole: String {
-        let value =
-            storedUserRole
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-                .lowercased()
+        let value = auth.userRole
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
 
         return value.isEmpty ? "trainee" : value
     }
@@ -782,6 +786,22 @@ struct HomeView: View {
         branch: String,
         group: String
     ) {
+        let activeBranch = auth.userBranch
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let activeGroup = auth.userGroup
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !activeBranch.isEmpty,
+           !activeGroup.isEmpty,
+           auth.userBranchAssignments.contains(where: {
+               $0.branch.trimmingCharacters(in: .whitespacesAndNewlines) == activeBranch &&
+               $0.groups.contains {
+                   $0.trimmingCharacters(in: .whitespacesAndNewlines) == activeGroup
+               }
+           }) {
+            return (branch: activeBranch, group: activeGroup)
+        }
+
         for assignment in auth.userBranchAssignments {
             let branch = assignment.branch
                 .trimmingCharacters(
@@ -806,10 +826,9 @@ struct HomeView: View {
             }
         }
 
-        let assignmentsKey =
-            RegistrationFormState
-                .BranchAssignmentsCodec
-                .preferenceKey
+        let assignmentsKey = isCoachUser
+            ? RegistrationFormState.BranchAssignmentsCodec.preferenceKey
+            : "trainee_branch_assignments_json"
 
         guard UserDefaults.standard.object(
             forKey: assignmentsKey
@@ -1318,6 +1337,7 @@ struct HomeView: View {
 
         trainingOverrideListener?.remove()
         trainingOverrideListener = nil
+        trainingOverrideContext = nil
 
         isLoadingTrainingOverrides = false
     }
@@ -1361,9 +1381,11 @@ struct HomeView: View {
     }
 
     private func startTrainingOverrideListener() {
-        stopTrainingOverrideListener()
-
-        guard !isAbroadUser else {
+        guard let uid = Auth.auth().currentUser?.uid,
+              !isAbroadUser,
+              !isWaitingForTrainingProfile,
+              !auth.profileLoadFailed else {
+            stopTrainingOverrideListener()
             activeTrainingOverrides = [:]
             return
         }
@@ -1371,9 +1393,35 @@ struct HomeView: View {
         let occurrenceKeys = trainingOccurrenceKeys
 
         guard !occurrenceKeys.isEmpty else {
+            stopTrainingOverrideListener()
             activeTrainingOverrides = [:]
             return
         }
+
+        let context = TrainingOverrideContext(
+            uid: uid,
+            isCoach: isCoachUser,
+            occurrenceKeys: occurrenceKeys
+        )
+
+        guard trainingOverrideContext != context ||
+              trainingOverrideListener == nil else {
+            return
+        }
+
+        let previousContext = trainingOverrideContext
+        stopTrainingOverrideListener()
+
+        if previousContext?.uid == uid,
+           previousContext?.isCoach == isCoachUser {
+            activeTrainingOverrides = activeTrainingOverrides.filter {
+                occurrenceKeys.contains($0.key)
+            }
+        } else {
+            activeTrainingOverrides = [:]
+        }
+
+        trainingOverrideContext = context
 
         let requestID = trainingOverrideRequestID
         isLoadingTrainingOverrides = true
@@ -1406,9 +1454,9 @@ struct HomeView: View {
                             return
                         }
 
-                        // לא משאירים שכבה חוסמת לאחר שגיאה,
-                        // ולא מוחקים את הנתונים שכבר התקבלו.
+                        // שומרים את הנתונים האחרונים ומאפשרים ניסיון חוזר.
                         isLoadingTrainingOverrides = false
+                        trainingOverrideContext = nil
 
                         print(
                             "Training override listener error:",
@@ -1827,6 +1875,45 @@ struct HomeView: View {
                                         showHomeQuickMenu = false
                                         showAttendanceQrScanner = true
                                     },
+                                    onAttendanceQrGenerate: {
+                                        let branch = source.branch
+                                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                                        let group = source.group
+                                            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                                        guard isCoachUser,
+                                              let uid = Auth.auth().currentUser?.uid,
+                                              !branch.isEmpty,
+                                              !group.isEmpty else {
+                                            return
+                                        }
+
+                                        let startDate = trainingOverride?.hasChangedTime == true
+                                            ? trainingOverride?.effectiveStartDate ?? training.date
+                                            : training.date
+
+                                        let calendar = ShabbatHolidayCheckerIOS.calendar
+                                        let formatter = DateFormatter()
+                                        formatter.locale = Locale(identifier: "en_US_POSIX")
+                                        formatter.calendar = calendar
+                                        formatter.timeZone = calendar.timeZone
+                                        formatter.dateFormat = "yyyy-MM-dd"
+                                        let dateIso = formatter.string(from: startDate)
+
+                                        formatter.locale = Locale(
+                                            identifier: isEnglish ? "en_US" : "he_IL"
+                                        )
+                                        formatter.dateFormat = "dd/MM/yyyy"
+
+                                        showHomeQuickMenu = false
+                                        attendanceQrRequest = AttendanceQrRequest(
+                                            uid: uid,
+                                            dateIso: dateIso,
+                                            dateLabel: formatter.string(from: startDate),
+                                            branch: branch,
+                                            group: group
+                                        )
+                                    },
                                     onNavigateTap: {
                                         selectedTraining = training
                                     },
@@ -1991,19 +2078,27 @@ struct HomeView: View {
                 .onChange(of: scenePhase) {
                     _, newPhase in
 
-                    guard newPhase == .active else {
+                    guard newPhase == .active, nav.path.isEmpty else {
                         return
                     }
 
                     clearExpiredSubscriptionFlagsIfNeeded()
                     reloadTrainingsIfNeeded()
                     startCoachBroadcastListener()
+                    startTrainingOverrideListener()
                     openPendingCoachBroadcastIfNeeded()
                 }
                 .refreshable {
                     clearExpiredSubscriptionFlagsIfNeeded()
+
+                    if auth.profileLoadFailed {
+                        auth.reloadProfileIfSignedIn()
+                        return
+                    }
+
                     reloadTrainingsIfNeeded()
                     startCoachBroadcastListener()
+                    startTrainingOverrideListener()
                 }
                 )
 
@@ -2015,9 +2110,19 @@ struct HomeView: View {
                     startTrainingOverrideListener()
                 }
                 .onChange(of: auth.isProfileLoading) { _, isLoading in
-                    guard !isLoading else {
+                    if isLoading {
+                        stopTrainingOverrideListener()
+                        activeTrainingOverrides = [:]
                         return
                     }
+
+                    reloadTrainingsIfNeeded()
+                    startTrainingOverrideListener()
+                }
+                .onChange(of: auth.userRole) { _, _ in
+                    attendanceQrRequest = nil
+                    showAttendanceQrScanner = false
+                    trainingManagementItem = nil
                     reloadTrainingsIfNeeded()
                     startTrainingOverrideListener()
                 }
@@ -2097,20 +2202,9 @@ struct HomeView: View {
                         openPendingCoachBroadcastIfNeeded()
                     }
                 }
-                        .onReceive(
-                            NotificationCenter.default.publisher(
-                                for: UIApplication.willEnterForegroundNotification
-                            )
-                        ) { _ in
-                            clearExpiredSubscriptionFlagsIfNeeded()
-                            reloadTrainingsIfNeeded()
-                            startCoachBroadcastListener()
-                            startTrainingOverrideListener()
-                            openPendingCoachBroadcastIfNeeded()
-                        }
-                        )
+        )
 
-                        let navigationContent = AnyView(
+        let navigationContent = AnyView(
                             observedContent
                         .navigationDestination(isPresented: $goVoiceAssistant) {
             VoiceAssistantView()
@@ -2224,6 +2318,12 @@ struct HomeView: View {
                                             AttendanceQrScannerView(isEnglish: isEnglish) {
                                                 showAttendanceQrScanner = false
                                             }
+                                        }
+                                        .sheet(item: $attendanceQrRequest) { request in
+                                            AttendanceCoachQrSheet(
+                                                request: request,
+                                                isEnglish: isEnglish
+                                            )
                                         }
                                         .sheet(item: $pdfShareItem) { shareItem in
                                             KmiShareSheet(
@@ -3915,6 +4015,7 @@ private struct HomeTrainingCardAndroidStyle: View {
 
     let attendanceRefreshID: UUID
     let onAttendanceQrScan: () -> Void
+    let onAttendanceQrGenerate: () -> Void
 
     let onNavigateTap: () -> Void
 
@@ -4910,41 +5011,14 @@ private struct HomeTrainingCardAndroidStyle: View {
                 addressText.isEmpty ? 0.72 : 1
             )
 
+            if isCoach, !isCancelledByCoach, !isCancelledByHoliday {
+                attendanceQrButton
+            }
+
             attendanceContent
 
-            if !isCoach, Auth.auth().currentUser != nil {
-                Button(action: onAttendanceQrScan) {
-                    Text(
-                        attendanceText(
-                            "סריקת QR לנוכחות",
-                            "Scan QR for attendance"
-                        )
-                    )
-                    .kmiTypography(.secondary)
-                    .fontWeight(.bold)
-                    .foregroundStyle(
-                        KmiAppTheme.onPrimaryContainer(for: colorScheme)
-                    )
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .background(
-                        KmiAppTheme.primaryContainer(for: colorScheme),
-                        in: RoundedRectangle(cornerRadius: 16)
-                    )
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 16)
-                            .strokeBorder(
-                                KmiAppTheme.primary(for: colorScheme).opacity(0.30),
-                                lineWidth: 0.75
-                            )
-                            .allowsHitTesting(false)
-                    }
-                    .contentShape(RoundedRectangle(cornerRadius: 16))
-                }
-                .buttonStyle(.plain)
+            if !isCoach {
+                attendanceQrButton
             }
         }
         .padding(.horizontal, 10)
@@ -5122,8 +5196,63 @@ private struct HomeTrainingCardAndroidStyle: View {
         }
     }
 
-    private var attendanceStartDate: Date {
-        activeOverride?.hasChangedTime == true
+@ViewBuilder
+private var attendanceQrButton: some View {
+    if Auth.auth().currentUser != nil {
+        let shape = RoundedRectangle(
+            cornerRadius: isCoach ? 14 : 16,
+            style: .continuous
+        )
+
+        Button {
+            KmiFeedbackManager.shared.tap()
+
+            if isCoach {
+                onAttendanceQrGenerate()
+            } else {
+                onAttendanceQrScan()
+            }
+        } label: {
+            Text(
+                isCoach
+                    ? attendanceText(
+                        "הנפקת QR לנוכחות",
+                        "Generate attendance QR"
+                    )
+                    : attendanceText(
+                        "סריקת QR לנוכחות",
+                        "Scan QR for attendance"
+                    )
+            )
+            .kmiTypography(.secondary)
+            .fontWeight(.bold)
+            .foregroundStyle(
+                KmiAppTheme.onPrimaryContainer(for: colorScheme)
+            )
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(
+                KmiAppTheme.primaryContainer(for: colorScheme),
+                in: shape
+            )
+            .overlay {
+                shape.strokeBorder(
+                    KmiAppTheme.primary(for: colorScheme).opacity(0.30),
+                    lineWidth: 0.75
+                )
+                .allowsHitTesting(false)
+            }
+            .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private var attendanceStartDate: Date {
+    activeOverride?.hasChangedTime == true
             ? activeOverride?.effectiveStartDate ?? training.date
             : training.date
     }
@@ -5217,18 +5346,6 @@ private struct HomeTrainingCardAndroidStyle: View {
                     )
                 } else if isCoach {
                     if let forecast = attendanceForecast {
-                        Text(
-                            attendanceText(
-                                "צפי הגעה לאימון",
-                                "Expected attendance"
-                            )
-                        )
-                        .kmiTypography(.secondary)
-                        .fontWeight(.bold)
-                        .foregroundStyle(
-                            KmiAppTheme.onSurface(for: colorScheme)
-                        )
-
                         HStack(spacing: 6) {
                             attendanceForecastCell(
                                 count: forecast.comingCount,
@@ -5251,20 +5368,21 @@ private struct HomeTrainingCardAndroidStyle: View {
                             attendanceForecastCell(
                                 count: forecast.noResponseCount,
                                 title: attendanceText(
-                                    "לא סומן",
-                                    "No response"
+                                    "טרם סימנו",
+                                    "Pending"
                                 ),
                                 category: .noResponse
                             )
                         }
                     }
-                } else if attendanceMemberId != nil {
+                } else if Auth.auth().currentUser != nil {
                     TimelineView(
                         .periodic(from: .now, by: 1)
                     ) { timeline in
                         let canEdit =
-                            timeline.date < attendanceStartDate
-                            && !attendanceSaving
+                            attendanceMemberId != nil &&
+                            timeline.date < attendanceStartDate &&
+                            !attendanceSaving
 
                         VStack(spacing: 5) {
                             HStack(spacing: 8) {
@@ -5274,7 +5392,6 @@ private struct HomeTrainingCardAndroidStyle: View {
                                         "לא מגיע",
                                         "Not coming"
                                     ),
-                                    systemImage: "xmark.circle",
                                     enabled: canEdit
                                 )
 
@@ -5284,13 +5401,21 @@ private struct HomeTrainingCardAndroidStyle: View {
                                         "מגיע",
                                         "Coming"
                                     ),
-                                    systemImage: "checkmark.circle",
                                     enabled: canEdit
                                 )
                             }
                             .environment(\.layoutDirection, .leftToRight)
 
-                            if attendanceSaving {
+                            if attendanceMemberId == nil {
+                                Text(
+                                    attendanceText(
+                                        "לא נמצא שיוך מתאמן לקבוצה זו.",
+                                        "Your trainee membership was not found in this group."
+                                    )
+                                )
+                                .kmiTypography(.caption)
+                                .fontWeight(.semibold)
+                            } else if attendanceSaving {
                                 Text(
                                     attendanceText(
                                         "שומר בחירה…",
@@ -5316,18 +5441,6 @@ private struct HomeTrainingCardAndroidStyle: View {
                             )
                         )
                     }
-                } else {
-                    Text(
-                        attendanceText(
-                            "לא נמצא שיוך מתאמן לקבוצה זו.",
-                            "Trainee membership could not be resolved."
-                        )
-                    )
-                    .kmiTypography(.secondary)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(
-                        KmiAppTheme.onSurfaceVariant(for: colorScheme)
-                    )
                 }
             }
             .multilineTextAlignment(.center)
@@ -5346,55 +5459,54 @@ private struct HomeTrainingCardAndroidStyle: View {
 
         switch category {
         case .coming:
-            background = KmiAppTheme.successContainer(for: colorScheme)
+            background = KmiAppTheme.successContainer(for: colorScheme).opacity(0.96)
             foreground = KmiAppTheme.onSuccessContainer(for: colorScheme)
             border = KmiAppTheme.success(for: colorScheme)
 
         case .notComing:
-            background = KmiAppTheme.errorContainer(for: colorScheme)
+            background = KmiAppTheme.errorContainer(for: colorScheme).opacity(0.96)
             foreground = KmiAppTheme.onErrorContainer(for: colorScheme)
             border = KmiAppTheme.error(for: colorScheme)
 
         case .noResponse:
-            background = KmiAppTheme.surfaceVariant(for: colorScheme)
+            background = KmiAppTheme.surfaceVariant(for: colorScheme).opacity(0.82)
             foreground = KmiAppTheme.onSurfaceVariant(for: colorScheme)
             border = KmiAppTheme.outlineVariant(for: colorScheme)
         }
 
         return Button {
+            KmiFeedbackManager.shared.tap()
             selectedForecastList = category
         } label: {
-            VStack(spacing: 2) {
+            VStack(spacing: 1) {
                 Text("\(count)")
-                    .kmiTypography(.metric)
+                    .kmiTypography(.secondary)
                     .fontWeight(.black)
+                    .monospacedDigit()
+                    .lineLimit(1)
 
                 Text(title)
-                    .kmiTypography(.secondary)
+                    .kmiTypography(.caption)
                     .fontWeight(.bold)
+                    .foregroundStyle(foreground.opacity(0.95))
+                    .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .foregroundStyle(foreground)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
+            .padding(6)
+            .frame(maxWidth: .infinity, minHeight: 64)
             .background(
-                RoundedRectangle(
-                    cornerRadius: 12,
-                    style: .continuous
-                )
-                .fill(background)
+                background,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
             )
             .overlay {
-                RoundedRectangle(
-                    cornerRadius: 12,
-                    style: .continuous
-                )
-                .strokeBorder(
-                    border.opacity(0.45),
-                    lineWidth: 1
-                )
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(border, lineWidth: 1)
+                    .allowsHitTesting(false)
             }
-            .contentShape(Rectangle())
+            .contentShape(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(title): \(count)")
@@ -5416,9 +5528,15 @@ private struct HomeTrainingCardAndroidStyle: View {
             members = attendanceForecast?.notComingMembers ?? []
 
         case .noResponse:
-            title = attendanceText("לא סומן", "No response")
+            title = attendanceText("טרם סימנו", "Pending")
             members = attendanceForecast?.noResponseMembers ?? []
         }
+
+        let allMembers =
+            (attendanceForecast?.comingMembers ?? []) +
+            (attendanceForecast?.notComingMembers ?? []) +
+            (attendanceForecast?.noResponseMembers ?? [])
+        let memberIDs = Array(Set(allMembers.map(\.id))).sorted()
 
         return VStack(spacing: 0) {
             HStack(spacing: 12) {
@@ -5464,20 +5582,17 @@ private struct HomeTrainingCardAndroidStyle: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(members) { member in
+                            let displayName = TraineeDisplayNameMapper.displayName(
+                                realName: member.name,
+                                stableKey: String(member.id),
+                                demoIndex: memberIDs.firstIndex(of: member.id),
+                                isEnglish: isEnglish
+                            )
+
                             Text(
-                                demoPrivacy.isEnabled
-                                    ? attendanceText(
-                                        "מתאמן",
-                                        "Trainee"
-                                    )
-                                    : (
-                                        member.name.isEmpty
-                                            ? attendanceText(
-                                                "מתאמן",
-                                                "Trainee"
-                                            )
-                                            : member.name
-                                    )
+                                displayName.isEmpty
+                                    ? attendanceText("מתאמן", "Trainee")
+                                    : displayName
                             )
                             .kmiTypography(.body)
                             .fontWeight(.medium)
@@ -5510,7 +5625,6 @@ private struct HomeTrainingCardAndroidStyle: View {
     private func attendanceChoiceButton(
         _ status: AttendanceStatus,
         title: String,
-        systemImage _: String,
         enabled: Bool
     ) -> some View {
         let selected = attendanceChoice == status
@@ -5539,6 +5653,7 @@ private struct HomeTrainingCardAndroidStyle: View {
         }
 
         return Button {
+            KmiFeedbackManager.shared.tap()
             saveAttendanceChoice(status)
         } label: {
             Text(title)
@@ -5568,7 +5683,6 @@ private struct HomeTrainingCardAndroidStyle: View {
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .opacity(enabled || selected ? 1 : 0.65)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -5577,6 +5691,7 @@ private struct HomeTrainingCardAndroidStyle: View {
         stopAttendanceListening()
 
         let token = attendanceRequestID
+        selectedForecastList = nil
         attendanceMemberId = nil
         attendanceChoice = nil
         attendanceForecast = nil
@@ -5599,31 +5714,6 @@ private struct HomeTrainingCardAndroidStyle: View {
         let repository = AttendanceRepository.shared
 
         if isCoach {
-            do {
-                try await repository.ensureGroupMetadata(
-                    branchName: branch,
-                    groupKey: group
-                )
-            } catch {
-                #if DEBUG
-                let details = error as NSError
-                print(
-                    "KMI_ATTENDANCE_GROUP_INIT_FAILED",
-                    "branch:", branch,
-                    "group:", group,
-                    "domain:", details.domain,
-                    "code:", details.code,
-                    "message:", details.localizedDescription
-                )
-                #endif
-
-                /*
-                 * ממשיכים לקריאה:
-                 * למאמן עשויה להיות הרשאת צפייה
-                 * בקבוצה קיימת ללא הרשאת כתיבה.
-                 */
-            }
-
             guard !Task.isCancelled,
                   attendanceRequestID == token else {
                 return

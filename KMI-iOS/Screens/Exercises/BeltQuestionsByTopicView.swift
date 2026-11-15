@@ -420,14 +420,6 @@ struct BeltQuestionsByTopicView: View {
     @State private var isPreparingTopicsPDF = false
     @State private var topicsPDFTask: Task<Void, Never>?
     @State private var preparedCountsContext: String?
-    @State private var showPracticeMenu = false
-    @State private var pendingPracticeSelection: PracticeSelection?
-
-    private enum PracticeSelection {
-        case random(Belt)
-        case finalExam(Belt)
-        case topic(Belt, String)
-    }
 
     private var countsContext: String {
         "\(belt.id)::\(effectiveLanguageCode)"
@@ -3643,7 +3635,15 @@ struct BeltQuestionsByTopicView: View {
                 action: {
                     triggerTapHaptic()
                     showQuickActionsDialog = false
-                    showPracticeMenu = true
+
+                    guard !isQuickActionLocked else {
+                        nav.push(.subscriptionPlans)
+                        return
+                    }
+
+                    nav.push(
+                        .practiceMenu(belt: belt, canUseExtras: true)
+                    )
                 }
             ),
             KmiQuickMenuAction(
@@ -3679,24 +3679,6 @@ struct BeltQuestionsByTopicView: View {
             )
         }
         return actions
-    }
-
-    private func openPendingPracticeSelection() {
-        guard let selection = pendingPracticeSelection else { return }
-        pendingPracticeSelection = nil
-        guard isTopicsScreenVisible else { return }
-        guard !isQuickActionLocked else {
-            nav.push(.subscriptionPlans)
-            return
-        }
-        switch selection {
-        case .random(let selectedBelt):
-            nav.push(.practice(belt: selectedBelt, topicTitle: "__ALL__"))
-        case .finalExam(let selectedBelt):
-            nav.push(.beltFinalExam(belt: selectedBelt))
-        case .topic(let selectedBelt, let topicTitle):
-            nav.push(.practice(belt: selectedBelt, topicTitle: topicTitle))
-        }
     }
 
     private var isQuickActionLocked: Bool {
@@ -3999,7 +3981,6 @@ struct BeltQuestionsByTopicView: View {
     private func shareTopicsPDF() {
         guard isTopicsScreenVisible,
               !isPreparingTopicsPDF,
-              !showPracticeMenu,
               !showTopicsPDFShare else {
             return
         }
@@ -4437,34 +4418,6 @@ struct BeltQuestionsByTopicView: View {
             shareTopicsPDF()
         }
         .sheet(
-            isPresented: $showPracticeMenu,
-            onDismiss: { openPendingPracticeSelection() }
-        ) {
-            KmiPracticeMenuSheet(
-                defaultBelt: belt,
-                canUseExtras: !isQuickActionLocked,
-                isEnglish: isEnglish,
-                onRandomPractice: { selectedBelt in
-                    pendingPracticeSelection = .random(selectedBelt)
-                    showPracticeMenu = false
-                },
-                onFinalExam: { selectedBelt in
-                    pendingPracticeSelection = .finalExam(selectedBelt)
-                    showPracticeMenu = false
-                },
-                onPracticeByTopic: { selectedBelt, topicTitle in
-                    pendingPracticeSelection = .topic(selectedBelt, topicTitle)
-                    showPracticeMenu = false
-                },
-                onDismiss: {
-                    pendingPracticeSelection = nil
-                    showPracticeMenu = false
-                }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-        }
-        .sheet(
             isPresented: $showTopicsPDFShare,
             onDismiss: {
                 topicsPDFURL = nil
@@ -4494,8 +4447,6 @@ struct BeltQuestionsByTopicView: View {
         .onDisappear {
             isTopicsScreenVisible = false
             cancelTopicsPDFPreparation()
-            pendingPracticeSelection = nil
-            showPracticeMenu = false
             showQuickActionsDialog = false
         }
         .task(id: "\(belt.id)::\(effectiveLanguageCode)") {

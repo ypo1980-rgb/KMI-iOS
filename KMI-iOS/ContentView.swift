@@ -450,6 +450,7 @@ struct ContentView: View {
         false
 
     @State private var showEditedProfileTerms = false
+    @State private var editedProfileDraftRole: UserRole?
 
     @State private var isSavingEditedProfile = false
     @State private var editedProfileSaveError: String?
@@ -511,29 +512,91 @@ struct ContentView: View {
         let selectedRole =
             form.role == .coach ? "coach" : "trainee"
 
-        var profileData = form.toFirestoreDictionary(
+        #if DEBUG
+        print("KMI_PROFILE_ROLE submit=\(selectedRole) before=\(auth.userRole)")
+        #endif
+
+        let profileData = form.toEditedProfileFirestoreDictionary(
             uid: uid
         )
 
-        profileData["role"] = selectedRole
-        profileData["userRole"] = selectedRole
-
-        /*
-         * בחירת המצב הפעיל אינה משנה
-         * את אישור המאמן או את קוד המאמן.
-         */
-        profileData.removeValue(forKey: "coachApproved")
-        profileData.removeValue(forKey: "coachCode")
-
         do {
-            try await Firestore.firestore()
-                .collection("users")
-                .document(uid)
-                .setData(profileData, merge: true)
+            let database = Firestore.firestore()
+            let userReference = database.collection("users").document(uid)
+            let userDocument = try await userReference.getDocument(source: .server)
 
-            form.persistToUserDefaults()
+            guard userDocument.exists,
+                  Auth.auth().currentUser?.uid == uid else {
+                editedProfileSaveError = tr(
+                    "לא ניתן לאמת את החשבון. יש לפתוח מחדש את עריכת הפרופיל.",
+                    "Unable to verify your account. Reopen Edit Profile."
+                )
+                return
+            }
+
+            if form.role == .coach {
+                let accessType = (userDocument.data()?["accessType"] as? String ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+
+                guard accessType == "coach" || accessType == "both" else {
+                    editedProfileSaveError = tr(
+                        "הרשאת המאמן השתנתה. הפרופיל לא נשמר.",
+                        "Coach access has changed. Your profile was not saved."
+                    )
+                    return
+                }
+
+                let coachDocument = try await database
+                    .collection("authorizedCoaches")
+                    .document(uid)
+                    .getDocument(source: .server)
+
+                let coachData = coachDocument.data() ?? [:]
+                let coachRole = (coachData["role"] as? String ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+
+                guard coachDocument.exists,
+                      coachData["active"] as? Bool == true,
+                      coachData["accessRevokedByAdmin"] as? Bool != true,
+                      coachRole == "coach",
+                      coachData["canOpenCoachDrawer"] as? Bool == true else {
+                    editedProfileSaveError = tr(
+                        "הרשאת המאמן אינה פעילה. הפרופיל לא נשמר.",
+                        "Coach permission is no longer active. Your profile was not saved."
+                    )
+                    return
+                }
+            }
+
+            guard !Task.isCancelled,
+                  Auth.auth().currentUser?.uid == uid else {
+                return
+            }
+
+            try await userReference.setData(profileData, merge: true)
+
+            guard !Task.isCancelled,
+                  Auth.auth().currentUser?.uid == uid else {
+                return
+            }
+
+            form.persistToUserDefaults(isEditingProfile: true)
 
             let defaults = UserDefaults.standard
+
+            if form.role == .coach {
+                defaults.set(
+                    [
+                        "uid": uid,
+                        "branch": form.activeBranchFinal,
+                        "group": form.activeGroupFinal
+                    ],
+                    forKey: "coach_active_selection"
+                )
+            }
+
             defaults.set(
                 form.wantsSms,
                 forKey: "subscribeSms"
@@ -548,6 +611,11 @@ struct ContentView: View {
             )
 
             auth.setActiveUserRole(selectedRole)
+
+            #if DEBUG
+            print("KMI_PROFILE_ROLE applied=\(auth.userRole) stored=\(defaults.string(forKey: "user_role") ?? "")")
+            #endif
+
             nav.pop()
         } catch {
             editedProfileSaveError = tr(
@@ -1458,6 +1526,7 @@ struct ContentView: View {
                             title: "עריכת פרופיל",
                             nav: nav,
                             selectedIcon: .settings,
+                            modePillIsCoach: editedProfileDraftRole.map { $0 == .coach },
                             onPickSearchResult: { key in
                                 NotificationCenter.default.post(
                                     name: Notification.Name("KMI_GLOBAL_SEARCH_PICK"),
@@ -1478,7 +1547,11 @@ struct ContentView: View {
                                     UserDefaults.standard.string(forKey: "email") ??
                                     ""
                                 ),
-                                initialRole: isCoachUser ? .coach : .trainee,
+                                initialRole: isCoachRole(
+                                    UserDefaults.standard.string(forKey: "active_user_mode")
+                                        ?? UserDefaults.standard.string(forKey: "last_active_app_role")
+                                        ?? auth.userRole
+                                ) ? .coach : .trainee,
                                 screenTitle: "עריכת פרופיל",
                                 submitTitle: "שמירת שינויים",
                                 submittingTitle: "שומר שינויים...",
@@ -1495,8 +1568,14 @@ struct ContentView: View {
                                 },
                                 onReadMoreTerms: {
                                     showEditedProfileTerms = true
+                                },
+                                onRoleChange: { role in
+                                    editedProfileDraftRole = role
                                 }
                             )
+                            .onDisappear {
+                                editedProfileDraftRole = nil
+                            }
                             .disabled(isSavingEditedProfile)
                             .navigationDestination(
                                 isPresented: $showEditedProfileTerms
@@ -2242,7 +2321,11 @@ struct ContentView: View {
                         }
                         
                     case .beltFinalExam(let belt):
-                        KmiRootLayout(title: "מבחן מסכם", nav: nav, selectedIcon: .home) {
+                        KmiRootLayout(
+                            title: tr("מבחן מסכם", "Final Exam"),
+                            nav: nav,
+                            selectedIcon: .home
+                        ) {
                             BeltFinalExamView(
                                 belt: belt
                             )
@@ -2427,6 +2510,11 @@ struct ContentView: View {
                     )
                 }
                 .presentationBackground(.clear)
+            }
+            .onChange(of: auth.userRole) { oldRole, newRole in
+                #if DEBUG
+                print("KMI_PROFILE_ROLE changed=\(oldRole)->\(newRole)")
+                #endif
             }
             .onAppear {
                 auth.reloadProfileIfSignedIn()

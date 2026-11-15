@@ -175,6 +175,14 @@ final class AuthViewModel: ObservableObject {
             "regions_json",
             "regions_csv",
             "branch_type",
+            "trainee_branch_assignments_json",
+            "trainee_active_branch",
+            "trainee_active_group",
+            "trainee_branch_type",
+            "coach_active_branch",
+            "coach_active_group",
+            "coach_branch_type",
+            "coach_active_selection",
 
             "birthDay",
             "birth_day",
@@ -2483,8 +2491,6 @@ do {
                     ? "coach"
                     : "trainee"
 
-            self.setActiveUserRole(resolvedRole)
-
             let rawBelt = [
                 data["beltId"] as? String,
                 data["belt"] as? String,
@@ -2544,13 +2550,29 @@ do {
 
             let codec = RegistrationFormState.BranchAssignmentsCodec.self
 
-            let rawAssignments = data[codec.firestoreKey] as? [Any]
+            let isCoachMode = resolvedRole == "coach"
+            let traineeAssignmentsKey = "traineeBranchAssignments"
+            let assignmentsKey = isCoachMode ? codec.firestoreKey : traineeAssignmentsKey
 
-            let assignments = rawAssignments.map {
+            let accessType = (data["accessType"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            let canUseLegacyAssignments =
+                data[assignmentsKey] == nil &&
+                accessType != "both" &&
+                resolvedRole == normalizedActiveRole(normalizedRole) &&
+                (
+                    isCoachMode
+                        ? data[traineeAssignmentsKey] == nil
+                        : !serverAllowsCoach && accessType != "coach"
+                )
+
+            let assignments = (data[assignmentsKey] as? [Any]).map {
                 codec.fromFirestoreList($0)
             } ?? []
 
-            let hasAssignmentsField = rawAssignments != nil
+            let hasAssignmentsField = !canUseLegacyAssignments
 
             let legacyBranches =
                 (data["branches"] as? [String])?
@@ -2608,11 +2630,37 @@ do {
                     : legacyGroups
             }
 
-            let requestedBranches = [
-                data["active_branch"] as? String ?? "",
-                data["activeBranch"] as? String ?? "",
-                singleBranch
-            ]
+            let cachedCoachSelection = defaults.dictionary(
+                forKey: "coach_active_selection"
+            ) as? [String: String]
+
+            let verifiedCoachSelection =
+                isCoachMode && cachedCoachSelection?["uid"] == uid
+                    ? cachedCoachSelection
+                    : nil
+
+            let canReuseCoachSelection =
+                isCoachMode && loadedProfileUID == uid
+
+            let savedCoachBranch = verifiedCoachSelection?["branch"]
+                ?? (canReuseCoachSelection
+                    ? defaults.string(forKey: "coach_active_branch") ?? ""
+                    : "")
+
+            let requestedBranches = (
+                canUseLegacyAssignments
+                    ? [
+                        savedCoachBranch,
+                        data["active_branch"] as? String ?? "",
+                        data["activeBranch"] as? String ?? "",
+                        singleBranch
+                    ]
+                    : [
+                        isCoachMode
+                            ? savedCoachBranch
+                            : (data["traineeActiveBranch"] as? String ?? "")
+                    ]
+            )
             .map {
                 $0.trimmingCharacters(
                     in: .whitespacesAndNewlines
@@ -2655,11 +2703,25 @@ do {
                 }
             }
 
-            let requestedGroups = [
-                data["active_group"] as? String ?? "",
-                data["activeGroup"] as? String ?? "",
-                singleGroup
-            ]
+            let savedCoachGroup = verifiedCoachSelection?["group"]
+                ?? (canReuseCoachSelection
+                    ? defaults.string(forKey: "coach_active_group") ?? ""
+                    : "")
+
+            let requestedGroups = (
+                canUseLegacyAssignments
+                    ? [
+                        savedCoachGroup,
+                        data["active_group"] as? String ?? "",
+                        data["activeGroup"] as? String ?? "",
+                        singleGroup
+                    ]
+                    : [
+                        isCoachMode
+                            ? savedCoachGroup
+                            : (data["traineeActiveGroup"] as? String ?? "")
+                    ]
+            )
             .map {
                 $0.trimmingCharacters(
                     in: .whitespacesAndNewlines
@@ -2681,13 +2743,17 @@ do {
 
             let ud = UserDefaults.standard
 
+            let assignmentsPreferenceKey = isCoachMode
+                ? codec.preferenceKey
+                : "trainee_branch_assignments_json"
+
             if hasAssignmentsField {
                 ud.set(
                     codec.encode(assignments),
-                    forKey: codec.preferenceKey
+                    forKey: assignmentsPreferenceKey
                 )
             } else {
-                ud.removeObject(forKey: codec.preferenceKey)
+                ud.removeObject(forKey: assignmentsPreferenceKey)
             }
 
             ud.set(fullName, forKey: "fullName")
@@ -2881,6 +2947,7 @@ do {
 
             self.loadedProfileUID = uid
             self.profileLoadFailed = false
+            self.setActiveUserRole(resolvedRole)
 
             KmiPushManager.shared.savePendingFcmTokenAfterLoginIfNeeded()
             KmiPushManager.shared.refreshAndSaveFcmTokenIfPossible()

@@ -596,6 +596,7 @@ struct KmiTopBar: View {
     let rightText: String?
     let topBeltImageName: String?
     let showTopBeltIcon: Bool
+    private let centersBeltBelowTitle: Bool
 
     private var resolvedTopBeltImageName: String? {
         let explicitName =
@@ -733,6 +734,7 @@ struct KmiTopBar: View {
         titleColor: Color? = nil,
         topBeltImageName: String? = nil,
         showTopBeltIcon: Bool = false,
+        centersBeltBelowTitle: Bool = false,
         onBack: (() -> Void)? = nil,
         onMenu: @escaping () -> Void
     ) {
@@ -742,33 +744,47 @@ struct KmiTopBar: View {
         self.titleColor = titleColor
         self.topBeltImageName = topBeltImageName
         self.showTopBeltIcon = showTopBeltIcon
+        self.centersBeltBelowTitle = centersBeltBelowTitle
         self.onBack = onBack
         self.onMenu = onMenu
     }
     
     var body: some View {
         let hasRole = !localizedRoleLabel.isEmpty
-        let baseHeight: CGFloat = hasRole ? 68 : 64
+        let centeredBeltImageName = centersBeltBelowTitle
+            ? resolvedTopBeltImageName
+            : nil
+        let baseHeight: CGFloat = centeredBeltImageName != nil
+            ? 78
+            : (hasRole ? 68 : 64)
         let barHeight = baseHeight * max(1, displayScale)
 
         return ZStack {
-            Text(localizedTitle)
-                .kmiTypography(.screenTitle)
-                .accessibilityAddTraits(.isHeader)
-                .foregroundStyle(resolvedTitleColor)
-                .lineLimit(2)
-                .minimumScaleFactor(0.68)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 58)
-                .padding(.bottom, hasRole ? 4 : 0)
-                .layoutPriority(1)
-                .environment(
-                    \.layoutDirection,
-                    isEnglish
-                        ? .leftToRight
-                        : .rightToLeft
-                )
+            VStack(spacing: 0) {
+                Text(localizedTitle)
+                    .kmiTypography(.screenTitle)
+                    .accessibilityAddTraits(.isHeader)
+                    .foregroundStyle(resolvedTitleColor)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.68)
+                    .multilineTextAlignment(.center)
+
+                if let centeredBeltImageName {
+                    Image(centeredBeltImageName)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 82, height: 26)
+                        .accessibilityHidden(true)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 58)
+            .padding(.bottom, hasRole ? 4 : 0)
+            .layoutPriority(1)
+            .environment(
+                \.layoutDirection,
+                isEnglish ? .leftToRight : .rightToLeft
+            )
 
             HStack(spacing: 0) {
                 VStack(spacing: 2) {
@@ -900,7 +916,8 @@ struct KmiTopBar: View {
             .frame(maxHeight: .infinity, alignment: .top)
             .padding(.top, 6)
 
-            if shouldRenderTopBeltIcon,
+            if !centersBeltBelowTitle,
+               shouldRenderTopBeltIcon,
                let imageName = resolvedTopBeltImageName {
                 Image(imageName)
                     .resizable()
@@ -967,15 +984,6 @@ struct KmiRootLayout<Content: View>: View {
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
     @AppStorage("initial_language_code") private var initialLanguageCode: String = "HEBREW"
     @AppStorage("selected_language_code") private var selectedLanguageCode: String = "he"
-
-    /*
-     * מקור התפקיד הפעיל, בהתאם ל־user_role באנדרואיד.
-     *
-     * שימוש ב־AppStorage גורם לכל המעטפת להתעדכן מיד
-     * כאשר המשתמש עובר בין מצב מאמן למצב מתאמן.
-     */
-    @AppStorage("user_role")
-    private var storedActiveUserRole: String = ""
 
     /*
      * icon = הצגת אייקון המיקרופון
@@ -1241,40 +1249,32 @@ struct KmiRootLayout<Content: View>: View {
     }
   
     private var effectiveRole: String {
-        let activeRole =
-            storedActiveUserRole
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-                .lowercased()
+        let role = auth.userRole
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
 
-        if !activeRole.isEmpty {
-            return activeRole
-        }
-
-        let authRole =
-            auth.userRole
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-                .lowercased()
-
-        return authRole.isEmpty
-            ? "trainee"
-            : authRole
+        return role.isEmpty ? "trainee" : role
     }
 
     private var effectiveTopBarTitle: String {
         let cleanOverride = titleOverride?
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if let cleanOverride, !cleanOverride.isEmpty {
+        if isByBeltScreen, let cleanOverride, !cleanOverride.isEmpty {
             return cleanOverride
         }
 
         return title
     }
     
+    private var isByBeltScreen: Bool {
+        if case .beltQuestionsByBelt(_)? = nav.path.last {
+            return true
+        }
+
+        return false
+    }
+
     private var resolvedBackAction: (() -> Void)? {
         let normalizedTitle =
             title
@@ -1292,10 +1292,6 @@ struct KmiRootLayout<Content: View>: View {
             )
 
         guard !isHomeScreen, !lockHome else {
-            return nil
-        }
-
-        if case .beltQuestionsByBelt(_)? = nav.path.last {
             return nil
         }
 
@@ -1696,6 +1692,7 @@ struct KmiRootLayout<Content: View>: View {
                         titleColor: titleColor,
                         topBeltImageName: topBeltImageName,
                         showTopBeltIcon: showTopBeltIcon,
+                        centersBeltBelowTitle: isByBeltScreen,
                         onBack: resolvedBackAction,
                         onMenu: {
                             showGlobalIconMenu = false
@@ -1809,6 +1806,14 @@ struct KmiRootLayout<Content: View>: View {
             \.layoutDirection,
             isEnglish ? .leftToRight : .rightToLeft
         )
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: Notification.Name("KMI_TOP_TITLE_OVERRIDE")
+            )
+        ) { notification in
+            guard isByBeltScreen else { return }
+            titleOverride = notification.object as? String
+        }
         .onReceive(
             NotificationCenter.default.publisher(
                 for: Notification.Name(

@@ -15,6 +15,7 @@ struct RegisterFormView: View {
     let onBack: () -> Void
     let onSubmit: (RegistrationFormState) -> Void
     let onReadMoreTerms: () -> Void
+    let onRoleChange: (UserRole) -> Void
 
     @State private var s: RegistrationFormState
     @EnvironmentObject private var auth: AuthViewModel
@@ -30,6 +31,20 @@ struct RegisterFormView: View {
     @State private var displayedBranchValue: String = ""
     @State private var displayedGroupValue: String = ""
 
+    private struct RoleAssignmentDraft {
+        let region: String
+        let regions: Set<String>
+        let branches: Set<String>
+        let groups: Set<String>
+        let assignments: [RegistrationFormState.BranchAssignment]
+        let activeBranch: String
+        let activeGroup: String
+        let branchType: String
+    }
+
+    @State private var roleAssignmentDrafts: [String: RoleAssignmentDraft] = [:]
+    @State private var roleAssignmentDraftsUID: String?
+    @State private var loadedProfileAssignmentsUID: String?
     @State private var profileAllowsCoach = false
     @State private var isCheckingCoachAuthorization = false
     @State private var coachAuthorizationMessage: String?
@@ -118,8 +133,11 @@ struct RegisterFormView: View {
 
                 displayedBranchValue = ""
                 displayedGroupValue = ""
-                storedActiveBranch = ""
-                storedActiveGroup = ""
+
+                if !isEditingProfile {
+                    storedActiveBranch = ""
+                    storedActiveGroup = ""
+                }
             }
         )
     }
@@ -705,10 +723,10 @@ struct RegisterFormView: View {
             return manual
         }
 
-        let persisted = storedActiveBranch
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !isEditingProfile else { return "" }
 
-        return persisted
+        return storedActiveBranch
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var displayedGroupsText: String {
@@ -735,11 +753,13 @@ struct RegisterFormView: View {
             return groupDisplayNameForRegistration(manual)
         }
 
-        let persisted = storedActiveGroup
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !isEditingProfile {
+            let persisted = storedActiveGroup
+                .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if !persisted.isEmpty {
-            return groupDisplayNameForRegistration(persisted)
+            if !persisted.isEmpty {
+                return groupDisplayNameForRegistration(persisted)
+            }
         }
 
         return ""
@@ -755,62 +775,97 @@ struct RegisterFormView: View {
             return
         }
 
-        isCheckingCoachAuthorization = true
+        if roleAssignmentDraftsUID != uid {
+            roleAssignmentDrafts.removeAll()
+            roleAssignmentDraftsUID = uid
+            loadedProfileAssignmentsUID = nil
+        }
 
+        var didReadUserProfile = false
+
+        isCheckingCoachAuthorization = true
         defer {
-            isCheckingCoachAuthorization = false
+            if roleAssignmentDraftsUID == uid,
+               Auth.auth().currentUser?.uid == uid,
+               !Task.isCancelled {
+                if didReadUserProfile, loadedProfileAssignmentsUID != uid {
+                    let role: UserRole = initialRole == .coach && profileAllowsCoach
+                        ? .coach
+                        : .trainee
+
+                    applyRoleAssignmentDraft(for: role)
+                    loadedProfileAssignmentsUID = uid
+                }
+
+                isCheckingCoachAuthorization = false
+            }
         }
 
         let database = Firestore.firestore()
 
-        var coachAllowed = false
-        var adminAllowed = false
-
         do {
-            let document = try await database
-                .collection("authorizedCoaches")
+            let userDocument = try await database
+                .collection("users")
                 .document(uid)
-                .getDocument()
+                .getDocument(source: .server)
 
-            let data = document.data() ?? [:]
+            guard !Task.isCancelled,
+                  Auth.auth().currentUser?.uid == uid else {
+                return
+            }
 
-            let role = (data["role"] as? String ?? "")
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
+            guard userDocument.exists else { return }
+
+            let userData = userDocument.data() ?? [:]
+
+            if loadedProfileAssignmentsUID != uid {
+                roleAssignmentDrafts["trainee"] = makeProfileAssignmentDraft(
+                    from: userData,
+                    assignmentsKey: "traineeBranchAssignments",
+                    activeBranchKey: "traineeActiveBranch",
+                    activeGroupKey: "traineeActiveGroup"
                 )
+
+                roleAssignmentDrafts["coach"] = makeProfileAssignmentDraft(
+                    from: userData,
+                    assignmentsKey: RegistrationFormState.BranchAssignmentsCodec.firestoreKey
+                )
+            }
+
+            didReadUserProfile = true
+
+            let accessType = (userData["accessType"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
 
-            coachAllowed =
-                document.exists &&
-                data["active"] as? Bool == true &&
-                role == "coach"
-        } catch {
-            // כישלון בבדיקה זו אינו מבטל בדיקת מנהל.
-        }
+            guard userDocument.exists,
+                  accessType == "coach" || accessType == "both" else {
+                return
+            }
 
-        do {
-            let document = try await database
-                .collection("admins")
+            let coachDocument = try await database
+                .collection("authorizedCoaches")
                 .document(uid)
-                .getDocument()
+                .getDocument(source: .server)
 
-            adminAllowed =
-                document.exists &&
-                document.data()?["enabled"] as? Bool == true
+            guard !Task.isCancelled,
+                  Auth.auth().currentUser?.uid == uid else {
+                return
+            }
+
+            let data = coachDocument.data() ?? [:]
+            let role = (data["role"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            profileAllowsCoach =
+                coachDocument.exists &&
+                data["active"] as? Bool == true &&
+                data["accessRevokedByAdmin"] as? Bool != true &&
+                role == "coach" &&
+                data["canOpenCoachDrawer"] as? Bool == true
         } catch {
-            // ללא אישור מפורש לא נפתחת הרשאת מאמן.
-        }
-
-        guard !Task.isCancelled,
-              Auth.auth().currentUser?.uid == uid else {
-            return
-        }
-
-        profileAllowsCoach =
-            coachAllowed || adminAllowed
-
-        if !profileAllowsCoach && s.role == .coach {
-            s.role = .trainee
+            // הרשאת המאמן תישאר סגורה עד לאימות מוצלח.
         }
     }
 
@@ -833,7 +888,8 @@ struct RegisterFormView: View {
         isSavingProfile: Bool = false,
         onBack: @escaping () -> Void,
         onSubmit: @escaping (RegistrationFormState) -> Void,
-        onReadMoreTerms: @escaping () -> Void = {}
+        onReadMoreTerms: @escaping () -> Void = {},
+        onRoleChange: @escaping (UserRole) -> Void = { _ in }
     ) {
         self.prefillPhone = prefillPhone
         self.prefillEmail = prefillEmail
@@ -845,6 +901,7 @@ struct RegisterFormView: View {
         self.onBack = onBack
         self.onSubmit = onSubmit
         self.onReadMoreTerms = onReadMoreTerms
+        self.onRoleChange = onRoleChange
 
         var initial = RegistrationFormState()
         initial.phone = prefillPhone
@@ -883,6 +940,10 @@ struct RegisterFormView: View {
             }
             .onAppear {
                 handleInitialAppear()
+                onRoleChange(s.role)
+            }
+            .onChange(of: s.role) { _, role in
+                onRoleChange(role)
             }
             .task(id: Auth.auth().currentUser?.uid) {
                 await refreshCoachAuthorization()
@@ -1751,8 +1812,10 @@ struct RegisterFormView: View {
         displayedBranchValue = s.activeBranch
         displayedGroupValue = s.activeGroup
 
-        storedActiveBranch = s.activeBranch
-        storedActiveGroup = s.activeGroup
+        if !isEditingProfile {
+            storedActiveBranch = s.activeBranch
+            storedActiveGroup = s.activeGroup
+        }
     }
 
     private func initializeBranchAssignments() {
@@ -2208,8 +2271,106 @@ struct RegisterFormView: View {
             )
         }
 
-        private func tabButton(
-            _ role: UserRole
+    private func makeProfileAssignmentDraft(
+        from data: [String: Any],
+        assignmentsKey: String,
+        activeBranchKey: String? = nil,
+        activeGroupKey: String? = nil
+    ) -> RoleAssignmentDraft? {
+        guard let rows = data[assignmentsKey] as? [Any] else {
+            return nil
+        }
+
+        let codec = RegistrationFormState.BranchAssignmentsCodec.self
+        let assignments = codec.fromFirestoreList(rows)
+        let branches = Set(assignments.map(\.branch))
+        let isAbroad = branches.contains {
+            TrainingCatalogIOS.isAbroadBranch($0)
+        }
+        let availableRegions = isAbroad
+            ? TrainingCatalogIOS.abroadRegions()
+            : israelRegions
+        let matchingRegions = availableRegions.filter { region in
+            TrainingCatalogIOS.branchesFor(region: region).contains {
+                branches.contains($0)
+            }
+        }
+
+        let savedBranch = activeBranchKey.flatMap { data[$0] as? String } ?? ""
+        let activeBranch = branches.contains(savedBranch)
+            ? savedBranch
+            : branches.sorted().first ?? ""
+        let activeGroups = assignments.first {
+            $0.branch == activeBranch
+        }?.groups ?? []
+        let savedGroup = activeGroupKey.flatMap { data[$0] as? String } ?? ""
+
+        return RoleAssignmentDraft(
+            region: matchingRegions.first ?? "",
+            regions: Set(matchingRegions),
+            branches: branches,
+            groups: Set(codec.flattenGroups(assignments)),
+            assignments: assignments,
+            activeBranch: activeBranch,
+            activeGroup: activeGroups.contains(savedGroup)
+                ? savedGroup
+                : activeGroups.first ?? "",
+            branchType: isAbroad ? "abroad" : "israel"
+        )
+    }
+
+    private func switchRegistrationRole(to role: UserRole) {
+        guard isEditingProfile,
+              !isSubmitting,
+              !isCheckingCoachAuthorization,
+              s.role != role,
+              let uid = Auth.auth().currentUser?.uid,
+              loadedProfileAssignmentsUID == uid,
+              role != .coach || profileAllowsCoach else {
+            return
+        }
+
+        let currentKey = s.role == .coach ? "coach" : "trainee"
+
+        roleAssignmentDrafts[currentKey] = RoleAssignmentDraft(
+            region: s.region,
+            regions: s.regions,
+            branches: s.branches,
+            groups: s.groups,
+            assignments: s.branchAssignments,
+            activeBranch: s.activeBranch,
+            activeGroup: s.activeGroup,
+            branchType: s.branchType
+        )
+
+        applyRoleAssignmentDraft(for: role)
+    }
+
+    private func applyRoleAssignmentDraft(for role: UserRole) {
+        let key = role == .coach ? "coach" : "trainee"
+        let draft = roleAssignmentDrafts[key]
+
+        s.region = draft?.region ?? ""
+        s.regions = draft?.regions ?? []
+        s.branches = draft?.branches ?? []
+        s.groups = draft?.groups ?? []
+        s.branchAssignments = draft?.assignments ?? []
+        s.activeBranch = draft?.activeBranch ?? ""
+        s.activeGroup = draft?.activeGroup ?? ""
+        s.branchType = draft?.branchType ?? "israel"
+
+        isAbroadSelection = s.branchType == "abroad"
+        s.role = role
+
+        branchGroupsExpansion.removeAll()
+        focusedField = nil
+        hasAttemptedSubmit = false
+
+        synchronizeBranchAssignments()
+    }
+
+    private func tabButton(
+        _ role: UserRole
     ) -> some View {
         let isSelected = s.role == role
 
@@ -2240,7 +2401,7 @@ struct RegisterFormView: View {
              * תמיד מותר, כמו Android.
              */
             if role == .trainee {
-                s.role = .trainee
+                switchRegistrationRole(to: .trainee)
                 return
             }
 
@@ -2266,7 +2427,7 @@ struct RegisterFormView: View {
                 }
             }
 
-            s.role = role
+            switchRegistrationRole(to: role)
         } label: {
             ZStack(alignment: .bottom) {
                 Text(
@@ -2559,6 +2720,17 @@ struct RegisterFormView: View {
                 guard validationError == nil else {
                     requestMissingFieldScroll()
                     return
+                }
+
+                if isEditingProfile {
+                    guard let uid = Auth.auth().currentUser?.uid,
+                          loadedProfileAssignmentsUID == uid else {
+                        coachAuthorizationMessage = tr(
+                            "לא ניתן לאמת את שיוכי הפרופיל. פתח מחדש את עריכת הפרופיל ונסה שוב.",
+                            "Unable to verify profile assignments. Reopen Edit Profile and try again."
+                        )
+                        return
+                    }
                 }
 
                 focusedField = nil
@@ -3714,8 +3886,10 @@ struct RegisterFormView: View {
         displayedBranchValue = ""
         displayedGroupValue = ""
 
-        storedActiveBranch = ""
-        storedActiveGroup = ""
+        if !isEditingProfile {
+            storedActiveBranch = ""
+            storedActiveGroup = ""
+        }
     }
 
     private func loadSavedProfileIfNeeded() {

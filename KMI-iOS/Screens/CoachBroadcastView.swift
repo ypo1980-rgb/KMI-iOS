@@ -32,6 +32,7 @@ struct CoachBroadcastView: View {
     @State private var isLoadingRecipients = false
 
     @State private var activeRecipientsRequestID = UUID()
+    @State private var requestedRecipientsContext: RecipientsContext?
     @State private var loadedRecipientsContext: RecipientsContext?
 
     private struct RecipientsContext: Equatable {
@@ -229,39 +230,8 @@ struct CoachBroadcastView: View {
                role == "kmi_coach"
     }
 
-    private var effectiveRole: String {
-        let defaults = UserDefaults.standard
-
-        let profileRole = normalizeRole(auth.userRole)
-
-        let storedCandidates = [
-            defaults.string(forKey: "user_role"),
-            defaults.string(forKey: "role"),
-            defaults.string(forKey: "userRole"),
-            defaults.string(forKey: "profile_role")
-        ]
-        .compactMap { $0 }
-        .map { normalizeRole($0) }
-        .filter { !$0.isEmpty }
-
-        // חשוב: אם אחד המקורות אומר מאמן — לא ניתקע על trainee ישן.
-        if isCoachRole(profileRole) {
-            return profileRole
-        }
-
-        if let coachStoredRole = storedCandidates.first(where: { isCoachRole($0) }) {
-            return coachStoredRole
-        }
-
-        if let firstStoredRole = storedCandidates.first {
-            return firstStoredRole
-        }
-
-        return profileRole
-    }
-
     private var isCoach: Bool {
-        isCoachRole(effectiveRole)
+        isCoachRole(auth.userRole)
     }
 
     private var branchesByRegion: [String: [String]] {
@@ -482,7 +452,35 @@ struct CoachBroadcastView: View {
             }
         }
 
-        return result
+        let assignedBranches = uniqueValues(
+            auth.userBranchAssignments.map(\.branch)
+        )
+
+        guard !assignedBranches.isEmpty else {
+            return result
+        }
+
+        var filtered: [String: [String]] = [:]
+        let candidateRegions = uniqueValues(
+            regions + result.keys.sorted() + TrainingCatalogIOS.abroadRegions()
+        )
+
+        for candidateRegion in candidateRegions {
+            let catalogBranches = TrainingCatalogIOS.branchesFor(
+                region: candidateRegion
+            )
+            let catalogKeys = Set(catalogBranches.map { clean($0).lowercased() })
+
+            let matchingBranches = assignedBranches.filter {
+                catalogKeys.contains(clean($0).lowercased())
+            }
+
+            if !matchingBranches.isEmpty {
+                filtered[candidateRegion] = matchingBranches
+            }
+        }
+
+        return filtered
     }
 
     private var regionOptions: [String] {
@@ -524,8 +522,8 @@ struct CoachBroadcastView: View {
                             demoIndex: index,
                             isEnglish: isEnglish
                         ),
-                    phone: demoPrivacy.isEnabled ? "" : recipient.phone,
-                    email: demoPrivacy.isEnabled ? "" : recipient.email,
+                    branch: recipient.branch,
+                    groups: recipient.groups,
                     selected: recipient.selected
                 )
 
@@ -536,31 +534,6 @@ struct CoachBroadcastView: View {
     private var selectedRecipients: [CoachBroadcastRecipient] {
 
         recipients.filter { $0.selected }
-
-    }
-
-    private var selectedPhones: [String] {
-
-        var seenPhones = Set<String>()
-
-        return selectedRecipients
-            .map(\.phone)
-            .map {
-                $0.trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-            }
-            .filter { !$0.isEmpty }
-            .filter { phone in
-
-                let comparisonKey =
-                    phone.filter(\.isNumber)
-
-                return seenPhones
-                    .insert(comparisonKey)
-                    .inserted
-
-            }
 
     }
 
@@ -591,6 +564,18 @@ struct CoachBroadcastView: View {
     }
 
     private var coachGroupKey: String {
+        if !auth.userBranchAssignments.isEmpty {
+            let selectedBranch = trimmedBroadcastValue(branch)
+            let groups = auth.userBranchAssignments
+                .filter { trimmedBroadcastValue($0.branch) == selectedBranch }
+                .flatMap(\.groups)
+                .map(trimmedBroadcastValue)
+                .filter { !$0.isEmpty }
+
+            let activeGroup = trimmedBroadcastValue(auth.userGroup)
+            return groups.contains(activeGroup) ? activeGroup : (groups.first ?? "")
+        }
+
         let defaults = UserDefaults.standard
 
         let candidates = [
@@ -636,8 +621,11 @@ struct CoachBroadcastView: View {
     }
 
     private var canUseLoadedRecipients: Bool {
-        isCoach &&
+        isBroadcastVisible &&
+            isCoach &&
+            !auth.isProfileLoading &&
             !isLoadingRecipients &&
+            branchOptions.contains(recipientsContext.branch) &&
             loadedRecipientsContext == recipientsContext
     }
 
@@ -806,7 +794,25 @@ struct CoachBroadcastView: View {
         }
         .onDisappear {
             isBroadcastVisible = false
+            resetLoadedRecipients()
             syncBroadcastLoading()
+        }
+        .onChange(of: auth.userRole) { _, _ in
+            if isCoach {
+                preloadDefaults()
+            } else {
+                resetLoadedRecipients()
+                selectedTargetGroups = []
+                pdfShareItem = nil
+            }
+        }
+        .onChange(of: auth.isProfileLoading) { _, isLoading in
+            guard isBroadcastVisible, isCoach, !isLoading else { return }
+            preloadDefaults()
+        }
+        .onChange(of: auth.userBranchAssignments) { _, _ in
+            guard isBroadcastVisible, isCoach, !auth.isProfileLoading else { return }
+            preloadDefaults()
         }
         .onChange(of: region) { _, _ in
 
@@ -1960,6 +1966,22 @@ struct CoachBroadcastView: View {
 
     }
 
+    private func recipientAssignmentText(
+        _ recipient: CoachBroadcastRecipient
+    ) -> String {
+        let branchName = TrainingCatalogIOS.displayBranch(
+            recipient.branch,
+            isEnglish: isEnglish
+        )
+        let groupNames = recipient.groups.map {
+            TrainingCatalogIOS.displayGroup($0, isEnglish: isEnglish)
+        }
+
+        return [branchName, groupNames.joined(separator: ", ")]
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+    }
+
     private func recipientTexts(
         _ recipient: CoachBroadcastRecipient,
         isSelected: Bool
@@ -1971,17 +1993,15 @@ struct CoachBroadcastView: View {
                 .multilineTextAlignment(.leading)
                 .lineLimit(2)
 
-            Text(
-                demoPrivacy.isEnabled
-                    ? tr("מספר מוסתר", "Hidden number")
-                    : recipient.phone.isEmpty
-                        ? tr("ללא מספר טלפון", "No phone number")
-                        : recipient.phone
-            )
-            .kmiFont(size: 13, weight: .medium)
-            .foregroundStyle(isSelected ? accentColor : secondaryTextColor)
-            .multilineTextAlignment(.leading)
-            .lineLimit(2)
+            let assignmentText = recipientAssignmentText(recipient)
+
+            if !assignmentText.isEmpty {
+                Text(assignmentText)
+                    .kmiFont(size: 13, weight: .medium)
+                    .foregroundStyle(isSelected ? accentColor : secondaryTextColor)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -2062,9 +2082,7 @@ struct CoachBroadcastView: View {
             selectedUids.isEmpty
 
         return Button {
-
-            sendSmsToSelected()
-
+            sendBroadcastToSelected()
         } label: {
 
             HStack(spacing: 8) {
@@ -2129,8 +2147,8 @@ struct CoachBroadcastView: View {
         .accessibilityLabel(sendButtonText)
         .accessibilityHint(
             tr(
-                "שומר את ההודעה ושולח אותה לנמענים שנבחרו",
-                "Saves the message and sends it to the selected recipients"
+                "מעביר את ההודעה לשליחת התראת Push לנמענים שנבחרו",
+                "Queues a push notification for the selected recipients"
             )
         )
 
@@ -2140,23 +2158,20 @@ struct CoachBroadcastView: View {
 
         isPreloadingDefaults = true
 
+        let currentRegion = trimmedBroadcastValue(region)
+        let profileRegion = trimmedBroadcastValue(auth.userRegion)
+        let availableRegions = regionOptions
+
         let resolvedRegion =
-            region
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-                .isEmpty
-                ? auth.userRegion.trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-                : region.trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
+            [currentRegion, profileRegion].first {
+                !$0.isEmpty && availableRegions.contains($0)
+            }
+            ?? availableRegions.first
+            ?? ""
 
         region = resolvedRegion
 
-        let availableBranches =
-            branchesByRegion[resolvedRegion] ?? []
+        let availableBranches = branchesByRegion[resolvedRegion] ?? []
 
         let savedBranch =
             auth.userBranch
@@ -2186,12 +2201,14 @@ struct CoachBroadcastView: View {
 
         }
 
-        if selectedTargetGroups.isEmpty,
-           !coachGroupKey.isEmpty {
+        if branch != currentBranch {
+            resetLoadedRecipients()
 
+            let defaultGroup = coachGroupKey
             selectedTargetGroups =
-                Set([coachGroupKey])
-
+                sendScope == "groups" && !defaultGroup.isEmpty
+                    ? Set([defaultGroup])
+                    : []
         }
 
         DispatchQueue.main.async {
@@ -2224,22 +2241,36 @@ struct CoachBroadcastView: View {
 
     }
 
+    private func resetLoadedRecipients() {
+        activeRecipientsRequestID = UUID()
+        requestedRecipientsContext = nil
+        loadedRecipientsContext = nil
+        isLoadingRecipients = false
+        recipients = []
+        availableBranchGroups = []
+        availableBranchGroupCounts = [:]
+    }
+
     private func loadRecipients() {
         let context = recipientsContext
-        let requestID = UUID()
-        activeRecipientsRequestID = requestID
 
-        guard isCoach,
+        guard isBroadcastVisible,
+              isCoach,
               !context.uid.isEmpty,
               !context.region.isEmpty,
-              !context.branch.isEmpty else {
-            isLoadingRecipients = false
-            loadedRecipientsContext = nil
-            recipients = []
-            availableBranchGroups = []
-            availableBranchGroupCounts = [:]
+              !context.branch.isEmpty,
+              branchOptions.contains(context.branch) else {
+            resetLoadedRecipients()
             return
         }
+
+        guard !isLoadingRecipients || requestedRecipientsContext != context else {
+            return
+        }
+
+        let requestID = UUID()
+        activeRecipientsRequestID = requestID
+        requestedRecipientsContext = context
 
         let previousSelection = Dictionary(
             recipients.map { ($0.uid, $0.selected) },
@@ -2252,6 +2283,7 @@ struct CoachBroadcastView: View {
         Task { @MainActor in
             defer {
                 if activeRecipientsRequestID == requestID {
+                    requestedRecipientsContext = nil
                     isLoadingRecipients = false
                 }
             }
@@ -2317,18 +2349,22 @@ struct CoachBroadcastView: View {
                     let uid = trimmedBroadcastValue(data["uid"] as? String ?? "")
                     guard !uid.isEmpty, seenUids.insert(uid).inserted else { return nil }
 
-                    let phone = trimmedBroadcastValue(data["phone"] as? String ?? "")
-                    let email = trimmedBroadcastValue(data["email"] as? String ?? "")
                     let name = trimmedBroadcastValue(data["name"] as? String ?? "")
-                    let displayName = [name, email, phone].first { !$0.isEmpty }
-                        ?? tr("מתאמן ללא שם", "Unnamed trainee")
+                    var seenGroups = Set<String>()
+                    let recipientGroups = (data["groups"] as? [String] ?? [])
+                        .map(trimmedBroadcastValue)
+                        .filter {
+                            !$0.isEmpty && seenGroups.insert($0).inserted
+                        }
 
                     return CoachBroadcastRecipient(
                         id: uid,
                         uid: uid,
-                        name: displayName,
-                        phone: phone,
-                        email: email,
+                        name: name.isEmpty
+                            ? tr("מתאמן ללא שם", "Unnamed trainee")
+                            : name,
+                        branch: context.branch,
+                        groups: recipientGroups,
                         selected: previousSelection[uid] ?? true
                     )
                 }
@@ -2355,134 +2391,34 @@ struct CoachBroadcastView: View {
     }
 
 
-    private func sendSmsToSelected() {
+    private func sendBroadcastToSelected() {
         guard !isSending, canUseLoadedRecipients else {
             return
         }
 
-        let cleanMessage = message
-            .trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
-
+        let cleanMessage = trimmedBroadcastValue(message)
         guard !cleanMessage.isEmpty else {
-            showError(
-                tr(
-                    "נא לכתוב טקסט להודעה",
-                    "Please write a message"
-                )
-            )
+            showError(tr("נא לכתוב טקסט להודעה", "Please write a message"))
             return
         }
 
-        guard !selectedUids.isEmpty else {
-            showError(
-                tr(
-                    "לא נבחרו נמענים – סמן לפחות מתאמן אחד",
-                    "No recipients selected — select at least one trainee"
-                )
-            )
+        let targetUids = selectedUids
+        guard !targetUids.isEmpty else {
+            showError(tr(
+                "לא נבחרו נמענים – סמן לפחות מתאמן אחד",
+                "No recipients selected — select at least one trainee"
+            ))
             return
         }
 
         let context = recipientsContext
-        let targetUids = selectedUids
-        let targetPhones = selectedPhones
-
         isSending = true
 
         persistBroadcast(
             context: context,
             message: cleanMessage,
             targetUids: targetUids
-        ) { succeeded in
-            guard succeeded else { return }
-
-            openMessagesApp(
-                message: cleanMessage,
-                phones: targetPhones
-            )
-        }
-    }
-
-    private func openMessagesApp(
-        message cleanMessage: String,
-        phones: [String]
-    ) {
-        let smsNumberCount = phones.count
-        let numbers = phones
-            .map {
-                $0.trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-            }
-            .filter { !$0.isEmpty }
-            .joined(separator: ",")
-
-        guard !numbers.isEmpty else {
-            isSending = false
-            message = ""
-
-            showError(
-                tr(
-                    "ההודעה נשמרה ונשלחה לעיבוד Push. לא נמצאו מספרי טלפון לפתיחת SMS.",
-                    "The message was saved for Push delivery. No phone numbers were available for SMS."
-                )
-            )
-            return
-        }
-
-        var components = URLComponents()
-        components.scheme = "sms"
-        components.path = numbers
-        components.queryItems = [
-            URLQueryItem(
-                name: "body",
-                value: cleanMessage
-            )
-        ]
-
-        guard let url = components.url,
-              UIApplication.shared.canOpenURL(url)
-        else {
-            isSending = false
-            message = ""
-
-            showError(
-                tr(
-                    "ההודעה נשמרה לעיבוד Push, אבל לא ניתן לפתוח את אפליקציית ההודעות.",
-                    "The message was saved for Push delivery, but the messaging app could not be opened."
-                )
-            )
-            return
-        }
-
-        UIApplication.shared.open(
-            url,
-            options: [:]
-        ) { opened in
-            DispatchQueue.main.async {
-                isSending = false
-
-                if opened {
-                    message = ""
-
-                    showError(
-                        tr(
-                            "השידור הועבר לעיבוד ונפתח מסך SMS עם \(smsNumberCount) מספרי טלפון.",
-                            "The broadcast was queued and the SMS composer opened with \(smsNumberCount) phone numbers."
-                        )
-                    )
-                } else {
-                    showError(
-                        tr(
-                            "ההודעה נשמרה לעיבוד Push, אך אפליקציית ההודעות לא נפתחה.",
-                            "The message was saved for Push delivery, but the messaging app did not open."
-                        )
-                    )
-                }
-            }
-        }
+        )
     }
 
     private func shareBroadcastPdf() {
@@ -3082,22 +3018,10 @@ struct CoachBroadcastView: View {
                             )
                             : recipientName
 
-                    var line =
-                        "\(index + 1). \(resolvedName)"
-
-                    if
-                        !demoPrivacy.isEnabled,
-                        !recipient.phone
-                            .trimmingCharacters(
-                                in:
-                                    .whitespacesAndNewlines
-                            )
-                            .isEmpty {
-
-                        line +=
-                            " · \(recipient.phone)"
-
-                    }
+                    let assignmentText = recipientAssignmentText(recipient)
+                    let line = assignmentText.isEmpty
+                        ? "\(index + 1). \(resolvedName)"
+                        : "\(index + 1). \(resolvedName) · \(assignmentText)"
 
                     let rowFont =
                         UIFont.systemFont(
@@ -3154,10 +3078,11 @@ struct CoachBroadcastView: View {
     private func persistBroadcast(
         context: RecipientsContext,
         message: String,
-        targetUids: [String],
-        completion: @escaping (Bool) -> Void
+        targetUids: [String]
     ) {
         Task { @MainActor in
+            defer { isSending = false }
+
             guard canUseLoadedRecipients,
                   recipientsContext == context,
                   !context.uid.isEmpty,
@@ -3165,8 +3090,6 @@ struct CoachBroadcastView: View {
                   !message.isEmpty,
                   !targetUids.isEmpty,
                   context.scope == "branch" || !context.groups.isEmpty else {
-                isSending = false
-                completion(false)
                 return
             }
 
@@ -3181,24 +3104,34 @@ struct CoachBroadcastView: View {
                         "targetUids": targetUids
                     ] as [String: Any])
 
-                guard Auth.auth().currentUser?.uid == context.uid else {
-                    isSending = false
-                    completion(false)
+                guard isBroadcastVisible,
+                      isCoach,
+                      recipientsContext == context else {
                     return
                 }
 
-                completion(true)
+                if trimmedBroadcastValue(self.message) == message {
+                    self.message = ""
+                }
+
+                showError(tr(
+                    "ההודעה הועברה לשליחה לנמענים שנבחרו.",
+                    "The message was queued for delivery to the selected recipients."
+                ))
             } catch {
-                isSending = false
+                guard isBroadcastVisible,
+                      isCoach,
+                      recipientsContext == context else {
+                    return
+                }
+
                 showError(tr(
                     "לא ניתן לאשר את שליחת השידור. בדוק אם ההודעה כבר נשלחה לפני ניסיון חוזר.",
                     "Could not confirm the broadcast. Check whether the message was sent before trying again."
                 ))
-                completion(false)
             }
         }
     }
-
 
     private func showError(_ text: String) {
         alertText = text
@@ -3228,7 +3161,7 @@ private struct CoachBroadcastRecipient: Identifiable {
     let id: String
     let uid: String
     let name: String
-    let phone: String
-    let email: String
+    let branch: String
+    let groups: [String]
     var selected: Bool
 }

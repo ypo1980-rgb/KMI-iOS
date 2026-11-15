@@ -623,13 +623,11 @@ struct KmiExamRunnerView: View {
         }
 
         let requestedIndex = currentIndex
-
-        let text = cleanExamItemForDisplay(
-            shuffledItems[requestedIndex]
+        let text = KmiEnglishTitleResolver.title(
+            for: currentDisplayItem,
+            isEnglish: isEnglish
         )
-        .trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !text.isEmpty else { return }
 
@@ -646,11 +644,14 @@ struct KmiExamRunnerView: View {
                     string: text
                 )
 
-            utterance.voice =
-                AVSpeechSynthesisVoice(
-                    language: "he-IL"
-                )
+            let containsHebrew = text.range(
+                of: #"\p{Hebrew}"#,
+                options: .regularExpression
+            ) != nil
 
+            utterance.voice = AVSpeechSynthesisVoice(
+                language: isEnglish && !containsHebrew ? "en-US" : "he-IL"
+            )
             utterance.rate = 0.45
 
             speechSynth.stopSpeaking(

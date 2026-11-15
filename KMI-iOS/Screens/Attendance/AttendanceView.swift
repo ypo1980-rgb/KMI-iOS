@@ -3237,7 +3237,7 @@ private struct AttendancePremiumDatePickerSheet: View {
     }
 }
 
-private struct AttendanceQrRequest: Identifiable {
+struct AttendanceQrRequest: Identifiable {
     let id = UUID()
     let uid: String
     let dateIso: String
@@ -3246,7 +3246,7 @@ private struct AttendanceQrRequest: Identifiable {
     let group: String
 }
 
-private struct AttendanceCoachQrSheet: View {
+struct AttendanceCoachQrSheet: View {
     let request: AttendanceQrRequest
     let isEnglish: Bool
 

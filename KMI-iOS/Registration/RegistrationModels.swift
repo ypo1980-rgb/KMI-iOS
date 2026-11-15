@@ -533,12 +533,18 @@ extension RegistrationFormState {
         ]
 
         if hasCompleteBranchAssignments {
-            dict[BranchAssignmentsCodec.firestoreKey] =
-                BranchAssignmentsCodec.toFirestoreList(
-                    normalizedBranchAssignments
-                )
-        }
+            let assignments = BranchAssignmentsCodec.toFirestoreList(
+                normalizedBranchAssignments
+            )
 
+            if role == .coach {
+                dict[BranchAssignmentsCodec.firestoreKey] = assignments
+            } else {
+                dict["traineeBranchAssignments"] = assignments
+                dict["traineeActiveBranch"] = activeBranchFinal
+                dict["traineeActiveGroup"] = activeGroupFinal
+            }
+        }
         if role == .coach {
             dict["coachCode"] = coachCode.trimmed
         }
@@ -546,7 +552,26 @@ extension RegistrationFormState {
         return dict
     }
 
-    func persistToUserDefaults() {
+    func toEditedProfileFirestoreDictionary(uid: String) -> [String: Any] {
+        var dict = toFirestoreDictionary(uid: uid)
+
+        for key in [
+            "role", "userRole", "user_role", "accessType",
+            "coachApproved", "coachCode",
+            "createdAt", "authProvider", "isActive", "archived",
+            "region", "regions", "regionsCsv",
+            "branchType", "branch_type",
+            "branches", "branchesCsv", "activeBranch", "branch",
+            "groups", "groupsCsv", "primaryGroup", "activeGroup",
+            "group", "age_group"
+        ] {
+            dict.removeValue(forKey: key)
+        }
+
+        return dict
+    }
+
+    func persistToUserDefaults(isEditingProfile: Bool = false) {
         let ud = UserDefaults.standard
 
         let branchesCsv = branchesArray.joined(separator: ", ")
@@ -555,18 +580,26 @@ extension RegistrationFormState {
         let activeBranchFinal = activeBranchFinal
         let activeGroupFinal = activeGroupFinal
 
+        let rolePrefix = role == .coach ? "coach" : "trainee"
+        let assignmentsKey = role == .coach
+            ? BranchAssignmentsCodec.preferenceKey
+            : "trainee_branch_assignments_json"
+        let savedBranchType = branchType.trimmed.isEmpty
+            ? "israel"
+            : branchType.trimmed
+
         if hasCompleteBranchAssignments {
             ud.set(
-                BranchAssignmentsCodec.encode(
-                    normalizedBranchAssignments
-                ),
-                forKey: BranchAssignmentsCodec.preferenceKey
+                BranchAssignmentsCodec.encode(normalizedBranchAssignments),
+                forKey: assignmentsKey
             )
         } else {
-            ud.removeObject(
-                forKey: BranchAssignmentsCodec.preferenceKey
-            )
+            ud.removeObject(forKey: assignmentsKey)
         }
+
+        ud.set(activeBranchFinal, forKey: "\(rolePrefix)_active_branch")
+        ud.set(activeGroupFinal, forKey: "\(rolePrefix)_active_group")
+        ud.set(savedBranchType, forKey: "\(rolePrefix)_branch_type")
 
         ud.set(fullNameTrimmed, forKey: "fullName")
         ud.set(fullNameTrimmed, forKey: "full_name")
@@ -705,14 +738,15 @@ extension RegistrationFormState {
         ud.set(currentBeltId, forKey: "belt")
         ud.set(belt.trimmed, forKey: "belt_he")
 
-        if role == .coach {
-            ud.set(coachCode.trimmed, forKey: "coachCode")
-            ud.set(coachCode.trimmed, forKey: "coach_code")
-        } else {
-            ud.removeObject(forKey: "coachCode")
-            ud.removeObject(forKey: "coach_code")
+        if !isEditingProfile {
+            if role == .coach {
+                ud.set(coachCode.trimmed, forKey: "coachCode")
+                ud.set(coachCode.trimmed, forKey: "coach_code")
+            } else {
+                ud.removeObject(forKey: "coachCode")
+                ud.removeObject(forKey: "coach_code")
+            }
         }
-
         ud.set(true, forKey: "profile_completed")
         ud.set(true, forKey: "registration_complete")
         ud.set(true, forKey: "registration_form_completed")

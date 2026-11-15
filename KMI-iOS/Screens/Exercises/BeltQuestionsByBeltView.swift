@@ -50,16 +50,22 @@ struct BeltQuestionsByBeltView: View {
         isEnglish ? .leftToRight : .rightToLeft
     }
 
-    private var byBeltCardSurfaceColor: Color {
-        KmiAppTheme.surface(
-            for: colorScheme
+    private var beltBackgroundAccent: Color {
+        selectedBelt == .yellow
+            ? KmiBeltPalette.color(for: selectedBelt)
+            : readableBeltAccent
+    }
+
+    private var byBeltCardTint: Color {
+        beltBackgroundAccent.opacity(
+            colorScheme == .dark ? 0.10 : (selectedBelt == .yellow ? 0.14 : 0.09)
         )
     }
 
     private var byBeltCardBorderColor: Color {
-        KmiAppTheme.outlineVariant(
-            for: colorScheme
-        )
+        colorScheme == .dark
+            ? KmiAppTheme.outlineVariant(for: colorScheme)
+            : readableBeltAccent.opacity(0.24)
     }
 
     private var byBeltTitleColor: Color {
@@ -119,18 +125,8 @@ struct BeltQuestionsByBeltView: View {
     }
 
     private var byBeltSubTopicsBackground: Color {
-        readableBeltAccent.opacity(
-            colorScheme == .dark
-                ? 0.12
-                : 0.10
-        )
-    }
-
-    private var byBeltSubTopicsBorder: Color {
-        readableBeltAccent.opacity(
-            colorScheme == .dark
-                ? 0.34
-                : 0.38
+        beltBackgroundAccent.opacity(
+            colorScheme == .dark ? 0.14 : (selectedBelt == .yellow ? 0.16 : 0.12)
         )
     }
 
@@ -202,10 +198,8 @@ struct BeltQuestionsByBeltView: View {
     // ✅ subject-based flow כמו באנדרואיד:
     @State private var selectedSubjectForSubTopics: SubjectTopic? = nil
     @State private var selectedSubjectSectionRoute: SubjectSectionExerciseRoute? = nil
-    // נשמר ריק בכוונה - המיקום מחושב דרך topicFrames
-    @State private var topicsScrollOffset: CGFloat = 0
-    @State private var topicFrames:
-        [String: CGFloat] = [:]
+    @State private var topicFrames: [String: CGRect] = [:]
+    private let stickyTopicHeaderHeight: CGFloat = 38
     // ✅ NEW: nav גלובאלי (כדי לנווט למסכים עטופים ב-KmiRootLayout)
     @EnvironmentObject private var nav: AppNavModel
 
@@ -1567,30 +1561,17 @@ struct BeltQuestionsByBeltView: View {
 
             if !cleanSubtitle.isEmpty {
 
-                Text(
-                    cleanSubtitle
-                )
-                .kmiTypography(.topicCount)
-                .foregroundStyle(
-                    byBeltRowSubColor
-                )
-                .frame(
-                    maxWidth: .infinity,
-                    alignment:
-                        isEnglish
-                            ? .leading
-                            : .trailing
-                )
-                .multilineTextAlignment(
-                    isEnglish
-                        ? .leading
-                        : .trailing
-                )
-                .lineLimit(2)
-                .fixedSize(
-                    horizontal: false,
-                    vertical: true
-                )
+                Text(cleanSubtitle)
+                    .kmiTypography(.caption)
+                    .fontWeight(.heavy)
+                    .foregroundStyle(byBeltRowSubColor)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: isEnglish ? .leading : .trailing
+                    )
+                    .multilineTextAlignment(isEnglish ? .leading : .trailing)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
         }
     }
@@ -1609,10 +1590,8 @@ struct BeltQuestionsByBeltView: View {
             Image(imageName)
                 .resizable()
                 .scaledToFill()
-                .frame(
-                    width: 38,
-                    height: 31
-                )
+                .frame(width: 34, height: 29)
+                .accessibilityHidden(true)
                 .clipShape(
                     RoundedRectangle(
                         cornerRadius: 10,
@@ -1631,26 +1610,17 @@ struct BeltQuestionsByBeltView: View {
             style: .continuous
         )
         .fill(
-
             LinearGradient(
                 colors: [
                     accent,
-                    accent.opacity(
-                        colorScheme == .dark
-                            ? 0.90
-                            : 0.82
-                    )
+                    accent.opacity(colorScheme == .dark ? 0.90 : 0.82)
                 ],
-                startPoint:
-                    .top,
-                endPoint:
-                    .bottom
+                startPoint: .top,
+                endPoint: .bottom
             )
         )
-        .frame(
-            width: 3,
-            height: 34
-        )
+        .frame(width: 3, height: 34)
+        .accessibilityHidden(true)
     }
     
     private struct BeltPDFStorageContext: Hashable {
@@ -2309,8 +2279,6 @@ struct BeltQuestionsByBeltView: View {
 
             KmiAppBackground()
 
-            stickyHeaderOverlay
-
             VStack(spacing: 0) {
 
                 beltModeTabs
@@ -2319,10 +2287,7 @@ struct BeltQuestionsByBeltView: View {
                     .frame(height: 4)
 
                 byBeltContent
-                    .padding(
-                        .horizontal,
-                        14
-                    )
+                    .padding(.horizontal, 4)
             }
             .frame(
                 maxWidth: .infinity,
@@ -2953,6 +2918,7 @@ struct BeltQuestionsByBeltView: View {
     ) -> some View {
 
         Button {
+            KmiFeedbackManager.shared.tap()
 
             generalNoteTitle =
                 isEnglish
@@ -3014,6 +2980,7 @@ struct BeltQuestionsByBeltView: View {
             width: 30,
             height: 30
         )
+        .accessibilityLabel(Text(isEnglish ? "General note" : "הערה כללית"))
     }
 
     @ViewBuilder
@@ -3072,30 +3039,23 @@ struct BeltQuestionsByBeltView: View {
                 rowMinHeight
         )
         .background {
-            RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
-            )
-            .fill(byBeltSubTopicsBackground)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(KmiAppTheme.surface(for: colorScheme))
+                .overlay {
+                    if colorScheme != .dark {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(byBeltCardTint)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(beltBackgroundAccent.opacity(
+                                        selectedBelt == .yellow ? 0.07 : 0.045
+                                    ))
+                            }
+                    }
+                }
         }
-        .overlay {
-            RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
-            )
-            .stroke(
-                byBeltSubTopicsBorder,
-                lineWidth: 0.7
-            )
-        }
-        .padding(
-            .horizontal,
-            10
-        )
-        .padding(
-            .vertical,
-            3
-        )
+        .padding(.horizontal, 3)
+        .padding(.vertical, isExpanded ? 0 : 1)
     }
 
     @ViewBuilder
@@ -3145,10 +3105,10 @@ struct BeltQuestionsByBeltView: View {
                         true
                 )
 
-                Spacer()
-                    .frame(width: 4)
-
                 if !generalNote.isEmpty {
+
+                    Spacer()
+                        .frame(width: 4)
 
                     generalNoteButton(
                         title:
@@ -3282,6 +3242,8 @@ struct BeltQuestionsByBeltView: View {
         .frame(minHeight: rowMinHeight)
         .contentShape(Rectangle())
         .onTapGesture {
+            KmiFeedbackManager.shared.tap()
+
             openTopicFromByBelt(
                 topicTitle: topicTitle,
                 hasSubs: hasSubs,
@@ -3297,41 +3259,74 @@ struct BeltQuestionsByBeltView: View {
         accent: Color
     ) -> some View {
 
-        VStack(spacing: 8) {
+        VStack(spacing: 0) {
 
             ForEach(
-                subTitles,
-                id: \.self
-            ) { sub in
-
+                Array(subTitles.enumerated()),
+                id: \.element
+            ) { index, sub in
                 subTopicButton(
-                    topicTitle:
-                        topicTitle,
-                    subTitle:
-                        sub
+                    topicTitle: topicTitle,
+                    subTitle: sub
                 )
+
+                if index < subTitles.count - 1 {
+                    Rectangle()
+                        .fill(byBeltSubTopicDivider)
+                        .frame(height: 0.8)
+                        .padding(.horizontal, 8)
+                        .accessibilityHidden(true)
+                }
             }
 
-            /*
-             * Android parity:
-             * כאשר נושא מורחב,
-             * "פתח את כל הנושא"
-             * מוצג תמיד.
-             */
-            fullTopicButton(
-                topicTitle:
-                    topicTitle,
-                accent:
-                    accent
-            )
+            Rectangle()
+                .fill(byBeltSubTopicDivider)
+                .frame(height: 1)
+                .padding(.vertical, 8)
+                .accessibilityHidden(true)
+
+            HStack(spacing: 8) {
+                Button {
+                    guard expandedTopic == topicTitle else { return }
+
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        expandedTopic = nil
+                    }
+                } label: {
+                    Text(isEnglish ? "Close topic" : "סגור נושא")
+                        .kmiTypography(.action)
+                        .fontWeight(.black)
+                        .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, minHeight: 60)
+                        .background(
+                            KmiAppTheme.surface(for: colorScheme),
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(accent.opacity(0.55), lineWidth: 1)
+                                .allowsHitTesting(false)
+                        }
+                }
+                .buttonStyle(.plain)
+
+                fullTopicButton(
+                    topicTitle: topicTitle,
+                    accent: accent
+                )
+                .frame(maxWidth: .infinity)
+            }
+            .environment(\.layoutDirection, screenLayoutDirection)
         }
-        .padding(
-            .horizontal,
-            12
-        )
-        .padding(
-            .bottom,
-            12
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            byBeltSubTopicsBackground,
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
         )
         .transition(
             .move(
@@ -3391,16 +3386,11 @@ struct BeltQuestionsByBeltView: View {
                 )
             ?? ""
 
+        let isParentTopicLocked = isTopicLocked(topicTitle)
+
         let openSubTopic = {
 
-            if
-                isTopicLocked(
-                    topicTitle
-                )
-                ||
-                isTopicLocked(
-                    subTitle
-                ) {
+            if isParentTopicLocked {
 
                 nav.push(
                     .subscriptionPlans
@@ -3422,10 +3412,15 @@ struct BeltQuestionsByBeltView: View {
 
         HStack(
             spacing:
-                8
+                6
         ) {
 
             if isEnglish {
+
+                Image(systemName: "chevron.right")
+                    .kmiIconSize(15)
+                    .foregroundStyle(readableBeltAccent)
+                    .accessibilityHidden(true)
 
                 VStack(
                     alignment:
@@ -3435,7 +3430,8 @@ struct BeltQuestionsByBeltView: View {
                 ) {
 
                     subTopicTitleLine(
-                        subTitle
+                        subTitle,
+                        isLocked: isParentTopicLocked
                     )
 
                     Text(
@@ -3443,16 +3439,11 @@ struct BeltQuestionsByBeltView: View {
                             itemCount
                         )
                     )
-                    .kmiTypography(.topicCount)
-                    .foregroundStyle(
-                        readableBeltAccent
-                    )
-                    .frame(
-                        maxWidth:
-                            .infinity,
-                        alignment:
-                            .leading
-                    )
+                    .kmiTypography(.caption)
+                    .fontWeight(.bold)
+                    .foregroundStyle(readableBeltAccent)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .multilineTextAlignment(
                         .leading
                     )
@@ -3468,29 +3459,7 @@ struct BeltQuestionsByBeltView: View {
                     )
                 }
 
-                Image(
-                    systemName:
-                        "chevron.right"
-                )
-                .kmiIconSize(
-                    15
-                )
-                .foregroundStyle(
-                    readableBeltAccent
-                )
-
             } else {
-
-                Image(
-                    systemName:
-                        "chevron.left"
-                )
-                .kmiIconSize(
-                    15
-                )
-                .foregroundStyle(
-                    readableBeltAccent
-                )
 
                 if !subTopicGeneralNote.isEmpty {
 
@@ -3510,7 +3479,8 @@ struct BeltQuestionsByBeltView: View {
                 ) {
 
                     subTopicTitleLine(
-                        subTitle
+                        subTitle,
+                        isLocked: isParentTopicLocked
                     )
 
                     Text(
@@ -3518,20 +3488,20 @@ struct BeltQuestionsByBeltView: View {
                             itemCount
                         )
                     )
-                    .kmiTypography(.topicCount)
-                    .foregroundStyle(
-                        readableBeltAccent
-                    )
-                    .frame(
-                        maxWidth:
-                            .infinity,
-                        alignment:
-                            .trailing
-                    )
+                    .kmiTypography(.caption)
+                    .fontWeight(.bold)
+                    .foregroundStyle(readableBeltAccent)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
                     .multilineTextAlignment(
                         .trailing
                     )
                 }
+
+                Image(systemName: "chevron.left")
+                    .kmiIconSize(15)
+                    .foregroundStyle(readableBeltAccent)
+                    .accessibilityHidden(true)
             }
         }
         .environment(
@@ -3542,17 +3512,8 @@ struct BeltQuestionsByBeltView: View {
             .horizontal,
             8
         )
-        .padding(
-            .vertical,
-            5
-        )
-        .frame(
-            minHeight:
-                56
-        )
-        .background(
-            Color.clear
-        )
+        .padding(.vertical, 5)
+        .frame(minHeight: 48)
         .contentShape(
             RoundedRectangle(
                 cornerRadius:
@@ -3562,7 +3523,7 @@ struct BeltQuestionsByBeltView: View {
             )
         )
         .onTapGesture {
-
+            KmiFeedbackManager.shared.tap()
             openSubTopic()
         }
     }
@@ -3570,7 +3531,8 @@ struct BeltQuestionsByBeltView: View {
     @ViewBuilder
 
     private func subTopicTitleLine(
-        _ subTitle: String
+        _ subTitle: String,
+        isLocked: Bool
     ) -> some View {
 
         HStack(
@@ -3585,13 +3547,9 @@ struct BeltQuestionsByBeltView: View {
                         subTitle
                     )
                 )
-                .kmiTypography(.subTopicTitle)
-                .foregroundStyle(
-                    byBeltTitleColor
-                )
-                .multilineTextAlignment(
-                    isEnglish ? .leading : .trailing
-                )
+                .kmiTypography(.cardTitle)
+                .foregroundStyle(byBeltTitleColor)
+                .multilineTextAlignment(.leading)
                 .lineLimit(
                     2
                 )
@@ -3599,9 +3557,7 @@ struct BeltQuestionsByBeltView: View {
                     0.72
                 )
 
-                if isTopicLocked(
-                    subTitle
-                ) {
+                if isLocked {
 
                     Image(
                         systemName:
@@ -3631,9 +3587,7 @@ struct BeltQuestionsByBeltView: View {
                         0
                 )
 
-                if isTopicLocked(
-                    subTitle
-                ) {
+                if isLocked {
 
                     Image(
                         systemName:
@@ -3656,13 +3610,10 @@ struct BeltQuestionsByBeltView: View {
                         subTitle
                     )
                 )
-                .kmiTypography(.subTopicTitle)
-                .foregroundStyle(
-                    byBeltTitleColor
-                )
-                .lineLimit(
-                    2
-                )
+                .kmiTypography(.cardTitle)
+                .foregroundStyle(byBeltTitleColor)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(2)
                 .minimumScaleFactor(
                     0.72
                 )
@@ -3682,14 +3633,43 @@ struct BeltQuestionsByBeltView: View {
         )
     }
 
-    @ViewBuilder
+    private func fullTopicButtonTextColor(for accent: Color) -> Color {
+        let resolvedColor = UIColor(accent).resolvedColor(
+            with: UITraitCollection(
+                userInterfaceStyle: colorScheme == .dark ? .dark : .light
+            )
+        )
 
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+
+        guard resolvedColor.getRed(&red, green: &green, blue: &blue, alpha: nil) else {
+            return KmiAppTheme.onPrimary(for: colorScheme)
+        }
+
+        func linear(_ channel: CGFloat) -> CGFloat {
+            channel <= 0.04045
+                ? channel / 12.92
+                : pow((channel + 0.055) / 1.055, 2.4)
+        }
+
+        let luminance =
+            0.2126 * linear(red)
+            + 0.7152 * linear(green)
+            + 0.0722 * linear(blue)
+
+        return luminance < 0.55 ? .white : .black
+    }
+
+    @ViewBuilder
     private func fullTopicButton(
         topicTitle: String,
         accent: Color
     ) -> some View {
 
         Button {
+            KmiFeedbackManager.shared.tap()
 
             if isTopicLocked(
                 topicTitle
@@ -3709,134 +3689,33 @@ struct BeltQuestionsByBeltView: View {
                             topicTitle
                     )
             }
-
         } label: {
-
-            HStack(
-                spacing:
-                    8
-            ) {
-
-                if isEnglish {
-
-                    Image(
-                        systemName:
-                            "list.bullet.rectangle.fill"
-                    )
-                    .kmiIconSize(
-                        15
-                    )
-                    .foregroundStyle(
-                        accent
-                    )
-
-                    Text(
-                        "Full topic"
-                    )
-                    .kmiTypography(.subTopicTitle)
-                    .foregroundStyle(
-                        byBeltTitleColor
-                    )
-
-                    if isTopicLocked(
-                        topicTitle
-                    ) {
-
-                        Image(
-                            systemName:
-                                "lock.fill"
-                        )
-                        .kmiIconSize(
-                            12
-                        )
-                        .foregroundStyle(
-                            KmiAppTheme
-                                .warning(
-                                    for:
-                                        colorScheme
-                                )
-                        )
-                    }
-
-                    Spacer(
-                        minLength:
-                            0
-                    )
-
-                } else {
-
-                    Spacer(
-                        minLength:
-                            0
-                    )
-
-                    if isTopicLocked(
-                        topicTitle
-                    ) {
-
-                        Image(
-                            systemName:
-                                "lock.fill"
-                        )
-                        .kmiIconSize(
-                            12
-                        )
-                        .foregroundStyle(
-                            KmiAppTheme
-                                .warning(
-                                    for:
-                                        colorScheme
-                                )
-                        )
-                    }
-
-                    Text(
-                        "כל הנושא"
-                    )
-                    .kmiTypography(.subTopicTitle)
-                    .foregroundStyle(
-                        byBeltTitleColor
-                    )
-
-                    Image(
-                        systemName:
-                            "list.bullet.rectangle.fill"
-                    )
-                    .kmiIconSize(
-                        15
-                    )
-                    .foregroundStyle(
-                        accent
-                    )
-                }
-            }
-            .environment(
-                \.layoutDirection,
-                .leftToRight
-            )
-            .padding(
-                .horizontal,
-                8
-            )
-            .padding(
-                .vertical,
-                5
-            )
-            .frame(
-                minHeight:
-                    48
-            )
-            .contentShape(
-                Rectangle()
-            )
+            Text(isEnglish ? "Open full topic" : "פתח את כל הנושא")
+                .kmiTypography(.action)
+                .fontWeight(.black)
+                .foregroundStyle(fullTopicButtonTextColor(for: accent))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, minHeight: 60)
+                .background(
+                    accent,
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                )
+                .contentShape(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                )
         }
-        .buttonStyle(
-            .plain
-        )
+        .buttonStyle(.plain)
+        .accessibilityHint(Text(
+            isTopicLocked(topicTitle)
+                ? (isEnglish ? "Opens subscription options" : "פותח את אפשרויות המנוי")
+                : ""
+        ))
     }
    
     private var beltModeTabs: some View {
-
         HStack(spacing: 0) {
 
             Button {
@@ -4016,47 +3895,18 @@ struct BeltQuestionsByBeltView: View {
     @ViewBuilder
     private var byBeltContent: some View {
         GeometryReader { geometry in
-            let rowMinHeight: CGFloat = 64
+            let rowMinHeight: CGFloat = 62
 
             let wheelClearance: CGFloat = 112
-            let cardHeaderAllowance: CGFloat = 40
 
             let listHeight = max(
                 0,
-                geometry.size.height
-                    - wheelClearance
-                    - cardHeaderAllowance
+                geometry.size.height - wheelClearance
             )
 
             VStack(spacing: 0) {
 
             VStack(spacing: 0) {
-
-                Text(
-                    isEnglish
-                        ? "Topics in Belt"
-                        : "נושאים בחגורה"
-                )
-                .kmiTypography(.sectionTitle)
-                .fontWeight(.heavy)
-                .foregroundStyle(
-                    byBeltTitleColor
-                )
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: .center
-                )
-                .multilineTextAlignment(
-                    .center
-                )
-                .lineLimit(1)
-                .padding(
-                    .horizontal,
-                    14
-                )
-
-                Spacer()
-                    .frame(height: 2)
 
                 if beltTopicsUi.isEmpty {
 
@@ -4087,18 +3937,6 @@ struct BeltQuestionsByBeltView: View {
                         ) {
 
                             VStack(spacing: 0) {
-
-                                GeometryReader { geo in
-                                    Color.clear
-                                        .preference(
-                                            key: BeltTopicsScrollOffsetKey.self,
-                                            value:
-                                                geo.frame(
-                                                    in: .named("beltTopicsScroll")
-                                                ).minY
-                                        )
-                                }
-                                .frame(height: 0)
 
                                 Color.clear
                                     .frame(height: 0)
@@ -4158,26 +3996,30 @@ struct BeltQuestionsByBeltView: View {
                                         rowMinHeight:
                                             rowMinHeight
                                     )
-                                    .background(
-                                        GeometryReader { geo in
-                                            Color.clear.preference(
-                                                key: BeltTopicFrameKey.self,
-                                                value: [
-                                                    topicTitle:
-                                                        geo.frame(
-                                                            in: .named(
-                                                                "beltTopicsScroll"
-                                                            )
-                                                        ).minY
-                                                ]
-                                            )
+                                    .background {
+                                        if isExpanded {
+                                            GeometryReader { geo in
+                                                Color.clear.preference(
+                                                    key: BeltTopicFrameKey.self,
+                                                    value: [
+                                                        topicTitle: geo.frame(
+                                                            in: .named("beltTopicsScroll")
+                                                        )
+                                                    ]
+                                                )
+                                            }
                                         }
-                                    )
+                                    }
 
-                                    if index !=
-                                        beltTopicsUi.count - 1 {
+                                    if index < beltTopicsUi.count - 1 {
+                                        Rectangle()
+                                            .fill(KmiAppTheme.outlineVariant(for: colorScheme))
+                                            .frame(height: 1)
+                                            .padding(.horizontal, 18)
+                                            .accessibilityHidden(true)
+
                                         Spacer()
-                                            .frame(height: 2)
+                                            .frame(height: 8)
                                     }
                                 }
                             }
@@ -4189,6 +4031,12 @@ struct BeltQuestionsByBeltView: View {
                         .coordinateSpace(
                             name: "beltTopicsScroll"
                         )
+                        .overlay(alignment: .top) {
+                            expandedTopicStickyHeader
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                        }
+                        .clipped()
                         .onChange(
                             of: selectedBelt
                         ) { _, _ in
@@ -4206,14 +4054,16 @@ struct BeltQuestionsByBeltView: View {
                             )
                         }
                         .onPreferenceChange(
-                            BeltTopicsScrollOffsetKey.self
-                        ) { value in
-                            topicsScrollOffset = value
-                        }
-                        .onPreferenceChange(
                             BeltTopicFrameKey.self
                         ) { value in
                             topicFrames = value
+
+                            if let topic = expandedTopic,
+                               let frame = value[topic],
+                               frame.height > 0,
+                               frame.maxY <= 0 {
+                                expandedTopic = nil
+                            }
                         }
                     }
                 }
@@ -4222,16 +4072,14 @@ struct BeltQuestionsByBeltView: View {
                 .vertical,
                 6
             )
-            .background(
-
-                RoundedRectangle(
-                    cornerRadius: 24,
-                    style: .continuous
-                )
-                .fill(
-                    byBeltCardSurfaceColor
-                )
-            )
+            .background {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(KmiAppTheme.surface(for: colorScheme))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .fill(byBeltCardTint)
+                    }
+            }
             .overlay {
 
                 RoundedRectangle(
@@ -4265,19 +4113,13 @@ struct BeltQuestionsByBeltView: View {
         }
     }
    
-    private var stickyHeaderOverlay: some View {
-
-        expandedTopicStickyHeader
-            .padding(.top, 52)
-            .zIndex(200)
-    }
-
     private var expandedTopicStickyHeader: some View {
 
         Group {
             if let expandedTopic,
-               let topicOffset = topicFrames[expandedTopic],
-               topicOffset < 0 {
+               let topicFrame = topicFrames[expandedTopic],
+               topicFrame.minY < 0,
+               topicFrame.maxY > 0 {
 
                 HStack(spacing: 8) {
 
@@ -4322,12 +4164,17 @@ struct BeltQuestionsByBeltView: View {
                     )
                 }
                 .padding(.horizontal, 12)
-                .frame(height: 38)
-                .background(
-                    KmiAppTheme.surface(
-                        for: colorScheme
-                    )
-                )
+                .frame(height: stickyTopicHeaderHeight)
+                .background {
+                    KmiAppTheme.surface(for: colorScheme)
+                        .overlay {
+                            if colorScheme != .dark {
+                                beltBackgroundAccent.opacity(
+                                    selectedBelt == .yellow ? 0.12 : 0.09
+                                )
+                            }
+                        }
+                }
                 .overlay(
                     Rectangle()
                         .fill(
@@ -4336,12 +4183,7 @@ struct BeltQuestionsByBeltView: View {
                         .frame(height: 2),
                     alignment: .bottom
                 )
-                .transition(
-                    .move(edge: .top)
-                    .combined(
-                        with: .opacity
-                    )
-                )
+                .offset(y: min(0, topicFrame.maxY - stickyTopicHeaderHeight))
             }
         }
     }
@@ -4420,32 +4262,14 @@ struct BeltQuestionsByBeltView: View {
     }
 }
 
-private struct BeltTopicsScrollOffsetKey: PreferenceKey {
-
-    static var defaultValue: CGFloat = 0
-
-    static func reduce(
-        value: inout CGFloat,
-        nextValue: () -> CGFloat
-    ) {
-        value = nextValue()
-    }
-}
-
 private struct BeltTopicFrameKey: PreferenceKey {
-
-    static var defaultValue:
-        [String: CGFloat] = [:]
+    static var defaultValue: [String: CGRect] = [:]
 
     static func reduce(
-        value: inout [String: CGFloat],
-        nextValue: () -> [String: CGFloat]
+        value: inout [String: CGRect],
+        nextValue: () -> [String: CGRect]
     ) {
-        value.merge(
-            nextValue()
-        ) { _, new in
-            new
-        }
+        value.merge(nextValue()) { _, new in new }
     }
 }
 

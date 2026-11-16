@@ -18,12 +18,14 @@ struct RegisterFormView: View {
     let onRoleChange: (UserRole) -> Void
 
     private let roleTabSelection: Binding<UserRole?>?
+    private let onSaveRoleAssignments: (@MainActor (RegistrationFormState) async -> Bool)?
 
     @State private var s: RegistrationFormState
+    @State private var isSavingRoleAssignments = false
     @EnvironmentObject private var auth: AuthViewModel
 
     private var isSubmitting: Bool {
-        auth.isLoading || isSavingProfile
+        auth.isLoading || isSavingProfile || isSavingRoleAssignments
     }
 
     @State private var didFinishInitialLoad: Bool = false
@@ -49,6 +51,7 @@ struct RegisterFormView: View {
     @State private var loadedProfileAssignmentsUID: String?
     @State private var profileAllowsCoach = false
     @State private var isCheckingCoachAuthorization = false
+    @State private var coachAuthorizationReadFailed = false
     @State private var coachAuthorizationMessage: String?
 
     @Environment(\.colorScheme) private var colorScheme
@@ -769,7 +772,10 @@ struct RegisterFormView: View {
 
     @MainActor
     private func refreshCoachAuthorization() async {
+        guard !isCheckingCoachAuthorization else { return }
+
         profileAllowsCoach = false
+        coachAuthorizationReadFailed = false
 
         guard isEditingProfile,
               let uid = Auth.auth().currentUser?.uid,
@@ -867,7 +873,22 @@ struct RegisterFormView: View {
                 role == "coach" &&
                 data["canOpenCoachDrawer"] as? Bool == true
         } catch {
-            // הרשאת המאמן תישאר סגורה עד לאימות מוצלח.
+            guard !Task.isCancelled,
+                  Auth.auth().currentUser?.uid == uid else {
+                return
+            }
+
+            coachAuthorizationReadFailed = true
+
+            #if DEBUG
+            let details = error as NSError
+            print(
+                "KMI_PROFILE_ACCESS_READ_FAILED",
+                "stage:", didReadUserProfile ? "coachAuthorization" : "profileAssignments",
+                "domain:", details.domain,
+                "code:", details.code
+            )
+            #endif
         }
     }
 
@@ -889,6 +910,7 @@ struct RegisterFormView: View {
         submittingTitle: String = "שומר...",
         isSavingProfile: Bool = false,
         roleTabSelection: Binding<UserRole?>? = nil,
+        onSaveRoleAssignments: (@MainActor (RegistrationFormState) async -> Bool)? = nil,
         onBack: @escaping () -> Void,
         onSubmit: @escaping (RegistrationFormState) -> Void,
         onReadMoreTerms: @escaping () -> Void = {},
@@ -902,6 +924,7 @@ struct RegisterFormView: View {
         self.submittingTitle = submittingTitle
         self.isSavingProfile = isSavingProfile
         self.roleTabSelection = roleTabSelection
+        self.onSaveRoleAssignments = onSaveRoleAssignments
         self.onBack = onBack
         self.onSubmit = onSubmit
         self.onReadMoreTerms = onReadMoreTerms
@@ -965,10 +988,19 @@ struct RegisterFormView: View {
                     }
                 )
             ) {
-                Button(
-                    tr("אישור", "OK"),
-                    role: .cancel
-                ) {
+                if !isCheckingCoachAuthorization,
+                   let uid = Auth.auth().currentUser?.uid,
+                   coachAuthorizationReadFailed || loadedProfileAssignmentsUID != uid {
+                    Button(tr("נסה שוב", "Try again")) {
+                        coachAuthorizationMessage = nil
+
+                        Task { @MainActor in
+                            await refreshCoachAuthorization()
+                        }
+                    }
+                }
+
+                Button(tr("אישור", "OK"), role: .cancel) {
                     coachAuthorizationMessage = nil
                 }
             } message: {
@@ -2345,8 +2377,7 @@ struct RegisterFormView: View {
         }
 
         let currentKey = s.role == .coach ? "coach" : "trainee"
-
-        roleAssignmentDrafts[currentKey] = RoleAssignmentDraft(
+        let draft = RoleAssignmentDraft(
             region: s.region,
             regions: s.regions,
             branches: s.branches,
@@ -2357,7 +2388,41 @@ struct RegisterFormView: View {
             branchType: s.branchType
         )
 
-        applyRoleAssignmentDraft(for: role)
+        let previousDraft = roleAssignmentDrafts[currentKey]
+        let assignmentsChanged =
+            draft.branches != (previousDraft?.branches ?? []) ||
+            draft.activeBranch != (previousDraft?.activeBranch ?? "") ||
+            draft.activeGroup != (previousDraft?.activeGroup ?? "") ||
+            groupsByBranch(draft.assignments) !=
+                groupsByBranch(previousDraft?.assignments ?? [])
+
+        guard assignmentsChanged, let onSaveRoleAssignments else {
+            roleAssignmentDrafts[currentKey] = draft
+            applyRoleAssignmentDraft(for: role)
+            return
+        }
+
+        let formToSave = s
+        isSavingRoleAssignments = true
+
+        Task { @MainActor [formToSave, onSaveRoleAssignments] in
+            defer { isSavingRoleAssignments = false }
+
+            guard await onSaveRoleAssignments(formToSave),
+                  Auth.auth().currentUser?.uid == uid else {
+                return
+            }
+
+            roleAssignmentDrafts[currentKey] = draft
+            applyRoleAssignmentDraft(for: role)
+        }
+    }
+
+    private func groupsByBranch(
+        _ assignments: [RegistrationFormState.BranchAssignment]
+    ) -> [String: Set<String>] {
+        Dictionary(grouping: assignments, by: \.branch)
+            .mapValues { rows in Set(rows.flatMap(\.groups)) }
     }
 
     private func applyRoleAssignmentDraft(for role: UserRole) {
@@ -2433,10 +2498,15 @@ struct RegisterFormView: View {
                 }
 
                 guard profileAllowsCoach else {
-                    coachAuthorizationMessage = tr(
-                        "מצב מאמן זמין רק לאחר הרשאה מהשרת",
-                        "Coach mode is available only after server authorization"
-                    )
+                    coachAuthorizationMessage = coachAuthorizationReadFailed
+                        ? tr(
+                            "לא ניתן לבדוק כרגע את הרשאת המאמן. אפשר לנסות שוב.",
+                            "Coach authorization could not be checked. Please try again."
+                        )
+                        : tr(
+                            "מצב מאמן זמין רק לאחר הרשאה מהשרת",
+                            "Coach mode is available only after server authorization"
+                        )
                     return
                 }
             }

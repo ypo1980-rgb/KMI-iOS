@@ -3257,6 +3257,7 @@ struct AttendanceCoachQrSheet: View {
     @State private var phase: Phase = .loading
     @State private var isPrinting = false
     @State private var showPrintError = false
+    @State private var requestsAdminQR = false
 
     private struct Occurrence: Identifiable, Equatable {
         let id: String
@@ -3266,13 +3267,13 @@ struct AttendanceCoachQrSheet: View {
 
     private enum Work: Equatable {
         case lookup(UUID)
-        case generate(Occurrence)
+        case generate(Occurrence, testMode: Bool)
     }
 
     private enum Phase {
         case loading
         case choose([Occurrence])
-        case ready(Occurrence, UIImage)
+        case ready(Occurrence, UIImage, issuedAsAdminQR: Bool)
         case failed(String)
     }
 
@@ -3309,14 +3310,37 @@ struct AttendanceCoachQrSheet: View {
                             .frame(height: 132)
 
                     case let .choose(occurrences):
-                        statusText(
-                            tr(
-                                "נמצאו כמה אימונים. בחר את האימון שעבורו יופק הקוד.",
-                                "Multiple trainings were found. Choose which training to generate a QR for."
+                        Toggle(isOn: $requestsAdminQR) {
+                            Text(
+                                tr(
+                                    "QR מנהל — רישום נוכחות בכל שעה",
+                                    "Admin QR — Attendance at any time"
+                                )
                             )
-                        )
+                            .kmiTypography(.action)
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .tint(KmiAppTheme.primary(for: colorScheme))
 
-                        ForEach(Array(occurrences.enumerated()), id: \.element.id) { index, occurrence in
+                        if occurrences.count == 1, let occurrence = occurrences.first {
+                            Button(tr("הפק QR", "Generate QR")) {
+                                beginGeneration(for: occurrence)
+                            }
+                            .buttonStyle(.borderedProminent)
+                        } else {
+                            statusText(
+                                tr(
+                                    "נמצאו כמה אימונים. בחר את האימון שעבורו יופק הקוד.",
+                                    "Multiple trainings were found. Choose which training to generate a QR for."
+                                )
+                            )
+                        }
+
+                        ForEach(
+                            Array(occurrences.count > 1 ? occurrences.enumerated().map(\.element) : []).indices,
+                            id: \.self
+                        ) { index in
+                            let occurrence = occurrences[index]
                             Button {
                                 beginGeneration(for: occurrence)
                             } label: {
@@ -3331,7 +3355,7 @@ struct AttendanceCoachQrSheet: View {
                             .buttonStyle(.bordered)
                         }
 
-                    case let .ready(occurrence, image):
+                    case let .ready(occurrence, image, issuedAsAdminQR):
                         VStack(spacing: 4) {
                             Text(
                                 tr(
@@ -3403,10 +3427,15 @@ struct AttendanceCoachQrSheet: View {
                         .disabled(isPrinting)
 
                         statusText(
-                            tr(
-                                "אפשר לסרוק את הקוד בחלון הזמן המאושר של האימון.",
-                                "Scan the code during the approved training window."
-                            )
+                            issuedAsAdminQR
+                                ? tr(
+                                    "QR מנהל — סריקה מאושרת תרשום נוכחות באימון שנבחר.",
+                                    "Admin QR — An approved scan records attendance for the selected training."
+                                )
+                                : tr(
+                                    "אפשר לסרוק את הקוד בחלון הזמן המאושר של האימון.",
+                                    "Scan the code during the approved training window."
+                                )
                         )
 
                     case let .failed(message):
@@ -3484,7 +3513,7 @@ struct AttendanceCoachQrSheet: View {
 
     private func beginGeneration(for occurrence: Occurrence) {
         phase = .loading
-        work = .generate(occurrence)
+        work = .generate(occurrence, testMode: requestsAdminQR)
     }
 
     @MainActor
@@ -3532,9 +3561,7 @@ struct AttendanceCoachQrSheet: View {
                     return left.startMillis < right.startMillis
                 }
 
-                if let occurrence = occurrences.first, occurrences.count == 1 {
-                    beginGeneration(for: occurrence)
-                } else if occurrences.isEmpty {
+                if occurrences.isEmpty {
                     phase = .failed(
                         tr(
                             "לא נמצא אימון מתאים לתאריך, לסניף ולקבוצה שנבחרו.",
@@ -3545,12 +3572,13 @@ struct AttendanceCoachQrSheet: View {
                     phase = .choose(occurrences)
                 }
 
-            case let .generate(occurrence):
+            case let .generate(occurrence, testMode):
                 let callable = Functions.functions(region: "europe-west1")
                     .httpsCallable("createKamiAttendanceQr")
 
                 let result = try await callable.call([
-                    "occurrenceId": occurrence.id
+                    "occurrenceId": occurrence.id,
+                    "testMode": testMode
                 ])
 
                 guard canApplyResult(for: currentWork) else {
@@ -3566,6 +3594,17 @@ struct AttendanceCoachQrSheet: View {
                     return
                 }
 
+                let issuedAsAdminQR = response["testMode"] as? Bool == true
+                guard issuedAsAdminQR == testMode else {
+                    phase = .failed(
+                        tr(
+                            "השרת החזיר קוד במצב שונה מהמצב שנבחר.",
+                            "The server returned a QR in an unexpected mode."
+                        )
+                    )
+                    return
+                }
+
                 let payload = Payload(occurrenceId: occurrence.id, token: token)
                 guard let image = try qrImage(for: payload) else {
                     phase = .failed(
@@ -3574,7 +3613,7 @@ struct AttendanceCoachQrSheet: View {
                     return
                 }
 
-                phase = .ready(occurrence, image)
+                phase = .ready(occurrence, image, issuedAsAdminQR: issuedAsAdminQR)
             }
         } catch {
             guard canApplyResult(for: currentWork) else {

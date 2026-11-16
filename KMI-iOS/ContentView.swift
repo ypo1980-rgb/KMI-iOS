@@ -455,6 +455,7 @@ struct ContentView: View {
 
     @State private var isSavingEditedProfile = false
     @State private var editedProfileSaveError: String?
+    @State private var editedProfileSaveSuccess: String?
 
     @AppStorage("user_role")
     private var storedUserRole: String = ""
@@ -491,11 +492,13 @@ struct ContentView: View {
     }
 
     @MainActor
+    @discardableResult
     private func saveEditedProfile(
-        _ form: RegistrationFormState
-    ) async {
+        _ form: RegistrationFormState,
+        assignmentsOnly: Bool = false
+    ) async -> Bool {
         guard !isSavingEditedProfile else {
-            return
+            return false
         }
 
         guard let uid = Auth.auth().currentUser?.uid else {
@@ -503,27 +506,21 @@ struct ContentView: View {
                 "יש להתחבר מחדש לפני שמירת הפרופיל",
                 "Please sign in again before saving your profile"
             )
-            return
+            return false
         }
 
         isSavingEditedProfile = true
         editedProfileSaveError = nil
+        editedProfileSaveSuccess = nil
         defer { isSavingEditedProfile = false }
 
-        let selectedRole =
-            form.role == .coach ? "coach" : "trainee"
-
-        #if DEBUG
-        print("KMI_PROFILE_ROLE submit=\(selectedRole) before=\(auth.userRole)")
-        #endif
-
-        let profileData = form.toEditedProfileFirestoreDictionary(
-            uid: uid
-        )
+        let isCoach = form.role == .coach
+        let selectedRole = isCoach ? "coach" : "trainee"
 
         do {
-            let database = Firestore.firestore()
-            let userReference = database.collection("users").document(uid)
+            let userReference = Firestore.firestore()
+                .collection("users")
+                .document(uid)
             let userDocument = try await userReference.getDocument(source: .server)
 
             guard userDocument.exists,
@@ -532,10 +529,10 @@ struct ContentView: View {
                     "לא ניתן לאמת את החשבון. יש לפתוח מחדש את עריכת הפרופיל.",
                     "Unable to verify your account. Reopen Edit Profile."
                 )
-                return
+                return false
             }
 
-            if form.role == .coach {
+            if isCoach {
                 let accessType = (userDocument.data()?["accessType"] as? String ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                     .lowercased()
@@ -545,10 +542,10 @@ struct ContentView: View {
                         "הרשאת המאמן השתנתה. הפרופיל לא נשמר.",
                         "Coach access has changed. Your profile was not saved."
                     )
-                    return
+                    return false
                 }
 
-                let coachDocument = try await database
+                let coachDocument = try await Firestore.firestore()
                     .collection("authorizedCoaches")
                     .document(uid)
                     .getDocument(source: .server)
@@ -567,27 +564,46 @@ struct ContentView: View {
                         "הרשאת המאמן אינה פעילה. הפרופיל לא נשמר.",
                         "Coach permission is no longer active. Your profile was not saved."
                     )
-                    return
+                    return false
                 }
             }
 
             guard !Task.isCancelled,
                   Auth.auth().currentUser?.uid == uid else {
-                return
+                return false
             }
 
-            try await userReference.setData(profileData, merge: true)
+            if assignmentsOnly {
+                let codec = RegistrationFormState.BranchAssignmentsCodec.self
+                let assignments = codec.toFirestoreList(form.normalizedBranchAssignments)
+
+                let fields: [String: Any]
+                if isCoach {
+                    fields = [
+                        codec.firestoreKey: assignments
+                    ]
+                } else {
+                    fields = [
+                        "traineeBranchAssignments": assignments,
+                        "traineeActiveBranch": form.activeBranchFinal,
+                        "traineeActiveGroup": form.activeGroupFinal
+                    ]
+                }
+
+                try await userReference.updateData(fields)
+            } else {
+                let profileData = form.toEditedProfileFirestoreDictionary(uid: uid)
+                try await userReference.setData(profileData, merge: true)
+            }
 
             guard !Task.isCancelled,
                   Auth.auth().currentUser?.uid == uid else {
-                return
+                return false
             }
-
-            form.persistToUserDefaults(isEditingProfile: true)
 
             let defaults = UserDefaults.standard
 
-            if form.role == .coach {
+            if isCoach {
                 defaults.set(
                     [
                         "uid": uid,
@@ -598,35 +614,50 @@ struct ContentView: View {
                 )
             }
 
-            defaults.set(
-                form.wantsSms,
-                forKey: "subscribeSms"
-            )
-            defaults.set(
-                form.wantsSms,
-                forKey: "wantsSms"
-            )
-            defaults.set(
-                form.acceptsTerms,
-                forKey: "acceptsTerms"
-            )
+            if assignmentsOnly {
+                auth.reloadProfileIfSignedIn()
+
+                editedProfileSaveSuccess = isCoach
+                    ? tr(
+                        "הנתונים בטאב מאמן עודכנו.",
+                        "Coach tab details were updated."
+                    )
+                    : tr(
+                        "הנתונים בטאב מתאמן עודכנו.",
+                        "Trainee tab details were updated."
+                    )
+
+                return true
+            }
+
+            form.persistToUserDefaults(isEditingProfile: true)
+            defaults.set(form.wantsSms, forKey: "subscribeSms")
+            defaults.set(form.wantsSms, forKey: "wantsSms")
+            defaults.set(form.acceptsTerms, forKey: "acceptsTerms")
 
             auth.setActiveUserRole(selectedRole)
-
-            #if DEBUG
-            print("KMI_PROFILE_ROLE applied=\(auth.userRole) stored=\(defaults.string(forKey: "user_role") ?? "")")
-            #endif
-
             nav.pop()
+            return true
         } catch {
-            editedProfileSaveError = tr(
+            guard Auth.auth().currentUser?.uid == uid else {
+                return false
+            }
+
+            editedProfileSaveError = assignmentsOnly
+                ? tr(
+                    "לא ניתן לשמור את השיוכים כרגע. נסה לעבור טאב שוב.",
+                    "Unable to save the assignments. Try switching tabs again."
+                )
+            : tr(
                 "לא ניתן לשמור את הפרופיל כרגע. נסה שוב.",
                 "Unable to save your profile right now. Please try again."
             )
-        }
-    }
 
-    private func beltTitleForUi(_ belt: Belt) -> String {
+        return false
+    }
+}
+
+private func beltTitleForUi(_ belt: Belt) -> String {
         switch belt {
         case .white:
             return tr("חגורה לבנה", "White Belt")
@@ -1568,6 +1599,9 @@ struct ContentView: View {
                                 submittingTitle: "שומר שינויים...",
                                 isSavingProfile: isSavingEditedProfile,
                                 roleTabSelection: $editedProfileRequestedRole,
+                                onSaveRoleAssignments: { form in
+                                    await saveEditedProfile(form, assignmentsOnly: true)
+                                },
                                 onBack: {
                                     nav.pop()
                                 },
@@ -1602,22 +1636,23 @@ struct ContentView: View {
                                 ),
                                 isPresented: Binding(
                                     get: {
-                                        editedProfileSaveError != nil
+                                        editedProfileSaveError != nil ||
+                                            editedProfileSaveSuccess != nil
                                     },
                                     set: { presented in
                                         if !presented {
                                             editedProfileSaveError = nil
+                                            editedProfileSaveSuccess = nil
                                         }
                                     }
                                 )
                             ) {
                                 Button(tr("אישור", "OK")) {
                                     editedProfileSaveError = nil
+                                    editedProfileSaveSuccess = nil
                                 }
                             } message: {
-                                Text(
-                                    editedProfileSaveError ?? ""
-                                )
+                                Text(editedProfileSaveError ?? editedProfileSaveSuccess ?? "")
                             }
                             .navigationBarBackButtonHidden(true)
                         }

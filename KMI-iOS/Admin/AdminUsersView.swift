@@ -1,5 +1,6 @@
 import SwiftUI
 import FirebaseFirestore
+import FirebaseFunctions
 
 struct AdminUsersView: View {
 
@@ -69,6 +70,9 @@ struct AdminUsersView: View {
 
     @State private var searchText: String = ""
     @State private var selectedRole: UserRoleFilter = .all
+    @State private var accessUser: AdminUser?
+    @State private var isSavingUserAccess = false
+    @State private var showUserAccessSaveError = false
 
     @State private var selectedGender: AdminGenderFilter = .all
     @State private var selectedRegion: String? = nil
@@ -222,6 +226,39 @@ struct AdminUsersView: View {
         }
         .onChange(of: searchText) { _, _ in
             applyFilter()
+        }
+        .confirmationDialog(
+            accessUser?.fullName ?? tr("שינוי הרשאה", "Change access"),
+            isPresented: Binding(
+                get: { accessUser != nil },
+                set: { if !$0 { accessUser = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: accessUser
+        ) { user in
+            Button(tr("מתאמן", "Trainee")) {
+                Task { await saveUserAccess(user, accessType: "trainee") }
+            }
+            Button(tr("מאמן", "Coach")) {
+                Task { await saveUserAccess(user, accessType: "coach") }
+            }
+            Button(tr("מתאמן + מאמן", "Trainee + Coach")) {
+                Task { await saveUserAccess(user, accessType: "both") }
+            }
+            Button(tr("ביטול", "Cancel"), role: .cancel) {}
+        }
+        .alert(
+            tr("שמירת הרשאה נכשלה", "Unable to save access"),
+            isPresented: $showUserAccessSaveError
+        ) {
+            Button(tr("אישור", "OK"), role: .cancel) {}
+        } message: {
+            Text(
+                tr(
+                    "בדוק את החיבור ואת הרשאת המנהל ונסה שוב.",
+                    "Check your connection and administrator access, then try again."
+                )
+            )
         }
     }
 
@@ -405,12 +442,30 @@ struct AdminUsersView: View {
             } else {
                 LazyVStack(spacing: 8) {
                     ForEach(users) { user in
-                        NavigationLink {
-                            AdminUserDetailsView(user: user)
-                        } label: {
-                            userRow(user)
+                        VStack(alignment: .leading, spacing: 4) {
+                            NavigationLink {
+                                AdminUserDetailsView(user: user)
+                            } label: {
+                                userRow(user)
+                            }
+                            .buttonStyle(.plain)
+
+                            Button(tr("שינוי הרשאה", "Change access")) {
+                                accessUser = user
+                            }
+                            .disabled(isSavingUserAccess || user.accessTargetUid == nil)
+
+                            if user.accessTargetUid == nil {
+                                Text(
+                                    tr(
+                                        "לא ניתן לאמת את מזהה החשבון לשינוי הרשאה.",
+                                        "The account ID could not be verified for an access change."
+                                    )
+                                )
+                                .kmiTypography(.caption)
+                                .foregroundStyle(.secondary)
+                            }
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -913,6 +968,14 @@ struct AdminUsersView: View {
                     isSelected: selectedRole == .trainee
                 ) {
                     selectedRole = .trainee
+                    applyFilter()
+                }
+
+                filterChip(
+                    title: tr("מתאמנים + מאמנים", "Trainees + Coaches"),
+                    isSelected: selectedRole == .both
+                ) {
+                    selectedRole = .both
                     applyFilter()
                 }
             }
@@ -1940,6 +2003,32 @@ struct AdminUsersView: View {
 
     // MARK: Firestore
 
+    @MainActor
+    private func saveUserAccess(_ user: AdminUser, accessType: String) async {
+        guard !isSavingUserAccess, let uid = user.accessTargetUid else {
+            return
+        }
+
+        isSavingUserAccess = true
+        defer { isSavingUserAccess = false }
+
+        do {
+            let result = try await Functions.functions(region: "europe-west1")
+                .httpsCallable("setKamiUserAccess")
+                .call(["uid": uid, "accessType": accessType])
+
+            guard let response = result.data as? [String: Any],
+                  response["accepted"] as? Bool == true else {
+                showUserAccessSaveError = true
+                return
+            }
+
+            loadUsers()
+        } catch {
+            showUserAccessSaveError = true
+        }
+    }
+
     private func loadUsers() {
 
         loading = true
@@ -2081,19 +2170,28 @@ struct AdminUsersView: View {
 
     // MARK: Filter logic
 
-    private func applyFilter() {
+    private func userCategory(_ user: AdminUser) -> UserRoleFilter {
+        let accessType = (user.accessType ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
 
+        switch accessType {
+        case "both":
+            return .both
+        case "coach":
+            return .coach
+        case "trainee":
+            return .trainee
+        default:
+            return user.isCoach ? .coach : .trainee
+        }
+    }
+
+    private func applyFilter() {
         var result = users
 
-        if selectedRole == .coach {
-            result = result.filter { $0.isCoach || AdminUser.isCoachRole($0.role) }
-        }
-
-        if selectedRole == .trainee {
-            result = result.filter {
-                !$0.isCoach &&
-                !AdminUser.isAdminRole($0.role)
-            }
+        if selectedRole != .all {
+            result = result.filter { userCategory($0) == selectedRole }
         }
 
         if selectedGender != .all {
@@ -2178,6 +2276,7 @@ enum UserRoleFilter {
     case all
     case coach
     case trainee
+    case both
 }
 
 struct AdminUser: Identifiable {
@@ -2204,8 +2303,24 @@ struct AdminUser: Identifiable {
     let currentBeltId: String
     let role: String
     let isCoachFlag: Bool
-
+    var accessType: String? = nil
+    var accessTargetUid: String? = nil
     let createdAtMillis: Int64?
+
+    static func resolveAccessTargetUid(id: String, uidField: String) -> String? {
+        let documentUid = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let declaredUid = uidField.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard documentUid.range(
+            of: #"^[A-Za-z0-9_-]{10,128}$"#,
+            options: .regularExpression
+        ) != nil,
+        declaredUid.isEmpty || declaredUid == documentUid else {
+            return nil
+        }
+
+        return documentUid
+    }
     let appOpenCount: Int
     let lastSeenAtMillis: Int64?
 
@@ -2611,6 +2726,8 @@ struct AdminUser: Identifiable {
             currentBeltId: currentBeltId,
             role: resolvedRole,
             isCoachFlag: isCoachFlag,
+            accessType: map["accessType"] as? String,
+            accessTargetUid: resolveAccessTargetUid(id: id, uidField: uidField),
             createdAtMillis: millisValue("createdAtMillis", "createdAt"),
             appOpenCount: intValue("appOpenCount") ?? 0,
             lastSeenAtMillis: millisValue("lastSeenAtMillis", "lastSeenAt")
@@ -2636,6 +2753,10 @@ struct AdminUser: Identifiable {
             currentBeltId: betterText(existing.currentBeltId, incoming.currentBeltId),
             role: betterRole(existing.role, incoming.role),
             isCoachFlag: existing.isCoachFlag || incoming.isCoachFlag,
+            accessType: existing.accessType,
+            accessTargetUid: existing.accessTargetUid == incoming.accessTargetUid
+                ? existing.accessTargetUid
+                : nil,
             createdAtMillis: newerMillis(existing.createdAtMillis, incoming.createdAtMillis),
             appOpenCount: max(existing.appOpenCount, incoming.appOpenCount),
             lastSeenAtMillis: newerMillis(existing.lastSeenAtMillis, incoming.lastSeenAtMillis)
@@ -2731,6 +2852,14 @@ struct AdminUser: Identifiable {
     func sharesIdentity(
         with other: AdminUser
     ) -> Bool {
+        if let targetUid = accessTargetUid {
+            return other.accessTargetUid == targetUid
+        }
+
+        if other.accessTargetUid != nil {
+            return false
+        }
+
         let firstEmail = normalizedMergeEmail
         let secondEmail = other.normalizedMergeEmail
 

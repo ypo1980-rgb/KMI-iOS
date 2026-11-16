@@ -181,6 +181,7 @@ extension EnvironmentValues {
 /// הגדלים כאן הם הגדלים במצב בינוני.
 /// מצב קטן או גדול מוחל באמצעות scale.
 enum KmiTypography {
+    fileprivate static let readabilityScale: CGFloat = 1.15
 
     /// כותרת המסך הראשית בסרגל העליון.
     static func screenTitle(
@@ -377,7 +378,7 @@ private struct KmiTypographyModifier: ViewModifier {
         content: Content
     ) -> some View {
         content.font(
-            role.font(scale: scale)
+            role.font(scale: scale * KmiTypography.readabilityScale)
         )
     }
 }
@@ -396,7 +397,7 @@ private struct KmiScaledFontModifier: ViewModifier {
     ) -> some View {
         content.font(
             .system(
-                size: baseSize * scale,
+                size: baseSize * scale * KmiTypography.readabilityScale,
                 weight: weight,
                 design: design
             )

@@ -21,7 +21,12 @@ struct AttendanceQrScannerView: View {
     private enum Phase {
         case scanning
         case verifying(Payload)
-        case success(alreadyRecorded: Bool)
+        case success(
+            alreadyRecorded: Bool,
+            usedAdminQR: Bool,
+            branch: String,
+            group: String
+        )
         case failed(String)
         case cameraUnavailable
     }
@@ -140,7 +145,7 @@ struct AttendanceQrScannerView: View {
                 KmiLoadingOverlay()
             }
 
-        case let .success(alreadyRecorded):
+        case let .success(alreadyRecorded, usedAdminQR, branch, group):
             VStack(spacing: 16) {
                 message(
                     alreadyRecorded
@@ -153,6 +158,18 @@ struct AttendanceQrScannerView: View {
                             "Your attendance was registered successfully!"
                         )
                 )
+
+                if usedAdminQR {
+                    message(tr("סריקה באמצעות QR של מנהל", "Scanned using an admin QR"))
+                }
+
+                if !branch.isEmpty {
+                    message(tr("סניף: \(branch)", "Branch: \(branch)"))
+                }
+
+                if !group.isEmpty {
+                    message(tr("קבוצה: \(group)", "Group: \(group)"))
+                }
 
                 Button(tr("סיום", "Done"), action: onDone)
                     .buttonStyle(.borderedProminent)
@@ -263,8 +280,16 @@ struct AttendanceQrScannerView: View {
                 return
             }
 
+            let branch = (response["branch"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let group = (response["group"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
             phase = .success(
-                alreadyRecorded: response["alreadyRecorded"] as? Bool == true
+                alreadyRecorded: response["alreadyRecorded"] as? Bool == true,
+                usedAdminQR: response["testMode"] as? Bool == true,
+                branch: branch,
+                group: group
             )
         } catch {
             guard !Task.isCancelled else {

@@ -1868,7 +1868,8 @@ struct HomeView: View {
                                     activeOverride: trainingOverride,
                                     attendanceRefreshID: attendanceRefreshID,
                                     onAttendanceQrScan: {
-                                        guard !isCoachUser, !freeSessionsUid.isEmpty else {
+                                        guard !freeSessionsUid.isEmpty,
+                                              !isCoachUser else {
                                             return
                                         }
 
@@ -2043,10 +2044,10 @@ struct HomeView: View {
                     pickedExercise = selection
                 }
                 .task {
-            clearExpiredSubscriptionFlagsIfNeeded()
-            reloadTrainingsIfNeeded()
-        }
-                .onAppear {
+                    clearExpiredSubscriptionFlagsIfNeeded()
+                    reloadTrainingsIfNeeded()
+                }
+                        .onAppear {
                     if isHomeTrainingsLoading && !isHomeGlobalLoadingActive {
                         isHomeGlobalLoadingActive = true
                         nav.beginLoading()
@@ -5012,13 +5013,13 @@ private struct HomeTrainingCardAndroidStyle: View {
             )
 
             if isCoach, !isCancelledByCoach, !isCancelledByHoliday {
-                attendanceQrButton
+                attendanceQrButton(generatesCode: true)
             }
 
             attendanceContent
 
             if !isCoach {
-                attendanceQrButton
+                attendanceQrButton(generatesCode: false)
             }
         }
         .padding(.horizontal, 10)
@@ -5196,25 +5197,25 @@ private struct HomeTrainingCardAndroidStyle: View {
         }
     }
 
-@ViewBuilder
-private var attendanceQrButton: some View {
-    if Auth.auth().currentUser != nil {
-        let shape = RoundedRectangle(
-            cornerRadius: isCoach ? 14 : 16,
-            style: .continuous
-        )
+    @ViewBuilder
+    private func attendanceQrButton(generatesCode: Bool) -> some View {
+        if Auth.auth().currentUser != nil {
+            let shape = RoundedRectangle(
+                cornerRadius: generatesCode ? 14 : 16,
+                style: .continuous
+            )
 
-        Button {
-            KmiFeedbackManager.shared.tap()
+            Button {
+                KmiFeedbackManager.shared.tap()
 
-            if isCoach {
-                onAttendanceQrGenerate()
-            } else {
-                onAttendanceQrScan()
-            }
-        } label: {
-            Text(
-                isCoach
+                if generatesCode {
+                    onAttendanceQrGenerate()
+                } else {
+                    onAttendanceQrScan()
+                }
+            } label: {
+                Text(
+                    generatesCode
                     ? attendanceText(
                         "הנפקת QR לנוכחות",
                         "Generate attendance QR"

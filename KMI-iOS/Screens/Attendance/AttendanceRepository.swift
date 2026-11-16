@@ -967,6 +967,11 @@ final class AttendanceRepository {
 
                 for document in snapshot.documents {
                     let data = document.data()
+
+                    guard (data["isActive"] as? Bool) != false else {
+                        continue
+                    }
+
                     let storedId = self.int64Value(data["id"])
 
                     guard let memberId =
@@ -1046,7 +1051,14 @@ final class AttendanceRepository {
                             in: .whitespacesAndNewlines
                         )
 
-                    guard markedBy == "trainee" else {
+                    let traineeStatus = (data["traineeStatus"] as? String)?
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+
+                    let hasTraineeChoice = !(traineeStatus ?? "").isEmpty
+
+                    guard hasTraineeChoice || markedBy == "trainee" else {
                         continue
                     }
 
@@ -1112,105 +1124,30 @@ final class AttendanceRepository {
             return nil
         }
 
-        let members = attendanceGroupReference(
+        let existing = try await attendanceGroupReference(
             branchName: branch,
             groupKey: group
         )
         .collection("members")
+        .whereField("authUid", isEqualTo: uid)
+        .limit(to: 1)
+        .getDocuments()
 
-        let existing = try await members
-            .whereField("authUid", isEqualTo: uid)
-            .limit(to: 1)
-            .getDocuments()
-
-        if let document = existing.documents.first {
-            let storedId = int64Value(document.data()["id"])
-
-            if storedId != 0 {
-                return storedId
-            }
-
-            return Int64(document.documentID)
-                ?? stableAttendanceId(document.documentID)
-        }
-
-        let userDocument = try await Firestore.firestore()
-            .collection("users")
-            .document(uid)
-            .getDocument()
-
-        guard userDocument.exists,
-              let user = userDocument.data() else {
+        guard let document = existing.documents.first,
+              (document.get("isActive") as? Bool) != false else {
             return nil
         }
 
-        func clean(_ value: String?) -> String {
-            value?.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            ) ?? ""
+        let storedId = int64Value(document.data()["id"])
+
+        if storedId != 0 {
+            return storedId
         }
 
-        var fullName = clean(
-            (user["fullName"] as? String)
-                ?? (user["name"] as? String)
-                ?? (user["displayName"] as? String)
-        )
-
-        if fullName.isEmpty {
-            fullName = [
-                clean(user["firstName"] as? String),
-                clean(user["lastName"] as? String)
-            ]
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        }
-
-        let nameKey = attendanceNameKey(fullName)
-
-        guard !fullName.isEmpty, !nameKey.isEmpty else {
-            return nil
-        }
-
-        let memberId = stableAttendanceId(
-            "\(branch)|\(group)|\(nameKey)"
-        )
-
-        let phone = (
-            (user["phone"] as? String)
-                ?? (user["phoneNumber"] as? String)
-                ?? (user["phone_number"] as? String)
-                ?? (user["mobile"] as? String)
-                ?? ""
-        )
-        .filter(\.isNumber)
-
-        let now = Int64(Date().timeIntervalSince1970 * 1_000)
-
-        var data: [String: Any] = [
-            "id": memberId,
-            "branch": branch,
-            "groupKey": group,
-            "displayName": fullName,
-            "displayNameKey": nameKey,
-            "authUid": uid,
-            "updatedAtMillis": now,
-            "updatedAt": FieldValue.serverTimestamp()
-        ]
-
-        if !phone.isEmpty {
-            data["phone"] = phone
-        }
-
-        guard Auth.auth().currentUser?.uid == uid else {
-            throw OwnAttendanceError.invalidContext
-        }
-
-        try await members
-            .document(String(memberId))
-            .setData(data, merge: true)
-
-        return memberId
+        return Int64(document.documentID)
+            ?? stableAttendanceId(document.documentID)
     }
+
 
     func getTraineeOwnAttendance(
         branchName: String,
@@ -1336,11 +1273,9 @@ final class AttendanceRepository {
             "sessionId": sessionId,
             "memberId": memberId,
             "traineeStatus": statusName,
-            "status": statusName,
             "traineeUid": uid,
-            "markedBy": "trainee",
             "trainingStartMillis": trainingStartMillis,
-            "markedAtMillis": now,
+            "traineeMarkedAtMillis": now,
             "updatedAtMillis": now,
             "updatedAt": FieldValue.serverTimestamp()
         ]
@@ -1352,7 +1287,7 @@ final class AttendanceRepository {
                     .documentIdForOccurrenceKey(key)
         }
 
-        try await attendanceGroupReference(
+        let recordReference = attendanceGroupReference(
             branchName: branch,
             groupKey: group
         )
@@ -1360,7 +1295,47 @@ final class AttendanceRepository {
         .document(dateIso)
         .collection("records")
         .document(String(memberId))
-        .setData(data, merge: true)
+
+        let traineeData = data
+
+        _ = try await Firestore.firestore().runTransaction { transaction, errorPointer in
+            do {
+                let existing = try transaction.getDocument(recordReference)
+
+                guard Auth.auth().currentUser?.uid == uid else {
+                    throw OwnAttendanceError.invalidContext
+                }
+
+                let markedAt = Int64(Date().timeIntervalSince1970 * 1_000)
+                guard markedAt < trainingStartMillis else {
+                    throw OwnAttendanceError.trainingAlreadyStarted
+                }
+
+                let coachStatus = (existing.get("coachStatus") as? String ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let markedBy = (existing.get("markedBy") as? String ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let qrVerified = existing.get("qrVerified") as? Bool == true
+
+                var update = traineeData
+                update["traineeMarkedAtMillis"] = markedAt
+                update["updatedAtMillis"] = markedAt
+
+                if coachStatus.isEmpty, !qrVerified, markedBy != "coach" {
+                    update["markedBy"] = "trainee"
+                }
+
+                if !existing.exists {
+                    update["markedAtMillis"] = markedAt
+                }
+
+                transaction.setData(update, forDocument: recordReference, merge: true)
+                return nil
+            } catch let error as NSError {
+                errorPointer?.pointee = error
+                return nil
+            }
+        }
     }
 
     private func coachAttendanceStatusName(_ status: AttendanceStatus) -> String {

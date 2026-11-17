@@ -3490,17 +3490,53 @@ struct AttendanceCoachQrSheet: View {
     }
 
     private var trainingDetails: some View {
-        VStack(spacing: 4) {
-            statusText(request.dateLabel)
-            statusText(TrainingCatalogIOS.displayBranch(request.branch, isEnglish: isEnglish))
-            statusText(TrainingCatalogIOS.displayGroup(request.group, isEnglish: isEnglish))
+        let accent = KmiAppTheme.primary(for: colorScheme)
+        let titleColor = KmiAppTheme.onSurface(for: colorScheme)
+        let detailColor = KmiAppTheme.onSurfaceVariant(for: colorScheme)
+        let branch = TrainingCatalogIOS.displayBranch(request.branch, isEnglish: isEnglish)
+        let group = TrainingCatalogIOS.displayGroup(request.group, isEnglish: isEnglish)
+
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: "qrcode")
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.large)
+                    .foregroundStyle(accent)
+                    .padding(10)
+                    .background(accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+                    .accessibilityHidden(true)
+
+                Text(branch)
+                    .kmiTypography(.cardTitle)
+                    .foregroundStyle(titleColor)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+            }
+
+            Divider()
+
+            Label(request.dateLabel, systemImage: "calendar")
+                .kmiTypography(.body)
+                .foregroundStyle(detailColor)
+
+            Label(group, systemImage: "person.2.fill")
+                .kmiTypography(.body)
+                .foregroundStyle(detailColor)
         }
-        .frame(maxWidth: .infinity)
-        .padding(12)
-        .background(
-            KmiAppTheme.surfaceVariant(for: colorScheme),
-            in: RoundedRectangle(cornerRadius: 14)
-        )
+        .multilineTextAlignment(.leading)
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 22)
+                .fill(KmiAppTheme.surfaceVariant(for: colorScheme))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 22)
+                .strokeBorder(accent.opacity(0.20), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
     }
 
     private func statusText(_ text: String) -> some View {

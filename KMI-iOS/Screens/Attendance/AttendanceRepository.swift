@@ -1058,7 +1058,32 @@ final class AttendanceRepository {
 
                     let hasTraineeChoice = !(traineeStatus ?? "").isEmpty
 
-                    guard hasTraineeChoice || markedBy == "trainee" else {
+                    let occurrenceId = (data["occurrenceId"] as? String)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+                    let coachStatus = (data["coachStatus"] as? String)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let legacyStatus = (data["status"] as? String)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                    let isVerifiedQrAttendance =
+                        data["qrVerified"] as? Bool == true &&
+                        !occurrenceId.isEmpty &&
+                        data["qrVerifiedOccurrenceId"] as? String == occurrenceId &&
+                        coachStatus == "PRESENT"
+
+                    let officialStatus: String?
+                    if isVerifiedQrAttendance {
+                        officialStatus = "PRESENT"
+                    } else if !coachStatus.isEmpty {
+                        officialStatus = coachStatus
+                    } else {
+                        officialStatus = markedBy == "coach" ? legacyStatus : nil
+                    }
+
+                    guard officialStatus != nil ||
+                          hasTraineeChoice ||
+                          markedBy == "trainee" else {
                         continue
                     }
 
@@ -1073,21 +1098,37 @@ final class AttendanceRepository {
                         continue
                     }
 
-                    let status = (
-                        (data["traineeStatus"] as? String)
-                            ?? (data["status"] as? String)
-                    )?
-                    .trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    )
+                    let markedAt = self.int64Value(data["markedAtMillis"])
+                    let traineeMarkedAt = self.int64Value(data["traineeMarkedAtMillis"])
+                    let qrVerifiedAt = self.int64Value(data["qrVerifiedAtMillis"])
 
-                    guard let status,
-                          status == "PRESENT" ||
-                          status == "ABSENT" else {
-                        continue
+                    let traineeChoice = hasTraineeChoice
+                        ? traineeStatus
+                        : (markedBy == "trainee" ? legacyStatus : nil)
+                    let traineeChoiceAt = traineeMarkedAt > 0
+                        ? traineeMarkedAt
+                        : (markedBy == "trainee" ? markedAt : 0)
+
+                    let officialStatusAt = isVerifiedQrAttendance
+                        ? max(qrVerifiedAt, markedBy == "trainee" ? 0 : markedAt)
+                        : markedAt
+
+                    let status: String?
+                    if let traineeChoice,
+                       officialStatus == nil || traineeChoiceAt > officialStatusAt {
+                        status = traineeChoice
+                    } else {
+                        status = officialStatus
                     }
 
-                    choices[memberId] = status
+                    switch status {
+                    case "PRESENT":
+                        choices[memberId] = "PRESENT"
+                    case "ABSENT", "EXCUSED":
+                        choices[memberId] = "ABSENT"
+                    default:
+                        break
+                    }
                 }
 
                 let capturedChoices = choices
@@ -1175,6 +1216,17 @@ final class AttendanceRepository {
 
         guard let data = document.data() else {
             return nil
+        }
+
+        let occurrenceId = (data["occurrenceId"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if data["qrVerified"] as? Bool == true,
+           !occurrenceId.isEmpty,
+           data["qrVerifiedOccurrenceId"] as? String == occurrenceId,
+           data["qrVerifiedTraineeUid"] as? String == authUid,
+           data["coachStatus"] as? String == "PRESENT" {
+            return .present
         }
 
         let raw = (

@@ -573,14 +573,15 @@ struct ContentView: View {
                 return false
             }
 
+            let codec = RegistrationFormState.BranchAssignmentsCodec.self
+
             if assignmentsOnly {
-                let codec = RegistrationFormState.BranchAssignmentsCodec.self
                 let assignments = codec.toFirestoreList(form.normalizedBranchAssignments)
 
                 let fields: [String: Any]
                 if isCoach {
                     fields = [
-                        codec.firestoreKey: assignments
+                        "coachSelectedBranchAssignments": assignments
                     ]
                 } else {
                     fields = [
@@ -592,7 +593,14 @@ struct ContentView: View {
 
                 try await userReference.updateData(fields)
             } else {
-                let profileData = form.toEditedProfileFirestoreDictionary(uid: uid)
+                var profileData = form.toEditedProfileFirestoreDictionary(uid: uid)
+
+                if isCoach {
+                    profileData.removeValue(forKey: codec.firestoreKey)
+                    profileData["coachSelectedBranchAssignments"] =
+                        codec.toFirestoreList(form.normalizedBranchAssignments)
+                }
+
                 try await userReference.setData(profileData, merge: true)
             }
 

@@ -146,34 +146,12 @@ struct AttendanceQrScannerView: View {
             }
 
         case let .success(alreadyRecorded, usedAdminQR, branch, group):
-            VStack(spacing: 16) {
-                message(
-                    alreadyRecorded
-                        ? tr(
-                            "הנוכחות שלך כבר נרשמה לאימון.",
-                            "Your attendance has already been registered."
-                        )
-                        : tr(
-                            "הנוכחות שלך נרשמה בהצלחה!",
-                            "Your attendance was registered successfully!"
-                        )
-                )
-
-                if usedAdminQR {
-                    message(tr("סריקה באמצעות QR של מנהל", "Scanned using an admin QR"))
-                }
-
-                if !branch.isEmpty {
-                    message(tr("סניף: \(branch)", "Branch: \(branch)"))
-                }
-
-                if !group.isEmpty {
-                    message(tr("קבוצה: \(group)", "Group: \(group)"))
-                }
-
-                Button(tr("סיום", "Done"), action: onDone)
-                    .buttonStyle(.borderedProminent)
-            }
+            successContent(
+                alreadyRecorded: alreadyRecorded,
+                usedAdminQR: usedAdminQR,
+                branch: branch,
+                group: group
+            )
 
         case let .failed(text):
             retryContent(text)
@@ -186,6 +164,145 @@ struct AttendanceQrScannerView: View {
                 )
             )
         }
+    }
+
+    private func successContent(
+        alreadyRecorded: Bool,
+        usedAdminQR: Bool,
+        branch: String,
+        group: String
+    ) -> some View {
+        let successColor = colorScheme == .dark
+            ? Color(red: 0.29, green: 0.87, blue: 0.50)
+            : Color(red: 0.08, green: 0.45, blue: 0.23)
+
+        return GeometryReader { viewport in
+            ScrollView {
+                VStack(spacing: 18) {
+                    VStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .resizable()
+                            .scaledToFit()
+                            .kmiIconSize(.extraLarge)
+                            .foregroundStyle(successColor)
+                            .padding(16)
+                            .background(successColor.opacity(0.13), in: Circle())
+                            .accessibilityHidden(true)
+
+                        Text(
+                            alreadyRecorded
+                                ? tr("הנוכחות שלך כבר אושרה!", "Your attendance is already confirmed!")
+                                : tr("הנוכחות שלך אושרה בהצלחה!", "Your attendance is confirmed!")
+                        )
+                        .kmiTypography(.cardTitle)
+                        .foregroundStyle(successColor)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+
+                        message(
+                            usedAdminQR
+                                ? tr(
+                                    "הנוכחות שלך אומתה ונרשמה באמצעות QR בהרשאת מנהל.",
+                                    "Your attendance was verified and recorded using an authorized admin QR."
+                                )
+                                : tr(
+                                    "הנוכחות שלך באימון אומתה ונרשמה במערכת K.M.I",
+                                    "Your training attendance has been verified and recorded in K.M.I"
+                                )
+                        )
+
+                        if !branch.isEmpty || !group.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                if !branch.isEmpty {
+                                    successDetailRow(
+                                        title: tr("סניף", "Branch"),
+                                        value: branch,
+                                        systemImage: "mappin.circle.fill",
+                                        accent: successColor
+                                    )
+                                }
+
+                                if !group.isEmpty {
+                                    successDetailRow(
+                                        title: tr("קבוצת אימון", "Training group"),
+                                        value: group,
+                                        systemImage: "person.2.fill",
+                                        accent: successColor
+                                    )
+                                }
+                            }
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                successColor.opacity(0.08),
+                                in: RoundedRectangle(cornerRadius: 16)
+                            )
+                        }
+
+                        if usedAdminQR {
+                            Text(tr("נוכחות נרשמה · QR מנהל", "Attendance recorded · Admin QR"))
+                                .kmiTypography(.caption)
+                                .foregroundStyle(successColor)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 7)
+                                .background(successColor.opacity(0.12), in: Capsule())
+                        }
+                    }
+                    .padding(20)
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        KmiAppTheme.surface(for: colorScheme),
+                        in: RoundedRectangle(cornerRadius: 24)
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 24)
+                            .strokeBorder(successColor.opacity(0.25), lineWidth: 1)
+                            .allowsHitTesting(false)
+                    }
+
+                    Button(action: onDone) {
+                        Text(tr("סיום", "Done"))
+                            .kmiTypography(.body)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .frame(maxWidth: 440)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, minHeight: viewport.size.height)
+            }
+        }
+    }
+
+    private func successDetailRow(
+        title: String,
+        value: String,
+        systemImage: String,
+        accent: Color
+    ) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .resizable()
+                .scaledToFit()
+                .kmiIconSize(.small)
+                .foregroundStyle(accent)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .kmiTypography(.caption)
+
+                Text(value)
+                    .kmiTypography(.cardTitle)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
+            .multilineTextAlignment(.leading)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private func message(_ text: String) -> some View {
@@ -328,6 +445,10 @@ struct AttendanceQrScannerView: View {
         case .invalidArgument:
             return invalidCodeMessage
         case .failedPrecondition:
+            #if DEBUG
+            print("KMI_QR_SCAN_REJECTED: \(details.localizedDescription)")
+            #endif
+
             return tr(
                 "לא ניתן לרשום נוכחות לאימון זה כרגע.",
                 "Attendance cannot be registered for this training right now."

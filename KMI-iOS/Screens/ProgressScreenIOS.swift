@@ -12,6 +12,8 @@ struct ProgressScreenIOS: View {
     }
 
     @StateObject private var vm = ProgressViewModel()
+    @Environment(\.colorScheme) private var colorScheme
+
     // אין State פנימי למסך הסטטיסטיקה.
     // ניווט ושיתוף נשארים בסרגל הגלובלי.
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
@@ -52,41 +54,46 @@ struct ProgressScreenIOS: View {
         isEnglish ? .leftToRight : .rightToLeft
     }
     
-    private var screenTextAlignment: TextAlignment {
-        isEnglish ? .leading : .trailing
-    }
-    
-    private var screenFrameAlignment: Alignment {
-        isEnglish ? .leading : .trailing
-    }
-    
     private func tr(_ he: String, _ en: String) -> String {
         isEnglish ? en : he
     }
     
     var body: some View {
         VStack(spacing: 0) {
+            Text(tr("ההישגים שלי לפי חגורות", "My Achievements by Belt"))
+                .kmiTypography(.sectionTitle)
+                .fontWeight(.heavy)
+                .foregroundStyle(KmiAppTheme.sectionHeaderContentColor)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 20)
+                .frame(maxWidth: .infinity)
+                .frame(height: 76)
+                .background(KmiAppTheme.sectionHeaderBrush)
+                .accessibilityAddTraits(.isHeader)
+
             ZStack {
-                Color.white
+                KmiAppBackground()
                     .ignoresSafeArea()
-                
+
                 if vm.rows.isEmpty {
                     VStack(spacing: 14) {
-                        PremiumProgressLoadingIOS()
-                        
-                        Text(tr("טוען נתוני התקדמות...", "Loading progress data..."))
-                            .font(.system(size: 19, weight: .heavy))
-                            .foregroundStyle(Color(red: 0.25, green: 0.23, blue: 0.29))
+                        KmiLoadingOverlay()
+
+                        Text(tr("טוען נתוני התקדמות...", "Loading progress..."))
+                            .kmiTypography(.sectionTitle)
+                            .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
                             .multilineTextAlignment(.center)
-                        
-                        Text(tr("מסדר את נתוני החגורות שלך", "Organizing your belt progress"))
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Color(red: 0.48, green: 0.45, blue: 0.53))
+
+                        Text(tr("מסדר את נתוני החגורות שלך", "Preparing your belt data"))
+                            .kmiTypography(.secondary)
+                            .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
                             .multilineTextAlignment(.center)
                     }
+                    .padding(.horizontal, 20)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollView(showsIndicators: false) {
-                        VStack(spacing: 14) {
+                        LazyVStack(spacing: 14) {
                             ForEach(vm.rows.filter { $0.belt != .white }) { row in
                                 BeltProgressCard(
                                     row: row,
@@ -104,21 +111,22 @@ struct ProgressScreenIOS: View {
             Button {
                 onOpenCarousel()
             } label: {
-                Text(tr("מעבר למסך התרגילים", "Go to exercises"))
-                    .font(.system(size: 17, weight: .heavy))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
+                Text(tr("מעבר למסך התרגילים", "Go to Exercises"))
+                    .kmiTypography(.action)
+                    .fontWeight(.heavy)
+                    .foregroundStyle(KmiAppTheme.sectionHeaderContentColor)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, minHeight: 52)
                     .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(Color(red: 0.12, green: 0.16, blue: 0.22))
+                        KmiAppTheme.graniteActionBrush,
+                        in: RoundedRectangle(cornerRadius: 18, style: .continuous)
                     )
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 18)
-            .padding(.top, 10)
-            .padding(.bottom, 10)
-            .background(Color.white)
+            .padding(.vertical, 10)
         }
         .environment(\.layoutDirection, screenLayoutDirection)
         .toolbar(.hidden, for: .navigationBar)
@@ -151,74 +159,85 @@ private struct BeltProgressCard: View {
         : "(\(row.done) מתוך \(row.total))"
     }
 
-    private var textAlignment: TextAlignment {
-        isEnglish ? .leading : .trailing
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var beltAccent: Color {
+        row.belt == .black
+            ? KmiAppTheme.onSurface(for: colorScheme)
+            : row.color
     }
 
-    private var frameAlignment: Alignment {
-        isEnglish ? .leading : .trailing
+    private var badgeTextColor: Color {
+        row.belt == .black
+            ? KmiAppTheme.surface(for: colorScheme)
+            : .white
+    }
+
+    private var cardBackground: Color {
+        colorScheme == .dark
+            ? KmiAppTheme.surfaceVariant(for: colorScheme)
+            : row.color.opacity(0.20)
     }
 
     var body: some View {
         VStack(spacing: 7) {
             HStack(spacing: 10) {
                 Text("\(row.percent)%")
-                    .font(.system(size: 16, weight: .heavy))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 7)
+                    .kmiTypography(.metric)
+                    .foregroundStyle(badgeTextColor)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
                     .background(
                         Capsule(style: .continuous)
-                            .fill(row.color.opacity(0.90))
+                            .fill(beltAccent.opacity(0.90))
                     )
 
-                Spacer(minLength: 10)
-
                 Text(titleText)
-                    .font(.system(size: 19, weight: .heavy))
-                    .foregroundStyle(row.color)
+                    .kmiTypography(.sectionTitle)
+                    .fontWeight(.heavy)
+                    .foregroundStyle(beltAccent)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
-                    .frame(maxWidth: .infinity, alignment: frameAlignment)
-                    .multilineTextAlignment(textAlignment)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
 
                 Circle()
-                    .fill(row.color)
-                    .frame(width: 14, height: 14)
+                    .fill(beltAccent)
+                    .frame(width: 13, height: 13)
             }
 
             GeometryReader { geo in
-                ZStack(alignment: isEnglish ? .leading : .trailing) {
+                let fraction = row.total > 0
+                    ? min(1, max(0, CGFloat(row.done) / CGFloat(row.total)))
+                    : 0
+
+                ZStack(alignment: .leading) {
                     Capsule(style: .continuous)
-                        .fill(Color.black.opacity(0.08))
+                        .fill(KmiAppTheme.onSurface(for: colorScheme).opacity(0.08))
 
                     Capsule(style: .continuous)
-                        .fill(row.color)
-                        .frame(
-                            width: max(
-                                0,
-                                geo.size.width * CGFloat(row.total == 0 ? 0 : Double(row.done) / Double(row.total))
-                            )
-                        )
+                        .fill(beltAccent)
+                        .frame(width: geo.size.width * fraction)
+                        .animation(.easeInOut(duration: 0.25), value: fraction)
                 }
             }
             .frame(height: 12)
 
             Text(countText)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color.black.opacity(0.62))
-                .frame(maxWidth: .infinity, alignment: frameAlignment)
-                .multilineTextAlignment(textAlignment)
+                .kmiTypography(.secondary)
+                .fontWeight(.semibold)
+                .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .multilineTextAlignment(.leading)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(row.color.opacity(0.20))
+                .fill(cardBackground)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(row.color.opacity(0.75), lineWidth: 2)
+                .strokeBorder(beltAccent.opacity(0.75), lineWidth: 2)
         )
     }
 }

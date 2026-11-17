@@ -3765,7 +3765,7 @@ struct BeltQuestionsByTopicView: View {
             maxWidth: .infinity
         )
         .frame(
-            height: 56
+            height: 76
         )
         .background(
             KmiAppTheme

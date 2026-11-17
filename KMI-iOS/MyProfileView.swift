@@ -80,12 +80,13 @@ struct MyProfileView: View {
     @State private var firestoreInfo =
         MyProfileFirestoreInfo()
 
-    /*
-     * מקור האמת החדש לקשר המדויק:
-     * סניף -> קבוצות.
-     */
-    @State private var firestoreBranchAssignments:
-        [RegistrationFormState.BranchAssignment] = []
+    @AppStorage("kmi.user.role") private var activeProfileRole: String = "trainee"
+
+    @AppStorage(RegistrationFormState.BranchAssignmentsCodec.preferenceKey)
+    private var coachAssignmentsJSON: String?
+
+    @AppStorage("trainee_branch_assignments_json")
+    private var traineeAssignmentsJSON: String?
 
     @State private var isLoadingFirestoreProfile: Bool = false
     @State private var profileLoadError: String?
@@ -237,24 +238,37 @@ struct MyProfileView: View {
         )
     }
 
+    private var currentProfileAssignments: [RegistrationFormState.BranchAssignment]? {
+        let role = activeProfileRole
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let json = role == "coach" ? coachAssignmentsJSON : traineeAssignmentsJSON
+
+        return json.map {
+            RegistrationFormState.BranchAssignmentsCodec.sanitized(
+                RegistrationFormState.BranchAssignmentsCodec.decode($0)
+            )
+        }
+    }
+
     private var resolvedBranch: String {
-        firstNonEmpty(
-            firestoreInfo.branch,
-            activeBranch,
-            activeBranchSnake,
-            branch
-        )
+        if let assignments = currentProfileAssignments {
+            return RegistrationFormState.BranchAssignmentsCodec
+                .flattenBranches(assignments)
+                .joined(separator: "\n")
+        }
+
+        return firstNonEmpty(activeBranch, activeBranchSnake, branch, firestoreInfo.branch)
     }
 
     private var resolvedGroup: String {
-        firstNonEmpty(
-            firestoreInfo.group,
-            activeGroup,
-            activeGroupSnake,
-            groupKey,
-            ageGroup,
-            group
-        )
+        if let assignments = currentProfileAssignments {
+            return RegistrationFormState.BranchAssignmentsCodec
+                .flattenGroups(assignments)
+                .joined(separator: "\n")
+        }
+
+        return firstNonEmpty(activeGroup, activeGroupSnake, groupKey, ageGroup, group, firestoreInfo.group)
     }
 
     private var resolvedBeltId: String {
@@ -300,36 +314,8 @@ struct MyProfileView: View {
     private var branchAddressEntries:
         [MyProfileBranchEntry] {
 
-        let savedAssignments =
-            firestoreBranchAssignments
-                .isEmpty
-                ? RegistrationFormState
-                    .BranchAssignmentsCodec
-                    .decode(
-                        UserDefaults.standard.string(
-                            forKey:
-                                RegistrationFormState
-                                    .BranchAssignmentsCodec
-                                    .preferenceKey
-                        )
-                    )
-                : firestoreBranchAssignments
-
-        let cleanAssignments =
-            RegistrationFormState
-                .BranchAssignmentsCodec
-                .sanitized(
-                    savedAssignments
-                )
-
-        /*
-         * המבנה החדש הוא מקור האמת:
-         * כל סניף מקבל רק את הקבוצות
-         * שמשויכות אליו.
-         */
-        if !cleanAssignments.isEmpty {
-
-            return cleanAssignments.map {
+            if let cleanAssignments = currentProfileAssignments {
+                return cleanAssignments.map {
                 assignment in
 
                 let branchValue =
@@ -815,6 +801,7 @@ struct MyProfileView: View {
                 alignment:
                     isEnglish ? .leading : .trailing
             )
+            .padding(.trailing, isEnglish ? 0 : 65)
             .layoutPriority(1)
         }
         .padding(
@@ -825,7 +812,7 @@ struct MyProfileView: View {
             maxWidth: .infinity,
             alignment: .center
         )
-        .frame(minHeight: 68)
+        .frame(minHeight: 76)
         .background(
             KmiAppTheme
                 .sectionHeaderBrush
@@ -2062,32 +2049,8 @@ struct MyProfileView: View {
                         )
                     )
 
-                    let rawAssignments =
-                        data[
-                            RegistrationFormState
-                                .BranchAssignmentsCodec
-                                .firestoreKey
-                        ] as? [Any]
-                        ?? []
-
-                    let loadedAssignments =
-                        RegistrationFormState
-                            .BranchAssignmentsCodec
-                            .fromFirestoreList(
-                                rawAssignments
-                            )
-
-                    firestoreInfo =
-                        loaded
-
-                    firestoreBranchAssignments =
-                        loadedAssignments
-
-                    syncLoadedProfileToDefaults(
-                        loaded,
-                        branchAssignments:
-                            loadedAssignments
-                    )
+                    firestoreInfo = loaded
+                    syncLoadedProfileToDefaults(loaded)
                 }
             }
     }
@@ -2121,175 +2084,30 @@ struct MyProfileView: View {
         return ""
     }
 
-    private func syncLoadedProfileToDefaults(
-        _ info: MyProfileFirestoreInfo,
-        branchAssignments:
-            [RegistrationFormState.BranchAssignment]
-    ) {
-        let defaults =
-            UserDefaults.standard
+    private func syncLoadedProfileToDefaults(_ info: MyProfileFirestoreInfo) {
+        let defaults = UserDefaults.standard
+        let values = [
+            "fullName": info.fullName,
+            "email": info.email,
+            "phone": info.phone,
+            "username": info.username,
+            "branchAddress": info.branchAddress,
+            "branch_address": info.branchAddress,
+            "address": info.branchAddress,
+            "belt": info.belt,
+            "current_belt": info.belt,
+            "belt_current": info.belt,
+            "coach": info.coach,
+            "coachName": info.coach,
+            "next_training": info.nextTraining
+        ]
 
-        if !branchAssignments.isEmpty {
-
-            let cleanAssignments =
-                RegistrationFormState
-                    .BranchAssignmentsCodec
-                    .sanitized(
-                        branchAssignments
-                    )
-
-            defaults.set(
-                RegistrationFormState
-                    .BranchAssignmentsCodec
-                    .encode(
-                        cleanAssignments
-                    ),
-                forKey:
-                    RegistrationFormState
-                        .BranchAssignmentsCodec
-                        .preferenceKey
-            )
-
-            let branches =
-                RegistrationFormState
-                    .BranchAssignmentsCodec
-                    .flattenBranches(
-                        cleanAssignments
-                    )
-
-            let groups =
-                RegistrationFormState
-                    .BranchAssignmentsCodec
-                    .flattenGroups(
-                        cleanAssignments
-                    )
-
-            if !branches.isEmpty {
-
-                let branchesCsv =
-                    branches.joined(
-                        separator:
-                            ", "
-                    )
-
-                defaults.set(
-                    branchesCsv,
-                    forKey:
-                        "branch"
-                )
-
-                defaults.set(
-                    branches.first ?? "",
-                    forKey:
-                        "activeBranch"
-                )
-
-                defaults.set(
-                    branches.first ?? "",
-                    forKey:
-                        "active_branch"
-                )
-            }
-
-            if !groups.isEmpty {
-
-                let groupsCsv =
-                    groups.joined(
-                        separator:
-                            ", "
-                    )
-
-                defaults.set(
-                    groupsCsv,
-                    forKey:
-                        "group"
-                )
-
-                defaults.set(
-                    groups.first ?? "",
-                    forKey:
-                        "activeGroup"
-                )
-
-                defaults.set(
-                    groups.first ?? "",
-                    forKey:
-                        "active_group"
-                )
-
-                defaults.set(
-                    groups.first ?? "",
-                    forKey:
-                        "groupKey"
-                )
-
-                defaults.set(
-                    groupsCsv,
-                    forKey:
-                        "age_group"
-                )
-            }
-        }
-
-        if !info.fullName.isEmpty {
-            defaults.set(info.fullName, forKey: "fullName")
-        }
-
-        if !info.email.isEmpty {
-            defaults.set(info.email, forKey: "email")
-        }
-
-        if !info.phone.isEmpty {
-            defaults.set(info.phone, forKey: "phone")
-        }
-
-        if !info.username.isEmpty {
-            defaults.set(info.username, forKey: "username")
-        }
-
-        if !info.region.isEmpty {
-            defaults.set(info.region, forKey: "region")
-        }
-
-        if !info.branch.isEmpty {
-            defaults.set(info.branch, forKey: "branch")
-            defaults.set(info.branch, forKey: "activeBranch")
-            defaults.set(info.branch, forKey: "active_branch")
-        }
-
-        if !info.branchAddress.isEmpty {
-            defaults.set(info.branchAddress, forKey: "branchAddress")
-            defaults.set(info.branchAddress, forKey: "branch_address")
-            defaults.set(info.branchAddress, forKey: "address")
-        }
-
-        if !info.group.isEmpty {
-            defaults.set(info.group, forKey: "group")
-            defaults.set(info.group, forKey: "activeGroup")
-            defaults.set(info.group, forKey: "active_group")
-            defaults.set(info.group, forKey: "groupKey")
-            defaults.set(info.group, forKey: "age_group")
-        }
-
-        if !info.belt.isEmpty {
-            defaults.set(info.belt, forKey: "belt")
-            defaults.set(info.belt, forKey: "current_belt")
-            defaults.set(info.belt, forKey: "belt_current")
-        }
-
-        if !info.role.isEmpty {
-            defaults.set(info.role, forKey: "user_role")
-        }
-
-        if !info.coach.isEmpty {
-            defaults.set(info.coach, forKey: "coach")
-            defaults.set(info.coach, forKey: "coachName")
-        }
-
-        if !info.nextTraining.isEmpty {
-            defaults.set(info.nextTraining, forKey: "next_training")
+        for (key, value) in values where !value.isEmpty {
+            defaults.set(value, forKey: key)
         }
     }
+
+    // MARK: - Belt helpers
 
     // MARK: - Belt helpers
 
@@ -2624,27 +2442,8 @@ struct MyProfileView: View {
     private func nextProfileTrainingFromCatalog()
         -> TrainingData? {
 
-        let savedAssignments =
-            firestoreBranchAssignments
-                .isEmpty
-                ? RegistrationFormState
-                    .BranchAssignmentsCodec
-                    .decode(
-                        UserDefaults.standard.string(
-                            forKey:
-                                RegistrationFormState
-                                    .BranchAssignmentsCodec
-                                    .preferenceKey
-                        )
-                    )
-                : firestoreBranchAssignments
-
-        let cleanAssignments =
-            RegistrationFormState
-                .BranchAssignmentsCodec
-                .sanitized(
-                    savedAssignments
-                )
+        let assignments = currentProfileAssignments
+        let cleanAssignments = assignments ?? []
 
         /*
          * כל זוג סניף-קבוצה נבדק בנפרד.
@@ -2675,14 +2474,12 @@ struct MyProfileView: View {
                     $0.date < $1.date
                 }
 
-        if let first =
-            assignedTrainings.first {
+            if assignments != nil {
+                return assignedTrainings.first
+            }
 
-            return first
-        }
-
-        /*
-         * fallback למשתמש ישן שאין לו עדיין
+            /*
+             * fallback למשתמש ישן שאין לו עדיין
          * BranchAssignment.
          */
         let branchValue =

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import FirebaseFirestore
 import FirebaseFunctions
 
@@ -6,6 +7,8 @@ struct AdminUsersView: View {
 
     @Environment(\.colorScheme)
     private var colorScheme
+
+    @ObservedObject private var demoPrivacy = DemoPrivacy.shared
 
     @State private var users: [AdminUser] = []
     @State private var filteredUsers: [AdminUser] = []
@@ -70,9 +73,12 @@ struct AdminUsersView: View {
 
     @State private var searchText: String = ""
     @State private var selectedRole: UserRoleFilter = .all
+    @State private var filtersExpanded = false
     @State private var accessUser: AdminUser?
+    @State private var selectedAccessType = "trainee"
     @State private var isSavingUserAccess = false
-    @State private var showUserAccessSaveError = false
+    @State private var userAccessSaveError: String?
+    @State private var showUserAccessSaved = false
 
     @State private var selectedGender: AdminGenderFilter = .all
     @State private var selectedRegion: String? = nil
@@ -82,6 +88,8 @@ struct AdminUsersView: View {
     @State private var loading = true
     @State private var errorMessage: String? = nil
     @State private var unlikeQuestions: [AssistantFeedbackQuestion] = []
+    @State private var usersPdfShare: AdminUsersPdfShare?
+    @State private var showUsersPdfError = false
 
     @AppStorage("kmi_app_language") private var kmiAppLanguage: String = ""
     @AppStorage("app_language") private var appLanguage: String = ""
@@ -125,16 +133,17 @@ struct AdminUsersView: View {
         isEnglish ? en : he
     }
 
-    private func roleTextForUi(_ role: String) -> String {
-        if AdminUser.isAdminRole(role) {
-            return tr("מנהל", "Admin")
-        }
-
-        if AdminUser.isCoachRole(role) {
+    private func accessTextForUi(_ accessType: String?) -> String {
+        switch accessType?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "trainee":
+            return tr("מתאמן", "Trainee")
+        case "coach":
             return tr("מאמן", "Coach")
+        case "both":
+            return tr("מתאמן ומאמן", "Trainee & Coach")
+        default:
+            return tr("הרשאה טרם הוגדרה", "Access not configured")
         }
-
-        return tr("מתאמן", "Trainee")
     }
 
     private var normalizedSearchText: String {
@@ -215,6 +224,11 @@ struct AdminUsersView: View {
                     } else {
                         usersSectionsList
                     }
+
+                    if !demoPrivacy.isEnabled, !unlikeQuestions.isEmpty {
+                        unlikeQuestionsCard
+                            .padding(.horizontal, 14)
+                    }
                 }
                 .padding(.top, 8)
                 .padding(.bottom, 24)
@@ -227,39 +241,170 @@ struct AdminUsersView: View {
         .onChange(of: searchText) { _, _ in
             applyFilter()
         }
-        .confirmationDialog(
-            accessUser?.fullName ?? tr("שינוי הרשאה", "Change access"),
-            isPresented: Binding(
-                get: { accessUser != nil },
-                set: { if !$0 { accessUser = nil } }
-            ),
-            titleVisibility: .visible,
-            presenting: accessUser
-        ) { user in
-            Button(tr("מתאמן", "Trainee")) {
-                Task { await saveUserAccess(user, accessType: "trainee") }
-            }
-            Button(tr("מאמן", "Coach")) {
-                Task { await saveUserAccess(user, accessType: "coach") }
-            }
-            Button(tr("מתאמן + מאמן", "Trainee + Coach")) {
-                Task { await saveUserAccess(user, accessType: "both") }
-            }
-            Button(tr("ביטול", "Cancel"), role: .cancel) {}
+        .sheet(item: $accessUser) { user in
+            userAccessSheet(user)
+        }
+        .sheet(item: $usersPdfShare) { report in
+            AdminUsersPdfShareSheet(url: report.url)
         }
         .alert(
-            tr("שמירת הרשאה נכשלה", "Unable to save access"),
-            isPresented: $showUserAccessSaveError
+            tr("לא ניתן ליצור את הדוח", "Unable to create the report"),
+            isPresented: $showUsersPdfError
         ) {
             Button(tr("אישור", "OK"), role: .cancel) {}
-        } message: {
-            Text(
-                tr(
-                    "בדוק את החיבור ואת הרשאת המנהל ונסה שוב.",
-                    "Check your connection and administrator access, then try again."
-                )
-            )
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if showUserAccessSaved {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .resizable()
+                        .scaledToFit()
+                        .kmiIconSize(.small)
+                        .foregroundStyle(Color.green)
+                        .accessibilityHidden(true)
+
+                    Text(
+                        tr(
+                            "הרשאת המשתמש נשמרה",
+                            "User access saved"
+                        )
+                    )
+                    .kmiTypography(.body)
+                    .foregroundStyle(primaryTextColor)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button {
+                        showUserAccessSaved = false
+                    } label: {
+                        Image(systemName: "xmark")
+                            .resizable()
+                            .scaledToFit()
+                            .kmiIconSize(.tiny)
+                            .foregroundStyle(fieldIconColor)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(tr("סגור הודעה", "Dismiss message"))
+                }
+                .padding(.leading, 12)
+                .background(panelColor, in: RoundedRectangle(cornerRadius: 14))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14)
+                        .strokeBorder(borderColor, lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .environment(\.layoutDirection, screenLayoutDirection)
+            }
+        }
+    }
+
+    private func displayName(for user: AdminUser) -> String {
+        guard demoPrivacy.isEnabled else {
+            return user.fullName
+        }
+
+        return TraineeDisplayNameMapper.displayName(
+            realName: user.fullName,
+            stableKey: user.id,
+            demoIndex: users.firstIndex { $0.id == user.id },
+            isEnglish: isEnglish
+        )
+    }
+
+    private func userAccessSheet(_ user: AdminUser) -> some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(tr("ניהול הרשאת משתמש", "Manage user access"))
+                        .kmiTypography(.sectionTitle)
+                        .foregroundStyle(primaryTextColor)
+                        .accessibilityAddTraits(.isHeader)
+
+                    Text(displayName(for: user))
+                        .kmiTypography(.body)
+                        .foregroundStyle(secondaryTextColor)
+
+                    userAccessOption("trainee", title: tr("מתאמן בלבד", "Trainee only"))
+                    userAccessOption("coach", title: tr("מאמן בלבד", "Coach only"))
+                    userAccessOption("both", title: tr("מתאמן ומאמן", "Trainee and coach"))
+
+                    if let userAccessSaveError {
+                        Text(userAccessSaveError)
+                            .kmiTypography(.caption)
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20)
+            }
+
+            Divider()
+
+            VStack(spacing: 6) {
+                Button {
+                    let accessType = selectedAccessType
+                    Task { await saveUserAccess(user, accessType: accessType) }
+                } label: {
+                    Text(
+                        isSavingUserAccess
+                            ? tr("שומר הרשאה…", "Saving access…")
+                            : tr("שמור הרשאה", "Save access")
+                    )
+                    .kmiTypography(.body)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isSavingUserAccess || user.accessTargetUid == nil)
+
+                Button(role: .cancel) {
+                    accessUser = nil
+                } label: {
+                    Text(tr("ביטול", "Cancel"))
+                        .kmiTypography(.body)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .disabled(isSavingUserAccess)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+        }
+        .background(panelColor)
+        .environment(\.layoutDirection, screenLayoutDirection)
+        .interactiveDismissDisabled(isSavingUserAccess)
+    }
+
+    private func userAccessOption(_ value: String, title: String) -> some View {
+        let isSelected = selectedAccessType == value
+
+        return Button {
+            selectedAccessType = value
+            userAccessSaveError = nil
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.small)
+                    .foregroundStyle(isSelected ? Color.accentColor : fieldIconColor)
+                    .accessibilityHidden(true)
+
+                Text(title)
+                    .kmiTypography(.body)
+                    .foregroundStyle(primaryTextColor)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .disabled(isSavingUserAccess)
     }
 
     private var loadingUsersState: some View {
@@ -366,41 +511,44 @@ struct AdminUsersView: View {
     private var usersSectionsList: some View {
 
         let adminUsers = filteredUsers.filter { AdminUser.isAdminRole($0.role) }
+        let regularUsers = filteredUsers.filter { !AdminUser.isAdminRole($0.role) }
 
-        let coachUsers = filteredUsers.filter { user in
-            !AdminUser.isAdminRole(user.role) &&
-            (user.isCoach || AdminUser.isCoachRole(user.role))
-        }
-
-        let traineeUsers = filteredUsers.filter { user in
-            !AdminUser.isAdminRole(user.role) &&
-            !(user.isCoach || AdminUser.isCoachRole(user.role))
-        }
+        let traineeUsers = regularUsers.filter { userCategory($0) == .trainee }
+        let coachUsers = regularUsers.filter { userCategory($0) == .coach }
+        let bothUsers = regularUsers.filter { userCategory($0) == .both }
 
         return VStack(spacing: 12) {
 
-            userSectionCard(
-                title: tr("משתמשים – מתאמנים (\(traineeUsers.count))", "Users – trainees (\(traineeUsers.count))"),
-                users: traineeUsers,
-                emptyMessage: tr("אין מתאמנים מתאימים לפילטרים.", "No trainees match the selected filters.")
-            )
+            if selectedRole == .all || selectedRole == .trainee {
+                userSectionCard(
+                    title: tr("משתמשים – מתאמנים (\(traineeUsers.count))", "Users – trainees (\(traineeUsers.count))"),
+                    users: traineeUsers,
+                    emptyMessage: tr("אין מתאמנים מתאימים לפילטרים.", "No trainees match the selected filters.")
+                )
+            }
 
-            userSectionCard(
-                title: tr("משתמשים – מאמנים (\(coachUsers.count))", "Users – coaches (\(coachUsers.count))"),
-                users: coachUsers,
-                emptyMessage: tr("אין מאמנים מתאימים לפילטרים.", "No coaches match the selected filters.")
-            )
+            if selectedRole == .all || selectedRole == .coach {
+                userSectionCard(
+                    title: tr("משתמשים – מאמנים (\(coachUsers.count))", "Users – coaches (\(coachUsers.count))"),
+                    users: coachUsers,
+                    emptyMessage: tr("אין מאמנים מתאימים לפילטרים.", "No coaches match the selected filters.")
+                )
+            }
 
-            if !adminUsers.isEmpty {
+            if selectedRole == .all || selectedRole == .both {
+                userSectionCard(
+                    title: tr("משתמשים – מתאמנים + מאמנים (\(bothUsers.count))", "Users – trainees + coaches (\(bothUsers.count))"),
+                    users: bothUsers,
+                    emptyMessage: tr("אין משתמשים בעלי הרשאה כפולה התואמים לסינון.", "No dual-access users match the selected filters.")
+                )
+            }
+
+            if selectedRole == .all && !adminUsers.isEmpty {
                 userSectionCard(
                     title: tr("משתמשים – מנהלים (\(adminUsers.count))", "Users – admins (\(adminUsers.count))"),
                     users: adminUsers,
                     emptyMessage: tr("אין מנהלים מתאימים לפילטרים.", "No admins match the selected filters.")
                 )
-            }
-
-            if !unlikeQuestions.isEmpty {
-                unlikeQuestionsCard
             }
         }
         .padding(.horizontal, 14)
@@ -442,30 +590,77 @@ struct AdminUsersView: View {
             } else {
                 LazyVStack(spacing: 8) {
                     ForEach(users) { user in
-                        VStack(alignment: .leading, spacing: 4) {
-                            NavigationLink {
-                                AdminUserDetailsView(user: user)
-                            } label: {
+                        VStack(spacing: 0) {
+                            if demoPrivacy.isEnabled {
                                 userRow(user)
+                            } else {
+                                NavigationLink {
+                                    AdminUserDetailsView(user: user)
+                                } label: {
+                                    userRow(user)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
 
-                            Button(tr("שינוי הרשאה", "Change access")) {
-                                accessUser = user
-                            }
-                            .disabled(isSavingUserAccess || user.accessTargetUid == nil)
+                            Divider()
+                                .padding(.horizontal, 12)
 
-                            if user.accessTargetUid == nil {
-                                Text(
-                                    tr(
-                                        "לא ניתן לאמת את מזהה החשבון לשינוי הרשאה.",
-                                        "The account ID could not be verified for an access change."
+                            VStack(spacing: 4) {
+                                Button {
+                                    openUserAccess(user)
+                                } label: {
+                                    Text(tr("שינוי הרשאה", "Change access"))
+                                        .kmiTypography(.body)
+                                        .frame(
+                                            maxWidth: .infinity,
+                                            alignment: screenFrameAlignment
+                                        )
+                                        .frame(minHeight: 44)
+                                        .contentShape(Rectangle())
+                                }
+                                .disabled(isSavingUserAccess || user.accessTargetUid == nil)
+
+                                if user.accessTargetUid == nil {
+                                    Text(
+                                        tr(
+                                            "לא ניתן לאמת את מזהה החשבון לשינוי הרשאה.",
+                                            "The account ID could not be verified for an access change."
+                                        )
                                     )
-                                )
-                                .kmiTypography(.caption)
-                                .foregroundStyle(.secondary)
+                                    .kmiTypography(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(screenTextAlignment)
+                                    .frame(
+                                        maxWidth: .infinity,
+                                        alignment: screenFrameAlignment
+                                    )
+                                    .padding(.bottom, 8)
+                                }
                             }
+                            .padding(.horizontal, 12)
                         }
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(fieldColor)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .strokeBorder(borderColor, lineWidth: 1)
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .strokeBorder(
+                                            userBeltAccentColor(user).opacity(0.35),
+                                            lineWidth: 1
+                                        )
+                                }
+                                .allowsHitTesting(false)
+                        }
+                        .shadow(
+                            color: Color.black.opacity(isDarkMode ? 0.14 : 0.08),
+                            radius: 7,
+                            x: 0,
+                            y: 3
+                        )
                     }
                 }
             }
@@ -654,6 +849,27 @@ struct AdminUsersView: View {
             )
             .multilineTextAlignment(screenTextAlignment)
             .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                exportUsersPdf()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "square.and.arrow.up")
+                        .resizable()
+                        .scaledToFit()
+                        .kmiIconSize(.small)
+                        .accessibilityHidden(true)
+
+                    Text(tr("שתף PDF", "Share PDF"))
+                        .kmiTypography(.body)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .disabled(loading || filteredUsers.isEmpty)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .environment(\.layoutDirection, screenLayoutDirection)
         }
         .padding(.horizontal, 16)
         .padding(.top, 10)
@@ -927,26 +1143,144 @@ struct AdminUsersView: View {
 
     // MARK: Advanced filters
 
+    private var activeFilterLabels: [String] {
+        var labels: [String] = []
+
+        switch selectedRole {
+        case .all:
+            break
+        case .trainee:
+            labels.append(tr("מתאמנים", "Trainees"))
+        case .coach:
+            labels.append(tr("מאמנים", "Coaches"))
+        case .both:
+            labels.append(tr("מתאמנים + מאמנים", "Trainees + Coaches"))
+        }
+
+        switch selectedGender {
+        case .all:
+            break
+        case .male:
+            labels.append(genderLabel("male"))
+        case .female:
+            labels.append(genderLabel("female"))
+        }
+
+        if let selectedRegion {
+            labels.append(selectedRegion)
+        }
+
+        if let selectedBelt {
+            labels.append(selectedBelt)
+        }
+
+        if let selectedAgeBucket {
+            labels.append(ageBucketLabel(selectedAgeBucket))
+        }
+
+        return labels
+    }
+
     private var advancedFiltersPanel: some View {
+        let filterLabels = activeFilterLabels
+
+        return advancedFiltersPanelContent(filterLabels: filterLabels)
+    }
+
+    private func advancedFiltersPanelContent(filterLabels: [String]) -> some View {
 
         VStack(alignment: isEnglish ? .leading : .trailing, spacing: 10) {
 
-            Text(
-                tr(
-                    "סינון משתמשים",
-                    "User filters"
-                )
-            )
-            .kmiTypography(.sectionTitle)
-            .foregroundStyle(primaryTextColor)
-            .frame(
-                maxWidth: .infinity,
-                alignment: screenFrameAlignment
-            )
-            .multilineTextAlignment(screenTextAlignment)
-            .fixedSize(horizontal: false, vertical: true)
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    filtersExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(
+                            filtersExpanded
+                                ? tr("הסתר מסננים", "Hide filters")
+                                : tr("פתח מסננים", "Show filters")
+                        )
+                        .kmiTypography(.sectionTitle)
+                        .foregroundStyle(primaryTextColor)
 
-            filterScrollRow {
+                        Text(
+                            filterLabels.isEmpty
+                                ? tr("אין מסננים פעילים", "No active filters")
+                                : filterLabels.joined(separator: " • ")
+                        )
+                        .kmiTypography(.caption)
+                        .foregroundStyle(
+                            filterLabels.isEmpty ? secondaryTextColor : Color.accentColor
+                        )
+                        .lineLimit(2)
+                    }
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                    Image(systemName: filtersExpanded ? "chevron.up" : "chevron.down")
+                        .resizable()
+                        .scaledToFit()
+                        .kmiIconSize(.tiny)
+                        .foregroundStyle(fieldIconColor)
+                        .accessibilityHidden(true)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .environment(\.layoutDirection, screenLayoutDirection)
+            .accessibilityValue(
+                filtersExpanded
+                    ? tr("פתוח", "Expanded")
+                    : tr("סגור", "Collapsed")
+            )
+
+            if filtersExpanded {
+                if !filterLabels.isEmpty {
+                    Button {
+                        resetFilterSelections()
+                        applyFilter()
+                    } label: {
+                        Text(tr("נקה את כל המסננים", "Clear all filters"))
+                            .kmiTypography(.body)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.bordered)
+                    .environment(\.layoutDirection, screenLayoutDirection)
+                }
+
+                advancedFilterRows
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(panelColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(borderColor, lineWidth: 1)
+                .allowsHitTesting(false)
+        )
+        .shadow(
+            color: Color.black.opacity(isDarkMode ? 0.12 : 0.07),
+            radius: 7,
+            x: 0,
+            y: 3
+        )
+        .padding(.horizontal, 14)
+    }
+
+    private var advancedFilterRows: some View {
+        VStack(alignment: isEnglish ? .leading : .trailing, spacing: 10) {
+            filterScrollRow(title: tr("הרשאה", "Access")) {
                 filterChip(
                     title: tr("כולם", "All"),
                     isSelected: selectedRole == .all
@@ -980,7 +1314,7 @@ struct AdminUsersView: View {
                 }
             }
 
-            filterScrollRow {
+            filterScrollRow(title: tr("מין", "Gender")) {
                 filterChip(
                     title: tr("כל המינים", "All genders"),
                     isSelected: selectedGender == .all
@@ -1006,7 +1340,7 @@ struct AdminUsersView: View {
                 }
             }
 
-            filterScrollRow {
+            filterScrollRow(title: tr("אזור", "Region")) {
                 filterChip(
                     title: tr("כל האזורים", "All regions"),
                     isSelected: selectedRegion == nil
@@ -1026,7 +1360,7 @@ struct AdminUsersView: View {
                 }
             }
 
-            filterScrollRow {
+            filterScrollRow(title: tr("חגורה", "Belt")) {
                 filterChip(
                     title: tr("כל החגורות", "All belts"),
                     isSelected: selectedBelt == nil
@@ -1046,7 +1380,7 @@ struct AdminUsersView: View {
                 }
             }
 
-            filterScrollRow {
+            filterScrollRow(title: tr("קבוצת גיל", "Age group")) {
                 filterChip(
                     title: tr("כל הגילאים", "All ages"),
                     isSelected: selectedAgeBucket == nil
@@ -1066,42 +1400,26 @@ struct AdminUsersView: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(
-                cornerRadius: 22,
-                style: .continuous
-            )
-            .fill(panelColor)
-        )
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 22,
-                style: .continuous
-            )
-            .stroke(borderColor, lineWidth: 1)
-        )
-        .shadow(
-            color: Color.black.opacity(
-                isDarkMode ? 0.12 : 0.07
-            ),
-            radius: 7,
-            x: 0,
-            y: 3
-        )
-        .padding(.horizontal, 14)
     }
 
     private func filterScrollRow<Content: View>(
+        title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 7) {
-                content()
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .kmiTypography(.caption)
+                .foregroundStyle(sectionTitleColor)
+                .accessibilityAddTraits(.isHeader)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    content()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: screenFrameAlignment)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .environment(\.layoutDirection, screenLayoutDirection)
     }
 
@@ -1537,8 +1855,9 @@ struct AdminUsersView: View {
     private func userRow(
         _ user: AdminUser
     ) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             if isEnglish {
+                userBeltAccent(user)
                 userTexts(user)
 
                 Image(systemName: rowChevronName)
@@ -1557,6 +1876,7 @@ struct AdminUsersView: View {
                     .frame(width: 18)
 
                 userTexts(user)
+                userBeltAccent(user)
             }
         }
         .environment(
@@ -1569,34 +1889,63 @@ struct AdminUsersView: View {
         )
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
-            )
-            .fill(fieldColor)
-        )
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
-            )
-            .stroke(borderColor, lineWidth: 1)
-        )
-        .shadow(
-            color: Color.black.opacity(
-                isDarkMode ? 0.14 : 0.08
-            ),
-            radius: 7,
-            x: 0,
-            y: 3
-        )
-        .contentShape(
-            RoundedRectangle(
-                cornerRadius: 16,
-                style: .continuous
-            )
-        )
+        .contentShape(Rectangle())
+    }
+
+    private func userBeltAccentColor(_ user: AdminUser) -> Color {
+        let beltId = user.currentBeltId
+        return beltLabel(beltId).isEmpty ? fieldIconColor : beltColor(beltId)
+    }
+
+    private func userBeltAccent(_ user: AdminUser) -> some View {
+        Capsule()
+            .fill(userBeltAccentColor(user))
+            .frame(width: 4, height: 54)
+            .overlay {
+                Capsule()
+                    .strokeBorder(fieldIconColor.opacity(0.45), lineWidth: 1)
+            }
+            .accessibilityHidden(true)
+    }
+
+    private func userAvatar(displayName: String, accentColor: Color) -> some View {
+        let initials = displayName
+            .split(whereSeparator: { $0.isWhitespace })
+            .prefix(2)
+            .compactMap { $0.first }
+            .filter { $0.isLetter || $0.isNumber }
+
+        return ZStack {
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [accentColor, accentColor.opacity(0.75), fieldColor],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 19
+                    )
+                )
+
+            Circle()
+                .fill(Color.black.opacity(0.55))
+
+            if initials.isEmpty {
+                Image(systemName: "person.fill")
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.tiny)
+            } else {
+                Text(String(initials))
+                    .kmiTypography(.caption)
+                    .fontWeight(.bold)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+                    .padding(.horizontal, 4)
+            }
+        }
+        .foregroundStyle(Color.white)
+        .frame(width: 34, height: 34)
+        .accessibilityHidden(true)
     }
 
     private func userTexts(
@@ -1607,45 +1956,40 @@ struct AdminUsersView: View {
             spacing: 6
         ) {
             HStack(spacing: 8) {
-                if isEnglish {
-                    Text(user.fullName)
-                        .kmiTypography(.cardTitle)
-                        .foregroundStyle(primaryTextColor)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.75)
-                        .multilineTextAlignment(.leading)
+                let name = displayName(for: user)
 
-                    roleBadge(user.role)
+                Text(name)
+                    .kmiTypography(.cardTitle)
+                    .foregroundStyle(primaryTextColor)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.75)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Spacer(minLength: 0)
+                userAvatar(
+                    displayName: name,
+                    accentColor: userBeltAccentColor(user)
+                )
+            }
+            .environment(\.layoutDirection, screenLayoutDirection)
 
-                } else {
-                    Spacer(minLength: 0)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    roleBadge(user)
+                    activityBadge(user)
+                }
+                .fixedSize(horizontal: true, vertical: false)
 
-                    roleBadge(user.role)
-
-                    Text(user.fullName)
-                        .kmiTypography(.cardTitle)
-                        .foregroundStyle(primaryTextColor)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.75)
-                        .multilineTextAlignment(.trailing)
+                VStack(alignment: .leading, spacing: 4) {
+                    roleBadge(user)
+                    activityBadge(user)
                 }
             }
-            .environment(
-                \.layoutDirection,
-                .leftToRight
-            )
-            .frame(
-                maxWidth: .infinity,
-                alignment: isEnglish ? .leading : .trailing
-            )
+            .frame(maxWidth: .infinity, alignment: isEnglish ? .leading : .trailing)
+            .environment(\.layoutDirection, screenLayoutDirection)
 
-            if !user.email
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-                .isEmpty {
+            if !demoPrivacy.isEnabled,
+               !user.email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
 
                 Text(user.email)
                     .kmiTypography(.secondary)
@@ -1661,11 +2005,8 @@ struct AdminUsersView: View {
                     .minimumScaleFactor(0.75)
             }
 
-            if !user.phone
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-                .isEmpty {
+            if !demoPrivacy.isEnabled,
+               !user.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
 
                 Text(
                     isEnglish
@@ -1732,17 +2073,22 @@ struct AdminUsersView: View {
     }
 
     private func roleBadge(
-        _ role: String
+        _ user: AdminUser
     ) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: roleIcon(role))
+        let access = user.accessType?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let badgeRole = access == "both" ? "coach" : (access ?? user.role)
+
+        return HStack(spacing: 5) {
+            Image(systemName: roleIcon(badgeRole))
                 .resizable()
                 .scaledToFit()
                 .kmiIconSize(.tiny)
 
-            Text(roleTextForUi(role))
+            Text(accessTextForUi(access))
                 .kmiTypography(.caption)
-                .lineLimit(1)
+                .lineLimit(2)
                 .minimumScaleFactor(0.72)
         }
         .foregroundStyle(Color.white)
@@ -1750,7 +2096,7 @@ struct AdminUsersView: View {
         .padding(.vertical, 6)
         .background(
             Capsule()
-                .fill(roleColor(role))
+                .fill(roleColor(badgeRole))
         )
         .overlay(
             Capsule()
@@ -1759,10 +2105,7 @@ struct AdminUsersView: View {
                     lineWidth: 1
                 )
         )
-        .fixedSize(
-            horizontal: true,
-            vertical: false
-        )
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func roleIcon(_ role: String) -> String {
@@ -1787,6 +2130,36 @@ struct AdminUsersView: View {
         }
 
         return Color.green.opacity(0.88)
+    }
+
+    private func activityBadge(_ user: AdminUser) -> some View {
+        let nowMillis = Int64(Date().timeIntervalSince1970 * 1_000)
+        let activeWindowMillis: Int64 = 30 * 24 * 60 * 60 * 1_000
+        let activeFromMillis = nowMillis - activeWindowMillis
+
+        let isActive = user.lastSeenAtMillis.map {
+            (activeFromMillis...nowMillis).contains($0)
+        } ?? false
+
+        let color: Color = isActive ? .green : .red
+        let label = isActive
+            ? tr("פעיל", "Active")
+            : tr("לא פעיל", "Inactive")
+
+        return HStack(spacing: 5) {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+                .accessibilityHidden(true)
+
+            Text(label)
+                .kmiTypography(.caption)
+                .foregroundStyle(primaryTextColor)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(color.opacity(0.14), in: Capsule())
     }
 
     private func userMetaLine(_ user: AdminUser) -> String {
@@ -1853,8 +2226,8 @@ struct AdminUsersView: View {
             clean.hasPrefix("f")
     }
 
-    private var beltDistributionItems: [BeltDistributionItem] {
-        let orderedIds = [
+    private var orderedBeltIds: [String] {
+        [
             "",
             "white",
             "yellow",
@@ -1873,14 +2246,16 @@ struct AdminUsersView: View {
             "black_dan_9",
             "black_dan_10"
         ]
+    }
 
+    private var beltDistributionItems: [BeltDistributionItem] {
         let rawCounts = Dictionary(
             grouping: users,
             by: { $0.currentBeltId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
         )
         .mapValues { $0.count }
 
-        return orderedIds.compactMap { rawId in
+        return orderedBeltIds.compactMap { rawId in
             let label = rawId.isEmpty
                 ? tr("ללא חגורה", "No belt")
                 : beltLabel(rawId)
@@ -2001,7 +2376,280 @@ struct AdminUsersView: View {
         }
     }
 
+    // MARK: PDF
+
+    @MainActor
+    private func exportUsersPdf() {
+        guard !loading, !filteredUsers.isEmpty else {
+            return
+        }
+
+        let page = CGRect(x: 0, y: 0, width: 595, height: 842)
+        let margin: CGFloat = 36
+        let contentWidth = page.width - margin * 2
+        let contentTop = KmiPdfHeader.CONTENT_TOP
+        let contentBottom = page.height - KmiPdfFooter.CONTENT_BOTTOM_PADDING
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = isEnglish ? .left : .right
+        paragraph.baseWritingDirection = isEnglish ? .leftToRight : .rightToLeft
+        paragraph.lineBreakMode = .byWordWrapping
+
+        let visibleUsers = filteredUsers.filter {
+            !AdminUser.isAdminRole($0.role)
+        }
+        let adminUsers = selectedRole == .all
+            ? filteredUsers.filter { AdminUser.isAdminRole($0.role) }
+            : []
+
+        let sections: [(title: String, users: [AdminUser])] = [
+            (tr("מתאמנים", "Trainees"), visibleUsers.filter { userCategory($0) == .trainee }),
+            (tr("מאמנים", "Coaches"), visibleUsers.filter { userCategory($0) == .coach }),
+            (tr("מתאמנים + מאמנים", "Trainees + Coaches"), visibleUsers.filter { userCategory($0) == .both }),
+            (tr("מנהלים", "Admins"), adminUsers)
+        ]
+
+        let reportUsers = visibleUsers + adminUsers
+        let userCount = reportUsers.count
+        let summary = tr("משתמשים בדוח: \(userCount)", "Users in report: \(userCount)")
+        let isDemo = demoPrivacy.isEnabled
+
+        let branches = reportUsers.flatMap { user in
+            user.branches + [user.branch]
+        }
+        let branchCount = Set(branches.map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }.filter { !$0.isEmpty && $0 != "-" && $0 != "—" }).count
+
+        let ages = reportUsers.compactMap(\.age)
+        let averageAge = ages.averageValue.map {
+            $0.formatted(.number.precision(.fractionLength(1)))
+        } ?? "—"
+        let appOpens = reportUsers.reduce(0) { $0 + $1.appOpenCount }
+        let usersWithAppOpens = reportUsers.count { $0.appOpenCount > 0 }
+
+        let beltCountsById = Dictionary(grouping: reportUsers) { user in
+            user.currentBeltId.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.mapValues(\.count)
+
+        let filters = activeFilterLabels
+
+        let data = UIGraphicsPDFRenderer(bounds: page).pdfData { renderer in
+            let graphics = renderer.cgContext
+            var pageNumber = 0
+            var y = contentTop
+
+            func drawFooter() {
+                KmiPdfFooter.draw(
+                    context: graphics,
+                    pageWidth: page.width,
+                    pageHeight: page.height,
+                    pageNumber: pageNumber,
+                    isEnglish: isEnglish
+                )
+            }
+
+            func beginPage() {
+                if pageNumber > 0 {
+                    drawFooter()
+                }
+
+                renderer.beginPage()
+                pageNumber += 1
+
+                KmiPdfHeader.draw(
+                    context: graphics,
+                    pageWidth: page.width,
+                    isEnglish: isEnglish,
+                    titleHebrew: "דוח ניהול משתמשים",
+                    titleEnglish: "User Management Report",
+                    subtitleHebrew: summary,
+                    subtitleEnglish: summary
+                )
+
+                y = contentTop
+            }
+
+            func drawText(_ text: String, font: UIFont, spacing: CGFloat) {
+                let attributed = NSAttributedString(
+                    string: text,
+                    attributes: [
+                        .font: font,
+                        .foregroundColor: UIColor.black,
+                        .paragraphStyle: paragraph
+                    ]
+                )
+
+                let options: NSStringDrawingOptions = [
+                    .usesLineFragmentOrigin,
+                    .usesFontLeading
+                ]
+                let bounds = attributed.boundingRect(
+                    with: CGSize(width: contentWidth, height: .greatestFiniteMagnitude),
+                    options: options,
+                    context: nil
+                )
+                let maxHeight = contentBottom - contentTop - spacing
+                let height = min(ceil(bounds.height) + 2, maxHeight)
+
+                if y + height + spacing > contentBottom {
+                    beginPage()
+                }
+
+                attributed.draw(
+                    with: CGRect(x: margin, y: y, width: contentWidth, height: height),
+                    options: options.union(.truncatesLastVisibleLine),
+                    context: nil
+                )
+                y += height + spacing
+            }
+
+            func drawSectionTitle(_ title: String) {
+                if y + 70 > contentBottom {
+                    beginPage()
+                }
+
+                drawText(title, font: .boldSystemFont(ofSize: 15), spacing: 8)
+            }
+
+            beginPage()
+
+            if !isDemo {
+                drawSectionTitle(tr("סיכום", "Summary"))
+
+                let summaryLines = [
+                    tr("כל המשתמשים: \(users.count)", "Total users: \(users.count)"),
+                    tr("משתמשים מסוננים: \(userCount)", "Filtered users: \(userCount)"),
+                    tr("סניפים: \(branchCount)", "Branches: \(branchCount)"),
+                    tr("גיל ממוצע: \(averageAge)", "Average age: \(averageAge)"),
+                    tr("פתיחות אפליקציה: \(appOpens)", "App opens: \(appOpens)"),
+                    tr(
+                        "משתמשים שפתחו את האפליקציה: \(usersWithAppOpens)",
+                        "Users who opened the app: \(usersWithAppOpens)"
+                    )
+                ]
+
+                drawText(
+                    summaryLines.joined(separator: "\n"),
+                    font: .systemFont(ofSize: 11),
+                    spacing: 14
+                )
+
+                drawSectionTitle(tr("מסננים פעילים", "Active filters"))
+                drawText(
+                    filters.isEmpty
+                        ? tr("אין מסננים פעילים", "No active filters")
+                        : filters.joined(separator: " • "),
+                    font: .systemFont(ofSize: 11),
+                    spacing: 14
+                )
+
+                drawSectionTitle(tr("חלוקה לפי חגורה", "Belt distribution"))
+                for beltId in orderedBeltIds {
+                    let label = beltId.isEmpty
+                        ? tr("ללא חגורה", "No belt")
+                        : beltLabel(beltId)
+                    let count = beltCountsById[beltId, default: 0]
+
+                    drawText(
+                        "\(label) — \(count)",
+                        font: .systemFont(ofSize: 11),
+                        spacing: 6
+                    )
+                }
+            }
+
+            for section in sections where !section.users.isEmpty {
+                if y + 70 > contentBottom {
+                    beginPage()
+                }
+
+                drawText(
+                    "\(section.title) (\(section.users.count))",
+                    font: .boldSystemFont(ofSize: 15),
+                    spacing: 8
+                )
+
+                for user in section.users {
+                    let name = displayName(for: user)
+                    let text = isDemo
+                        ? name
+                        : [
+                            name,
+                            accessTextForUi(user.accessType),
+                            user.branchGroupLine(isEnglish: isEnglish),
+                            userMetaLine(user)
+                        ].joined(separator: "\n")
+
+                    drawText(text, font: .systemFont(ofSize: 11), spacing: 10)
+                }
+            }
+
+            if !isDemo, !unlikeQuestions.isEmpty {
+                drawSectionTitle(
+                    tr("שאלות שסומנו UNLIKE", "Questions marked UNLIKE")
+                )
+
+                for (index, item) in unlikeQuestions.prefix(20).enumerated() {
+                    drawText(
+                        "\(index + 1). \(item.question)",
+                        font: .boldSystemFont(ofSize: 11),
+                        spacing: 5
+                    )
+
+                    let answer = item.answer.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+                    if !answer.isEmpty {
+                        drawText(
+                            answer,
+                            font: .systemFont(ofSize: 11),
+                            spacing: 10
+                        )
+                    }
+                }
+            }
+
+            drawFooter()
+        }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AdminUsersReports", isDirectory: true)
+        let filename = tr("דוח ניהול משתמשים.pdf", "User Management Report.pdf")
+        let url = directory.appendingPathComponent(filename)
+
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+            try data.write(to: url, options: .atomic)
+            usersPdfShare = AdminUsersPdfShare(url: url)
+        } catch {
+            showUsersPdfError = true
+        }
+    }
+
     // MARK: Firestore
+
+    private func openUserAccess(_ user: AdminUser) {
+        guard !isSavingUserAccess, user.accessTargetUid != nil else {
+            return
+        }
+
+        switch userCategory(user) {
+        case .coach:
+            selectedAccessType = "coach"
+        case .both:
+            selectedAccessType = "both"
+        case .all, .trainee:
+            selectedAccessType = "trainee"
+        }
+
+        userAccessSaveError = nil
+        accessUser = user
+    }
 
     @MainActor
     private func saveUserAccess(_ user: AdminUser, accessType: String) async {
@@ -2010,7 +2658,14 @@ struct AdminUsersView: View {
         }
 
         isSavingUserAccess = true
+        userAccessSaveError = nil
+        showUserAccessSaved = false
         defer { isSavingUserAccess = false }
+
+        let saveError = tr(
+            "שמירת ההרשאה נכשלה. בדוק את החיבור והרשאות המנהל ונסה שוב.",
+            "Unable to save access. Check your connection and administrator access, then try again."
+        )
 
         do {
             let result = try await Functions.functions(region: "europe-west1")
@@ -2019,13 +2674,15 @@ struct AdminUsersView: View {
 
             guard let response = result.data as? [String: Any],
                   response["accepted"] as? Bool == true else {
-                showUserAccessSaveError = true
+                userAccessSaveError = saveError
                 return
             }
 
+            accessUser = nil
+            showUserAccessSaved = true
             loadUsers()
         } catch {
-            showUserAccessSaveError = true
+            userAccessSaveError = saveError
         }
     }
 
@@ -2080,7 +2737,7 @@ struct AdminUsersView: View {
 
                 var mergedUsers: [AdminUser] = []
 
-                for user in rawUsers {
+                for user in AdminUser.linkingLegacyRecords(rawUsers) {
                     let matchingIndices = mergedUsers.indices.filter {
                         mergedUsers[$0].sharesIdentity(with: user)
                     }
@@ -2134,7 +2791,7 @@ struct AdminUsersView: View {
                     mergedUsers.append(mergedUser)
                 }
 
-                users = mergedUsers.sorted {
+                users = AdminUser.mergingMatchingContacts(mergedUsers).sorted {
                     $0.fullName.localizedCaseInsensitiveCompare(
                         $1.fullName
                     ) == .orderedAscending
@@ -2253,7 +2910,7 @@ struct AdminUsersView: View {
                 user.currentBeltId.localizedCaseInsensitiveContains(query) ||
                 beltLabel(user.currentBeltId).localizedCaseInsensitiveContains(query) ||
                 user.role.localizedCaseInsensitiveContains(query) ||
-                roleTextForUi(user.role).localizedCaseInsensitiveContains(query) ||
+                accessTextForUi(user.accessType).localizedCaseInsensitiveContains(query) ||
                 user.branchGroupLine(isEnglish: isEnglish).localizedCaseInsensitiveContains(query)
             }
         }
@@ -2263,13 +2920,38 @@ struct AdminUsersView: View {
 
     private func clearAllFilters() {
         searchText = ""
+        resetFilterSelections()
+        applyFilter()
+    }
+
+    private func resetFilterSelections() {
         selectedRole = .all
         selectedGender = .all
         selectedRegion = nil
         selectedBelt = nil
         selectedAgeBucket = nil
-        applyFilter()
     }
+}
+
+private struct AdminUsersPdfShare: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+private struct AdminUsersPdfShareSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(
+            activityItems: [url],
+            applicationActivities: nil
+        )
+    }
+
+    func updateUIViewController(
+        _ uiViewController: UIActivityViewController,
+        context: Context
+    ) {}
 }
 
 enum UserRoleFilter {
@@ -2551,7 +3233,12 @@ struct AdminUser: Identifiable {
 
         let uidField = stringValue(
             "uid",
-            "userId"
+            "userId",
+            "user_id",
+            "firebaseUid",
+            "firebase_uid",
+            "authUid",
+            "auth_uid"
         )
 
         let branchesArray = stringListValue(
@@ -2763,6 +3450,128 @@ struct AdminUser: Identifiable {
         )
     }
 
+    static func linkingLegacyRecords(_ users: [AdminUser]) -> [AdminUser] {
+        let verifiedUsers = users.filter { $0.accessTargetUid != nil }
+        let legacyUsers = users.filter { $0.accessTargetUid == nil }
+
+        let verifiedByIdentity = Dictionary(grouping: verifiedUsers) {
+            $0.legacyDisplayIdentity
+        }
+        let legacyByIdentity = Dictionary(grouping: legacyUsers) {
+            $0.legacyDisplayIdentity
+        }
+
+        var linkedLegacyIds = Set<String>()
+
+        let combinedVerifiedUsers = verifiedUsers.map { verified in
+            guard let uid = verified.accessTargetUid,
+                  let identity = verified.legacyDisplayIdentity,
+                  verifiedByIdentity[identity]?.count == 1,
+                  let candidates = legacyByIdentity[identity] else {
+                return verified
+            }
+
+            let matches = candidates.filter { legacy in
+                let declaredUid = legacy.uidField
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                return declaredUid.isEmpty || declaredUid == uid
+            }
+
+            guard !matches.isEmpty else {
+                return verified
+            }
+
+            linkedLegacyIds.formUnion(matches.map(\.id))
+
+            var combined = matches.reduce(verified) { result, legacy in
+                merged(existing: result, incoming: legacy)
+            }
+            combined.accessTargetUid = uid
+            combined.accessType = verified.accessType
+            return combined
+        }
+
+        return combinedVerifiedUsers + legacyUsers.filter {
+            !linkedLegacyIds.contains($0.id)
+        }
+    }
+
+    private var legacyDisplayIdentity: String? {
+        let name = fullName
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+            .lowercased()
+
+        let email = normalizedMergeEmail
+        let phone = normalizedMergePhone
+
+        guard !name.isEmpty,
+              name != "-",
+              !name.hasPrefix("unknown user"),
+              !email.isEmpty || !phone.isEmpty else {
+            return nil
+        }
+
+        return "\(name)|\(email)|\(phone)"
+    }
+
+    static func mergingMatchingContacts(_ users: [AdminUser]) -> [AdminUser] {
+        let groups = Dictionary(grouping: users) { user in
+            let email = user.normalizedMergeEmail
+            let phone = user.normalizedMergePhone
+
+            guard !email.isEmpty, !phone.isEmpty else {
+                return "document:\(user.id)"
+            }
+
+            return "contact:\(email)|\(phone)"
+        }
+
+        return groups.values.flatMap { records -> [AdminUser] in
+            guard records.count > 1, let first = records.first else {
+                return records
+            }
+
+            let verifiedUids = Set(records.compactMap { $0.accessTargetUid })
+
+            guard verifiedUids.count <= 1 else {
+                return records
+            }
+
+            let safeUid = verifiedUids.first
+
+            let primary = records.first { record in
+                record.accessTargetUid != nil && record.accessTargetUid == safeUid
+            } ?? first
+
+            var combined = records
+                .filter { $0.id != primary.id }
+                .reduce(primary) { result, record in
+                    merged(existing: result, incoming: record)
+                }
+
+            let explicitAccessTypes = Set(records.compactMap { record -> String? in
+                let value = record.accessType?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+
+                switch value {
+                case "trainee", "coach", "both":
+                    return value
+                default:
+                    return nil
+                }
+            })
+
+            combined.accessTargetUid = safeUid
+            combined.accessType = explicitAccessTypes.count == 1
+                ? explicitAccessTypes.first
+                : nil
+            return [combined]
+        }
+    }
+
     func branchGroupLine(isEnglish: Bool) -> String {
         let branchText = branch.trimmingCharacters(in: .whitespacesAndNewlines)
         let groupText = group.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2797,35 +3606,14 @@ struct AdminUser: Identifiable {
     }
 
     private var normalizedMergePhone: String {
-        var digits = phone.filter {
-            $0.isNumber
-        }
+        let digits = phone.filter { $0.isNumber }
 
         if digits.hasPrefix("00972") {
-            digits = String(
-                digits.dropFirst(5)
-            )
-
-        } else if digits.hasPrefix("972") {
-            digits = String(
-                digits.dropFirst(3)
-            )
-
-        } else if digits.hasPrefix("0") {
-            digits = String(
-                digits.dropFirst()
-            )
+            return "0" + String(digits.dropFirst(5))
         }
 
-        /*
-         * מספר סלולרי ישראלי ללא קידומת מדינה
-         * אמור להכיל תשע ספרות. לקיחת תשע הספרות
-         * האחרונות מאחדת 05X ו־+9725X.
-         */
-        if digits.count >= 9 {
-            digits = String(
-                digits.suffix(9)
-            )
+        if digits.hasPrefix("972") {
+            return "0" + String(digits.dropFirst(3))
         }
 
         return digits

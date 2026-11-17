@@ -70,6 +70,22 @@ final class ProgressViewModel: ObservableObject {
             ? cleanTopic
             : "\(cleanTopic)__\(cleanSubTopic)"
 
+        let statusTopicKey = subTopicTitle.map {
+            "\(topicTitle.trimmingCharacters(in: .whitespacesAndNewlines))__\($0.trimmingCharacters(in: .whitespacesAndNewlines))"
+        } ?? topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let statusItem = itemTitle
+            .replacingOccurrences(of: "\u{200F}", with: "")
+            .replacingOccurrences(of: "\u{200E}", with: "")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let statusID = "status_\(beltId)_\(statusTopicKey)_\(index)_\(statusItem)"
+        if let mark = defaults.string(forKey: "mark.\(statusID)") {
+            return mark == "mastered"
+        }
+
         let directKeys = [
             "exercise_\(beltId)_\(itemTitle)",
             "exercise_\(beltId)_\(cleanItem)",
@@ -87,25 +103,8 @@ final class ProgressViewModel: ObservableObject {
         ]
 
         for key in directKeys {
-            if defaults.bool(forKey: key) {
-                return true
-            }
-        }
-
-        let allValues = defaults.dictionaryRepresentation()
-
-        for entry in allValues {
-            guard let isDone = entry.value as? Bool, isDone == true else {
-                continue
-            }
-
-            let normalizedKey = progressKeySafePart(entry.key)
-
-            let containsBelt = normalizedKey.contains(beltId)
-            let containsItem = normalizedKey.contains(cleanItem)
-
-            if containsBelt && containsItem {
-                return true
+            if let savedValue = defaults.object(forKey: key) as? Bool {
+                return savedValue
             }
         }
 

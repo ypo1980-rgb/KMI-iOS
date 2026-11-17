@@ -263,8 +263,18 @@ final class HomeTrainingsViewModel: ObservableObject {
             return
         }
 
-        guard !region.isEmpty else {
-            statusMessage = isEnglish
+#if DEBUG
+let sourceSummary = trainingSources.map { "\($0.branch) → \($0.group)" }
+print(
+    "KMI_HOME_TRAINING_SOURCES",
+    "region:", region,
+    "explicitAssignments:", hasStoredAssignments,
+    "sources:", sourceSummary
+)
+#endif
+
+guard !region.isEmpty else {
+    statusMessage = isEnglish
                 ? "No region is configured for this user."
                 : "לא הוגדר אזור למשתמש"
             upcomingTrainings = []
@@ -324,6 +334,21 @@ final class HomeTrainingsViewModel: ObservableObject {
                     group: source.group,
                     count: 50
                 )
+
+            #if DEBUG
+            let scheduledCount = TrainingCatalogIOS.trainingsFor(
+                branch: source.branch,
+                group: source.group
+            ).count
+
+            print(
+                "KMI_HOME_TRAINING_LOOKUP",
+                "branch:", source.branch,
+                "group:", source.group,
+                "scheduled:", scheduledCount,
+                "upcoming:", matchingTrainings.count
+            )
+            #endif
 
             collectedTrainings += matchingTrainings.map { training in
                 (

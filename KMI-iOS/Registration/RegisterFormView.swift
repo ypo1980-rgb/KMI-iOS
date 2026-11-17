@@ -803,6 +803,7 @@ struct RegisterFormView: View {
 
                     applyRoleAssignmentDraft(for: role)
                     loadedProfileAssignmentsUID = uid
+                    applyLiveProfileAssignments()
                 }
 
                 isCheckingCoachAuthorization = false
@@ -964,6 +965,9 @@ struct RegisterFormView: View {
             }
             .onChange(of: s.branches) { _, newBranches in
                 handleBranchesChange(newBranches)
+            }
+            .onChange(of: RegistrationFormState.BranchAssignmentsCodec.encode(auth.userBranchAssignments)) { _, _ in
+                applyLiveProfileAssignments()
             }
             .onAppear {
                 handleInitialAppear()
@@ -2423,6 +2427,41 @@ struct RegisterFormView: View {
     ) -> [String: Set<String>] {
         Dictionary(grouping: assignments, by: \.branch)
             .mapValues { rows in Set(rows.flatMap(\.groups)) }
+    }
+
+    private func applyLiveProfileAssignments() {
+        guard isEditingProfile,
+              let uid = Auth.auth().currentUser?.uid,
+              auth.loadedProfileUID == uid,
+              loadedProfileAssignmentsUID == uid else {
+            return
+        }
+
+        let role = s.role
+        let key = role == .coach ? "coach" : "trainee"
+        guard auth.userRole == key else { return }
+
+        let rows = auth.userBranchAssignments.map { assignment -> [String: Any] in
+            ["branch": assignment.branch, "groups": assignment.groups]
+        }
+
+        let data: [String: Any] = [
+            "assignments": rows,
+            "activeBranch": auth.userBranch,
+            "activeGroup": auth.userGroup
+        ]
+
+        guard let draft = makeProfileAssignmentDraft(
+            from: data,
+            assignmentsKey: "assignments",
+            activeBranchKey: "activeBranch",
+            activeGroupKey: "activeGroup"
+        ) else {
+            return
+        }
+
+        roleAssignmentDrafts[key] = draft
+        applyRoleAssignmentDraft(for: role)
     }
 
     private func applyRoleAssignmentDraft(for role: UserRole) {

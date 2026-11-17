@@ -9,6 +9,39 @@ struct KmiExerciseCountStats:
 
 enum KmiExerciseCountProvider {
 
+    /// ספירת הכרטיסים במסך "תרגילים לפי חגורה", לפי עץ התרגילים של Android.
+    nonisolated static func byBeltCardExerciseCount(
+        belt: Belt,
+        topicTitle: String,
+        subTopicTitle: String? = nil
+    ) -> Int? {
+        let cleanTopic = topicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let subTopics = ContentRepo.shared.getSubTopicsFor(
+            belt: belt,
+            topicTitle: cleanTopic
+        )
+
+        if let subTopicTitle {
+            let cleanSubTopic = subTopicTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            return subTopics.first {
+                $0.title.trimmingCharacters(in: .whitespacesAndNewlines) == cleanSubTopic
+            }.map { countExercisesInSubTopicTree($0) }
+        }
+
+        return subTopics.reduce(0) { count, subTopic in
+            count + countExercisesInSubTopicTree(subTopic)
+        }
+    }
+
+    private nonisolated static func countExercisesInSubTopicTree(
+        _ subTopic: ContentRepo.SubTopic
+    ) -> Int {
+        subTopic.subTopics.reduce(subTopic.items.count) { count, child in
+            count + countExercisesInSubTopicTree(child)
+        }
+    }
+
     /// סופר תרגילים בחגורה לפי כללי הספירה של Android.
     nonisolated static func knownBeltExerciseCount(
         belt: Belt

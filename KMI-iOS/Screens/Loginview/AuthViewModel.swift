@@ -65,11 +65,17 @@ final class AuthViewModel: ObservableObject {
     @Published var registeredBelt: Belt? = nil
     @Published var nextBelt: Belt = BeltFlow.defaultBelt
 
-    #if canImport(FirebaseAuth)
-    private var handle: AuthStateDidChangeListenerHandle?
-    #endif
+#if canImport(FirebaseAuth)
+private var handle: AuthStateDidChangeListenerHandle?
+#endif
 
-    init() {
+#if canImport(FirebaseFirestore)
+private var trainingProfileListener: ListenerRegistration?
+private var observedTrainingProfileUID: String?
+private var lastTrainingProfileFields: [String: Any]?
+#endif
+
+init() {
         // לא מתחילים עם loading שחוסם את המסך הראשון.
         // ה־UI עולה מיד, והפרופיל נטען ברקע אחרי בדיקת Auth.
         isLoading = false
@@ -372,7 +378,18 @@ final class AuthViewModel: ObservableObject {
                      */
                     await self.loadUserProfile(uid: user.uid)
 
+                    #if canImport(FirebaseFirestore)
+                    if self.handle != nil,
+                       Auth.auth().currentUser?.uid == user.uid {
+                        self.startTrainingProfileListener(uid: user.uid)
+                    }
+                    #endif
+
                 } else {
+                    #if canImport(FirebaseFirestore)
+                    self.stopTrainingProfileListener()
+                    #endif
+
                     self.clearTrainingAssignmentsOnSignOut()
 
                     self.profileLoadRequestID = UUID()
@@ -406,6 +423,10 @@ final class AuthViewModel: ObservableObject {
     }
     
     func stop() {
+        #if canImport(FirebaseFirestore)
+        stopTrainingProfileListener()
+        #endif
+
         #if canImport(FirebaseAuth)
         if let handle {
             Auth.auth().removeStateDidChangeListener(handle)
@@ -2377,9 +2398,70 @@ do {
     #endif
 
 #if canImport(FirebaseFirestore)
+    private func trainingProfileFields(from data: [String: Any]) -> [String: Any] {
+        let keys: Set<String> = [
+            RegistrationFormState.BranchAssignmentsCodec.firestoreKey,
+            "coachSelectedBranchAssignments",
+            "traineeBranchAssignments",
+            "traineeActiveBranch", "traineeActiveGroup",
+            "region", "regions",
+            "branch", "branches", "active_branch", "activeBranch",
+            "group", "groups", "age_group", "ageGroup", "active_group", "activeGroup"
+        ]
+
+        return data.filter { keys.contains($0.key) }
+    }
+
+    private func startTrainingProfileListener(uid: String) {
+        guard observedTrainingProfileUID != uid else { return }
+
+        trainingProfileListener?.remove()
+        observedTrainingProfileUID = uid
+
+        trainingProfileListener = Firestore.firestore()
+            .collection("users")
+            .document(uid)
+            .addSnapshotListener(includeMetadataChanges: true) { [weak self] snapshot, _ in
+                guard let snapshot,
+                      !snapshot.metadata.isFromCache,
+                      !snapshot.metadata.hasPendingWrites,
+                      let data = snapshot.data() else {
+                    return
+                }
+
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          self.observedTrainingProfileUID == uid,
+                          Auth.auth().currentUser?.uid == uid else {
+                        return
+                    }
+
+                    let fields = self.trainingProfileFields(from: data)
+
+                    if let previous = self.lastTrainingProfileFields,
+                       NSDictionary(dictionary: previous).isEqual(to: fields) {
+                        return
+                    }
+
+                    await self.loadUserProfileFromFirestore(
+                        uid: uid,
+                        profileSnapshot: snapshot
+                    )
+                }
+            }
+    }
+
+    private func stopTrainingProfileListener() {
+        trainingProfileListener?.remove()
+        trainingProfileListener = nil
+        observedTrainingProfileUID = nil
+        lastTrainingProfileFields = nil
+    }
+
     private func loadUserProfileFromFirestore(
         uid: String,
-        requestedMode: String? = nil
+        requestedMode: String? = nil,
+        profileSnapshot: DocumentSnapshot? = nil
     ) async {
         guard Auth.auth().currentUser?.uid == uid else {
             return
@@ -2416,8 +2498,10 @@ do {
             let db = Firestore.firestore()
         let ref = db.collection("users").document(uid)
 
-        let snap: DocumentSnapshot
-            if #available(iOS 15.0, *) {
+            let snap: DocumentSnapshot
+            if let profileSnapshot {
+                snap = profileSnapshot
+            } else if #available(iOS 15.0, *) {
                 snap = try await ref.getDocument()
             } else {
                 snap = try await withCheckedThrowingContinuation { cont in
@@ -2557,6 +2641,32 @@ do {
                     ? "coach"
                     : "trainee"
 
+            let authorizedCoachAssignments: [RegistrationFormState.BranchAssignment]
+            if resolvedRole == "coach" {
+                let coachSnapshot = try await db.collection("authorizedCoaches")
+                    .document(uid)
+                    .getDocument()
+
+                guard !Task.isCancelled,
+                      profileLoadRequestID == requestID,
+                      Auth.auth().currentUser?.uid == uid else {
+                    return
+                }
+
+                let coachData = coachSnapshot.data() ?? [:]
+                if coachData["active"] as? Bool == true,
+                   coachData["accessRevokedByAdmin"] as? Bool != true,
+                   coachData["canOpenCoachDrawer"] as? Bool == true {
+                    let rawAssignments = coachData["coachBranchAssignments"] as? [Any] ?? []
+                    authorizedCoachAssignments = RegistrationFormState.BranchAssignmentsCodec
+                        .fromFirestoreList(rawAssignments)
+                } else {
+                    authorizedCoachAssignments = []
+                }
+            } else {
+                authorizedCoachAssignments = []
+            }
+
             let rawBelt = [
                 data["beltId"] as? String,
                 data["belt"] as? String,
@@ -2618,21 +2728,27 @@ do {
 
             let isCoachMode = resolvedRole == "coach"
             let traineeAssignmentsKey = "traineeBranchAssignments"
-            let assignmentsKey = isCoachMode ? codec.firestoreKey : traineeAssignmentsKey
 
             let canUseLegacyAssignments =
-                data[assignmentsKey] == nil &&
+                !isCoachMode &&
+                data[traineeAssignmentsKey] == nil &&
                 accessType != "both" &&
                 resolvedRole == normalizedActiveRole(normalizedRole) &&
-                (
-                    isCoachMode
-                        ? data[traineeAssignmentsKey] == nil
-                        : !serverAllowsCoach && accessType != "coach"
-                )
+                !serverAllowsCoach &&
+                accessType != "coach"
 
-            let assignments = (data[assignmentsKey] as? [Any]).map {
-                codec.fromFirestoreList($0)
-            } ?? []
+            let assignments: [RegistrationFormState.BranchAssignment]
+            if isCoachMode {
+                if let rawSelection = data["coachSelectedBranchAssignments"] as? [Any] {
+                    assignments = codec.fromFirestoreList(rawSelection)
+                } else {
+                    assignments = authorizedCoachAssignments
+                }
+            } else {
+                assignments = (data[traineeAssignmentsKey] as? [Any]).map {
+                    codec.fromFirestoreList($0)
+                } ?? []
+            }
 
             let hasAssignmentsField = !canUseLegacyAssignments
 
@@ -3008,6 +3124,7 @@ do {
         ud.set(primaryGroup, forKey: "active_group")
 
             self.verifiedCoachModeUID = serverAllowsCoach ? uid : nil
+            self.lastTrainingProfileFields = trainingProfileFields(from: data)
             self.loadedProfileUID = uid
             self.profileLoadFailed = false
             self.setActiveUserRole(resolvedRole)

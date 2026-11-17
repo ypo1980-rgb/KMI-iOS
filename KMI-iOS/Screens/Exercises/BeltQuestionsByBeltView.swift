@@ -404,11 +404,10 @@ struct BeltQuestionsByBeltView: View {
                         .whitespacesAndNewlines
                 )
 
-        let stats =
-            KmiExerciseCountProvider.topicStats(
-                belt: belt,
-                topicTitle: cleanTopicTitle
-            )
+        let exerciseCount = KmiExerciseCountProvider.byBeltCardExerciseCount(
+            belt: belt,
+            topicTitle: cleanTopicTitle
+        ) ?? 0
 
         let subTitles =
             ContentRepo.shared
@@ -436,27 +435,9 @@ struct BeltQuestionsByBeltView: View {
                 }
 
         return TopicDetailsUi(
-            itemCount:
-                stats.exerciseCount,
-            subTitles:
-                subTitles
+            itemCount: exerciseCount,
+            subTitles: subTitles
         )
-    }
-
-    // Android parity:
-    // סופרים בפועל את items בכל עץ תתי־הנושאים.
-    private func topicExercisesCountForUi(
-        belt: Belt,
-        topicTitle: String,
-        subTitles _: [String]
-    ) -> Int {
-
-        KmiExerciseCountProvider
-            .topicStats(
-                belt: belt,
-                topicTitle: topicTitle
-            )
-            .exerciseCount
     }
     
     private func hasRealSubTopicsForUi(title: String, details: TopicDetailsUi) -> Bool {
@@ -3338,21 +3319,6 @@ struct BeltQuestionsByBeltView: View {
         )
     }
 
-    private func subTopicExercisesCountForUi(
-        belt: Belt,
-        topicTitle: String,
-        subTopicTitle: String
-    ) -> Int {
-
-        KmiExerciseCountProvider
-            .subTopicStats(
-                belt: belt,
-                topicTitle: topicTitle,
-                subTopicTitle: subTopicTitle
-            )
-            .exerciseCount
-    }
-
     @ViewBuilder
 
     private func subTopicButton(
@@ -3360,15 +3326,11 @@ struct BeltQuestionsByBeltView: View {
         subTitle: String
     ) -> some View {
 
-        let itemCount =
-            subTopicExercisesCountForUi(
-                belt:
-                    selectedBelt,
-                topicTitle:
-                    topicTitle,
-                subTopicTitle:
-                    subTitle
-            )
+        let itemCount = KmiExerciseCountProvider.byBeltCardExerciseCount(
+            belt: selectedBelt,
+            topicTitle: topicTitle,
+            subTopicTitle: subTitle
+        )
 
         let subTopicGeneralNote =
             ContentRepo.shared
@@ -3434,19 +3396,15 @@ struct BeltQuestionsByBeltView: View {
                         isLocked: isParentTopicLocked
                     )
 
-                    Text(
-                        exercisesCountText(
-                            itemCount
-                        )
-                    )
-                    .kmiTypography(.caption)
-                    .fontWeight(.bold)
-                    .foregroundStyle(readableBeltAccent)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .multilineTextAlignment(
-                        .leading
-                    )
+                    if let itemCount {
+                        Text(exercisesCountText(itemCount))
+                            .kmiTypography(.caption)
+                            .fontWeight(.bold)
+                            .foregroundStyle(readableBeltAccent)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .multilineTextAlignment(.leading)
+                    }
                 }
 
                 if !subTopicGeneralNote.isEmpty {
@@ -3483,19 +3441,15 @@ struct BeltQuestionsByBeltView: View {
                         isLocked: isParentTopicLocked
                     )
 
-                    Text(
-                        exercisesCountText(
-                            itemCount
-                        )
-                    )
-                    .kmiTypography(.caption)
-                    .fontWeight(.bold)
-                    .foregroundStyle(readableBeltAccent)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .multilineTextAlignment(
-                        .trailing
-                    )
+                    if let itemCount {
+                        Text(exercisesCountText(itemCount))
+                            .kmiTypography(.caption)
+                            .fontWeight(.bold)
+                            .foregroundStyle(readableBeltAccent)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .multilineTextAlignment(.trailing)
+                    }
                 }
 
                 Image(systemName: "chevron.left")
@@ -3795,10 +3749,7 @@ struct BeltQuestionsByBeltView: View {
             .leftToRight
         )
         .frame(
-            maxWidth: .infinity
-        )
-        .frame(
-            height: 56
+            height: 76
         )
         .background(
             KmiAppTheme

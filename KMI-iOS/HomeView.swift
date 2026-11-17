@@ -2106,8 +2106,23 @@ struct HomeView: View {
         let assignmentObservedContent = AnyView(
             lifecycleContent
                 .onChange(
-                    of: trainingOccurrenceKeys
+                    of: trainingOccurrenceKeys,
+                    initial: true
                 ) { _, _ in
+                    #if DEBUG
+                    let published = trainingsVm.upcomingTrainings.map { training in
+                        let source = trainingSource(for: training)
+                        return "\(source.branch) | \(training.startText)"
+                    }
+
+                    let visible = effectiveUpcomingTrainings.map { training in
+                        let source = trainingSource(for: training)
+                        return "\(source.branch) | \(training.startText)"
+                    }
+
+                    print("KMI_HOME_TRAINING_CARDS", "published:", published, "visible:", visible)
+                    #endif
+
                     startTrainingOverrideListener()
                 }
                 .onChange(of: auth.isProfileLoading) { _, isLoading in

@@ -192,7 +192,9 @@ struct RegisterFormView: View {
     private var shouldShowGroupsPicker: Bool {
         !isAbroadSelection &&
         !isCurrentRegionAbroad &&
-        !s.branches.isEmpty
+        s.branches.contains { branch in
+            !availableGroups(for: branch).isEmpty
+        }
     }
 
     private let belts = [
@@ -489,6 +491,29 @@ struct RegisterFormView: View {
         s.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
+    private var isValidEmail: Bool {
+        let parts = normalizedEmail.split(
+            separator: "@",
+            omittingEmptySubsequences: false
+        )
+
+        guard parts.count == 2,
+              !parts[0].isEmpty,
+              !parts[1].isEmpty,
+              !normalizedEmail.contains(where: { $0.isWhitespace }) else {
+            return false
+        }
+
+        let domainParts = parts[1].split(
+            separator: ".",
+            omittingEmptySubsequences: false
+        )
+
+        return domainParts.count >= 2 &&
+            domainParts.allSatisfy { !$0.isEmpty } &&
+            (domainParts.last?.count ?? 0) >= 2
+    }
+
     private var isGoogleAuth: Bool {
         !isEditingProfile &&
         Auth.auth().currentUser?.providerData.contains {
@@ -516,17 +541,11 @@ struct RegisterFormView: View {
 
     private var showPhoneError: Bool {
         shouldRevealValidationErrors &&
-        !(9...12).contains(
-            s.phone.filter { $0.isNumber }.count
-        )
+        !(9...12).contains(normalizedPhone.count)
     }
 
     private var showEmailError: Bool {
-        shouldRevealValidationErrors &&
-        (
-            !s.email.contains("@") ||
-            !s.email.contains(".")
-        )
+        shouldRevealValidationErrors && !isValidEmail
     }
 
     private var showUsernameError:
@@ -566,11 +585,43 @@ struct RegisterFormView: View {
             return false
         }
 
-        guard let day = Int(s.birthDay) else {
+        guard let day = Int(s.birthDay),
+              (1...31).contains(day) else {
             return true
         }
 
-        return !(1...31).contains(day)
+        // את הבדיקה המלאה מבצעים רק כשכל
+        // שלושת חלקי התאריך הוזנו.
+        guard let month = Int(s.birthMonth),
+              (1...12).contains(month),
+              s.birthYear.count == 4,
+              let year = Int(s.birthYear),
+              year >= 1900 else {
+            return false
+        }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = ShabbatHolidayCheckerIOS.timeZone
+
+        var components = DateComponents()
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = 12
+
+        guard let date = calendar.date(from: components) else {
+            return true
+        }
+
+        let resolved = calendar.dateComponents(
+            [.year, .month, .day],
+            from: date
+        )
+
+        return resolved.year != year ||
+            resolved.month != month ||
+            resolved.day != day ||
+            date > Date()
     }
 
     private var showBirthMonthError: Bool {
@@ -590,14 +641,20 @@ struct RegisterFormView: View {
             return false
         }
 
-        guard
-            s.birthYear.count == 4,
-            let year = Int(s.birthYear)
-        else {
+        guard s.birthYear.count == 4,
+              let year = Int(s.birthYear) else {
             return true
         }
 
-        return !(1900...2100).contains(year)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = ShabbatHolidayCheckerIOS.timeZone
+
+        let currentYear = calendar.component(
+            .year,
+            from: Date()
+        )
+
+        return !(1900...currentYear).contains(year)
     }
 
     private var showRegionError: Bool {
@@ -634,11 +691,11 @@ struct RegisterFormView: View {
 
     private var showBeltError: Bool {
         shouldRevealValidationErrors &&
-        s.belt
-            .trimmingCharacters(
+        !belts.contains(
+            s.belt.trimmingCharacters(
                 in: .whitespacesAndNewlines
             )
-            .isEmpty
+        )
     }
 
     private var isDarkMode: Bool {
@@ -796,18 +853,21 @@ struct RegisterFormView: View {
             if roleAssignmentDraftsUID == uid,
                Auth.auth().currentUser?.uid == uid,
                !Task.isCancelled {
-                if didReadUserProfile, loadedProfileAssignmentsUID != uid {
-                    let role: UserRole = initialRole == .coach && profileAllowsCoach
-                        ? .coach
-                        : .trainee
+
+                if didReadUserProfile,
+                   loadedProfileAssignmentsUID != uid {
+                    let role: UserRole =
+                        initialRole == .coach && profileAllowsCoach
+                            ? .coach
+                            : .trainee
 
                     applyRoleAssignmentDraft(for: role)
                     loadedProfileAssignmentsUID = uid
                     applyLiveProfileAssignments()
                 }
-
-                isCheckingCoachAuthorization = false
             }
+
+            isCheckingCoachAuthorization = false
         }
 
         let database = Firestore.firestore()
@@ -816,7 +876,7 @@ struct RegisterFormView: View {
             let userDocument = try await database
                 .collection("users")
                 .document(uid)
-                .getDocument(source: .server)
+                .getDocument(source: .default)
 
             guard !Task.isCancelled,
                   Auth.auth().currentUser?.uid == uid else {
@@ -847,8 +907,8 @@ struct RegisterFormView: View {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
 
-            guard userDocument.exists,
-                  accessType == "coach" || accessType == "both" else {
+            guard accessType == "coach" ||
+                  accessType == "both" else {
                 return
             }
 
@@ -1478,8 +1538,8 @@ struct RegisterFormView: View {
     private var smsConsentText: some View {
         Text(
             tr(
-                "ארצה לקבל עדכונים בהודעות\nSMS לגבי אימונים קרובים",
-                "I would like to receive SMS updates\nabout upcoming trainings"
+                "ארצה לקבל עדכונים בהודעות SMS לגבי אימונים קרובים",
+                "I would like to receive SMS updates about upcoming trainings"
             )
         )
         .kmiFont(size: 13, weight: .regular)
@@ -1546,7 +1606,10 @@ struct RegisterFormView: View {
 
         let missing =
             shouldRevealValidationErrors &&
-            selected.isEmpty
+            (
+                selected.isEmpty ||
+                selected.contains { !options.contains($0) }
+            )
 
         let borderColor =
             missing
@@ -1619,6 +1682,7 @@ struct RegisterFormView: View {
                     .accessibilityHidden(true)
                 }
                 .padding(14)
+                .frame(minHeight: 48)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -1696,6 +1760,7 @@ struct RegisterFormView: View {
                                 }
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 8)
+                                .frame(minHeight: 44)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
@@ -1764,8 +1829,13 @@ struct RegisterFormView: View {
 
         displayedBranchValue = ""
         displayedGroupValue = ""
-        storedActiveBranch = ""
-        storedActiveGroup = ""
+
+        // בעריכת פרופיל משנים רק את טיוטת הטופס.
+        // הנתונים הפעילים יישמרו רק לאחר אישור השינויים.
+        if !isEditingProfile {
+            storedActiveBranch = ""
+            storedActiveGroup = ""
+        }
     }
 
     private func groupsBinding(
@@ -1817,7 +1887,7 @@ struct RegisterFormView: View {
     }
 
     private func synchronizeBranchAssignments() {
-        let branches = s.branchesArray
+        let branches = s.branchesArray.sorted()
         let selectedBranches = Set(branches)
 
         var assignments =
@@ -1934,7 +2004,10 @@ struct RegisterFormView: View {
         }
 
         displayedGroupValue = s.activeGroup
-        storedActiveGroup = s.activeGroup
+
+        if !isEditingProfile {
+            storedActiveGroup = s.activeGroup
+        }
     }
 
     private func handleInitialAppear() {
@@ -2084,7 +2157,10 @@ struct RegisterFormView: View {
         displayedBranchValue = displayJoinedValues(
             Array(s.branches)
         )
-        storedActiveBranch = s.activeBranch
+
+        if !isEditingProfile {
+            storedActiveBranch = s.activeBranch
+        }
 
         let savedGroup = (
             defaults.string(forKey: "active_group") ??
@@ -2132,7 +2208,10 @@ struct RegisterFormView: View {
             Array(s.groups),
             translateGroupNames: true
         )
-        storedActiveGroup = s.activeGroup
+
+        if !isEditingProfile {
+            storedActiveGroup = s.activeGroup
+        }
 
         let currentRegion = s.region
             .trimmingCharacters(
@@ -2303,7 +2382,7 @@ struct RegisterFormView: View {
                 .infinity
         )
         .frame(
-            height:
+            minHeight:
                 56
         )
         .background(
@@ -2394,15 +2473,27 @@ struct RegisterFormView: View {
 
         let previousDraft = roleAssignmentDrafts[currentKey]
         let assignmentsChanged =
+            draft.region != (previousDraft?.region ?? "") ||
+            draft.regions != (previousDraft?.regions ?? []) ||
             draft.branches != (previousDraft?.branches ?? []) ||
+            draft.groups != (previousDraft?.groups ?? []) ||
             draft.activeBranch != (previousDraft?.activeBranch ?? "") ||
             draft.activeGroup != (previousDraft?.activeGroup ?? "") ||
+            draft.branchType != (previousDraft?.branchType ?? "israel") ||
             groupsByBranch(draft.assignments) !=
                 groupsByBranch(previousDraft?.assignments ?? [])
 
-        guard assignmentsChanged, let onSaveRoleAssignments else {
+        guard assignmentsChanged else {
             roleAssignmentDrafts[currentKey] = draft
             applyRoleAssignmentDraft(for: role)
+            return
+        }
+
+        guard let onSaveRoleAssignments else {
+            coachAuthorizationMessage = tr(
+                "לא ניתן לשמור את שיוכי הסניפים והקבוצות כרגע. נסה לשמור את הפרופיל לפני מעבר תפקיד.",
+                "Branch and group assignments cannot be saved right now. Save your profile before switching roles."
+            )
             return
         }
 
@@ -2412,8 +2503,19 @@ struct RegisterFormView: View {
         Task { @MainActor [formToSave, onSaveRoleAssignments] in
             defer { isSavingRoleAssignments = false }
 
-            guard await onSaveRoleAssignments(formToSave),
-                  Auth.auth().currentUser?.uid == uid else {
+            let didSave = await onSaveRoleAssignments(formToSave)
+
+            guard !Task.isCancelled,
+                  Auth.auth().currentUser?.uid == uid,
+                  loadedProfileAssignmentsUID == uid else {
+                return
+            }
+
+            guard didSave else {
+                coachAuthorizationMessage = tr(
+                    "לא ניתן לשמור את שיוכי הסניפים והקבוצות. בדוק את החיבור ונסה שוב.",
+                    "Unable to save branch and group assignments. Check your connection and try again."
+                )
                 return
             }
 
@@ -2440,6 +2542,25 @@ struct RegisterFormView: View {
         let role = s.role
         let key = role == .coach ? "coach" : "trainee"
         guard auth.userRole == key else { return }
+
+        // אין לדרוס שינויים שהמשתמש ביצע
+        // בטופס ועדיין לא שמר.
+        if let savedDraft = roleAssignmentDrafts[key] {
+            let hasUnsavedChanges =
+                s.region != savedDraft.region ||
+                s.regions != savedDraft.regions ||
+                s.branches != savedDraft.branches ||
+                s.groups != savedDraft.groups ||
+                s.activeBranch != savedDraft.activeBranch ||
+                s.activeGroup != savedDraft.activeGroup ||
+                s.branchType != savedDraft.branchType ||
+                groupsByBranch(s.branchAssignments) !=
+                    groupsByBranch(savedDraft.assignments)
+
+            if hasUnsavedChanges {
+                return
+            }
+        }
 
         let rows = auth.userBranchAssignments.map { assignment -> [String: Any] in
             ["branch": assignment.branch, "groups": assignment.groups]
@@ -2611,8 +2732,11 @@ struct RegisterFormView: View {
                 }
             }
         }
-        .buttonStyle(
-            .plain
+        .buttonStyle(.plain)
+        .accessibilityValue(
+            isSelected
+                ? tr("נבחר", "Selected")
+                : tr("לא נבחר", "Not selected")
         )
     }
 
@@ -2715,10 +2839,17 @@ struct RegisterFormView: View {
                 text: text
             )
             .keyboardType(keyboard)
+            .textContentType(
+                keyboard == .phonePad
+                    ? .telephoneNumber
+                    : keyboard == .emailAddress
+                        ? .emailAddress
+                        : nil
+            )
             .focused($focusedField, equals: "field:\(title)")
             .submitLabel(.done)
             .onSubmit {
-                requestMissingFieldScroll()
+                focusedField = nil
             }
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
@@ -2829,8 +2960,10 @@ struct RegisterFormView: View {
                         alignment: .center
                     )
                     .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.85)
+                    .fixedSize(
+                        horizontal: false,
+                        vertical: true
+                    )
             }
 
             Button {
@@ -2869,16 +3002,16 @@ struct RegisterFormView: View {
                             submitTitle
                         )
                 )
-                .kmiFont(size: 15, weight: .bold)
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-                }
-                .environment(
-                    \.layoutDirection,
-                    screenLayoutDirection
-                )
-                .frame(maxWidth: .infinity)
-                .frame(height: 46)
+                    .kmiFont(size: 15, weight: .bold)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+                    }
+                    .environment(
+                        \.layoutDirection,
+                        screenLayoutDirection
+                    )
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 46)
             }
             .buttonStyle(.plain)
             .foregroundStyle(
@@ -2974,12 +3107,14 @@ struct RegisterFormView: View {
             get: {
                 String(
                     binding.wrappedValue
-                        .filter { $0.isNumber }
+                        .filter { ("0"..."9").contains($0) }
                         .prefix(maxLength)
                 )
             },
             set: { newValue in
-                let digits = newValue.filter { $0.isNumber }
+                let digits = newValue.filter {
+                    ("0"..."9").contains($0)
+                }
 
                 binding.wrappedValue = String(
                     digits.prefix(maxLength)
@@ -3006,7 +3141,7 @@ struct RegisterFormView: View {
             .focused($focusedField, equals: "dob:\(title)")
             .submitLabel(.done)
             .onSubmit {
-                requestMissingFieldScroll()
+                focusedField = nil
             }
             .textContentType(.none)
             .multilineTextAlignment(.center)
@@ -3022,8 +3157,9 @@ struct RegisterFormView: View {
                     : registrationPrimaryPurple
             )
             .padding(.horizontal, 6)
+            .padding(.vertical, 6)
             .frame(maxWidth: .infinity)
-            .frame(height: 52)
+            .frame(minHeight: 52)
             .background(
                 showError
                     ? registrationMissingBackground
@@ -3089,6 +3225,11 @@ struct RegisterFormView: View {
                         passwordEyeIcon
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        s.showPassword
+                            ? tr("הסתר סיסמה", "Hide password")
+                            : tr("הצג סיסמה", "Show password")
+                    )
                 } else {
                     Button {
                         s.showPassword.toggle()
@@ -3096,12 +3237,18 @@ struct RegisterFormView: View {
                         passwordEyeIcon
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        s.showPassword
+                            ? tr("הסתר סיסמה", "Hide password")
+                            : tr("הצג סיסמה", "Show password")
+                    )
 
                     passwordInput
                 }
             }
             .padding(.horizontal, 12)
-            .frame(height: 46)
+            .padding(.vertical, 6)
+            .frame(minHeight: 46)
             .background(
                 showPasswordError
                     ? registrationMissingBackground
@@ -3167,7 +3314,7 @@ struct RegisterFormView: View {
         }
         .submitLabel(.done)
         .onSubmit {
-            requestMissingFieldScroll()
+            focusedField = nil
         }
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
@@ -3318,7 +3465,7 @@ struct RegisterFormView: View {
                         : registrationFieldTextColor
                 )
                 .frame(maxWidth: .infinity)
-                .frame(height: 38)
+                .frame(minHeight: 44)
                 .background(
                     RoundedRectangle(
                         cornerRadius: 12,
@@ -3344,6 +3491,11 @@ struct RegisterFormView: View {
                 )
         }
         .buttonStyle(.plain)
+        .accessibilityValue(
+            isSelected
+                ? tr("נבחר", "Selected")
+                : tr("לא נבחר", "Not selected")
+        )
     }
 
     private var genderPicker: some View {
@@ -3384,7 +3536,7 @@ struct RegisterFormView: View {
                         )
                 )
                 .frame(maxWidth: .infinity)
-                .frame(height: 38)
+                .frame(minHeight: 44)
                 .background(
                     RoundedRectangle(
                         cornerRadius: 12,
@@ -3421,6 +3573,11 @@ struct RegisterFormView: View {
                 )
         }
         .buttonStyle(.plain)
+        .accessibilityValue(
+            selected
+                ? tr("נבחר", "Selected")
+                : tr("לא נבחר", "Not selected")
+        )
     }
 
     private var beltSelectionSheet: some View {
@@ -3610,7 +3767,8 @@ struct RegisterFormView: View {
                 alignment: formFrameAlignment
             )
             .padding(.horizontal, 12)
-            .frame(height: 52)
+            .padding(.vertical, 8)
+            .frame(minHeight: 52)
             .background(
                 showBeltError
                     ? registrationMissingBackground
@@ -3812,17 +3970,18 @@ struct RegisterFormView: View {
             return tr("נא להזין שם מלא תקין", "Please enter a valid full name")
         }
 
-        if !(9...12).contains(
-            s.phone.filter { $0.isNumber }.count
-        ) {
+        if !(9...12).contains(normalizedPhone.count) {
             return tr(
                 "נא להזין מספר טלפון תקין",
                 "Please enter a valid phone number"
             )
         }
 
-        if !s.email.contains("@") || !s.email.contains(".") {
-            return tr("נא להזין מייל תקין", "Please enter a valid email")
+        if !isValidEmail {
+            return tr(
+                "נא להזין מייל תקין",
+                "Please enter a valid email"
+            )
         }
 
         if s.gender
@@ -3871,11 +4030,49 @@ struct RegisterFormView: View {
             )
         }
 
+        var birthCalendar = Calendar(identifier: .gregorian)
+        birthCalendar.timeZone = ShabbatHolidayCheckerIOS.timeZone
+
+        let currentYear = birthCalendar.component(
+            .year,
+            from: Date()
+        )
+
         guard let year = Int(s.birthYear),
-              (1900...2100).contains(year) else {
+              (1900...currentYear).contains(year) else {
             return tr(
                 "שנת לידה לא תקינה",
                 "Invalid birth year"
+            )
+        }
+
+        var birthComponents = DateComponents()
+        birthComponents.year = year
+        birthComponents.month = month
+        birthComponents.day = day
+        birthComponents.hour = 12
+
+        guard let birthDate = birthCalendar.date(
+            from: birthComponents
+        ) else {
+            return tr(
+                "תאריך לידה לא תקין",
+                "Invalid date of birth"
+            )
+        }
+
+        let resolvedBirthComponents = birthCalendar.dateComponents(
+            [.year, .month, .day],
+            from: birthDate
+        )
+
+        guard resolvedBirthComponents.year == year,
+              resolvedBirthComponents.month == month,
+              resolvedBirthComponents.day == day,
+              birthDate <= Date() else {
+            return tr(
+                "תאריך לידה לא תקין",
+                "Invalid date of birth"
             )
         }
 
@@ -3904,13 +4101,15 @@ struct RegisterFormView: View {
             }
         }
 
-        if s.belt
-            .trimmingCharacters(
-                in:
-                    .whitespacesAndNewlines
+        if !belts.contains(
+            s.belt.trimmingCharacters(
+                in: .whitespacesAndNewlines
             )
-            .isEmpty {
-            return tr("חובה לבחור דרגת חגורה", "Belt rank is required")
+        ) {
+            return tr(
+                "יש לבחור דרגת חגורה תקינה",
+                "Please select a valid belt rank"
+            )
         }
 
         if !s.acceptsTerms {

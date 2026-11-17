@@ -620,9 +620,27 @@ struct ExerciseExplanationDialog: View {
                 return
             }
         } catch {
-            errorText = tr(
-                "לא ניתן היה לטעון את ההסבר מהשרת. מוצג הסבר מקומי.",
-                "The server explanation could not be loaded. A local explanation is shown."
+            let nsError = error as NSError
+
+            if nsError.domain == FirestoreErrorDomain,
+               nsError.code == FirestoreErrorCode.permissionDenied.rawValue {
+
+                errorText = tr(
+                    "אין הרשאה לקריאת ההסבר מהשרת. מוצג ההסבר מתוך האפליקציה.",
+                    "Permission to read the server explanation was denied. The app explanation is shown."
+                )
+            } else {
+                errorText = tr(
+                    "לא ניתן היה לטעון את ההסבר מהשרת. מוצג הסבר מקומי.",
+                    "The server explanation could not be loaded. A local explanation is shown."
+                )
+            }
+
+            print(
+                "KMI_EXPLANATION_READ_FAILED " +
+                "document=\(documentId) " +
+                "domain=\(nsError.domain) " +
+                "code=\(nsError.code)"
             )
         }
 
@@ -675,9 +693,27 @@ struct ExerciseExplanationDialog: View {
             explanationSourceText = "Firestore"
             showEditor = false
         } catch {
-            errorText = tr(
-                "לא הצלחנו לשמור את ההסבר. נסו שוב.",
-                "We could not save the explanation. Please try again."
+            let nsError = error as NSError
+
+            if nsError.domain == FirestoreErrorDomain,
+               nsError.code == FirestoreErrorCode.permissionDenied.rawValue {
+
+                errorText = tr(
+                    "אין הרשאה לעריכת הסברי תרגילים בשרת.",
+                    "You do not have permission to edit exercise explanations on the server."
+                )
+            } else {
+                errorText = tr(
+                    "לא הצלחנו לשמור את ההסבר. נסו שוב.",
+                    "We could not save the explanation. Please try again."
+                )
+            }
+
+            print(
+                "KMI_EXPLANATION_SAVE_FAILED " +
+                "document=\(documentId) " +
+                "domain=\(nsError.domain) " +
+                "code=\(nsError.code)"
             )
         }
     }

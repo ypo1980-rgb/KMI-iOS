@@ -32,6 +32,17 @@ final class TrainingReminderScheduler {
         lastTrainings = trainings
         hasReceivedTrainings = true
 
+        /*
+         * כאשר אין אימונים, מבטלים רק תזכורות אימון.
+         * אין צורך לבקש הרשאת התראות או ליצור משימות חדשות.
+         */
+        guard !trainings.isEmpty else {
+            cancelAll {
+                completion?(.scheduled(count: 0, failed: 0))
+            }
+            return
+        }
+
         let defaults = UserDefaults.standard
 
         let remindersEnabled =

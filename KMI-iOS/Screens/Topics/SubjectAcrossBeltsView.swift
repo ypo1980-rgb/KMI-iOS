@@ -1,9 +1,14 @@
 import SwiftUI
 import Combine
+import CryptoKit
 import Shared
 
 #if canImport(FirebaseAuth)
 import FirebaseAuth
+#endif
+
+#if canImport(FirebaseFirestore)
+import FirebaseFirestore
 #endif
 
 @MainActor
@@ -158,25 +163,19 @@ enum ExerciseIdentityResolverIOS {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        if !cleanTopic.isEmpty,
-           cleanRaw.hasPrefix(cleanTopic) {
-            cleanRaw = String(
-                cleanRaw.dropFirst(cleanTopic.count)
-            )
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanTopic.isEmpty {
+            let separators = [" -", " –", " —", ":"]
 
-            let separators = CharacterSet(
-                charactersIn: "-–—:"
-            )
-
-            while let first = cleanRaw.unicodeScalars.first,
-                  separators.contains(first) {
-                cleanRaw.removeFirst()
+            if let prefix = separators.first(where: {
+                cleanRaw.hasPrefix(cleanTopic + $0)
+            }) {
+                cleanRaw = String(
+                    cleanRaw.dropFirst(
+                        cleanTopic.count + prefix.count
+                    )
+                )
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             }
-
-            cleanRaw = cleanRaw.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
         }
 
         let formatted = ExerciseTitleFormatter.shared
@@ -263,7 +262,210 @@ final class ExerciseNotesStore: ObservableObject {
     // מאפשר למסכים שמאזינים למנגנון להתעדכן לאחר שינוי.
     @Published private(set) var revision = 0
 
+#if canImport(FirebaseFirestore)
+private var noteListeners: [String: ListenerRegistration] = [:]
+private var listenerSessions: [String: UUID] = [:]
+#endif
+
+private var pendingRemoteWrites = Set<String>()
+
+    // מזהה ייחודי לכל ניסיון כתיבה.
+    // אישור ישן לא ינקה מצב של פעולה חדשה.
+    private var pendingWriteTokens: [String: UUID] = [:]
+
     private init() {}
+
+    private func normalizedRemoteID(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\u{200F}", with: "")
+            .replacingOccurrences(of: "\u{200E}", with: "")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func remoteDocumentID(
+        beltID: String,
+        exerciseID: String
+    ) -> String {
+        let raw = "\(beltID)|\(normalizedRemoteID(exerciseID))"
+
+        let hash = SHA256.hash(
+            data: Data(raw.utf8)
+        )
+
+        return hash.map {
+            String(format: "%02x", $0)
+        }.joined()
+    }
+
+    private func completeRemoteWrite(
+        error: Error?,
+        note: String,
+        userID: String,
+        beltID: String,
+        exerciseID: String,
+        trackingKey: String,
+        token: UUID
+    ) {
+        guard pendingWriteTokens[trackingKey] == token else {
+            return
+        }
+
+        pendingWriteTokens.removeValue(forKey: trackingKey)
+        pendingRemoteWrites.remove(trackingKey)
+
+        if let error {
+            print(
+                "KMI_NOTE_SYNC write failed: \(error.localizedDescription)"
+            )
+            return
+        }
+
+        #if canImport(FirebaseAuth)
+        guard Auth.auth().currentUser?.uid == userID else {
+            return
+        }
+        #endif
+
+        defaults.set(
+            note,
+            forKey: remoteMirrorKey(
+                userID: userID,
+                beltID: beltID,
+                exerciseID: exerciseID
+            )
+        )
+
+        defaults.set(
+            true,
+            forKey: remoteKnownKey(
+                userID: userID,
+                beltID: beltID,
+                exerciseID: exerciseID
+            )
+        )
+
+        if let key = storageKey(
+            userID: userID,
+            beltID: beltID,
+            exerciseID: exerciseID
+        ),
+        defaults.string(forKey: key) == note {
+            defaults.removeObject(
+                forKey: remoteDirtyKey(
+                    userID: userID,
+                    beltID: beltID,
+                    exerciseID: exerciseID
+                )
+            )
+        }
+
+        print("KMI_NOTE_SYNC write completed")
+    }
+
+    private func syncRemoteNote(
+        _ note: String,
+        userID: String,
+        beltID: String,
+        exerciseID: String
+    ) {
+        #if canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        guard Auth.auth().currentUser?.uid == userID else {
+            return
+        }
+
+        let id = normalizedRemoteID(exerciseID)
+        let cleanNote = note.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        guard !id.isEmpty,
+              id.count <= 500,
+              cleanNote.count <= 5000 else {
+            return
+        }
+
+        let trackingKey = noteTrackingKey(
+            userID: userID,
+            beltID: beltID,
+            exerciseID: id
+        )
+
+        let token = UUID()
+
+        pendingWriteTokens[trackingKey] = token
+        pendingRemoteWrites.insert(trackingKey)
+
+        defaults.set(
+            true,
+            forKey: remoteDirtyKey(
+                userID: userID,
+                beltID: beltID,
+                exerciseID: id
+            )
+        )
+
+        let documentID = remoteDocumentID(
+            beltID: beltID,
+            exerciseID: id
+        )
+
+        print(
+            "KMI_NOTE_SYNC target belt=\(beltID) exercise=\(id) document=\(documentID)"
+        )
+
+        let reference = Firestore.firestore()
+            .collection("users")
+            .document(userID)
+            .collection("exerciseNotes")
+            .document(documentID)
+
+        if cleanNote.isEmpty {
+            reference.delete { [weak self] error in
+                Task { @MainActor [weak self] in
+                    self?.completeRemoteWrite(
+                        error: error,
+                        note: "",
+                        userID: userID,
+                        beltID: beltID,
+                        exerciseID: id,
+                        trackingKey: trackingKey,
+                        token: token
+                    )
+                }
+            }
+        } else {
+            reference.setData([
+                "beltId": beltID,
+                "exerciseId": id,
+                "note": cleanNote,
+                "updatedAt": FieldValue.serverTimestamp()
+            ]) { [weak self] error in
+                Task { @MainActor [weak self] in
+                    self?.completeRemoteWrite(
+                        error: error,
+                        note: cleanNote,
+                        userID: userID,
+                        beltID: beltID,
+                        exerciseID: id,
+                        trackingKey: trackingKey,
+                        token: token
+                    )
+                }
+            }
+        }
+        #endif
+    }
+
+    private func noteTrackingKey(
+        userID: String,
+        beltID: String,
+        exerciseID: String
+    ) -> String {
+        let normalizedID = normalizedRemoteID(exerciseID)
+
+        return "\(userID)|\(beltID)|\(normalizedID)"
+    }
 
     private func storageKey(
         userID: String,
@@ -282,6 +484,301 @@ final class ExerciseNotesStore: ObservableObject {
         }
 
         return "kmi.exercise.note.\(data.base64EncodedString())"
+    }
+
+    func observeRemoteNote(
+        userID: String,
+        beltID: String,
+        exerciseID: String
+    ) {
+        #if canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        guard Auth.auth().currentUser?.uid == userID else {
+            return
+        }
+
+        let normalizedID = normalizedRemoteID(exerciseID)
+
+        guard !normalizedID.isEmpty,
+              normalizedID.count <= 500,
+              let localKey = storageKey(
+                userID: userID,
+                beltID: beltID,
+                exerciseID: normalizedID
+              ) else {
+            return
+        }
+
+        let trackingKey = noteTrackingKey(
+            userID: userID,
+            beltID: beltID,
+            exerciseID: normalizedID
+        )
+
+        guard noteListeners[trackingKey] == nil else {
+            return
+        }
+
+        let listenerSession = UUID()
+        listenerSessions[trackingKey] = listenerSession
+
+        let documentID = remoteDocumentID(
+            beltID: beltID,
+            exerciseID: normalizedID
+        )
+
+        print(
+            "KMI_NOTE_SYNC observe belt=\(beltID) exercise=\(normalizedID) document=\(documentID)"
+        )
+
+        let reference = Firestore.firestore()
+            .collection("users")
+            .document(userID)
+            .collection("exerciseNotes")
+            .document(documentID)
+
+        noteListeners[trackingKey] =
+            reference.addSnapshotListener(
+                includeMetadataChanges: true
+            ) { [weak self] snapshot, error in
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          Auth.auth().currentUser?.uid == userID,
+                          self.listenerSessions[trackingKey] ==
+                              listenerSession else {
+                        return
+                    }
+
+                    if let error {
+                        print(
+                            "KMI_NOTE_SYNC listener failed: \(error.localizedDescription)"
+                        )
+
+                        self.stopObservingRemoteNote(
+                            userID: userID,
+                            beltID: beltID,
+                            exerciseID: normalizedID
+                        )
+                        return
+                    }
+
+                    guard let snapshot,
+                          !snapshot.metadata.hasPendingWrites,
+                          !snapshot.metadata.isFromCache,
+                          !self.pendingRemoteWrites.contains(trackingKey) else {
+                        return
+                    }
+
+                    let knownKey = self.remoteKnownKey(
+                        userID: userID,
+                        beltID: beltID,
+                        exerciseID: normalizedID
+                    )
+
+                    let mirrorKey = self.remoteMirrorKey(
+                        userID: userID,
+                        beltID: beltID,
+                        exerciseID: normalizedID
+                    )
+
+                    let dirtyKey = self.remoteDirtyKey(
+                        userID: userID,
+                        beltID: beltID,
+                        exerciseID: normalizedID
+                    )
+
+                    // שינוי מקומי ממתין לא נדרס מהשרת.
+                    guard !self.defaults.bool(forKey: dirtyKey) else {
+                        return
+                    }
+
+                    let previousRemote =
+                        self.defaults.string(forKey: mirrorKey)
+
+                    let localValue =
+                        self.defaults.string(forKey: localKey)
+
+                    if snapshot.exists {
+                        guard let data = snapshot.data(),
+                              let remoteBeltID =
+                                data["beltId"] as? String,
+                              let remoteExerciseID =
+                                data["exerciseId"] as? String,
+                              remoteBeltID == beltID,
+                              self.normalizedRemoteID(
+                                  remoteExerciseID
+                              ) == normalizedID,
+                              let remoteText =
+                                data["note"] as? String else {
+                            print(
+                                "KMI_NOTE_SYNC remote identity mismatch"
+                            )
+                            return
+                        }
+
+                        let remoteNote =
+                            remoteText.trimmingCharacters(
+                                in: .whitespacesAndNewlines
+                            )
+
+                        guard !remoteNote.isEmpty,
+                              remoteNote.count <= 5000 else {
+                            print(
+                                "KMI_NOTE_SYNC invalid remote note"
+                            )
+                            return
+                        }
+
+                        // מעדכנים רק אם אין שינוי מקומי
+                        // שסותר את הגרסה הידועה מהשרת.
+                        let canApplyRemote =
+                            localValue == nil ||
+                            localValue == previousRemote ||
+                            localValue == remoteNote
+
+                        if canApplyRemote {
+                            if localValue != remoteNote {
+                                self.defaults.set(
+                                    remoteNote,
+                                    forKey: localKey
+                                )
+                                self.revision += 1
+                            }
+
+                            self.defaults.set(
+                                remoteNote,
+                                forKey: mirrorKey
+                            )
+                        } else {
+                            print(
+                                "KMI_NOTE_SYNC conflict preserved"
+                            )
+                        }
+
+                        self.defaults.set(
+                            true,
+                            forKey: knownKey
+                        )
+
+                        return
+                    }
+
+                    // מסמך חסר: מוחקים מקומית רק
+                    // הערה שהייתה מוכרת בענן ושלא
+                    // נערכה מאז הגרסה האחרונה.
+                    guard self.defaults.bool(forKey: knownKey),
+                          let previousRemote,
+                          !previousRemote.isEmpty,
+                          localValue == previousRemote else {
+                        return
+                    }
+
+                    self.defaults.set(
+                        "",
+                        forKey: localKey
+                    )
+
+                    self.defaults.set(
+                        "",
+                        forKey: mirrorKey
+                    )
+
+                    self.revision += 1
+
+                    print(
+                        "KMI_NOTE_SYNC remote deletion applied"
+                    )
+                }
+            }
+        #endif
+    }
+
+    func retryPendingRemoteNote(
+        userID: String,
+        beltID: String,
+        exerciseID: String
+    ) {
+        #if canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        guard Auth.auth().currentUser?.uid == userID else {
+            return
+        }
+
+        let id = normalizedRemoteID(exerciseID)
+
+        guard !id.isEmpty,
+              id.count <= 500 else {
+            return
+        }
+
+        let trackingKey = noteTrackingKey(
+            userID: userID,
+            beltID: beltID,
+            exerciseID: id
+        )
+
+        guard !pendingRemoteWrites.contains(trackingKey) else {
+            return
+        }
+
+        let dirtyKey = remoteDirtyKey(
+            userID: userID,
+            beltID: beltID,
+            exerciseID: id
+        )
+
+        guard defaults.bool(forKey: dirtyKey),
+              let localKey = storageKey(
+                userID: userID,
+                beltID: beltID,
+                exerciseID: id
+              ),
+              let localNote = defaults.string(
+                forKey: localKey
+              ),
+              localNote.count <= 5000 else {
+            return
+        }
+
+        // משחזרים רק פעולה מקומית שסומנה כממתינה.
+        // הערות Legacy אינן מועלות אוטומטית.
+        syncRemoteNote(
+            localNote,
+            userID: userID,
+            beltID: beltID,
+            exerciseID: id
+        )
+        #endif
+    }
+
+    func stopAllRemoteNoteListeners() {
+        #if canImport(FirebaseFirestore)
+        listenerSessions.removeAll()
+
+        noteListeners.values.forEach { listener in
+            listener.remove()
+        }
+
+        noteListeners.removeAll()
+        #endif
+
+        // הכתיבות שכבר נשלחו יטופלו
+        // דרך callbacks משלהן.
+    }
+
+    func stopObservingRemoteNote(
+        userID: String,
+        beltID: String,
+        exerciseID: String
+    ) {
+        #if canImport(FirebaseFirestore)
+        let key = noteTrackingKey(
+            userID: userID,
+            beltID: beltID,
+            exerciseID: exerciseID
+        )
+
+        listenerSessions.removeValue(forKey: key)
+        noteListeners.removeValue(forKey: key)?.remove()
+        #endif
     }
 
     func knownExerciseID(
@@ -312,6 +809,45 @@ final class ExerciseNotesStore: ObservableObject {
         )
 
         return id.isEmpty ? nil : id
+    }
+
+    private func remoteKnownKey(
+        userID: String,
+        beltID: String,
+        exerciseID: String
+    ) -> String {
+        let id = remoteDocumentID(
+            beltID: beltID,
+            exerciseID: exerciseID
+        )
+
+        return "kmi.exercise.note.remoteKnown.\(userID).\(id)"
+    }
+
+    private func remoteMirrorKey(
+        userID: String,
+        beltID: String,
+        exerciseID: String
+    ) -> String {
+        let id = remoteDocumentID(
+            beltID: beltID,
+            exerciseID: exerciseID
+        )
+
+        return "kmi.exercise.note.remoteMirror.\(userID).\(id)"
+    }
+
+    private func remoteDirtyKey(
+        userID: String,
+        beltID: String,
+        exerciseID: String
+    ) -> String {
+        let id = remoteDocumentID(
+            beltID: beltID,
+            exerciseID: exerciseID
+        )
+
+        return "kmi.exercise.note.dirty.\(userID).\(id)"
     }
 
     func hasStoredValue(
@@ -503,7 +1039,8 @@ final class ExerciseNotesStore: ObservableObject {
         _ note: String,
         userID: String,
         beltID: String,
-        exerciseID: String
+        exerciseID: String,
+        syncToRemote: Bool = false
     ) {
         guard let key = storageKey(
             userID: userID,
@@ -517,16 +1054,41 @@ final class ExerciseNotesStore: ObservableObject {
             in: .whitespacesAndNewlines
         )
 
-        guard defaults.string(forKey: key) != clean else {
+        guard clean.count <= 5000 else {
             return
         }
 
-        /*
-         * גם מחיקה נשמרת כערך ריק, כדי שנוכל בהמשך
-         * להבחין בין הערה שנמחקה לבין הערה שטרם הועברה.
-         */
-        defaults.set(clean, forKey: key)
-        revision += 1
+        let previousValue =
+            defaults.string(forKey: key)
+
+        let hasPendingChange =
+            defaults.bool(
+                forKey: remoteDirtyKey(
+                    userID: userID,
+                    beltID: beltID,
+                    exerciseID: exerciseID
+                )
+            )
+
+        if previousValue == clean &&
+           (!syncToRemote || !hasPendingChange) {
+            return
+        }
+
+        if previousValue != clean {
+            // גם ערך ריק הוא מחיקה מפורשת.
+            defaults.set(clean, forKey: key)
+            revision += 1
+        }
+
+        if syncToRemote {
+            syncRemoteNote(
+                clean,
+                userID: userID,
+                beltID: beltID,
+                exerciseID: exerciseID
+            )
+        }
     }
 }
 
@@ -680,6 +1242,7 @@ struct SubjectAcrossBeltsView: View {
     @State private var activeInfoExercise: ExerciseMenuContext? = nil
     @State private var activeNoteExercise: ExerciseMenuContext? = nil
     @State private var noteText: String = ""
+    @State private var noteTextAtOpen: String = ""
     @State private var noteEditorOwnerUID: String? = nil
     @State private var noteProblemMessage = ""
     @State private var showNoteProblem = false
@@ -1109,7 +1672,11 @@ struct SubjectAcrossBeltsView: View {
                 UiItem(
                     id: "\(belt.id)::\(sec.id)::\(raw)",
                     displayName: raw,
-                    topicTitle: currentPath.joined(separator: " / ")
+                    topicTitle: currentPath.joined(separator: " / "),
+                    rawItem: raw,
+                    sourceTopicTitle: currentPath.first ?? sec.title,
+                    sourceSubTopicTitle:
+                        currentPath.count > 1 ? sec.title : nil
                 )
             }
 
@@ -1669,6 +2236,7 @@ struct SubjectAcrossBeltsView: View {
             onDismiss: {
                 noteEditorOwnerUID = nil
                 noteText = ""
+                noteTextAtOpen = ""
                 noteSaveProblemMessage = ""
                 showNoteSaveProblem = false
             }
@@ -1708,6 +2276,29 @@ struct SubjectAcrossBeltsView: View {
                         return
                     }
 
+                    let currentSavedNote = loadNote(
+                        belt: context.belt,
+                        item: context.item
+                    )
+
+                    let userChangedDraft =
+                        noteText != noteTextAtOpen
+
+                    let remoteChangedDuringEdit =
+                        currentSavedNote != noteTextAtOpen
+
+                    if userChangedDraft &&
+                       remoteChangedDuringEdit &&
+                       currentSavedNote != noteText {
+                        noteSaveProblemMessage = tr(
+                            "ההערה השתנתה במכשיר אחר בזמן העריכה. הטיוטה שלך לא נדרסה. יש לבדוק את השינויים לפני השמירה.",
+                            "The note changed on another device while you were editing. Your draft was preserved. Review the changes before saving."
+                        )
+
+                        showNoteSaveProblem = true
+                        return
+                    }
+
                     saveNote(
                         belt: context.belt,
                         item: context.item,
@@ -1721,6 +2312,38 @@ struct SubjectAcrossBeltsView: View {
                     for: context.belt
                 )
             )
+            .onReceive(
+                exerciseNotes.$revision.dropFirst()
+            ) { _ in
+                guard let ownerUID = noteEditorOwnerUID,
+                      currentNoteUserID() == ownerUID,
+                      noteText == noteTextAtOpen else {
+                    return
+                }
+
+                let updatedNote = loadNote(
+                    belt: context.belt,
+                    item: context.item
+                )
+
+                if updatedNote != noteText {
+                    noteText = updatedNote
+                    noteTextAtOpen = updatedNote
+                }
+            }
+            .onDisappear {
+                if let ownerUID = noteEditorOwnerUID,
+                   let identity = compatibleNoteIdentity(
+                       belt: context.belt,
+                       item: context.item
+                   ) {
+                    exerciseNotes.stopObservingRemoteNote(
+                        userID: ownerUID,
+                        beltID: context.belt.id,
+                        exerciseID: identity.primaryID
+                    )
+                }
+            }
             .alert(
                 tr(
                     "לא ניתן לשמור את ההערה",
@@ -2381,7 +3004,31 @@ struct SubjectAcrossBeltsView: View {
                     }
 
                     noteEditorOwnerUID = userID
-                    noteText = loadNote(belt: belt, item: item)
+
+                    noteText = loadNote(
+                        belt: belt,
+                        item: item
+                    )
+
+                    noteTextAtOpen = noteText
+
+                    if let identity = compatibleNoteIdentity(
+                        belt: belt,
+                        item: item
+                    ) {
+                        exerciseNotes.observeRemoteNote(
+                            userID: userID,
+                            beltID: belt.id,
+                            exerciseID: identity.primaryID
+                        )
+
+                        exerciseNotes.retryPendingRemoteNote(
+                            userID: userID,
+                            beltID: belt.id,
+                            exerciseID: identity.primaryID
+                        )
+                    }
+
                     activeNoteExercise = context
                 },
                 onSelectTraineeStatus: { status in
@@ -2635,6 +3282,13 @@ struct SubjectAcrossBeltsView: View {
             previousIDs.insert(previousKnownID)
         }
 
+        if let canonicalID = item.canonicalId?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !canonicalID.isEmpty,
+           canonicalID != resolved.primaryID {
+            previousIDs.insert(canonicalID)
+        }
+
         return ExerciseIdentityResolverIOS.Identity(
             primaryID: resolved.primaryID,
             displayTitle: resolved.displayTitle,
@@ -2713,7 +3367,8 @@ struct SubjectAcrossBeltsView: View {
                 value,
                 userID: userID,
                 beltID: belt.id,
-                exerciseID: identity.primaryID
+                exerciseID: identity.primaryID,
+                syncToRemote: true
             )
             return
         }
@@ -2872,10 +3527,16 @@ struct ExerciseNoteSheet: View {
         )
     }
 
+    private let maximumNoteLength = 5000
+
     private var hasText: Bool {
         !noteText.trimmingCharacters(
             in: .whitespacesAndNewlines
         ).isEmpty
+    }
+
+    private var isNoteLengthValid: Bool {
+        noteText.count <= maximumNoteLength
     }
 
     private func tr(
@@ -2931,6 +3592,26 @@ struct ExerciseNoteSheet: View {
                     }
 
                     noteEditor
+
+                    Text(
+                        isEnglish
+                            ? "\(noteText.count) / \(maximumNoteLength) characters"
+                            : "\(noteText.count) / \(maximumNoteLength) תווים"
+                    )
+                    .kmiTypography(.secondary)
+                    .foregroundStyle(
+                        isNoteLengthValid
+                            ? KmiAppTheme.onSurfaceVariant(
+                                for: colorScheme
+                            )
+                            : KmiAppTheme.error(
+                                for: colorScheme
+                            )
+                    )
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: isEnglish ? .leading : .trailing
+                    )
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 20)
@@ -2996,6 +3677,13 @@ struct ExerciseNoteSheet: View {
     private var noteEditor: some View {
         ZStack(alignment: .topLeading) {
             TextEditor(text: $noteText)
+                .onChange(of: noteText) { _, newValue in
+                    if newValue.count > maximumNoteLength {
+                        noteText = String(
+                            newValue.prefix(maximumNoteLength)
+                        )
+                    }
+                }
                 .kmiTypography(.body)
                 .fontWeight(.bold)
                 .foregroundStyle(
@@ -3107,6 +3795,10 @@ struct ExerciseNoteSheet: View {
                     for: colorScheme
                 )
             ) {
+                guard isNoteLengthValid else {
+                    return
+                }
+
                 editorFocused = false
                 onSave()
 
@@ -3114,6 +3806,8 @@ struct ExerciseNoteSheet: View {
                     dismiss()
                 }
             }
+            .disabled(!isNoteLengthValid)
+            .opacity(isNoteLengthValid ? 1 : 0.50)
         }
         .frame(maxWidth: 560)
         .frame(maxWidth: .infinity)

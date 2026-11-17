@@ -555,8 +555,11 @@ struct HomeView: View {
         switch resolvedUserRole {
         case "coach",
              "trainer",
+             "instructor",
              "מאמן",
-             "מדריך":
+             "מדריך",
+             "coach_user",
+             "kmi_coach":
             return true
 
         default:
@@ -712,9 +715,17 @@ struct HomeView: View {
             showHomeQuickMenu = false
         }
 
+        let actionUserUID = Auth.auth().currentUser?.uid
+
         DispatchQueue.main.asyncAfter(
             deadline: .now() + 0.12
         ) {
+            guard let actionUserUID,
+                  Auth.auth().currentUser?.uid == actionUserUID,
+                  nav.path.isEmpty else {
+                return
+            }
+
             if hasFullAccess {
                 action()
             } else {
@@ -722,7 +733,7 @@ struct HomeView: View {
             }
         }
     }
-    
+
     private var freeSessionsUid: String {
         Auth.auth().currentUser?.uid
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -1056,7 +1067,10 @@ struct HomeView: View {
     }
 
     private var effectiveUpcomingTrainings: [TrainingData] {
-        guard !isAbroadUser else {
+        guard Auth.auth().currentUser != nil,
+              !isWaitingForTrainingProfile,
+              !auth.profileLoadFailed,
+              !isAbroadUser else {
             return []
         }
 
@@ -1345,14 +1359,26 @@ struct HomeView: View {
     private func syncCoachTrainingOccurrences() {
         guard isCoachUser,
               !isAbroadUser,
+              !isWaitingForTrainingProfile,
+              !auth.profileLoadFailed,
               Auth.auth().currentUser != nil else {
             return
         }
 
         for training in effectiveUpcomingTrainings {
-            let source = trainingSource(for: training)
+            let rawSource = trainingSource(for: training)
 
-            guard !source.branch.isEmpty, !source.group.isEmpty else {
+            let source = (
+                branch: rawSource.branch.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ),
+                group: rawSource.group.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+            )
+
+            guard !source.branch.isEmpty,
+                  !source.group.isEmpty else {
                 continue
             }
 
@@ -1366,11 +1392,31 @@ struct HomeView: View {
                 )
             ) { result in
                 #if DEBUG
-                if case .failure(let error) = result {
+                switch result {
+                case .success:
+                    print(
+                        "KMI_TRAINING_OCCURRENCE_SYNC_OK",
+                        "branch:", source.branch,
+                        "group:", source.group,
+                        "occurrenceKey:",
+                        trainingOccurrenceKey(
+                            for: training,
+                            source: source
+                        )
+                    )
+
+                case .failure(let error):
                     let syncError = error as NSError
 
                     print(
                         "KMI_TRAINING_OCCURRENCE_SYNC_FAILED",
+                        "branch:", source.branch,
+                        "group:", source.group,
+                        "occurrenceKey:",
+                        trainingOccurrenceKey(
+                            for: training,
+                            source: source
+                        ),
                         "domain:", syncError.domain,
                         "code:", syncError.code
                     )
@@ -1592,13 +1638,10 @@ struct HomeView: View {
     }
 
     private var homeMessagesAndEvents: [CoachHomeMessage] {
-        (recentCoachMessages + recentTrainingEvents)
+        let messages = (recentCoachMessages + recentTrainingEvents)
             .sorted { left, right in
-                let leftDate =
-                    left.sentAt ?? .distantPast
-
-                let rightDate =
-                    right.sentAt ?? .distantPast
+                let leftDate = left.sentAt ?? .distantPast
+                let rightDate = right.sentAt ?? .distantPast
 
                 if leftDate == rightDate {
                     if left.isTrainingEvent != right.isTrainingEvent {
@@ -1610,6 +1653,33 @@ struct HomeView: View {
 
                 return leftDate > rightDate
             }
+
+        guard demoPrivacy.isEnabled else {
+            return messages
+        }
+
+        return messages.map { message in
+            CoachHomeMessage(
+                id: message.id,
+                title: message.isTrainingEvent
+                    ? tr("עדכון אימון", "Training Update")
+                    : tr("הודעת צוות ק.מ.י", "K.M.I Team Message"),
+                text: message.isTrainingEvent
+                    ? tr(
+                        "קיים עדכון לגבי אחד האימונים.",
+                        "A training update is available."
+                    )
+                    : tr(
+                        "התקבלה הודעה מצוות ק.מ.י.",
+                        "A message from the K.M.I team is available."
+                    ),
+                coachName: tr("המאמן", "Coach"),
+                sentAt: message.sentAt,
+                branch: "",
+                group: "",
+                isTrainingEvent: message.isTrainingEvent
+            )
+        }
     }
 
     private var latestCoachMessage: CoachHomeMessage? {
@@ -1617,6 +1687,14 @@ struct HomeView: View {
     }
     
     private var resolvedCoachBroadcastName: String {
+        if demoPrivacy.isEnabled,
+           latestCoachMessage != nil {
+            return tr(
+                "הודעת צוות ק.מ.י",
+                "K.M.I Team Message"
+            )
+        }
+
         let title = latestCoachMessage?.title
             .trimmingCharacters(
                 in: .whitespacesAndNewlines
@@ -1649,8 +1727,22 @@ struct HomeView: View {
     }
     
     private var resolvedCoachBroadcastMessage: String {
-        let clean = latestCoachMessage?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        
+        let clean = latestCoachMessage?.text
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if demoPrivacy.isEnabled,
+           !clean.isEmpty {
+            return latestCoachMessage?.isTrainingEvent == true
+                ? tr(
+                    "קיים עדכון לגבי אחד האימונים.",
+                    "A training update is available."
+                )
+                : tr(
+                    "התקבלה הודעה מצוות ק.מ.י.",
+                    "A message from the K.M.I team is available."
+                )
+        }
+
         if clean.isEmpty {
             if messageCenterVm.isLoading {
                 return tr(
@@ -1919,11 +2011,21 @@ struct HomeView: View {
                                         selectedTraining = training
                                     },
                                     onManageTap: {
+                                        guard isCoachUser,
+                                              !isWaitingForTrainingProfile,
+                                              !auth.profileLoadFailed,
+                                              Auth.auth().currentUser != nil,
+                                              !source.branch.isEmpty,
+                                              !source.group.isEmpty else {
+                                            return
+                                        }
+
                                         let request =
                                             makeTrainingManagementRequest(
                                                 for: training,
                                                 activeOverride: trainingOverride
                                             )
+
                                         trainingManagementItem =
                                             HomeTrainingManagementItem(
                                                 request: request
@@ -2020,6 +2122,10 @@ struct HomeView: View {
                         )
                     )
                 ) { _ in
+                    guard nav.path.isEmpty else {
+                        return
+                    }
+
                     shareUpcomingTrainingsPDF()
                 }
                 .onReceive(
@@ -2068,6 +2174,10 @@ struct HomeView: View {
                     }
                 }
                 .onDisappear {
+                    showHomeQuickMenu = false
+                    homeQuickMenuDragStartY = nil
+                    homeQuickMenuDragY = nil
+
                     if isHomeGlobalLoadingActive {
                         isHomeGlobalLoadingActive = false
                         nav.endLoading()
@@ -2127,76 +2237,166 @@ struct HomeView: View {
                 }
                 .onChange(of: auth.isProfileLoading) { _, isLoading in
                     if isLoading {
+                        showHomeQuickMenu = false
+                        attendanceQrRequest = nil
+                        showAttendanceQrScanner = false
+                        trainingManagementItem = nil
+                        selectedTraining = nil
+
                         stopTrainingOverrideListener()
                         activeTrainingOverrides = [:]
                         return
                     }
 
                     reloadTrainingsIfNeeded()
+                    startCoachBroadcastListener()
                     startTrainingOverrideListener()
                 }
+                .onChange(of: isEnglish) { _, _ in
+                    showHomeQuickMenu = false
+
+                    guard !isWaitingForTrainingProfile else {
+                        return
+                    }
+
+                    reloadTrainingsIfNeeded()
+                }
                 .onChange(of: auth.userRole) { _, _ in
+                    showHomeQuickMenu = false
                     attendanceQrRequest = nil
                     showAttendanceQrScanner = false
                     trainingManagementItem = nil
+                    selectedTraining = nil
+
+                    stopTrainingOverrideListener()
+                    activeTrainingOverrides = [:]
+
                     reloadTrainingsIfNeeded()
                     startTrainingOverrideListener()
                 }
                 .onChange(of: auth.userRegion) { _, _ in
+                    showHomeQuickMenu = false
+                    attendanceQrRequest = nil
+                    showAttendanceQrScanner = false
+                    trainingManagementItem = nil
+                    selectedTraining = nil
+
                     reloadTrainingsIfNeeded()
+                    startCoachBroadcastListener()
                     startTrainingOverrideListener()
                 }
-                        .onChange(of: auth.userBranch) { _, _ in
-                            reloadTrainingsIfNeeded()
-                            startCoachBroadcastListener()
-                            startTrainingOverrideListener()
-                        }
-                        .onChange(of: auth.userGroup) { _, _ in
-                            reloadTrainingsIfNeeded()
-                            startCoachBroadcastListener()
-                            startTrainingOverrideListener()
-                        }
-                        .onChange(
-                            of: branchAssignmentsObservationValue
-                        ) { _, _ in
-                            reloadTrainingsIfNeeded()
-                            startCoachBroadcastListener()
-                            startTrainingOverrideListener()
-                        }
+                .onChange(of: auth.userBranch) { _, _ in
+                    showHomeQuickMenu = false
+                    attendanceQrRequest = nil
+                    showAttendanceQrScanner = false
+                    trainingManagementItem = nil
+                    selectedTraining = nil
+
+                    reloadTrainingsIfNeeded()
+                    startCoachBroadcastListener()
+                    startTrainingOverrideListener()
+                }
+                .onChange(of: auth.userGroup) { _, _ in
+                    showHomeQuickMenu = false
+                    attendanceQrRequest = nil
+                    showAttendanceQrScanner = false
+                    trainingManagementItem = nil
+                    selectedTraining = nil
+
+                    reloadTrainingsIfNeeded()
+                    startCoachBroadcastListener()
+                    startTrainingOverrideListener()
+                }
+                .onChange(
+                    of: branchAssignmentsObservationValue
+                ) { _, _ in
+                    showHomeQuickMenu = false
+                    attendanceQrRequest = nil
+                    showAttendanceQrScanner = false
+                    trainingManagementItem = nil
+                    selectedTraining = nil
+
+                    reloadTrainingsIfNeeded()
+                    startCoachBroadcastListener()
+                    startTrainingOverrideListener()
+                }
         )
 
         let observedContent = AnyView(
             assignmentObservedContent
                 .onChange(of: storedRegion) { _, _ in
+                    showHomeQuickMenu = false
+                    attendanceQrRequest = nil
+                    showAttendanceQrScanner = false
+                    trainingManagementItem = nil
+                    selectedTraining = nil
+
                     reloadTrainingsIfNeeded()
+                    startCoachBroadcastListener()
                     startTrainingOverrideListener()
                 }
-                        .onChange(of: storedActiveBranch) { _, _ in
-                            reloadTrainingsIfNeeded()
-                            startCoachBroadcastListener()
-                            startTrainingOverrideListener()
-                        }
-                        .onChange(of: storedBranch) { _, _ in
-                            reloadTrainingsIfNeeded()
-                            startCoachBroadcastListener()
-                            startTrainingOverrideListener()
-                        }
-                        .onChange(of: storedActiveGroup) { _, _ in
-                            reloadTrainingsIfNeeded()
-                            startCoachBroadcastListener()
-                            startTrainingOverrideListener()
-                        }
-                        .onChange(of: storedGroup) { _, _ in
-                            reloadTrainingsIfNeeded()
-                            startCoachBroadcastListener()
-                            startTrainingOverrideListener()
-                        }
-                        .onChange(of: Auth.auth().currentUser?.uid) { _, _ in
-                            reloadTrainingsIfNeeded()
-                            startCoachBroadcastListener()
-                            startTrainingOverrideListener()
-                        }
-                        .onChange(of: pendingCoachBroadcastId) { _, _ in
+                .onChange(of: storedActiveBranch) { _, _ in
+                    showHomeQuickMenu = false
+                    attendanceQrRequest = nil
+                    showAttendanceQrScanner = false
+                    trainingManagementItem = nil
+                    selectedTraining = nil
+
+                    reloadTrainingsIfNeeded()
+                    startCoachBroadcastListener()
+                    startTrainingOverrideListener()
+                }
+                .onChange(of: storedBranch) { _, _ in
+                    showHomeQuickMenu = false
+                    attendanceQrRequest = nil
+                    showAttendanceQrScanner = false
+                    trainingManagementItem = nil
+                    selectedTraining = nil
+
+                    reloadTrainingsIfNeeded()
+                    startCoachBroadcastListener()
+                    startTrainingOverrideListener()
+                }
+                .onChange(of: storedActiveGroup) { _, _ in
+                    showHomeQuickMenu = false
+                    attendanceQrRequest = nil
+                    showAttendanceQrScanner = false
+                    trainingManagementItem = nil
+                    selectedTraining = nil
+
+                    reloadTrainingsIfNeeded()
+                    startCoachBroadcastListener()
+                    startTrainingOverrideListener()
+                }
+                .onChange(of: storedGroup) { _, _ in
+                    showHomeQuickMenu = false
+                    attendanceQrRequest = nil
+                    showAttendanceQrScanner = false
+                    trainingManagementItem = nil
+                    selectedTraining = nil
+
+                    reloadTrainingsIfNeeded()
+                    startCoachBroadcastListener()
+                    startTrainingOverrideListener()
+                }
+        .onChange(of: Auth.auth().currentUser?.uid) { _, _ in
+                    showHomeQuickMenu = false
+                    attendanceQrRequest = nil
+                    showAttendanceQrScanner = false
+                    trainingManagementItem = nil
+                    selectedTraining = nil
+                    showCoachMessagesSheet = false
+                    pickedExercise = nil
+
+                    stopCoachBroadcastListener()
+                    stopTrainingOverrideListener()
+                    activeTrainingOverrides = [:]
+
+                    reloadTrainingsIfNeeded()
+                    startCoachBroadcastListener()
+                    startTrainingOverrideListener()
+                }
+                .onChange(of: pendingCoachBroadcastId) { _, _ in
             openPendingCoachBroadcastIfNeeded()
         }
                 .onChange(
@@ -2994,17 +3194,23 @@ struct HomeView: View {
 
     @MainActor
     private func shareUpcomingTrainingsPDF() {
-        guard !isHomeTrainingsLoading,
+        guard pdfShareItem == nil,
+              !isHomeTrainingsLoading,
               !isLoadingTrainingOverrides else {
             return
         }
-        guard !auth.profileLoadFailed else {
+
+        pdfExportErrorMessage = nil
+
+        guard Auth.auth().currentUser != nil,
+              !auth.profileLoadFailed else {
             pdfExportErrorMessage = tr(
-                "לא ניתן ליצור PDF כי טעינת פרטי המשתמש נכשלה.",
-                "Cannot create a PDF because your profile could not be loaded."
+                "לא ניתן ליצור PDF כי פרטי המשתמש אינם זמינים.",
+                "Cannot create a PDF because user details are unavailable."
             )
             return
         }
+
         guard !isAbroadUser else {
             pdfExportErrorMessage =
                 tr(
@@ -3849,6 +4055,15 @@ struct HomeView: View {
     }
 
     private func openPendingCoachBroadcastIfNeeded() {
+        guard nav.path.isEmpty else {
+            return
+        }
+
+        guard !isWaitingForTrainingProfile,
+              !auth.profileLoadFailed else {
+            return
+        }
+
         guard openCoachMessagesFromPush ||
                 openCoachMessagesFromPushLegacy else {
             return
@@ -4413,24 +4628,22 @@ private struct HomeTrainingCardAndroidStyle: View {
 
         var parts: [String] = []
 
+        if demoPrivacy.isEnabled {
+            return isEnglish
+                ? "Training details updated by coach"
+                : "פרטי האימון עודכנו על ידי המאמן"
+        }
+
         if !reason.isEmpty {
             parts.append(reason)
         }
 
         if !coachName.isEmpty {
-            if demoPrivacy.isEnabled {
-                parts.append(
-                    isEnglish
-                        ? "Updated by coach"
-                        : "עודכן על ידי המאמן"
-                )
-            } else {
-                parts.append(
-                    isEnglish
-                        ? "Updated by \(coachName)"
-                        : "עודכן על ידי \(coachName)"
-                )
-            }
+            parts.append(
+                isEnglish
+                    ? "Updated by \(coachName)"
+                    : "עודכן על ידי \(coachName)"
+            )
         }
 
         return parts.joined(separator: " · ")
@@ -4559,14 +4772,15 @@ private struct HomeTrainingCardAndroidStyle: View {
                         Int($0)
                     }
 
-            if parts.count >= 2 {
+            if parts.count == 2,
+               (0...23).contains(parts[0]),
+               (0...59).contains(parts[1]) {
+
                 var calendar =
-                    Calendar(identifier: .gregorian)
+                    ShabbatHolidayCheckerIOS.calendar
 
                 calendar.timeZone =
-                    TimeZone(
-                        identifier: "Asia/Jerusalem"
-                    ) ?? .current
+                    ShabbatHolidayCheckerIOS.timeZone
 
                 var components =
                     calendar.dateComponents(
@@ -4911,8 +5125,8 @@ private struct HomeTrainingCardAndroidStyle: View {
                                 ? KmiAppTheme.onErrorContainer(for: colorScheme)
                                 : HomeVisualTheme.secondaryText(for: colorScheme)
                         )
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
                 }
@@ -5239,33 +5453,33 @@ private struct HomeTrainingCardAndroidStyle: View {
                         "סריקת QR לנוכחות",
                         "Scan QR for attendance"
                     )
-            )
-            .kmiTypography(.secondary)
-            .fontWeight(.bold)
-            .foregroundStyle(
-                KmiAppTheme.onPrimaryContainer(for: colorScheme)
-            )
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .background(
-                KmiAppTheme.primaryContainer(for: colorScheme),
-                in: shape
-            )
-            .overlay {
-                shape.strokeBorder(
-                    KmiAppTheme.primary(for: colorScheme).opacity(0.30),
-                    lineWidth: 0.75
                 )
-                .allowsHitTesting(false)
+                .kmiTypography(.secondary)
+                .fontWeight(.bold)
+                .foregroundStyle(
+                    KmiAppTheme.onPrimaryContainer(for: colorScheme)
+                )
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(
+                    KmiAppTheme.primaryContainer(for: colorScheme),
+                    in: shape
+                )
+                .overlay {
+                    shape.strokeBorder(
+                        KmiAppTheme.primary(for: colorScheme).opacity(0.30),
+                        lineWidth: 0.75
+                    )
+                    .allowsHitTesting(false)
+                }
+                .contentShape(shape)
             }
-            .contentShape(shape)
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
     }
-}
 
 private var attendanceStartDate: Date {
     activeOverride?.hasChangedTime == true

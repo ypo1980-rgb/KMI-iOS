@@ -9,6 +9,16 @@ final class HomeTrainingsViewModel: ObservableObject {
 
     private var sourcesByTrainingKey: [String: (branch: String, group: String)] = [:]
 
+    /*
+     * מניעת טעינות זהות שמופעלות בצמידות
+     * על ידי מספר אירועי lifecycle ופרופיל.
+     *
+     * אין מדובר ב-Cache קבוע:
+     * טעינה מאוחרת יותר עדיין תתבצע.
+     */
+    private var lastLoadSignature: [String] = []
+    private var lastLoadTime: Date = .distantPast
+
     func source(for training: TrainingData) -> (branch: String, group: String)? {
         sourcesByTrainingKey[trainingKey(for: training)]
     }
@@ -29,8 +39,6 @@ final class HomeTrainingsViewModel: ObservableObject {
     }
 
     func loadForCurrentUser(auth: AuthViewModel? = nil) {
-        sourcesByTrainingKey.removeAll()
-
         let defaults = UserDefaults.standard
 
         let languageCode = (
@@ -260,6 +268,13 @@ final class HomeTrainingsViewModel: ObservableObject {
                 : "יש לעדכן בפרופיל את שיוך הקבוצות לסניפים."
 
             upcomingTrainings = []
+            sourcesByTrainingKey.removeAll()
+            lastLoadSignature = []
+            lastLoadTime = .distantPast
+
+            TrainingReminderScheduler.shared.refresh(
+                trainings: []
+            )
             return
         }
 
@@ -273,11 +288,19 @@ print(
 )
 #endif
 
-guard !region.isEmpty else {
-    statusMessage = isEnglish
+        guard !region.isEmpty else {
+            statusMessage = isEnglish
                 ? "No region is configured for this user."
                 : "לא הוגדר אזור למשתמש"
+
             upcomingTrainings = []
+            sourcesByTrainingKey.removeAll()
+            lastLoadSignature = []
+            lastLoadTime = .distantPast
+
+            TrainingReminderScheduler.shared.refresh(
+                trainings: []
+            )
             return
         }
 
@@ -285,7 +308,15 @@ guard !region.isEmpty else {
             statusMessage = isEnglish
                 ? "No branch is configured for this user."
                 : "לא הוגדר סניף למשתמש"
+
             upcomingTrainings = []
+            sourcesByTrainingKey.removeAll()
+            lastLoadSignature = []
+            lastLoadTime = .distantPast
+
+            TrainingReminderScheduler.shared.refresh(
+                trainings: []
+            )
             return
         }
 
@@ -293,7 +324,15 @@ guard !region.isEmpty else {
             statusMessage = isEnglish
                 ? "No group is configured for this user."
                 : "לא הוגדרה קבוצה למשתמש"
+
             upcomingTrainings = []
+            sourcesByTrainingKey.removeAll()
+            lastLoadSignature = []
+            lastLoadTime = .distantPast
+
+            TrainingReminderScheduler.shared.refresh(
+                trainings: []
+            )
             return
         }
 
@@ -302,8 +341,41 @@ guard !region.isEmpty else {
                 .regionStatusMessage(region) {
             statusMessage = holdMessage
             upcomingTrainings = []
+            sourcesByTrainingKey.removeAll()
+            lastLoadSignature = []
+            lastLoadTime = .distantPast
+
+            TrainingReminderScheduler.shared.refresh(
+                trainings: []
+            )
             return
         }
+
+        let loadSignature: [String] = [
+            auth?.loadedProfileUID ?? "",
+            region,
+            languageCode
+        ] + trainingSources.flatMap { source in
+            [source.branch, source.group]
+        }
+
+        let now = Date()
+
+        if loadSignature == lastLoadSignature,
+           now.timeIntervalSince(lastLoadTime) < 1.0 {
+            #if DEBUG
+            print(
+                "KMI_HOME_TRAINING_DUPLICATE_LOAD_SKIPPED"
+            )
+            #endif
+
+            return
+        }
+
+        lastLoadSignature = loadSignature
+        lastLoadTime = now
+
+        sourcesByTrainingKey.removeAll()
 
         var collectedTrainings: [
             (training: TrainingData, branch: String, group: String)

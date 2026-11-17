@@ -234,12 +234,48 @@ enum TrainingOverrideRepository {
         firestore.runTransaction({ transaction, errorPointer -> Any? in
             do {
                 let existing = try transaction.getDocument(reference)
+
+                #if DEBUG
+                print(
+                    "KMI_OCCURRENCE_TRANSACTION_READ_OK",
+                    "documentId:", occurrenceId,
+                    "exists:", existing.exists,
+                    "branch:", cleanBranch,
+                    "group:", cleanGroup
+                )
+                #endif
+
                 guard auth.currentUser?.uid == currentUser.uid else {
                     throw TrainingOverrideRepositoryError.missingSignedInUser
                 }
 
                 if existing.exists {
                     let stored = existing.data() ?? [:]
+
+                    /*
+                     * מופע אימון שנוצר על ידי מנגנון השרת
+                     * מנוהל על ידי השרת בלבד.
+                     *
+                     * האפליקציה אינה דורסת נתונים אלה
+                     * ואינה משנה את מקור הבעלות על המסמך.
+                     */
+                    let storedSource =
+                        stored["source"] as? String ?? ""
+
+                    if storedSource != "android_training_occurrence" {
+                        #if DEBUG
+                        print(
+                            "KMI_OCCURRENCE_EXTERNAL_SOURCE_SKIP",
+                            "documentId:", occurrenceId,
+                            "source:", storedSource,
+                            "branch:", cleanBranch,
+                            "group:", cleanGroup
+                        )
+                        #endif
+
+                        return nil
+                    }
+
                     // שדות הזהות חייבים להתאים למסמך הקיים; אין לשכתב אותם.
                     let stringKeys = [
                         "occurrenceId", "occurrenceKey", "branch", "group", "sessionDate"
@@ -260,6 +296,19 @@ enum TrainingOverrideRepository {
                         )
                     }
 
+                    #if DEBUG
+                    print(
+                        "KMI_OCCURRENCE_EXISTING_FIELDS",
+                        "documentId:", occurrenceId,
+                        "source:", stored["source"] ?? "MISSING",
+                        "updatedByUid:", stored["updatedByUid"] ?? "MISSING",
+                        "effectiveStartMillis:", stored["effectiveStartMillis"] ?? "MISSING",
+                        "effectiveEndMillis:", stored["effectiveEndMillis"] ?? "MISSING",
+                        "isCancelled:", stored["isCancelled"] ?? "MISSING",
+                        "updatedAt:", stored["updatedAt"] ?? "MISSING"
+                    )
+                    #endif
+
                     var update: [String: Any] = [:]
                     for key in [
                         "effectiveStartMillis", "effectiveEndMillis", "isCancelled",
@@ -277,6 +326,26 @@ enum TrainingOverrideRepository {
                 return nil
             }
         }) { _, error in
+            #if DEBUG
+            if let error {
+                let nsError = error as NSError
+
+                print(
+                    "KMI_OCCURRENCE_TRANSACTION_FAILED",
+                    "documentId:", occurrenceId,
+                    "domain:", nsError.domain,
+                    "code:", nsError.code,
+                    "description:", nsError.localizedDescription,
+                    "userInfo:", nsError.userInfo
+                )
+            } else {
+                print(
+                    "KMI_OCCURRENCE_TRANSACTION_SUCCESS",
+                    "documentId:", occurrenceId
+                )
+            }
+            #endif
+
             deliverResult(error: error, completion: completion)
         }
     }
@@ -913,8 +982,12 @@ enum TrainingOverrideRepository {
             return originalStartMillis
                 + defaultTrainingDurationMillis
         }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone =
+            TimeZone(identifier: "Asia/Jerusalem")!
+
         var dateComponents =
-            Calendar.current.dateComponents(
+            calendar.dateComponents(
                 [
                     .year,
                     .month,
@@ -922,24 +995,27 @@ enum TrainingOverrideRepository {
                 ],
                 from: training.date
             )
+
         dateComponents.hour = hour
         dateComponents.minute = minute
         dateComponents.second = 0
+
         guard var endDate =
-                Calendar.current.date(
+                calendar.date(
                     from: dateComponents
                 ) else {
             return originalStartMillis
                 + defaultTrainingDurationMillis
         }
-        let startDate =
-            training.date
+
+        let startDate = training.date
+
         /*
          * אימון שמסתיים אחרי חצות.
          */
         if endDate <= startDate {
             endDate =
-                Calendar.current.date(
+                calendar.date(
                     byAdding: .day,
                     value: 1,
                     to: endDate

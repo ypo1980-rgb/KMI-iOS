@@ -3,6 +3,8 @@ import UIKit
 import Shared
 import AVFoundation
 import Combine
+import CryptoKit
+import FirebaseFirestore
 
 #if canImport(FirebaseAuth)
 import FirebaseAuth
@@ -160,8 +162,9 @@ struct MaterialsView: View {
                 .lowercased()
         }
 
+        let activeRole = normalizedRole(storedActiveUserRole)
+
         let roles = [
-            storedActiveUserRole,
             storedLegacyUserRole,
             storedCamelCaseUserRole,
             storedProfileUserRole
@@ -191,10 +194,17 @@ struct MaterialsView: View {
             ]
 
         /*
-         * כמו ב-ContentView:
-         * אם אחד ממקורות התפקיד אומר Coach,
-         * הוא גובר על fallback ישן.
+         * user_role הוא מקור התפקיד הפעיל.
+         * מפתחות ישנים משמשים רק אם הוא אינו מזוהה.
          */
+        if coachRoles.contains(activeRole) {
+            return true
+        }
+
+        if traineeRoles.contains(activeRole) {
+            return false
+        }
+
         if roles.contains(
             where: {
                 coachRoles.contains($0)
@@ -361,6 +371,21 @@ struct MaterialsView: View {
      */
     @State private var coachProgressStates:
         [String: CoachMaterialProgress] = [:]
+
+    @State private var remoteTraineeMarks: [String: String] = [:]
+    @State private var remoteTraineeDates: [String: Int64] = [:]
+    @State private var remoteCoachProgress: [String: CoachMaterialProgress] = [:]
+
+    // סימונים מקומיים הממתינים לאישור.
+    // תור הכתיבות עצמו מנוהל על ידי Firestore.
+    @State private var pendingTraineeMarks: [String: String] = [:]
+    @State private var pendingCoachMarks: [String: CoachMaterialProgress] = [:]
+
+    @State private var markListenerUID: String?
+    @State private var markListenerSession = UUID()
+
+    @State private var traineeMarkListener: ListenerRegistration?
+    @State private var coachMarkListener: ListenerRegistration?
 
     @State private var notes: [String: String] = [:]
 
@@ -558,6 +583,16 @@ struct MaterialsView: View {
         return "status_\(belt.id)_\(topicKey)_\(index)_\(cleanItem)"
     }
 
+    private func firestoreMarkDocumentID(
+        for statusId: String
+    ) -> String {
+        let key = "\(belt.id)\u{0000}\(topicKey)\u{0000}\(statusId)"
+
+        return SHA256.hash(data: Data(key.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
     private var materialItems: [String] {
         let cleanRootTopic = materialRootTopic
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -664,6 +699,158 @@ struct MaterialsView: View {
             subTopicTitle: subTopicUi
         )
         .removingDuplicatesKeepingOrder()
+    }
+
+    private func stopMarkListeners() {
+        // פוסלים callbacks שהוזמנו לפני סגירת ההאזנה.
+        markListenerSession = UUID()
+
+        traineeMarkListener?.remove()
+        coachMarkListener?.remove()
+
+        traineeMarkListener = nil
+        coachMarkListener = nil
+        markListenerUID = nil
+
+        remoteTraineeMarks.removeAll()
+        remoteTraineeDates.removeAll()
+        remoteCoachProgress.removeAll()
+
+        // נתוני התצוגה של המסך מתנקים.
+        // כתיבות שכבר נמסרו ל-Firestore אינן מתבטלות.
+        pendingTraineeMarks.removeAll()
+        pendingCoachMarks.removeAll()
+    }
+
+    private func startMarkListeners() {
+        guard let uid = Auth.auth().currentUser?.uid else {
+            stopMarkListeners()
+            return
+        }
+
+        let listenersAlreadyMatch =
+            markListenerUID == uid &&
+            traineeMarkListener != nil &&
+            (
+                effectiveIsCoach
+                    ? coachMarkListener != nil
+                    : coachMarkListener == nil
+            )
+
+        guard !listenersAlreadyMatch else {
+            return
+        }
+
+        stopMarkListeners()
+
+        markListenerUID = uid
+        let listenerSession = markListenerSession
+
+        let userDocument = Firestore.firestore()
+            .collection("users")
+            .document(uid)
+
+        traineeMarkListener = userDocument
+            .collection("exerciseMarks")
+            .addSnapshotListener { snapshot, error in
+                DispatchQueue.main.async {
+                    guard markListenerUID == uid,
+                          markListenerSession == listenerSession,
+                          Auth.auth().currentUser?.uid == uid else {
+                        return
+                    }
+
+                    if let error {
+                        #if DEBUG
+                        print("KMI_IOS_TRAINEE_MARKS_READ_FAILED", error)
+                        #endif
+                        return
+                    }
+
+                    guard let snapshot else { return }
+
+                    var updatedMarks: [String: String] = [:]
+                    var updatedDates: [String: Int64] = [:]
+
+                    for document in snapshot.documents {
+                        guard let status = document.get("status") as? String,
+                              ["mastered", "partiallyKnown", "unknown", "unmarked"]
+                                .contains(status) else {
+                            continue
+                        }
+
+                        updatedMarks[document.documentID] = status
+
+                        if let timestamp = document.get("updatedAt") as? Timestamp {
+                            updatedDates[document.documentID] = Int64(
+                                timestamp.dateValue().timeIntervalSince1970 * 1_000
+                            )
+                        }
+                    }
+
+                    remoteTraineeMarks = updatedMarks
+                    remoteTraineeDates = updatedDates
+                }
+            }
+
+        guard effectiveIsCoach else { return }
+
+        coachMarkListener = userDocument
+            .collection("coachExerciseMarks")
+            .addSnapshotListener { snapshot, error in
+                DispatchQueue.main.async {
+                    guard markListenerUID == uid,
+                          markListenerSession == listenerSession,
+                          Auth.auth().currentUser?.uid == uid,
+                          effectiveIsCoach else {
+                        return
+                    }
+
+                    if let error {
+                        #if DEBUG
+                        print("KMI_IOS_COACH_MARKS_READ_FAILED", error)
+                        #endif
+                        return
+                    }
+
+                    guard let snapshot else { return }
+
+                    var updated: [String: CoachMaterialProgress] = [:]
+
+                    for document in snapshot.documents {
+                        let rawStatuses =
+                            document.get("selectedStatuses") as? [String] ?? []
+
+                        let selected = Set(
+                            rawStatuses
+                                .compactMap(CoachMaterialStatus.init(rawValue:))
+                                .filter { $0 != .notTaught }
+                        )
+
+                        guard selected.count <= 2 else {
+                            continue
+                        }
+
+                        let rawDates =
+                            document.get("updatedAtByStatus") as? [String: Any] ?? [:]
+
+                        var dates: [CoachMaterialStatus: Int64] = [:]
+
+                        for status in selected {
+                            if let value = rawDates[status.rawValue] as? NSNumber {
+                                dates[status] = max(0, value.int64Value)
+                            }
+                        }
+
+                        updated[document.documentID] = CoachMaterialProgress(
+                            selectedStatuses: selected,
+                            updatedAtByStatus: dates
+                        )
+                    }
+
+                    remoteCoachProgress = updated
+                }
+            }
     }
 
     private var rowsCacheKey: String {
@@ -1168,8 +1355,10 @@ struct MaterialsView: View {
 
             speechSynth.delegate = speechDelegate
             startNoteAuthListener()
+            startMarkListeners()
         }
         .onDisappear {
+            stopMarkListeners()
             stopNoteAuthListener()
 
             selectedNoteRow = nil
@@ -1188,6 +1377,9 @@ struct MaterialsView: View {
         .onChange(of: scopeKey) { _, _ in
             showNoteConflictChoices = false
             noteConflictContext = nil
+        }
+        .onChange(of: effectiveIsCoach) { _, _ in
+            startMarkListeners()
         }
         .task(id: rowsCacheKey) {
             await Task.yield()
@@ -1325,8 +1517,8 @@ struct MaterialsView: View {
         } message: {
             Text(
                 tr(
-                    "הפעולה תמחק את הנתונים המקומיים ששמרת עבור הנושא הנוכחי בלבד.",
-                    "This will delete the local data saved for the current topic only."
+                    "הפעולה תאפס את סימוני התפקיד הפעיל בנושא הנוכחי, גם בשרת, ותסיר מהמכשיר מועדפים, החרגות והערות של נושא זה. סימוני התפקיד השני לא יאופסו.",
+                    "This will reset the active role's marks for this topic, including on the server, and remove local favorites, exclusions and notes. Marks belonging to the other role will not be reset."
                 )
             )
         }
@@ -1913,10 +2105,20 @@ struct MaterialsView: View {
     private func currentTraineeUpdatedAt(
         for statusId: String
     ) -> Int64 {
+        let documentID = firestoreMarkDocumentID(
+            for: statusId
+        )
 
-        traineeUpdatedAtStates[
-            statusId
-        ] ?? 0
+        // בעת כתיבה ממתינה מציגים את זמן הפעולה המקומי.
+        if pendingTraineeMarks[documentID] != nil {
+            return traineeUpdatedAtStates[statusId] ?? 0
+        }
+
+        if remoteTraineeMarks[documentID] != nil {
+            return remoteTraineeDates[documentID] ?? 0
+        }
+
+        return traineeUpdatedAtStates[statusId] ?? 0
     }
 
     // MARK: - Random Practice Status Bridge
@@ -2123,16 +2325,37 @@ struct MaterialsView: View {
         for statusId: String
     ) -> CoachMaterialProgress {
 
-        coachProgressStates[
-            statusId
-        ]
-        ?? CoachMaterialProgress()
+        let documentID = firestoreMarkDocumentID(
+            for: statusId
+        )
+
+        if let pending = pendingCoachMarks[documentID] {
+            return pending
+        }
+
+        if let remote = remoteCoachProgress[documentID] {
+            return remote
+        }
+
+        return coachProgressStates[statusId]
+            ?? CoachMaterialProgress()
     }
 
     private func saveCoachProgress(
         _ status: CoachMaterialStatus,
         for statusId: String
     ) {
+        guard let uid = Auth.auth().currentUser?.uid,
+              markListenerUID == uid,
+              effectiveIsCoach else {
+            showToast(
+                tr(
+                    "לא ניתן לשמור את סימון המאמן. בדוק את החשבון הפעיל.",
+                    "Unable to save the coach mark. Check the active account."
+                )
+            )
+            return
+        }
 
         let defaults =
             UserDefaults.standard
@@ -2144,12 +2367,8 @@ struct MaterialsView: View {
             )
 
         let current =
-            coachProgressStates[
-                statusId
-            ]
-            ?? loadCoachProgress(
-                for:
-                    statusId
+            currentCoachProgress(
+                for: statusId
             )
 
         /*
@@ -2187,6 +2406,11 @@ struct MaterialsView: View {
             defaults.removeObject(
                 forKey:
                     "\(key)_updated_at"
+            )
+
+            syncCoachProgress(
+                CoachMaterialProgress(),
+                statusId: statusId
             )
 
             refreshToken =
@@ -2325,6 +2549,11 @@ struct MaterialsView: View {
         defaults.removeObject(
             forKey:
                 "\(key)_updated_at"
+        )
+
+        syncCoachProgress(
+            nextProgress,
+            statusId: statusId
         )
 
         refreshToken =
@@ -2774,16 +3003,182 @@ struct MaterialsView: View {
     }
 
     private func currentMark(for id: String) -> RowMark? {
-        if let value = marks[id] {
-            return value
+        let documentID = firestoreMarkDocumentID(for: id)
+
+        if let pendingStatus = pendingTraineeMarks[documentID] {
+            return RowMark(rawValue: pendingStatus)
         }
-        return nil
+
+        if let remoteStatus = remoteTraineeMarks[documentID] {
+            return RowMark(rawValue: remoteStatus)
+        }
+
+        return marks[id] ?? nil
+    }
+
+    private func syncTraineeMark(
+        _ mark: RowMark?,
+        statusId: String
+    ) {
+        guard let uid = Auth.auth().currentUser?.uid,
+              markListenerUID == uid else {
+            return
+        }
+
+        let documentID = firestoreMarkDocumentID(for: statusId)
+        let status = mark?.rawValue ?? "unmarked"
+
+        pendingTraineeMarks[documentID] = status
+
+        let writeSession = markListenerSession
+
+        Firestore.firestore()
+            .collection("users")
+            .document(uid)
+            .collection("exerciseMarks")
+            .document(documentID)
+            .setData([
+                "beltId": belt.id,
+                "status": status,
+                "updatedAt": FieldValue.serverTimestamp()
+            ]) { error in
+                DispatchQueue.main.async {
+                    guard markListenerUID == uid,
+                          markListenerSession == writeSession,
+                          Auth.auth().currentUser?.uid == uid else {
+                        return
+                    }
+
+                    if let error {
+                        #if DEBUG
+                        print("KMI_IOS_TRAINEE_MARK_SAVE_FAILED", error)
+                        #endif
+
+                        if pendingTraineeMarks[documentID] == status {
+                            pendingTraineeMarks.removeValue(
+                                forKey: documentID
+                            )
+                        }
+
+                        showToast(
+                            tr(
+                                "שמירת הסימון בשרת נכשלה. בדוק את החיבור וההרשאות.",
+                                "Server save failed. Check the connection and permissions."
+                            )
+                        )
+                        return
+                    }
+
+                    remoteTraineeMarks[documentID] = status
+
+                    if pendingTraineeMarks[documentID] == status {
+                        pendingTraineeMarks.removeValue(
+                            forKey: documentID
+                        )
+                    }
+                }
+            }
+    }
+
+    private func syncCoachProgress(
+        _ progress: CoachMaterialProgress,
+        statusId: String
+    ) {
+        guard let uid = Auth.auth().currentUser?.uid,
+              markListenerUID == uid,
+              effectiveIsCoach else {
+            return
+        }
+
+        let documentID = firestoreMarkDocumentID(for: statusId)
+
+        pendingCoachMarks[documentID] = progress
+
+        let statuses: [CoachMaterialStatus] = [
+            .taught,
+            .practiced,
+            .needsReinforcement
+        ]
+
+        let selected = statuses.filter {
+            progress.selectedStatuses.contains($0)
+        }
+
+        let selectedValues = selected.map(\.rawValue)
+
+        var dates: [String: Int64] = [:]
+
+        for status in selected {
+            dates[status.rawValue] =
+                progress.updatedAtByStatus[status] ?? 0
+        }
+
+        let writeSession = markListenerSession
+
+        Firestore.firestore()
+            .collection("users")
+            .document(uid)
+            .collection("coachExerciseMarks")
+            .document(documentID)
+            .setData([
+                "beltId": belt.id,
+                "selectedStatuses": selectedValues,
+                "updatedAtByStatus": dates,
+                "updatedAt": FieldValue.serverTimestamp()
+            ]) { error in
+                DispatchQueue.main.async {
+                    guard markListenerUID == uid,
+                          markListenerSession == writeSession,
+                          Auth.auth().currentUser?.uid == uid else {
+                        return
+                    }
+
+                    if let error {
+                        #if DEBUG
+                        print("KMI_IOS_COACH_MARK_SAVE_FAILED", error)
+                        #endif
+
+                        if pendingCoachMarks[documentID] == progress {
+                            pendingCoachMarks.removeValue(
+                                forKey: documentID
+                            )
+                        }
+
+                        showToast(
+                            tr(
+                                "שמירת סימון המאמן בשרת נכשלה. בדוק את החיבור וההרשאות.",
+                                "Coach mark save failed. Check the connection and permissions."
+                            )
+                        )
+                        return
+                    }
+
+                    remoteCoachProgress[documentID] = progress
+
+                    if pendingCoachMarks[documentID] == progress {
+                        pendingCoachMarks.removeValue(
+                            forKey: documentID
+                        )
+                    }
+                }
+            }
     }
 
     private func saveTraineeMark(
         _ selectedMark: RowMark?,
         for row: ExerciseRow
     ) {
+        guard let uid = Auth.auth().currentUser?.uid,
+              markListenerUID == uid,
+              !effectiveIsCoach else {
+            showToast(
+                tr(
+                    "לא ניתן לשמור את הסימון. בדוק את החשבון הפעיל.",
+                    "Unable to save the mark. Check the active account."
+                )
+            )
+            return
+        }
 
         let materialsKey =
             markKey(
@@ -2906,6 +3301,11 @@ struct MaterialsView: View {
             forKey: "\(practiceKey).updatedAt"
         )
 
+        syncTraineeMark(
+            selectedMark,
+            statusId: row.statusId
+        )
+
         refreshToken =
             UUID()
     }
@@ -2944,6 +3344,10 @@ struct MaterialsView: View {
                 }
 
                 refreshSharedNotes()
+
+                if markListenerUID != user?.uid {
+                    startMarkListeners()
+                }
             }
         }
         #endif
@@ -3388,10 +3792,31 @@ struct MaterialsView: View {
     }
 
     private func resetCurrentScope() {
-        if let userID = currentNoteUserID(),
-           rows.contains(where: {
-               noteHasConflict(for: $0, userID: userID)
-           }) {
+        guard let userID = currentNoteUserID(),
+              markListenerUID == userID else {
+            showToast(
+                tr(
+                    "לא ניתן לאפס כרגע. יש להתחבר לחשבון ולנסות שוב.",
+                    "Cannot reset right now. Sign in and try again."
+                )
+            )
+            return
+        }
+
+        guard rowsCache[rowsCacheKey] != nil,
+              !rows.isEmpty else {
+            showToast(
+                tr(
+                    "רשימת התרגילים עדיין לא זמינה לאיפוס.",
+                    "The exercise list is not available for reset yet."
+                )
+            )
+            return
+        }
+
+        if rows.contains(where: {
+            noteHasConflict(for: $0, userID: userID)
+        }) {
             showToast(
                 tr(
                     "לא ניתן לאפס: נמצאו הערות שונות לאותו תרגיל. הנתונים לא שונו.",
@@ -3403,6 +3828,22 @@ struct MaterialsView: View {
 
         speechSynth.stopSpeaking(at: .immediate)
         isSpeakingExplanation = false
+
+        if effectiveIsCoach {
+            for row in rows {
+                syncCoachProgress(
+                    CoachMaterialProgress(),
+                    statusId: row.statusId
+                )
+            }
+        } else {
+            for row in rows {
+                syncTraineeMark(
+                    nil,
+                    statusId: row.statusId
+                )
+            }
+        }
 
         let keysToRemove =
             rows.flatMap {
@@ -3429,19 +3870,20 @@ struct MaterialsView: View {
                         ]
                     }
 
-                return [
+                let commonKeys = [
                     excludedKey(
-                        for:
-                            row.canonicalId
-                    ),
+                        for: row.canonicalId
+                    )
+                ]
 
-                    /*
-                     * legacy coach storage
-                     */
+                guard effectiveIsCoach else {
+                    return commonKeys
+                }
+
+                return commonKeys + [
                     "\(progressKey)_status",
                     "\(progressKey)_updated_at"
-                ]
-                + coachStatusKeys
+                ] + coachStatusKeys
             }
 
         let resetTime = Date().timeIntervalSince1970
@@ -3470,27 +3912,29 @@ struct MaterialsView: View {
          * שומרים איפוס מפורש בחומרי החגורה ומעדכנים
          * גם את זמן האיפוס של התרגול האקראי.
          */
-        for row in rows {
-            defaults.set(
-                "unmarked",
-                forKey: markKey(for: row.statusId)
-            )
+        if !effectiveIsCoach {
+            for row in rows {
+                defaults.set(
+                    "unmarked",
+                    forKey: markKey(for: row.statusId)
+                )
 
-            defaults.set(
-                resetTime * 1_000,
-                forKey: traineeUpdatedAtKey(for: row.statusId)
-            )
+                defaults.set(
+                    resetTime * 1_000,
+                    forKey: traineeUpdatedAtKey(for: row.statusId)
+                )
 
-            let practiceKey = practiceStatusKey(
-                for: row.rawItem
-            )
+                let practiceKey = practiceStatusKey(
+                    for: row.rawItem
+                )
 
-            defaults.removeObject(forKey: practiceKey)
+                defaults.removeObject(forKey: practiceKey)
 
-            defaults.set(
-                resetTime,
-                forKey: "\(practiceKey).updatedAt"
-            )
+                defaults.set(
+                    resetTime,
+                    forKey: "\(practiceKey).updatedAt"
+                )
+            }
         }
 
         /*
@@ -3526,9 +3970,14 @@ struct MaterialsView: View {
             noteDraft = ""
 
             excluded.removeAll()
-            marks.removeAll()
-            traineeUpdatedAtStates.removeAll()
-            coachProgressStates.removeAll()
+
+            if effectiveIsCoach {
+                coachProgressStates.removeAll()
+            } else {
+                marks.removeAll()
+                traineeUpdatedAtStates.removeAll()
+            }
+
             notes.removeAll()
 
             refreshToken = UUID()
@@ -3537,12 +3986,12 @@ struct MaterialsView: View {
         showToast(
             effectiveIsCoach
                 ? tr(
-                    "סטטוסי המאמן בנושא אופסו בהצלחה.",
-                    "Coach statuses reset successfully."
+                    "סטטוסי המאמן אופסו במכשיר. העדכון נשלח לסנכרון.",
+                    "Coach statuses reset locally. Sync was requested."
                 )
                 : tr(
-                    "הנושא אופס בהצלחה.",
-                    "Topic reset successfully."
+                    "הסימונים אופסו במכשיר. העדכון נשלח לסנכרון.",
+                    "Marks reset locally. Sync was requested."
                 )
         )
 
@@ -3554,22 +4003,24 @@ struct MaterialsView: View {
          * מסירים מרשימת החזרה רק את התרגילים
          * ששייכים לנושא הנוכחי.
          */
-        let currentRawItems = Set(
-            rows.map(\.rawItem)
-        )
+        if !effectiveIsCoach {
+            let currentRawItems = Set(
+                rows.map(\.rawItem)
+            )
 
-        var wrongItems = Set(
-            defaults.stringArray(
+            var wrongItems = Set(
+                defaults.stringArray(
+                    forKey: practiceWrongStorageKey
+                ) ?? []
+            )
+
+            wrongItems.subtract(currentRawItems)
+
+            defaults.set(
+                Array(wrongItems).sorted(),
                 forKey: practiceWrongStorageKey
-            ) ?? []
-        )
-
-        wrongItems.subtract(currentRawItems)
-
-        defaults.set(
-            Array(wrongItems).sorted(),
-            forKey: practiceWrongStorageKey
-        )
+            )
+        }
     }
 
     private func toggleSpeak(_ text: String) {

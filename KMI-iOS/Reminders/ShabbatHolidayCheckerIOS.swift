@@ -1,4 +1,5 @@
 import Foundation
+import KosherSwift
 
 enum ShabbatHolidayCheckerIOS {
 
@@ -28,43 +29,141 @@ enum ShabbatHolidayCheckerIOS {
         )
     }
 
+    private static let jerusalemLocation = GeoLocation(
+        locationName: "Jerusalem, Israel",
+        latitude: 31.778,
+        longitude: 35.235,
+        timeZone: timeZone
+    )
+
+    private static func zmanim(
+        for date: Date
+    ) -> (
+        jewish: JewishCalendar,
+        candleLighting: Date?,
+        tzais: Date?
+    ) {
+        let midday = calendar.date(
+            bySettingHour: 12,
+            minute: 0,
+            second: 0,
+            of: date
+        ) ?? date
+
+        let jewish = JewishCalendar(
+            workingDate: midday,
+            timezone: timeZone,
+            inIsrael: true,
+            useModernHolidays: true
+        )
+
+        let zmanimCalendar = ComplexZmanimCalendar(
+            location: jerusalemLocation
+        )
+
+        zmanimCalendar.workingDate = midday
+
+        return (
+            jewish: jewish,
+            candleLighting: jewish.hasCandleLighting()
+                ? zmanimCalendar.getCandleLighting()
+                : nil,
+            tzais: zmanimCalendar.getTzais()
+        )
+    }
+
+    private static func isBlockedAt(
+        _ date: Date,
+        dayData: (
+            jewish: JewishCalendar,
+            candleLighting: Date?,
+            tzais: Date?
+        )
+    ) -> Bool {
+
+        if dayData.jewish.isAssurBemelacha() {
+            guard let tzais = dayData.tzais else {
+                return true
+            }
+
+            return date < tzais
+        }
+
+        if let candleLighting = dayData.candleLighting {
+            return date >= candleLighting
+        }
+
+        return false
+    }
+
     static func nextAllowedTriggerDate(
         preferredHour: Int,
         preferredMinute: Int,
         now: Date = Date()
     ) -> Date {
-        var candidate = setTime(
-            on: now,
-            hour: preferredHour,
-            minute: preferredMinute
+
+        let hour = min(max(preferredHour, 0), 23)
+        let minute = min(max(preferredMinute, 0), 59)
+
+        var candidateDay = now
+
+        var preferredCandidate = setTime(
+            on: candidateDay,
+            hour: hour,
+            minute: minute
         )
 
-        if candidate <= now {
-            candidate = calendar.date(byAdding: .day, value: 1, to: candidate) ?? candidate
-            candidate = setTime(on: candidate, hour: preferredHour, minute: preferredMinute)
-        }
-
-        for _ in 0..<60 {
-            if isBlockedDate(candidate) {
-                candidate = calendar.date(byAdding: .day, value: 1, to: candidate) ?? candidate
-                candidate = setTime(on: candidate, hour: preferredHour, minute: preferredMinute)
-                continue
+        if preferredCandidate <= now {
+            guard let nextDay = calendar.date(
+                byAdding: .day,
+                value: 1,
+                to: candidateDay
+            ) else {
+                return .distantFuture
             }
 
-            if isAdjustedEarlyDate(candidate) {
-                candidate = setTime(on: candidate, hour: 13, minute: 0)
-
-                if candidate <= now {
-                    candidate = calendar.date(byAdding: .day, value: 1, to: candidate) ?? candidate
-                    candidate = setTime(on: candidate, hour: preferredHour, minute: preferredMinute)
-                    continue
-                }
-            }
-
-            return candidate
+            candidateDay = nextDay
         }
 
-        return candidate
+        for _ in 0..<370 {
+
+            let dayData = zmanim(for: candidateDay)
+
+            preferredCandidate = setTime(
+                on: candidateDay,
+                hour: hour,
+                minute: minute
+            )
+
+            var adjustedCandidate = preferredCandidate
+
+            if let candleLighting = dayData.candleLighting {
+                adjustedCandidate = candleLighting
+                    .addingTimeInterval(-60 * 60)
+            }
+
+            if adjustedCandidate > now,
+               !isBlockedAt(
+                    adjustedCandidate,
+                    dayData: dayData
+               ) {
+                return adjustedCandidate
+            }
+
+            guard let nextDay = calendar.date(
+                byAdding: .day,
+                value: 1,
+                to: candidateDay
+            ) else {
+                return .distantFuture
+            }
+
+            candidateDay = nextDay
+        }
+
+        // אם לא נמצא מועד מותר, לא מחזירים
+        // מועד שעלול ליפול בתוך שבת או חג.
+        return .distantFuture
     }
 
     private static func isFriday(_ date: Date) -> Bool {
@@ -80,7 +179,11 @@ enum ShabbatHolidayCheckerIOS {
     }
 
     private static func isErevHoliday(_ date: Date) -> Bool {
-        holidayNames(on: date).contains(where: isBlockingErevHolidayName)
+
+        holidayNames(on: date).contains { name in
+            isBlockingErevHolidayName(name)
+        }
+
     }
 
     private static func holidayNames(on date: Date) -> [String] {

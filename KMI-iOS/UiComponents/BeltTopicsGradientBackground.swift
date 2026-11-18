@@ -1,6 +1,18 @@
 import SwiftUI
 
 enum KmiAppTheme {
+
+    // MARK: - Global Section Tabs Layout
+
+    /// גובה אחיד לטאבים בכותרות המשנה.
+    static let sectionTabsHeight: CGFloat = 76
+
+    /// המרווח שמתחת לפס הטאבים.
+    static let sectionTabsBottomSpacing: CGFloat = 6
+
+    /// מאפשר התאמה לטקסט גדול בלי להקטין את הגובה התקני.
+    static let sectionTabsMinimumHeight: CGFloat = sectionTabsHeight
+
     static func screenBackgroundColors(
         for colorScheme: ColorScheme
     ) -> [Color] {

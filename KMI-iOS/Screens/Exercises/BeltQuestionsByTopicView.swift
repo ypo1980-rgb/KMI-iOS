@@ -3765,11 +3765,10 @@ struct BeltQuestionsByTopicView: View {
             maxWidth: .infinity
         )
         .frame(
-            height: 76
+            height: KmiAppTheme.sectionTabsHeight
         )
         .background(
-            KmiAppTheme
-                .sectionHeaderBrush
+            KmiAppTheme.sectionHeaderBrush
         )
         .overlay {
 
@@ -3783,7 +3782,7 @@ struct BeltQuestionsByTopicView: View {
         }
         .padding(
             .bottom,
-            6
+            KmiAppTheme.sectionTabsBottomSpacing
         )
     }
 
@@ -3792,66 +3791,36 @@ struct BeltQuestionsByTopicView: View {
         isSelected: Bool
     ) -> some View {
 
-        ZStack(
-            alignment:
-                .bottom
-        ) {
-
-            Text(title)
-                .kmiTypography(
-                    .action
-                )
-                .foregroundStyle(
-                    KmiAppTheme
-                        .sectionHeaderContentColor
-                        .opacity(
-                            isSelected
-                                ? 1.0
-                                : 0.82
+        Text(title)
+            .kmiTypography(.action)
+            .foregroundStyle(
+                KmiAppTheme
+                    .sectionHeaderContentColor
+                    .opacity(isSelected ? 1.0 : 0.82)
+            )
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 12)
+            .frame(
+                maxWidth: .infinity,
+                minHeight: KmiAppTheme.sectionTabsHeight
+            )
+            .overlay(alignment: .bottom) {
+                if isSelected {
+                    Rectangle()
+                        .fill(
+                            KmiAppTheme.sectionHeaderContentColor
                         )
-                )
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(
-                    maxWidth:
-                        .infinity,
-                    maxHeight:
-                        .infinity
-                )
-                .padding(.horizontal, 12)
-
-            if isSelected {
-
-                Rectangle()
-                    .fill(
-                        KmiAppTheme
-                            .sectionHeaderContentColor
-                    )
-                    .frame(
-                        maxWidth:
-                            .infinity
-                    )
-                    .frame(
-                        height: 3
-                    )
-                    .padding(.horizontal, 28)
-                    .padding(
-                        .bottom,
-                        4
-                    )
+                        .frame(height: 3)
+                        .padding(.horizontal, 28)
+                        .padding(.bottom, 4)
+                        .accessibilityHidden(true)
+                }
             }
-        }
-        .frame(
-            maxWidth:
-                .infinity,
-            maxHeight:
-                .infinity
-        )
-        .contentShape(
-            Rectangle()
-        )
+            .contentShape(Rectangle())
     }
-    
+
     private var topicsScreenContent: some View {
         VStack(spacing: 0) {
             if !embeddedMode {

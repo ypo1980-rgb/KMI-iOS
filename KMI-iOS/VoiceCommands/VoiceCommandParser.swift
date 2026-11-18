@@ -683,9 +683,10 @@ private extension VoiceCommandParser {
         }
     }
 
-    static func normalize(
+    nonisolated static func normalize(
         _ source: String
     ) -> String {
+
         source
             .replacingOccurrences(
                 of: "\u{200E}",

@@ -317,7 +317,9 @@ enum AssistantExerciseExplanationKnowledge {
             afterColon(original)
         ]
             .compactMap { $0 }
-            .map(cleanName)
+            .map { candidate in
+                cleanName(candidate)
+            }
             .filter { !$0.isEmpty }
 
         if let best = candidates.max(by: { $0.count < $1.count }) {

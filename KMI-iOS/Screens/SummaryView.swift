@@ -357,6 +357,12 @@ struct SummaryView: View {
         
         let rawRole =
         defaults.string(
+            forKey: "active_user_mode"
+        )
+        ?? defaults.string(
+            forKey: "last_active_app_role"
+        )
+        ?? defaults.string(
             forKey: "user_role"
         )
         ?? defaults.string(
@@ -372,12 +378,16 @@ struct SummaryView: View {
             
         case "coach",
             "trainer",
+            "instructor",
+            "coach_user",
+            "kmi_coach",
             "מאמן",
             "מדריך":
             return true
-            
+
         case "trainee",
             "student",
+            "trainee_user",
             "מתאמן":
             return false
             
@@ -1524,9 +1534,9 @@ struct SummaryView: View {
     }
     
     private var comparisonHasEnoughData: Bool {
-        comparisonTraineesCount >= 2
+        comparisonTraineesCount >= 1
     }
-    
+
     private var comparisonStatusText: String {
         
         if isComparisonLoading {
@@ -1553,15 +1563,20 @@ struct SummaryView: View {
             )
         }
         
-        if percentAll >=
-            comparisonAveragePercent {
-            
+        if percentAll > comparisonAveragePercent {
             return tr(
-                "אתה מעל \(comparisonBetterThanPercent)% מהמתאמנים בחגורה שלך.",
-                "You are above \(comparisonBetterThanPercent)% of trainees in your belt."
+                "אתה מעל הממוצע בחגורה שלך. התקדמת יותר מ־\(comparisonBetterThanPercent)% מהמתאמנים שנכללו בהשוואה.",
+                "You are above the belt average and ahead of \(comparisonBetterThanPercent)% of the compared trainees."
             )
         }
-        
+
+        if percentAll == comparisonAveragePercent {
+            return tr(
+                "ההתקדמות שלך שווה לממוצע בחגורה.",
+                "Your progress matches the belt average."
+            )
+        }
+
         return tr(
             "אתה מתחת לממוצע המתאמנים בחגורה שלך.",
             "You are below the average for trainees in your belt."
@@ -2867,11 +2882,11 @@ struct SummaryView: View {
                             )
                             .shadow(
                                 color: Color.black.opacity(
-                                    isDarkMode ? 0.24 : 0.10
+                                    isDarkMode ? 0.10 : 0.05
                                 ),
-                                radius: 12,
+                                radius: 4,
                                 x: 0,
-                                y: 5
+                                y: 2
                             )
                             .padding(.horizontal, 16)
                             .padding(.top, 8)
@@ -3041,16 +3056,11 @@ struct SummaryView: View {
                                                         "Known: \(doneCount)"
                                                     ),
                                                 tint:
-                                                    Color(
-                                                        red:
-                                                            0.30,
-                                                        green:
-                                                            0.69,
-                                                        blue:
-                                                            0.31
+                                                    KmiAppTheme.success(
+                                                        for: colorScheme
                                                     )
                                             )
-                                            
+
                                             SummaryStatusChip(
                                                 title:
                                                     tr(
@@ -3184,13 +3194,13 @@ struct SummaryView: View {
                                     
                                     if index < blocks.count - 1 {
                                         Color.clear
-                                            .frame(height: 7)
+                                            .frame(height: 5)
                                     }
                                 }
                             }
                             .padding(
                                 .horizontal,
-                                16
+                                12
                             )
                         }
                         
@@ -3299,19 +3309,26 @@ struct SummaryView: View {
             isSummaryLoading = true
             
             DispatchQueue.main.async {
-                cachedBlocks =
-                buildSummaryBlocks()
-                
+                guard isSummaryVisible else {
+                    return
+                }
+
+                cachedBlocks = buildSummaryBlocks()
+
                 isSummaryLoading = false
-                
+
                 postSummaryTopTitleOverride()
-                
+
                 saveCalculatedProgress()
             }
             
             DispatchQueue.main.asyncAfter(
                 deadline: .now() + 0.12
             ) {
+                guard isSummaryVisible else {
+                    return
+                }
+
                 postSummaryTopTitleOverride()
             }
         }
@@ -3436,15 +3453,14 @@ struct SummaryView: View {
                 return
             }
             
-            request["handled"] = true
-            
             guard !isSummaryLoading,
                   !isPreparingSummaryPDF,
                   !showSummaryShareSheet
             else {
                 return
             }
-            
+
+            request["handled"] = true
             shareSummaryPDF()
         }
         .sheet(
@@ -3487,9 +3503,13 @@ struct SummaryView: View {
                 for: UserDefaults.didChangeNotification
             )
         ) { _ in
+            guard isSummaryVisible else {
+                return
+            }
+
             let currentRoleId =
             summaryRoleId
-            
+
             /*
              * אם התפקיד השתנה, מנקים את כל
              * מצב התצוגה השייך לתפקיד הקודם.
@@ -3529,14 +3549,13 @@ struct SummaryView: View {
             marksRevision &+= 1
             
             DispatchQueue.main.async {
-                let updatedBlocks = buildSummaryBlocks()
-                
-                guard updatedBlocks != cachedBlocks else {
+                guard isSummaryVisible else {
                     return
                 }
-                
-                cachedBlocks = updatedBlocks
-                
+
+                cachedBlocks = buildSummaryBlocks()
+                isSummaryLoading = false
+
                 postSummaryTopTitleOverride()
                 saveCalculatedProgress()
             }
@@ -3622,12 +3641,10 @@ struct SummaryView: View {
             }
         }
         .frame(
-            maxWidth:
-                    .infinity
+            maxWidth: .infinity
         )
         .frame(
-            height:
-                54
+            height: KmiAppTheme.sectionTabsHeight
         )
         .background(
             KmiAppTheme.sectionHeaderBrush
@@ -3635,6 +3652,10 @@ struct SummaryView: View {
         .environment(
             \.layoutDirection,
             screenLayoutDirection
+        )
+        .padding(
+            .bottom,
+            KmiAppTheme.sectionTabsBottomSpacing
         )
     }
 
@@ -3676,10 +3697,7 @@ struct SummaryView: View {
                     0.78
                 )
                 .frame(
-                    maxWidth:
-                            .infinity,
-                    maxHeight:
-                            .infinity
+                    maxWidth: .infinity
                 )
                 .padding(
                     .horizontal,
@@ -3713,17 +3731,22 @@ struct SummaryView: View {
                 }
             }
         }
-        .buttonStyle(
-            .plain
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityValue(
+            isSelected
+                ? tr("נבחר", "Selected")
+                : tr("לא נבחר", "Not selected")
         )
+        .accessibilityAddTraits(
+            isSelected ? [.isSelected] : []
+        )
+        .frame(maxWidth: .infinity)
         .frame(
-            maxWidth:
-                    .infinity,
-            maxHeight:
-                    .infinity
+            height: KmiAppTheme.sectionTabsHeight
         )
     }
-    
+
     private func beltAccentForSummary() -> Color {
         KmiBeltPalette.color(for: belt)
     }
@@ -4406,7 +4429,11 @@ struct SummaryView: View {
         let totalCount: Int
         let isCoach: Bool
         let isEnglish: Bool
-        
+
+        private var safePercent: Int {
+            min(max(percent, 0), 100)
+        }
+
         @Environment(\.colorScheme)
         private var colorScheme
         
@@ -4569,10 +4596,11 @@ struct SummaryView: View {
                     .frame(width: 128, height: 128)
                 
                 VStack(spacing: 5) {
-                    Text("\(percent)%")
+                    Text("\(safePercent)%")
                         .kmiTypography(.metric)
                         .fontWeight(.black)
                         .foregroundStyle(ringPrimaryTextColor)
+                        .monospacedDigit()
                         .lineLimit(1)
                         .minimumScaleFactor(0.80)
                     
@@ -4607,9 +4635,20 @@ struct SummaryView: View {
                     .lineLimit(2)
                 }
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                isEnglish
+                    ? "Progress: \(safePercent) percent"
+                    : "התקדמות: \(safePercent) אחוזים"
+            )
+            .accessibilityValue(
+                isEnglish
+                    ? "\(totalCount - remainingCount) marked out of \(totalCount)"
+                    : "\(totalCount - remainingCount) מסומנים מתוך \(totalCount)"
+            )
         }
     }
-    
+
     private struct SummaryStatusChip: View {
         let title: String
         let tint: Color
@@ -4623,18 +4662,14 @@ struct SummaryView: View {
             .foregroundStyle(
                 tint
             )
-            .multilineTextAlignment(
-                .center
-            )
+            .multilineTextAlignment(.center)
             .lineLimit(2)
+            .minimumScaleFactor(0.75)
             .fixedSize(
                 horizontal: false,
                 vertical: true
             )
-            .frame(
-                maxWidth:
-                        .infinity
-            )
+            .frame(maxWidth: .infinity)
             .padding(.vertical, 6)
             .frame(minHeight: 44)
             .background(
@@ -4719,10 +4754,10 @@ struct SummaryView: View {
     
     private struct TopicSummaryCard: View {
         let block: SummaryTopicBlock
-        
+
         let beltAccent:
         Color
-        
+
         let isCoach: Bool
         let isEnglish: Bool
         let onSelectExercise: (SummaryRowItem) -> Void
@@ -4737,17 +4772,6 @@ struct SummaryView: View {
         
         private var primaryTextColor: Color {
             KmiAppTheme.onSurface(for: colorScheme)
-        }
-        
-        private var cardColors: [Color] {
-            let surface = KmiAppTheme.surface(
-                for: colorScheme
-            )
-
-            return [
-                surface,
-                surface
-            ]
         }
         
         @State private var expanded: Bool = false
@@ -4871,7 +4895,7 @@ struct SummaryView: View {
         }
         
         var body: some View {
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 Button {
                     withAnimation(.easeOut(duration: 0.14)) {
                         expanded.toggle()
@@ -4896,7 +4920,9 @@ struct SummaryView: View {
                             )
                             .kmiTypography(.sectionTitle)
                             .fontWeight(.black)
-                            .foregroundStyle(beltAccent)
+                            .foregroundStyle(
+                                KmiAppTheme.success(for: colorScheme)
+                            )
                             .monospacedDigit()
                             .fixedSize()
                             .accessibilityLabel(
@@ -4952,13 +4978,32 @@ struct SummaryView: View {
                         \.layoutDirection,
                          .leftToRight
                     )
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .frame(minHeight: 52)
                 }
                 .buttonStyle(.plain)
-                
+                .accessibilityLabel(
+                    KmiEnglishTitleResolver.title(
+                        for: block.title,
+                        isEnglish: isEnglish
+                    )
+                )
+                .accessibilityValue(
+                    "\(block.percent(isCoach: isCoach))%"
+                )
+                .accessibilityHint(
+                    expanded
+                        ? (isEnglish
+                            ? "Double tap to collapse exercises"
+                            : "לחיצה כפולה לסגירת רשימת התרגילים")
+                        : (isEnglish
+                            ? "Double tap to expand exercises"
+                            : "לחיצה כפולה לפתיחת רשימת התרגילים")
+                )
+
                 if expanded {
-                    
+
                     VStack(
                         spacing:
                             8
@@ -5030,11 +5075,15 @@ struct SummaryView: View {
                                         10
                                     )
                                     .padding(
+                                        .horizontal,
+                                        10
+                                    )
+                                    .padding(
                                         .vertical,
-                                        8
+                                        6
                                     )
                                     .background {
-                                        
+
                                         RoundedRectangle(
                                             cornerRadius:
                                                 12,
@@ -5104,7 +5153,7 @@ struct SummaryView: View {
                                     
                                     if index < group.items.count - 1 {
                                         Color.clear
-                                            .frame(height: 6)
+                                            .frame(height: 4)
                                     }
                                 }
                             }
@@ -5129,8 +5178,8 @@ struct SummaryView: View {
                     )
                 }
             }
-            .padding(.vertical, 10)
-            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .padding(.horizontal, 8)
             .background {
                 RoundedRectangle(
                     cornerRadius: 18,
@@ -5155,10 +5204,8 @@ struct SummaryView: View {
             }
             .overlay {
                 RoundedRectangle(
-                    cornerRadius:
-                        18,
-                    style:
-                            .continuous
+                    cornerRadius: 18,
+                    style: .continuous
                 )
                 .stroke(
                     KmiAppTheme.outlineVariant(
@@ -5167,12 +5214,27 @@ struct SummaryView: View {
                     lineWidth: 1
                 )
             }
+            .overlay(
+                alignment: isEnglish ? .leading : .trailing
+            ) {
+                Capsule()
+                    .fill(
+                        KmiAppTheme.success(for: colorScheme)
+                    )
+                    .frame(width: 4)
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 3)
+                    .allowsHitTesting(false)
+            }
         }
-        
+
         private struct ButtonIcon: View {
             let expanded: Bool
             let tint: Color
-            
+
+            @Environment(\.colorScheme)
+            private var colorScheme
+
             var body: some View {
                 Image(
                     systemName:
@@ -5187,10 +5249,15 @@ struct SummaryView: View {
                 )
                 .frame(width: 30, height: 30)
                 .background(
-                    Circle()
-                        .fill(
-                            Color.primary.opacity(0.08)
+                    RoundedRectangle(
+                        cornerRadius: 8,
+                        style: .continuous
+                    )
+                    .fill(
+                        KmiAppTheme.surfaceVariant(
+                            for: colorScheme
                         )
+                    )
                 )
             }
         }
@@ -5403,7 +5470,7 @@ struct SummaryView: View {
         var body: some View {
             VStack(
                 alignment: .leading,
-                spacing: 10
+                spacing: 6
             ) {
                 Button(action: onSelect) {
                     Text(
@@ -5460,8 +5527,8 @@ struct SummaryView: View {
                                 horizontal: false,
                                 vertical: true
                             )
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
                             .background(
                                 RoundedRectangle(
                                     cornerRadius: 8,
@@ -5505,11 +5572,11 @@ struct SummaryView: View {
                      .leftToRight
                 )
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
             .frame(
                 maxWidth: .infinity,
-                minHeight: 82,
+                minHeight: 66,
                 alignment: .topLeading
             )
             .background(
@@ -5632,8 +5699,8 @@ struct SummaryView: View {
                 }
             }
             .foregroundStyle(color)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
             .background(
                 RoundedRectangle(
                     cornerRadius: 8,

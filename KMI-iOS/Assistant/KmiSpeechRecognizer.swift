@@ -64,32 +64,31 @@ final class KmiSpeechRecognizer: NSObject, ObservableObject {
     private func requestMicrophonePermission(
         completion: @escaping (Bool) -> Void
     ) {
-        let permissionHandler: (Bool) -> Void = { [weak self] microphoneGranted in
-            Task { @MainActor in
-                guard let self else {
-                    completion(false)
-                    return
-                }
+        Task { @MainActor in
+            let microphoneGranted: Bool
 
-                if microphoneGranted {
-                    self.errorMessage = nil
-                    completion(true)
-                } else {
-                    self.errorMessage =
-                        "לא ניתן להשתמש בעוזר הקולי ללא הרשאת מיקרופון"
-                    completion(false)
+            if #available(iOS 17.0, *) {
+                microphoneGranted =
+                    await AVAudioApplication.requestRecordPermission()
+            } else {
+                microphoneGranted = await withCheckedContinuation {
+                    (continuation: CheckedContinuation<Bool, Never>) in
+
+                    AVAudioSession.sharedInstance()
+                        .requestRecordPermission { granted in
+                            continuation.resume(returning: granted)
+                        }
                 }
             }
-        }
 
-        if #available(iOS 17.0, *) {
-            AVAudioApplication.requestRecordPermission(
-                completionHandler: permissionHandler
-            )
-        } else {
-            AVAudioSession.sharedInstance().requestRecordPermission(
-                permissionHandler
-            )
+            if microphoneGranted {
+                errorMessage = nil
+                completion(true)
+            } else {
+                errorMessage =
+                    "לא ניתן להשתמש בעוזר הקולי ללא הרשאת מיקרופון"
+                completion(false)
+            }
         }
     }
 
@@ -154,7 +153,7 @@ final class KmiSpeechRecognizer: NSObject, ObservableObject {
                 options: [
                     .duckOthers,
                     .defaultToSpeaker,
-                    .allowBluetooth
+                    .allowBluetoothHFP
                 ]
             )
 

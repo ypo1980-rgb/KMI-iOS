@@ -174,6 +174,118 @@ extension EnvironmentValues {
     }
 }
 
+// MARK: - Global layout metrics
+
+/// מידות בסיס משותפות למסכי האפליקציה.
+/// כל המידות הן בנקודות עבור MEDIUM.
+/// SMALL ו-LARGE משתמשים במקדם הגודל הגלובלי.
+enum KmiLayoutMetrics {
+
+    static func scaled(
+        _ base: CGFloat,
+        scale: CGFloat
+    ) -> CGFloat {
+        base * max(0.5, scale)
+    }
+
+    // MARK: - Exercise materials
+
+    static func exerciseStatusButtonHeight(
+        scale: CGFloat
+    ) -> CGFloat {
+        scaled(58, scale: scale)
+    }
+
+    static func exerciseStatsCardMinHeight(
+        scale: CGFloat
+    ) -> CGFloat {
+        scaled(66, scale: scale)
+    }
+
+    static func exerciseCardVerticalPadding(
+        scale: CGFloat
+    ) -> CGFloat {
+        scaled(8, scale: scale)
+    }
+
+    // MARK: - Quick menu
+
+    static func quickMenuButtonMinHeight(
+        scale: CGFloat
+    ) -> CGFloat {
+        scaled(62, scale: scale)
+    }
+
+    static func quickMenuToggleMinHeight(
+        scale: CGFloat
+    ) -> CGFloat {
+        scaled(42, scale: scale)
+    }
+
+    // MARK: - Registration / Profile
+
+    static func roleTabsMinHeight(
+        scale: CGFloat
+    ) -> CGFloat {
+        scaled(56, scale: scale)
+    }
+
+    static func registrationFieldMinHeight(
+        scale: CGFloat
+    ) -> CGFloat {
+        scaled(46, scale: scale)
+    }
+
+    static func registrationDateFieldMinHeight(
+        scale: CGFloat
+    ) -> CGFloat {
+        scaled(52, scale: scale)
+    }
+
+    static func registrationActionMinHeight(
+        scale: CGFloat
+    ) -> CGFloat {
+        scaled(46, scale: scale)
+    }
+
+    static func registrationGroupHeaderMinHeight(
+        scale: CGFloat
+    ) -> CGFloat {
+        scaled(48, scale: scale)
+    }
+
+    static func registrationGroupOptionMinHeight(
+        scale: CGFloat
+    ) -> CGFloat {
+        scaled(44, scale: scale)
+    }
+
+    static func registrationCardHorizontalPadding(
+        scale: CGFloat
+    ) -> CGFloat {
+        scaled(10, scale: scale)
+    }
+
+    static func registrationCardVerticalPadding(
+        scale: CGFloat
+    ) -> CGFloat {
+        scaled(10, scale: scale)
+    }
+
+    static func registrationSectionSpacing(
+        scale: CGFloat
+    ) -> CGFloat {
+        scaled(14, scale: scale)
+    }
+
+    static func registrationContentHorizontalPadding(
+        scale: CGFloat
+    ) -> CGFloat {
+        scaled(14, scale: scale)
+    }
+}
+
+
 // MARK: - Typography
 
 /// מקור אמת יחיד לגדלי הבסיס של הטקסט באפליקציה.
@@ -522,6 +634,25 @@ extension View {
         )
     }
 }
+
+// MARK: - Layout metrics environment
+
+private struct KmiLayoutMetricsEnvironmentKey: EnvironmentKey {
+    static let defaultValue = KmiLayoutMetrics.self
+}
+
+extension EnvironmentValues {
+
+    var kmiLayoutMetrics: KmiLayoutMetrics.Type {
+        get {
+            self[KmiLayoutMetricsEnvironmentKey.self]
+        }
+        set {
+            self[KmiLayoutMetricsEnvironmentKey.self] = newValue
+        }
+    }
+}
+
 
 // MARK: - Root application modifier
 

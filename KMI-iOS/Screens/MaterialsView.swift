@@ -47,6 +47,9 @@ struct MaterialsView: View {
 
     @Environment(\.colorScheme)
     private var colorScheme
+
+    @Environment(\.kmiFontScale)
+    private var displayScale: CGFloat
     
     @AppStorage("kmi_app_language") private var kmiAppLanguageCode: String = "he"
     @AppStorage("app_language") private var appLanguageRaw: String = "HEBREW"
@@ -336,6 +339,7 @@ struct MaterialsView: View {
         let id: String
         let canonicalId: String
         let statusId: String
+        let serverStatusId: String
         let rawItem: String
         let displayName: String
     }
@@ -375,6 +379,9 @@ struct MaterialsView: View {
     @State private var remoteTraineeMarks: [String: String] = [:]
     @State private var remoteTraineeDates: [String: Int64] = [:]
     @State private var remoteCoachProgress: [String: CoachMaterialProgress] = [:]
+
+    @State private var traineeMarksLoadedFromServer = false
+    @State private var coachMarksLoadedFromServer = false
 
     // סימונים מקומיים הממתינים לאישור.
     // תור הכתיבות עצמו מנוהל על ידי Firestore.
@@ -416,6 +423,15 @@ struct MaterialsView: View {
 
     @State private var toastMessage: String? = nil
     @State private var showResetConfirmation: Bool = false
+
+    @State private var isQuickMenuExpanded = false
+    @State private var scrollToExercisesRequest = UUID()
+
+    @AppStorage("kmi.materials.quickMenu.verticalOffset")
+    private var savedQuickMenuVerticalOffset: Double = 0
+
+    @State private var quickMenuVerticalOffset: CGFloat = 0
+    @State private var quickMenuDragStartOffset: CGFloat?
 
     /*
      * פתיחת כרטיס ההערה הכללית של
@@ -583,10 +599,46 @@ struct MaterialsView: View {
         return "status_\(belt.id)_\(topicKey)_\(index)_\(cleanItem)"
     }
 
+    private func registryIdentity(
+        for rawItem: String
+    ) -> (id: String, isKnown: Bool) {
+        var cleanTitle = rawItem
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let prefix = "\(topicUi)::"
+
+        if cleanTitle.hasPrefix(prefix) {
+            cleanTitle = String(
+                cleanTitle.dropFirst(prefix.count)
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        cleanTitle = cleanTitle
+            .replacingOccurrences(
+                of: "\\s+",
+                with: " ",
+                options: .regularExpression
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let resolved = ExerciseIdentityRegistry.shared.resolve(
+            belt: belt,
+            hebrewTitle: cleanTitle,
+            topicKey: topicKey
+        )
+
+        return (resolved.id, resolved.isKnown)
+    }
+
     private func firestoreMarkDocumentID(
         for statusId: String
     ) -> String {
-        let key = "\(belt.id)\u{0000}\(topicKey)\u{0000}\(statusId)"
+        let remoteStatusId = rows.first {
+            $0.statusId == statusId
+        }?.serverStatusId ?? statusId
+
+        let key = "\(belt.id)\u{0000}\(topicKey)\u{0000}\(remoteStatusId)"
 
         return SHA256.hash(data: Data(key.utf8))
             .map { String(format: "%02x", $0) }
@@ -716,6 +768,9 @@ struct MaterialsView: View {
         remoteTraineeDates.removeAll()
         remoteCoachProgress.removeAll()
 
+        traineeMarksLoadedFromServer = false
+        coachMarksLoadedFromServer = false
+
         // נתוני התצוגה של המסך מתנקים.
         // כתיבות שכבר נמסרו ל-Firestore אינן מתבטלות.
         pendingTraineeMarks.removeAll()
@@ -790,6 +845,7 @@ struct MaterialsView: View {
 
                     remoteTraineeMarks = updatedMarks
                     remoteTraineeDates = updatedDates
+                    traineeMarksLoadedFromServer = true
                 }
             }
 
@@ -849,6 +905,7 @@ struct MaterialsView: View {
                     }
 
                     remoteCoachProgress = updated
+                    coachMarksLoadedFromServer = true
                 }
             }
     }
@@ -872,18 +929,40 @@ struct MaterialsView: View {
     }
 
     private func buildRows() -> [ExerciseRow] {
+        let items = materialItems
+
+        let identities = items.enumerated().map { index, raw in
+            let identity = registryIdentity(for: raw)
+
+            return identity.isKnown
+                ? identity.id
+                : "\(identity.id)_row_\(index)"
+        }
+
+        let counts = Dictionary(
+            identities.map { ($0, 1) },
+            uniquingKeysWith: +
+        )
+
         var seenStatusIds = Set<String>()
 
-        return materialItems
-            .enumerated()
+        return items.enumerated()
             .map { index, raw in
                 let canonical = canonicalIdForStorage(rawItem: raw)
                 let status = statusIdForStorage(index: index, rawItem: raw)
+
+                let baseID = identities[index]
+
+                let serverID =
+                    (counts[baseID] ?? 0) > 1
+                    ? "\(baseID)__\(topicKey)__row_\(index)"
+                    : baseID
 
                 return ExerciseRow(
                     id: status,
                     canonicalId: canonical,
                     statusId: status,
+                    serverStatusId: serverID,
                     rawItem: raw,
                     displayName: displayName(for: raw)
                 )
@@ -1053,135 +1132,6 @@ struct MaterialsView: View {
             KmiAppBackground()
 
             VStack(spacing: 0) {
-                /*
-                 * מציגים את האייקון רק כאשר קיימת
-                 * הערה אמיתית במאגר המשותף.
-                 */
-                if currentGeneralNote != nil {
-
-                    HStack {
-
-                        if !isEnglish {
-                            Spacer(
-                                minLength:
-                                    0
-                            )
-                        }
-
-                        Button {
-
-                            showGeneralNote =
-                                true
-
-                        } label: {
-
-                            HStack(
-                                spacing:
-                                    7
-                            ) {
-
-                                Image(
-                                    systemName:
-                                        "info.circle.fill"
-                                )
-                                .kmiIconSize(
-                                    18
-                                )
-
-                                Text(
-                                    tr(
-                                        "דגשים כלליים",
-                                        "General notes"
-                                    )
-                                )
-                                .kmiTypography(
-                                    .action
-                                )
-                            }
-                            .foregroundStyle(
-                                KmiAppTheme
-                                    .secondary(
-                                        for:
-                                            colorScheme
-                                    )
-                            )
-                            .padding(
-                                .horizontal,
-                                13
-                            )
-                            .frame(
-                                height:
-                                    36
-                            )
-                            .background {
-
-                                Capsule()
-                                    .fill(
-                                        KmiAppTheme
-                                            .secondaryContainer(
-                                                for:
-                                                    colorScheme
-                                            )
-                                            .opacity(
-                                                0.55
-                                            )
-                                    )
-                            }
-                            .overlay {
-
-                                Capsule()
-                                    .stroke(
-                                        KmiAppTheme
-                                            .secondary(
-                                                for:
-                                                    colorScheme
-                                            )
-                                            .opacity(
-                                                0.35
-                                            ),
-                                        lineWidth:
-                                            1
-                                    )
-                            }
-                        }
-                        .buttonStyle(
-                            .plain
-                        )
-                        .accessibilityLabel(
-                            tr(
-                                "הצג דגשים כלליים",
-                                "Show general notes"
-                            )
-                        )
-
-                        if isEnglish {
-                            Spacer(
-                                minLength:
-                                    0
-                            )
-                        }
-                    }
-                    .padding(
-                        .horizontal,
-                        16
-                    )
-                    .padding(
-                        .top,
-                        7
-                    )
-                    .padding(
-                        .bottom,
-                        3
-                    )
-                    .environment(
-                        \.layoutDirection,
-                        screenLayoutDirection
-                    )
-                    .background(
-                        KmiAppBackground()
-                    )
-                }
-
                 MaterialsBeltHeader(
                     belt:
                         belt,
@@ -1230,9 +1180,14 @@ struct MaterialsView: View {
                             2
                     )
 
-                ScrollView {
-                    LazyVStack(spacing: 7) {
-                        if rowsCache[rowsCacheKey] == nil {
+                ScrollViewReader { scrollProxy in
+                    ScrollView {
+                        LazyVStack(spacing: 7) {
+                            Color.clear
+                                .frame(height: 0)
+                                .id("materials_exercises_top")
+
+                            if rowsCache[rowsCacheKey] == nil {
                             KmiLoadingOverlay()
                                 .frame(height: 160)
                                 .clipped()
@@ -1335,7 +1290,39 @@ struct MaterialsView: View {
                 .background(
                     KmiAppBackground()
                 )
+                .onChange(of: scrollToExercisesRequest) { _, _ in
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        scrollProxy.scrollTo(
+                            "materials_exercises_top",
+                            anchor: .top
+                        )
+                    }
+                }
             }
+            }
+
+            GeometryReader { geometry in
+                VStack {
+                    materialsQuickMenu(
+                        availableHeight: geometry.size.height
+                    )
+                    .frame(
+                        height: 80,
+                        alignment: .bottom
+                    )
+                    .offset(y: quickMenuVerticalOffset)
+
+                    Spacer(minLength: 0)
+                }
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: .infinity,
+                    alignment: .topTrailing
+                )
+                .padding(.top, 132)
+                .environment(\.layoutDirection, .leftToRight)
+            }
+            .zIndex(10)
 
             if let toastMessage {
                 MaterialsToastView(message: toastMessage)
@@ -1349,6 +1336,10 @@ struct MaterialsView: View {
         .navigationBarBackButtonHidden(true)
         .environment(\.layoutDirection, screenLayoutDirection)
         .onAppear {
+            quickMenuVerticalOffset = CGFloat(
+                savedQuickMenuVerticalOffset
+            )
+
             speechDelegate.onFinish = {
                 isSpeakingExplanation = false
             }
@@ -1646,6 +1637,176 @@ struct MaterialsView: View {
         }
     }
     
+    @ViewBuilder
+    private func materialsQuickMenu(
+        availableHeight: CGFloat
+    ) -> some View {
+        VStack(spacing: 2) {
+            if isQuickMenuExpanded {
+                quickMenuAction(
+                    title: tr("איפוס", "Reset"),
+                    icon: "arrow.counterclockwise"
+                ) {
+                    isQuickMenuExpanded = false
+                    showResetConfirmation = true
+                }
+
+                quickMenuAction(
+                    title: tr("תרגילים", "Exercises"),
+                    icon: "list.bullet"
+                ) {
+                    isQuickMenuExpanded = false
+                    scrollToExercisesRequest = UUID()
+                }
+
+                quickMenuAction(
+                    title: tr("תרגול", "Practice"),
+                    icon: "figure.martial.arts"
+                ) {
+                    isQuickMenuExpanded = false
+
+                    if isPracticeLocked {
+                        onOpenSubscription()
+                    } else {
+                        onPractice(belt, topicTitle)
+                    }
+                }
+
+                quickMenuAction(
+                    title: tr("מסך סיכום", "Summary"),
+                    icon: "doc.text"
+                ) {
+                    isQuickMenuExpanded = false
+                    onSummary(belt, topicTitle, subTopicTitle)
+                }
+            }
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.20)) {
+                    isQuickMenuExpanded.toggle()
+                }
+            } label: {
+                ZStack {
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 18,
+                        bottomLeadingRadius: 18,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: 0,
+                        style: .continuous
+                    )
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                KmiAppTheme.success(for: colorScheme)
+                                    .opacity(0.84),
+                                KmiAppTheme.success(for: colorScheme),
+                                KmiAppTheme.success(for: colorScheme)
+                                    .opacity(0.88)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+
+                    Image(systemName: "line.3.horizontal")
+                        .kmiIconSize(26)
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 38, height: 72)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(
+                width: isQuickMenuExpanded ? 58 : 38,
+                alignment: .trailing
+            )
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.45)
+                    .sequenced(
+                        before: DragGesture(minimumDistance: 0)
+                    )
+                    .onChanged { value in
+                        guard case .second(true, let drag?) = value else {
+                            return
+                        }
+
+                        if quickMenuDragStartOffset == nil {
+                            quickMenuDragStartOffset =
+                                quickMenuVerticalOffset
+                        }
+
+                        let startOffset =
+                            quickMenuDragStartOffset ?? 0
+
+                        let minOffset: CGFloat = -120
+
+                        let menuHeight: CGFloat =
+                            isQuickMenuExpanded ? 322 : 56
+
+                        let maxOffset = max(
+                            minOffset,
+                            availableHeight - 132 - menuHeight
+                        )
+
+                        quickMenuVerticalOffset = min(
+                            max(
+                                startOffset + drag.translation.height,
+                                minOffset
+                            ),
+                            maxOffset
+                        )
+                    }
+                    .onEnded { _ in
+                        savedQuickMenuVerticalOffset = Double(
+                            quickMenuVerticalOffset
+                        )
+
+                        quickMenuDragStartOffset = nil
+                    }
+            )
+        }
+        .padding(.vertical, 4)
+        .padding(.leading, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(
+                    KmiAppTheme.success(for: colorScheme)
+                        .opacity(0.92)
+                )
+        )
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func quickMenuAction(
+        title: String,
+        icon: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .kmiIconSize(18)
+
+                Text(title)
+                    .kmiTypography(.caption)
+                    .fontWeight(.semibold)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.75)
+                    .multilineTextAlignment(.center)
+            }
+            .foregroundStyle(.white)
+            .frame(width: 58)
+            .frame(
+                minHeight: KmiLayoutMetrics.quickMenuButtonMinHeight(
+                    scale: displayScale
+                )
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+    }
+
     private struct MaterialsEmptyStateView:
         View {
 
@@ -2109,12 +2270,16 @@ struct MaterialsView: View {
             for: statusId
         )
 
-        // בעת כתיבה ממתינה מציגים את זמן הפעולה המקומי.
         if pendingTraineeMarks[documentID] != nil {
             return traineeUpdatedAtStates[statusId] ?? 0
         }
 
-        if remoteTraineeMarks[documentID] != nil {
+        if Auth.auth().currentUser != nil {
+            guard traineeMarksLoadedFromServer,
+                  remoteTraineeMarks[documentID] != nil else {
+                return 0
+            }
+
             return remoteTraineeDates[documentID] ?? 0
         }
 
@@ -2333,8 +2498,13 @@ struct MaterialsView: View {
             return pending
         }
 
-        if let remote = remoteCoachProgress[documentID] {
-            return remote
+        if Auth.auth().currentUser != nil {
+            guard coachMarksLoadedFromServer else {
+                return CoachMaterialProgress()
+            }
+
+            return remoteCoachProgress[documentID]
+                ?? CoachMaterialProgress()
         }
 
         return coachProgressStates[statusId]
@@ -3009,8 +3179,13 @@ struct MaterialsView: View {
             return RowMark(rawValue: pendingStatus)
         }
 
-        if let remoteStatus = remoteTraineeMarks[documentID] {
-            return RowMark(rawValue: remoteStatus)
+        if Auth.auth().currentUser != nil {
+            guard traineeMarksLoadedFromServer else {
+                return nil
+            }
+
+            return remoteTraineeMarks[documentID]
+                .flatMap(RowMark.init(rawValue:))
         }
 
         return marks[id] ?? nil
@@ -3069,9 +3244,8 @@ struct MaterialsView: View {
                         return
                     }
 
-                    remoteTraineeMarks[documentID] = status
-
                     if pendingTraineeMarks[documentID] == status {
+                        remoteTraineeMarks[documentID] = status
                         pendingTraineeMarks.removeValue(
                             forKey: documentID
                         )
@@ -3153,9 +3327,8 @@ struct MaterialsView: View {
                         return
                     }
 
-                    remoteCoachProgress[documentID] = progress
-
                     if pendingCoachMarks[documentID] == progress {
+                        remoteCoachProgress[documentID] = progress
                         pendingCoachMarks.removeValue(
                             forKey: documentID
                         )
@@ -3757,6 +3930,20 @@ struct MaterialsView: View {
             return
         }
 
+        guard let uid = Auth.auth().currentUser?.uid,
+              markListenerUID == uid,
+              effectiveIsCoach
+                ? coachMarksLoadedFromServer
+                : traineeMarksLoadedFromServer else {
+            showToast(
+                tr(
+                    "הסימונים עדיין לא נטענו. לא נוצר PDF מנתונים חלקיים.",
+                    "Marks are not loaded yet. No PDF was created from incomplete data."
+                )
+            )
+            return
+        }
+
         let pdfItems = rows.enumerated().map { index, row in
             MaterialsPdfItemIOS(
                 number: index + 1,
@@ -3809,6 +3996,18 @@ struct MaterialsView: View {
                 tr(
                     "רשימת התרגילים עדיין לא זמינה לאיפוס.",
                     "The exercise list is not available for reset yet."
+                )
+            )
+            return
+        }
+
+        guard effectiveIsCoach
+                ? coachMarksLoadedFromServer
+                : traineeMarksLoadedFromServer else {
+            showToast(
+                tr(
+                    "לא ניתן לאפס לפני טעינת הסימונים.",
+                    "Cannot reset before marks are loaded."
                 )
             )
             return
@@ -4252,12 +4451,7 @@ private struct MaterialsBeltHeader:
             )
         }
         .frame(
-            maxWidth:
-                .infinity
-        )
-        .frame(
-            minHeight:
-                50
+            maxWidth: .infinity
         )
         .padding(
             .horizontal,
@@ -4267,9 +4461,12 @@ private struct MaterialsBeltHeader:
             .vertical,
             6
         )
+        .frame(
+            maxWidth: .infinity,
+            minHeight: KmiAppTheme.sectionTabsMinimumHeight
+        )
         .background(
-            KmiAppTheme
-                .sectionHeaderBrush
+            KmiAppTheme.sectionHeaderBrush
         )
         .environment(
             \.layoutDirection,
@@ -4285,6 +4482,9 @@ private struct MaterialsStatsHeader:
 
     @Environment(\.colorScheme)
     private var colorScheme
+
+    @Environment(\.kmiFontScale)
+    private var displayScale: CGFloat
 
     let masteredCount: Int
     let partiallyKnownCount: Int
@@ -4565,7 +4765,9 @@ private struct MaterialsStatsHeader:
         )
         .frame(
             height:
-                58
+                KmiLayoutMetrics.exerciseStatsCardMinHeight(
+                    scale: displayScale
+                )
         )
         .background(
             KmiAppTheme
@@ -4609,7 +4811,10 @@ private struct MaterialsStatsHeader:
 struct MaterialsExerciseRow: View {
     @Environment(\.colorScheme)
     private var colorScheme
-    
+
+    @Environment(\.kmiFontScale)
+    private var displayScale: CGFloat
+
     let title: String
     let beltColor: Color
     let isFavorite: Bool
@@ -4751,42 +4956,21 @@ struct MaterialsExerciseRow: View {
                             4
                     ) {
                         
-                        if isEnglish {
-                            
-                            MaterialsCoachStatusSelector(
-                                progress:
-                                    coachProgress,
-                                buttonWidth:
-                                    buttonWidth,
-                                isEnglish:
-                                    isEnglish,
-                                onSelect:
-                                    onSelectCoachStatus
-                            )
-                            
-                            menuButton(
-                                width:
-                                    buttonWidth
-                            )
-                            
-                        } else {
-                            
-                            menuButton(
-                                width:
-                                    buttonWidth
-                            )
-                            
-                            MaterialsCoachStatusSelector(
-                                progress:
-                                    coachProgress,
-                                buttonWidth:
-                                    buttonWidth,
-                                isEnglish:
-                                    isEnglish,
-                                onSelect:
-                                    onSelectCoachStatus
-                            )
-                        }
+                        menuButton(
+                            width:
+                                buttonWidth
+                        )
+
+                        MaterialsCoachStatusSelector(
+                            progress:
+                                coachProgress,
+                            buttonWidth:
+                                buttonWidth,
+                            isEnglish:
+                                isEnglish,
+                            onSelect:
+                                onSelectCoachStatus
+                        )
                     }
                     .environment(
                         \.layoutDirection,
@@ -4795,9 +4979,11 @@ struct MaterialsExerciseRow: View {
                 }
                 .frame(
                     height:
-                        40
+                        KmiLayoutMetrics.exerciseStatusButtonHeight(
+                            scale: displayScale
+                        )
                 )
-                
+
             } else {
                 
                 GeometryReader {
@@ -4817,46 +5003,23 @@ struct MaterialsExerciseRow: View {
                             4
                     ) {
                         
-                        if isEnglish {
-                            
-                            MaterialsTraineeStatusSelector(
-                                mark:
-                                    mark,
-                                updatedAt:
-                                    traineeUpdatedAt,
-                                buttonWidth:
-                                    buttonWidth,
-                                isEnglish:
-                                    isEnglish,
-                                onSelect:
-                                    onSelectTraineeStatus
-                            )
-                            
-                            menuButton(
-                                width:
-                                    buttonWidth
-                            )
-                            
-                        } else {
-                            
-                            menuButton(
-                                width:
-                                    buttonWidth
-                            )
-                            
-                            MaterialsTraineeStatusSelector(
-                                mark:
-                                    mark,
-                                updatedAt:
-                                    traineeUpdatedAt,
-                                buttonWidth:
-                                    buttonWidth,
-                                isEnglish:
-                                    isEnglish,
-                                onSelect:
-                                    onSelectTraineeStatus
-                            )
-                        }
+                        menuButton(
+                            width:
+                                buttonWidth
+                        )
+
+                        MaterialsTraineeStatusSelector(
+                            mark:
+                                mark,
+                            updatedAt:
+                                traineeUpdatedAt,
+                            buttonWidth:
+                                buttonWidth,
+                            isEnglish:
+                                isEnglish,
+                            onSelect:
+                                onSelectTraineeStatus
+                        )
                     }
                     .environment(
                         \.layoutDirection,
@@ -4865,7 +5028,9 @@ struct MaterialsExerciseRow: View {
                 }
                 .frame(
                     height:
-                        40
+                        KmiLayoutMetrics.exerciseStatusButtonHeight(
+                            scale: displayScale
+                        )
                 )
             }
         }
@@ -4875,7 +5040,9 @@ struct MaterialsExerciseRow: View {
         )
         .padding(
             .vertical,
-            5
+            KmiLayoutMetrics.exerciseCardVerticalPadding(
+                scale: displayScale
+            )
         )
         .frame(
             maxWidth:
@@ -5250,7 +5417,9 @@ struct MaterialsExerciseRow: View {
                 width:
                     width,
                 height:
-                    40
+                    KmiLayoutMetrics.exerciseStatusButtonHeight(
+                        scale: displayScale
+                    )
             )
             .background {
                 
@@ -5338,10 +5507,12 @@ struct MaterialsExerciseRow: View {
             width:
                 width,
             height:
-                40
+                KmiLayoutMetrics.exerciseStatusButtonHeight(
+                    scale: displayScale
+                )
         )
     }
-    
+
     private var statusDotColor:
     Color {
         
@@ -5382,6 +5553,9 @@ private struct MaterialsCoachStatusSelector:
     @Environment(\.colorScheme)
     private var colorScheme
 
+    @Environment(\.kmiFontScale)
+    private var displayScale: CGFloat
+
     let progress:
         MaterialsView.CoachMaterialProgress
 
@@ -5395,9 +5569,9 @@ private struct MaterialsCoachStatusSelector:
 
     private let statuses:
         [MaterialsView.CoachMaterialStatus] = [
-            .taught,
+            .needsReinforcement,
             .practiced,
-            .needsReinforcement
+            .taught
         ]
 
     var body: some View {
@@ -5588,7 +5762,9 @@ private struct MaterialsCoachStatusSelector:
             width:
                 buttonWidth,
             height:
-                40
+                KmiLayoutMetrics.exerciseStatusButtonHeight(
+                    scale: displayScale
+                )
         )
         .accessibilityLabel(
             label(
@@ -5680,6 +5856,9 @@ private struct MaterialsTraineeStatusSelector:
     @Environment(\.colorScheme)
     private var colorScheme
 
+    @Environment(\.kmiFontScale)
+    private var displayScale: CGFloat
+
     let mark:
         MaterialsView.RowMark?
 
@@ -5696,9 +5875,9 @@ private struct MaterialsTraineeStatusSelector:
 
     private let statuses:
         [MaterialsView.RowMark] = [
-            .mastered,
+            .unknown,
             .partiallyKnown,
-            .unknown
+            .mastered
         ]
 
     var body: some View {
@@ -5866,7 +6045,9 @@ private struct MaterialsTraineeStatusSelector:
             width:
                 buttonWidth,
             height:
-                40
+                KmiLayoutMetrics.exerciseStatusButtonHeight(
+                    scale: displayScale
+                )
         )
         .accessibilityLabel(
             label(

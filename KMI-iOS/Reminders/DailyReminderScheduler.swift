@@ -48,9 +48,10 @@ final class DailyReminderScheduler {
                 completion?(true)
 
             case .notDetermined:
-                self.center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
-                    completion?(granted)
-                }
+                UNUserNotificationCenter.current()
+                    .requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+                        completion?(granted)
+                    }
 
             default:
                 completion?(false)
@@ -73,12 +74,15 @@ final class DailyReminderScheduler {
     }
 
     func cancelAll() {
+        let prefix = pendingPrefix
+
         center.getPendingNotificationRequests { requests in
             let ids = requests
                 .map(\.identifier)
-                .filter { $0.hasPrefix(self.pendingPrefix) }
+                .filter { $0.hasPrefix(prefix) }
 
-            self.center.removePendingNotificationRequests(withIdentifiers: ids)
+            UNUserNotificationCenter.current()
+                .removePendingNotificationRequests(withIdentifiers: ids)
         }
     }
 

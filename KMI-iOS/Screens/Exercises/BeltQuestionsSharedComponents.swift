@@ -131,7 +131,157 @@ enum KmiCoachExerciseStatus: String, CaseIterable, Hashable {
     }
 }
 
+private struct KmiExerciseStatusOption: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let title: String
+    let accessibilityTitle: String
+    let isSelected: Bool
+    let isEnglish: Bool
+    let dateText: String
+    let baseTint: Color
+    let selectedTint: Color
+    let minimumWidth: CGFloat
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(spacing: 2) {
+                Text(title)
+                    .kmiTypography(.caption)
+                    .fontWeight(isSelected ? .heavy : .bold)
+                    .foregroundStyle(
+                        isSelected
+                            ? selectedTint
+                            : KmiAppTheme.onSurfaceVariant(for: colorScheme)
+                    )
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                if isSelected && !dateText.isEmpty {
+                    Text(dateText)
+                        .kmiFont(size: 10, weight: .bold)
+                        .monospacedDigit()
+                        .foregroundStyle(selectedTint.opacity(0.88))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .environment(\.layoutDirection, .leftToRight)
+                }
+            }
+            .padding(.horizontal, 2)
+            .padding(.vertical, 2)
+            .frame(minWidth: minimumWidth, maxWidth: .infinity, minHeight: 34)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(baseTint.opacity(backgroundOpacity))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(
+                        selectedTint.opacity(isSelected ? 0.46 : 0.16),
+                        lineWidth: isSelected ? 0.9 : 0.7
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityTitle)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityValue(
+            [
+                isSelected
+                    ? (isEnglish ? "Selected" : "נבחר")
+                    : (isEnglish ? "Not selected" : "לא נבחר"),
+                isSelected ? dateText : ""
+            ]
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+        )
+    }
+
+    private var backgroundOpacity: Double {
+        if colorScheme == .dark {
+            return isSelected ? 0.18 : 0.08
+        }
+
+        return isSelected ? 0.10 : 0.05
+    }
+}
+
+enum KmiTraineeExerciseStatus: CaseIterable, Hashable {
+    case known
+    case partiallyKnown
+    case unknown
+
+    func title(isEnglish: Bool) -> String {
+        switch self {
+        case .known:
+            return isEnglish ? "Known" : "יודע"
+        case .partiallyKnown:
+            return isEnglish ? "Partly" : "חלקית"
+        case .unknown:
+            return isEnglish ? "Unknown" : "לא יודע"
+        }
+    }
+
+    var baseTint: Color {
+        switch self {
+        case .known:
+            return Color(red: 47 / 255.0, green: 155 / 255.0, blue: 78 / 255.0)
+        case .partiallyKnown:
+            return Color(red: 185 / 255.0, green: 107 / 255.0, blue: 18 / 255.0)
+        case .unknown:
+            return Color(red: 198 / 255.0, green: 79 / 255.0, blue: 85 / 255.0)
+        }
+    }
+
+    func selectedTint(for colorScheme: ColorScheme) -> Color {
+        guard colorScheme == .dark else { return baseTint }
+
+        switch self {
+        case .known:
+            return KmiAppTheme.success(for: colorScheme)
+        case .partiallyKnown:
+            return KmiAppTheme.warning(for: colorScheme)
+        case .unknown:
+            return KmiAppTheme.error(for: colorScheme)
+        }
+    }
+}
+
+struct KmiTraineeExerciseStatusSelector: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let selectedStatus: KmiTraineeExerciseStatus?
+    let dateText: String
+    let isEnglish: Bool
+    let onSelect: (KmiTraineeExerciseStatus?) -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(KmiTraineeExerciseStatus.allCases, id: \.self) { status in
+                let title = status.title(isEnglish: isEnglish)
+                let isSelected = selectedStatus == status
+
+                KmiExerciseStatusOption(
+                    title: title,
+                    accessibilityTitle: title,
+                    isSelected: isSelected,
+                    isEnglish: isEnglish,
+                    dateText: dateText,
+                    baseTint: status.baseTint,
+                    selectedTint: status.selectedTint(for: colorScheme),
+                    minimumWidth: 0,
+                    onSelect: { onSelect(isSelected ? nil : status) }
+                )
+            }
+        }
+        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+    }
+}
+
 struct KmiCoachExerciseCard: View {
+
     @Environment(\.colorScheme)
     private var colorScheme
 
@@ -146,14 +296,6 @@ struct KmiCoachExerciseCard: View {
     var isFavorite: Bool = false
 
     @State private var showStatusLimit = false
-
-    private static let statusDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_GB")
-        formatter.timeZone = TimeZone(identifier: "Asia/Jerusalem")
-        formatter.dateFormat = "dd/MM/yy"
-        return formatter
-    }()
 
     private var textAlignment: TextAlignment {
         isEnglish ? .leading : .trailing
@@ -302,117 +444,13 @@ struct KmiCoachExerciseCard: View {
     }
 
     private var statusButtons: some View {
-        ForEach(KmiCoachExerciseStatus.allCases, id: \.self) { status in
-            statusButton(status)
-        }
-    }
-
-    private func statusButton(
-        _ status: KmiCoachExerciseStatus
-    ) -> some View {
-        let isSelected = selectedStatuses.contains(status)
-        let tint = statusTint(status)
-
-        let dateText: String = {
-            guard isSelected,
-                  let date = updatedAtByStatus[status] else {
-                return ""
-            }
-
-            return Self.statusDateFormatter.string(from: date)
-        }()
-
-        return Button {
-            if isSelected || selectedStatuses.count < 2 {
-                onSelectStatus(status)
-            } else {
-                showStatusLimit = true
-            }
-        } label: {
-            VStack(spacing: 2) {
-                Text(
-                    status == .needsReinforcement && isEnglish
-                        ? "Reinforce"
-                        : status.title(isEnglish: isEnglish)
-                )
-                .kmiTypography(.caption)
-                .fontWeight(isSelected ? .heavy : .bold)
-                .foregroundStyle(
-                    isSelected
-                        ? tint
-                        : KmiAppTheme.onSurfaceVariant(
-                            for: colorScheme
-                        )
-                )
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-
-                if !dateText.isEmpty {
-                    Text(dateText)
-                        .kmiFont(size: 10, weight: .bold)
-                        .monospacedDigit()
-                        .foregroundStyle(tint.opacity(0.88))
-                        .lineLimit(1)
-                        .fixedSize(
-                            horizontal: true,
-                            vertical: false
-                        )
-                        .environment(
-                            \.layoutDirection,
-                            .leftToRight
-                        )
-                }
-            }
-            .padding(.horizontal, 2)
-            .padding(.vertical, 2)
-            .frame(
-                minWidth: 72,
-                maxWidth: .infinity,
-                minHeight: 34
-            )
-            .background(
-                RoundedRectangle(
-                    cornerRadius: 7,
-                    style: .continuous
-                )
-                .fill(
-                    statusBaseTint(status).opacity(
-                        isSelected
-                            ? (colorScheme == .dark ? 0.18 : 0.10)
-                            : (colorScheme == .dark ? 0.08 : 0.05)
-                    )
-                )
-            )
-            .overlay(
-                RoundedRectangle(
-                    cornerRadius: 7,
-                    style: .continuous
-                )
-                .stroke(
-                    tint.opacity(isSelected ? 0.46 : 0.16),
-                    lineWidth: isSelected ? 0.9 : 0.7
-                )
-            )
-            .contentShape(
-                RoundedRectangle(cornerRadius: 7)
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(
-            status.title(isEnglish: isEnglish)
-        )
-        .accessibilityAddTraits(
-            isSelected ? [.isSelected] : []
-        )
-        .accessibilityValue(
-            [
-                isSelected
-                    ? (isEnglish ? "Selected" : "נבחר")
-                    : (isEnglish ? "Not selected" : "לא נבחר"),
-                dateText
-            ]
-            .filter { !$0.isEmpty }
-            .joined(separator: ", ")
+        KmiCoachExerciseStatusSelector(
+            selectedStatuses: selectedStatuses,
+            updatedAtByStatus: updatedAtByStatus,
+            isEnglish: isEnglish,
+            minimumWidth: 72,
+            onLimitReached: { showStatusLimit = true },
+            onSelect: onSelectStatus
         )
     }
 
@@ -451,31 +489,50 @@ struct KmiCoachExerciseCard: View {
         }
         .buttonStyle(.plain)
     }
+}
 
-    private func statusBaseTint(
-        _ status: KmiCoachExerciseStatus
-    ) -> Color {
-        switch status {
-        case .taught:
-            return Color(
-                red: 47.0 / 255.0,
-                green: 155.0 / 255.0,
-                blue: 78.0 / 255.0
-            )
+struct KmiCoachExerciseStatusSelector: View {
+    @Environment(\.colorScheme) private var colorScheme
 
-        case .practiced:
-            return Color(
-                red: 109.0 / 255.0,
-                green: 75.0 / 255.0,
-                blue: 216.0 / 255.0
-            )
+    let selectedStatuses: Set<KmiCoachExerciseStatus>
+    let updatedAtByStatus: [KmiCoachExerciseStatus: Date]
+    let isEnglish: Bool
+    let minimumWidth: CGFloat
+    let onLimitReached: () -> Void
+    let onSelect: (KmiCoachExerciseStatus) -> Void
 
-        case .needsReinforcement:
-            return Color(
-                red: 185.0 / 255.0,
-                green: 107.0 / 255.0,
-                blue: 18.0 / 255.0
-            )
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_GB")
+        formatter.timeZone = TimeZone(identifier: "Asia/Jerusalem")
+        formatter.dateFormat = "dd/MM/yy"
+        return formatter
+    }()
+
+    var body: some View {
+        ForEach(KmiCoachExerciseStatus.allCases, id: \.self) { status in
+            let isSelected = selectedStatuses.contains(status)
+            let fullTitle = status.title(isEnglish: isEnglish)
+            let dateText = isSelected
+                ? updatedAtByStatus[status].map { Self.dateFormatter.string(from: $0) } ?? ""
+                : ""
+
+            KmiExerciseStatusOption(
+                title: status == .needsReinforcement && isEnglish ? "Reinforce" : fullTitle,
+                accessibilityTitle: fullTitle,
+                isSelected: isSelected,
+                isEnglish: isEnglish,
+                dateText: dateText,
+                baseTint: statusBaseTint(status),
+                selectedTint: statusTint(status),
+                minimumWidth: minimumWidth
+            ) {
+                if isSelected || selectedStatuses.count < 2 {
+                    onSelect(status)
+                } else {
+                    onLimitReached()
+                }
+            }
         }
     }
 
@@ -506,6 +563,33 @@ struct KmiCoachExerciseCard: View {
                 red: 206.0 / 255.0,
                 green: 151.4 / 255.0,
                 blue: 89.1 / 255.0
+            )
+        }
+    }
+
+    private func statusBaseTint(
+        _ status: KmiCoachExerciseStatus
+    ) -> Color {
+        switch status {
+        case .taught:
+            return Color(
+                red: 47.0 / 255.0,
+                green: 155.0 / 255.0,
+                blue: 78.0 / 255.0
+            )
+
+        case .practiced:
+            return Color(
+                red: 109.0 / 255.0,
+                green: 75.0 / 255.0,
+                blue: 216.0 / 255.0
+            )
+
+        case .needsReinforcement:
+            return Color(
+                red: 185.0 / 255.0,
+                green: 107.0 / 255.0,
+                blue: 18.0 / 255.0
             )
         }
     }

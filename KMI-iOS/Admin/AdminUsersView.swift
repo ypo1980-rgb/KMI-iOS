@@ -18,57 +18,39 @@ struct AdminUsersView: View {
     }
 
     private var primaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.94)
-            : Color.black.opacity(0.84)
+        KmiAppTheme.onSurface(for: colorScheme)
     }
 
     private var secondaryTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.68)
-            : Color.black.opacity(0.58)
+        KmiAppTheme.onSurfaceVariant(for: colorScheme)
     }
 
     private var sectionTitleColor: Color {
-        isDarkMode
-            ? Color(red: 0.89, green: 0.94, blue: 1.00)
-            : Color(red: 0.06, green: 0.15, blue: 0.28)
+        KmiAppTheme.onSurface(for: colorScheme)
     }
 
     private var panelColor: Color {
-        isDarkMode
-            ? Color(red: 0.04, green: 0.07, blue: 0.13).opacity(0.94)
-            : Color.white.opacity(0.90)
+        KmiAppTheme.surface(for: colorScheme)
     }
 
     private var elevatedPanelColor: Color {
-        isDarkMode
-            ? Color(red: 0.01, green: 0.03, blue: 0.09).opacity(0.95)
-            : Color.white.opacity(0.96)
+        KmiAppTheme.surface(for: colorScheme)
     }
 
     private var fieldColor: Color {
-        isDarkMode
-            ? Color(red: 0.09, green: 0.14, blue: 0.23).opacity(0.98)
-            : Color.white.opacity(0.96)
+        KmiAppTheme.surfaceVariant(for: colorScheme)
     }
 
     private var borderColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.12)
-            : Color.black.opacity(0.10)
+        KmiAppTheme.outlineVariant(for: colorScheme)
     }
 
     private var fieldTextColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.92)
-            : Color.black.opacity(0.82)
+        KmiAppTheme.onSurface(for: colorScheme)
     }
 
     private var fieldIconColor: Color {
-        isDarkMode
-            ? Color.white.opacity(0.50)
-            : Color.black.opacity(0.35)
+        KmiAppTheme.onSurfaceVariant(for: colorScheme)
     }
 
     @State private var searchText: String = ""
@@ -181,22 +163,7 @@ struct AdminUsersView: View {
     var body: some View {
 
         ZStack {
-            LinearGradient(
-                colors: isDarkMode
-                    ? [
-                        Color(red: 0.059, green: 0.090, blue: 0.165),
-                        Color(red: 0.118, green: 0.161, blue: 0.231),
-                        Color(red: 0.055, green: 0.647, blue: 0.914)
-                    ]
-                    : [
-                        Color(red: 0.965, green: 0.980, blue: 1.000),
-                        Color(red: 0.900, green: 0.955, blue: 0.990),
-                        Color(red: 0.600, green: 0.850, blue: 0.965)
-                    ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            KmiAppBackground()
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 12) {
@@ -245,7 +212,7 @@ struct AdminUsersView: View {
             userAccessSheet(user)
         }
         .sheet(item: $usersPdfShare) { report in
-            AdminUsersPdfShareSheet(url: report.url)
+            KmiShareSheet(items: [report.url])
         }
         .alert(
             tr("לא ניתן ליצור את הדוח", "Unable to create the report"),
@@ -409,13 +376,8 @@ struct AdminUsersView: View {
 
     private var loadingUsersState: some View {
         VStack(spacing: 12) {
-            ProgressView()
-                .tint(
-                    isDarkMode
-                        ? Color.white
-                        : Color(red: 0.03, green: 0.48, blue: 0.78)
-                )
-                .controlSize(.large)
+            KmiLoadingOverlay()
+                .frame(height: 132)
 
             Text(
                 tr(
@@ -591,7 +553,7 @@ struct AdminUsersView: View {
                 LazyVStack(spacing: 8) {
                     ForEach(users) { user in
                         VStack(spacing: 0) {
-                            if demoPrivacy.isEnabled {
+                            if demoPrivacy.isEnabled || user.hasConflictingAccessAccounts {
                                 userRow(user)
                             } else {
                                 NavigationLink {
@@ -1280,39 +1242,36 @@ struct AdminUsersView: View {
 
     private var advancedFilterRows: some View {
         VStack(alignment: isEnglish ? .leading : .trailing, spacing: 10) {
-            filterScrollRow(title: tr("הרשאה", "Access")) {
-                filterChip(
-                    title: tr("כולם", "All"),
-                    isSelected: selectedRole == .all
-                ) {
-                    selectedRole = .all
-                    applyFilter()
-                }
+            let roleOptions: [(key: String, role: UserRoleFilter, label: String)] = [
+                ("all", .all, tr("כולם", "All")),
+                ("trainee", .trainee, tr("מתאמנים", "Trainees")),
+                ("coach", .coach, tr("מאמנים", "Coaches")),
+                ("both", .both, tr("מתאמנים + מאמנים", "Trainees + Coaches"))
+            ]
 
-                filterChip(
-                    title: tr("מאמנים", "Coaches"),
-                    isSelected: selectedRole == .coach
-                ) {
-                    selectedRole = .coach
-                    applyFilter()
-                }
+            KmiPremiumDropdown(
+                title: tr("הרשאה", "Access"),
+                options: roleOptions.map { $0.key },
+                selectedValue: Binding(
+                    get: {
+                        roleOptions.first { $0.role == selectedRole }?.key ?? "all"
+                    },
+                    set: { key in
+                        guard let option = roleOptions.first(where: { $0.key == key }),
+                              option.role != selectedRole else { return }
 
-                filterChip(
-                    title: tr("מתאמנים", "Trainees"),
-                    isSelected: selectedRole == .trainee
-                ) {
-                    selectedRole = .trainee
-                    applyFilter()
-                }
-
-                filterChip(
-                    title: tr("מתאמנים + מאמנים", "Trainees + Coaches"),
-                    isSelected: selectedRole == .both
-                ) {
-                    selectedRole = .both
-                    applyFilter()
-                }
-            }
+                        selectedRole = option.role
+                        applyFilter()
+                    }
+                ),
+                placeholder: tr("כולם", "All"),
+                isEnglish: isEnglish,
+                isEnabled: true,
+                labelForOption: { key in
+                    roleOptions.first { $0.key == key }?.label ?? key
+                },
+                titleInsideField: true
+            )
 
             filterScrollRow(title: tr("מין", "Gender")) {
                 filterChip(
@@ -2735,67 +2694,14 @@ struct AdminUsersView: View {
                         user.hasRealAdminListContent
                     }
 
-                var mergedUsers: [AdminUser] = []
+                let linkedUsers = AdminUser.linkingLegacyRecords(rawUsers)
 
-                for user in AdminUser.linkingLegacyRecords(rawUsers) {
-                    let matchingIndices = mergedUsers.indices.filter {
-                        mergedUsers[$0].sharesIdentity(with: user)
-                    }
-
-                    guard !matchingIndices.isEmpty else {
-                        mergedUsers.append(user)
-                        continue
-                    }
-
-                    var mergedUser = user
-
-                    for index in matchingIndices.reversed() {
-                        mergedUser = AdminUser.merged(
-                            existing: mergedUsers[index],
-                            incoming: mergedUser
-                        )
-
-                        mergedUsers.remove(at: index)
-                    }
-
-                    /*
-                     * ייתכן שהמיזוג הוסיף מייל או טלפון שמחברים
-                     * את הרשומה לקבוצה נוספת. לכן מבצעים מעבר
-                     * נוסף עד שאין יותר התאמות.
-                     */
-                    var foundAdditionalMatch = true
-
-                    while foundAdditionalMatch {
-                        foundAdditionalMatch = false
-
-                        if let additionalIndex = mergedUsers.firstIndex(
-                            where: {
-                                $0.sharesIdentity(
-                                    with: mergedUser
-                                )
-                            }
-                        ) {
-                            mergedUser = AdminUser.merged(
-                                existing: mergedUsers[additionalIndex],
-                                incoming: mergedUser
-                            )
-
-                            mergedUsers.remove(
-                                at: additionalIndex
-                            )
-
-                            foundAdditionalMatch = true
-                        }
-                    }
-
-                    mergedUsers.append(mergedUser)
-                }
-
-                users = AdminUser.mergingMatchingContacts(mergedUsers).sorted {
+                users = AdminUser.mergingMatchingContacts(linkedUsers).sorted {
                     $0.fullName.localizedCaseInsensitiveCompare(
                         $1.fullName
                     ) == .orderedAscending
                 }
+
 
                 errorMessage = nil
                 applyFilter()
@@ -2938,22 +2844,6 @@ private struct AdminUsersPdfShare: Identifiable {
     let url: URL
 }
 
-private struct AdminUsersPdfShareSheet: UIViewControllerRepresentable {
-    let url: URL
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(
-            activityItems: [url],
-            applicationActivities: nil
-        )
-    }
-
-    func updateUIViewController(
-        _ uiViewController: UIActivityViewController,
-        context: Context
-    ) {}
-}
-
 enum UserRoleFilter {
     case all
     case coach
@@ -2987,6 +2877,7 @@ struct AdminUser: Identifiable {
     let isCoachFlag: Bool
     var accessType: String? = nil
     var accessTargetUid: String? = nil
+    var hasConflictingAccessAccounts = false
     let createdAtMillis: Int64?
 
     static func resolveAccessTargetUid(id: String, uidField: String) -> String? {
@@ -3421,10 +3312,16 @@ struct AdminUser: Identifiable {
         )
     }
 
-    static func merged(existing: AdminUser, incoming: AdminUser) -> AdminUser {
+    static func merged(
+        existing: AdminUser,
+        incoming: AdminUser,
+        preservingAccountIdentity: Bool = false
+    ) -> AdminUser {
         AdminUser(
             id: existing.id,
-            uidField: betterText(existing.uidField, incoming.uidField),
+            uidField: preservingAccountIdentity
+                ? existing.uidField
+                : betterText(existing.uidField, incoming.uidField),
             fullName: betterText(existing.fullName, incoming.fullName),
             email: betterText(existing.email, incoming.email),
             phone: betterText(existing.phone, incoming.phone),
@@ -3438,10 +3335,15 @@ struct AdminUser: Identifiable {
             group: betterText(existing.group, incoming.group),
             groups: betterList(existing.groups, incoming.groups),
             currentBeltId: betterText(existing.currentBeltId, incoming.currentBeltId),
-            role: betterRole(existing.role, incoming.role),
-            isCoachFlag: existing.isCoachFlag || incoming.isCoachFlag,
+            role: preservingAccountIdentity
+                ? existing.role
+                : betterRole(existing.role, incoming.role),
+            isCoachFlag: preservingAccountIdentity
+                ? existing.isCoachFlag
+                : (existing.isCoachFlag || incoming.isCoachFlag),
             accessType: existing.accessType,
-            accessTargetUid: existing.accessTargetUid == incoming.accessTargetUid
+            accessTargetUid: preservingAccountIdentity ||
+                    existing.accessTargetUid == incoming.accessTargetUid
                 ? existing.accessTargetUid
                 : nil,
             createdAtMillis: newerMillis(existing.createdAtMillis, incoming.createdAtMillis),
@@ -3452,7 +3354,27 @@ struct AdminUser: Identifiable {
 
     static func linkingLegacyRecords(_ users: [AdminUser]) -> [AdminUser] {
         let verifiedUsers = users.filter { $0.accessTargetUid != nil }
-        let legacyUsers = users.filter { $0.accessTargetUid == nil }
+
+        let legacyGroups = Dictionary(
+            grouping: users.filter { $0.accessTargetUid == nil }
+        ) { user -> String in
+            guard let identity = user.legacyDisplayIdentity else {
+                return "document:\(user.id)"
+            }
+
+            let declaredUid = user.uidField
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            return "legacy:\(identity)|uid:\(declaredUid)"
+        }
+
+        let legacyUsers = legacyGroups.values.compactMap { records -> AdminUser? in
+            guard let first = records.first else { return nil }
+
+            return records.dropFirst().reduce(first) { result, record in
+                merged(existing: result, incoming: record)
+            }
+        }
 
         let verifiedByIdentity = Dictionary(grouping: verifiedUsers) {
             $0.legacyDisplayIdentity
@@ -3484,12 +3406,13 @@ struct AdminUser: Identifiable {
 
             linkedLegacyIds.formUnion(matches.map(\.id))
 
-            var combined = matches.reduce(verified) { result, legacy in
-                merged(existing: result, incoming: legacy)
+            return matches.reduce(verified) { result, legacy in
+                merged(
+                    existing: result,
+                    incoming: legacy,
+                    preservingAccountIdentity: true
+                )
             }
-            combined.accessTargetUid = uid
-            combined.accessType = verified.accessType
-            return combined
         }
 
         return combinedVerifiedUsers + legacyUsers.filter {
@@ -3533,13 +3456,9 @@ struct AdminUser: Identifiable {
                 return records
             }
 
-            let verifiedUids = Set(records.compactMap { $0.accessTargetUid })
-
-            guard verifiedUids.count <= 1 else {
-                return records
-            }
-
-            let safeUid = verifiedUids.first
+            let verifiedUids = Set(records.compactMap(\.accessTargetUid))
+            let hasConflictingAccounts = verifiedUids.count > 1
+            let safeUid = verifiedUids.count == 1 ? verifiedUids.first : nil
 
             let primary = records.first { record in
                 record.accessTargetUid != nil && record.accessTargetUid == safeUid
@@ -3565,6 +3484,7 @@ struct AdminUser: Identifiable {
             })
 
             combined.accessTargetUid = safeUid
+            combined.hasConflictingAccessAccounts = hasConflictingAccounts
             combined.accessType = explicitAccessTypes.count == 1
                 ? explicitAccessTypes.first
                 : nil

@@ -11,6 +11,9 @@ final class AttendanceViewModel: ObservableObject {
     private var contextLoadID = UUID()
     private var contextLoadTask: Task<Void, Never>?
     private var attendanceRecordsTask: Task<Void, Never>?
+    private var savedAttendanceReportTask: Task<Void, Never>?
+    private var attendanceMembersTask: Task<Void, Never>?
+
     private var attendanceRecordsListenerID = UUID()
     private var isAttendanceScreenVisible = false
     private var editedNotesByMemberID: [String: String] = [:]
@@ -53,6 +56,8 @@ final class AttendanceViewModel: ObservableObject {
 
     deinit {
         attendanceRecordsTask?.cancel()
+        savedAttendanceReportTask?.cancel()
+        attendanceMembersTask?.cancel()
     }
 
     func retryLoadingCurrentContext() {
@@ -1113,6 +1118,94 @@ final class AttendanceViewModel: ObservableObject {
         let listenerID = attendanceRecordsListenerID
         let repository = self.repository
 
+        attendanceMembersTask = Task { @MainActor [weak self] in
+            let changes = repository.attendanceMemberChanges(
+                ownerUid: ownerUid,
+                branchName: branchName,
+                groupKey: groupKey
+            )
+
+            @MainActor
+            func canApplyMemberUpdate() -> Bool {
+                !Task.isCancelled &&
+                self?.attendanceRecordsListenerID == listenerID &&
+                Auth.auth().currentUser?.uid == ownerUid
+            }
+
+            do {
+                for try await _ in changes {
+                    guard canApplyMemberUpdate() else { return }
+                    guard self?.state.isSaving == false else { continue }
+
+                    let members = try await repository.loadRealMembers(
+                        ownerUid: ownerUid,
+                        branchName: branchName,
+                        groupKey: groupKey
+                    )
+
+                    guard canApplyMemberUpdate() else { return }
+                    guard let self, !self.state.isSaving else { continue }
+
+                    self.state.members = members
+                }
+            } catch {
+                guard canApplyMemberUpdate(), let self else { return }
+
+                self.attendanceMembersTask = nil
+                self.publishMessage(
+                    self.tr(
+                        "עדכון רשימת המתאמנים מהשרת הופסק. פתח מחדש את המסך כדי לחדש אותו.",
+                        "Live trainee list updates stopped. Reopen the screen to reconnect."
+                    ),
+                    isError: true
+                )
+            }
+        }
+
+        savedAttendanceReportTask = Task { @MainActor [weak self] in
+            let snapshots = repository.savedAttendanceReportSnapshots(
+                ownerUid: ownerUid,
+                branchName: branchName,
+                groupKey: groupKey,
+                dateIso: dateIso
+            )
+
+            do {
+                for try await saved in snapshots {
+                    guard !Task.isCancelled,
+                          let self,
+                          self.attendanceRecordsListenerID == listenerID,
+                          Auth.auth().currentUser?.uid == ownerUid else {
+                        return
+                    }
+
+                    guard !self.state.isSaving,
+                          self.isReportSaved != saved else {
+                        continue
+                    }
+
+                    self.isReportSaved = saved
+                    self.reloadMonthMarkers()
+                }
+            } catch {
+                guard !Task.isCancelled,
+                      let self,
+                      self.attendanceRecordsListenerID == listenerID,
+                      Auth.auth().currentUser?.uid == ownerUid else {
+                    return
+                }
+
+                self.savedAttendanceReportTask = nil
+                self.publishMessage(
+                    self.tr(
+                        "עדכון מצב הדוח מהשרת הופסק. פתח מחדש את המסך כדי לחדש אותו.",
+                        "Live report status updates stopped. Reopen the screen to reconnect."
+                    ),
+                    isError: true
+                )
+            }
+        }
+
         attendanceRecordsTask = Task { @MainActor [weak self] in
             let snapshots = repository.attendanceRecordSnapshots(
                 ownerUid: ownerUid,
@@ -1173,8 +1266,15 @@ final class AttendanceViewModel: ObservableObject {
 
     private func stopAttendanceRecordsListener() {
         attendanceRecordsListenerID = UUID()
+
         attendanceRecordsTask?.cancel()
         attendanceRecordsTask = nil
+
+        savedAttendanceReportTask?.cancel()
+        savedAttendanceReportTask = nil
+
+        attendanceMembersTask?.cancel()
+        attendanceMembersTask = nil
     }
 
     private func applyLiveAttendanceRecords(

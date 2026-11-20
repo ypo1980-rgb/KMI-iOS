@@ -1214,9 +1214,111 @@ final class AttendanceRepository {
         .document(String(memberId))
         .getDocument()
 
-        guard let data = document.data() else {
-            return nil
+        return decodeTraineeOwnAttendance(document.data(), authUid: authUid)
+    }
+
+    func traineeOwnAttendanceSnapshots(
+        branchName: String,
+        groupKey: String,
+        date: Date,
+        authUid: String
+    ) async throws -> AsyncThrowingStream<AttendanceStatus?, Error> {
+        guard !authUid.isEmpty,
+              Auth.auth().currentUser?.uid == authUid else {
+            throw OwnAttendanceError.invalidContext
         }
+
+        let memberId = try await findMemberIdByAuthUid(
+            branchName: branchName,
+            groupKey: groupKey,
+            authUid: authUid
+        )
+
+        try Task.checkCancellation()
+
+        guard Auth.auth().currentUser?.uid == authUid else {
+            throw CancellationError()
+        }
+
+        guard let memberId else {
+            return AsyncThrowingStream { continuation in
+                continuation.yield(nil)
+                continuation.finish()
+            }
+        }
+
+        let reference = attendanceGroupReference(
+            branchName: branchName,
+            groupKey: groupKey
+        )
+        .collection("sessions")
+        .document(attendanceSessionDateIso(date))
+        .collection("records")
+        .document(String(memberId))
+
+        return AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            #if DEBUG
+            print("KMI_HOME_QR_LISTEN_START", "path:", reference.path)
+            #endif
+
+            let registration = reference
+                .addSnapshotListener(includeMetadataChanges: true) { snapshot, error in
+                    #if DEBUG
+                    if let snapshot {
+                        print(
+                            "KMI_HOME_QR_LISTEN_EVENT",
+                            "path:", reference.path,
+                            "exists:", snapshot.exists,
+                            "fromCache:", snapshot.metadata.isFromCache,
+                            "pendingWrites:", snapshot.metadata.hasPendingWrites
+                        )
+                    } else if let error {
+                        let details = error as NSError
+                        print(
+                            "KMI_HOME_QR_LISTEN_EVENT",
+                            "path:", reference.path,
+                            "domain:", details.domain,
+                            "code:", details.code,
+                            "message:", details.localizedDescription
+                        )
+                    }
+                    #endif
+
+                    guard Auth.auth().currentUser?.uid == authUid else {
+                        continuation.finish(throwing: CancellationError())
+                        return
+                    }
+
+                    if let error {
+                        continuation.finish(throwing: error)
+                        return
+                    }
+
+                    guard let snapshot,
+                          !snapshot.metadata.isFromCache,
+                          !snapshot.metadata.hasPendingWrites else {
+                        return
+                    }
+
+                    continuation.yield(
+                        self.decodeTraineeOwnAttendance(
+                            snapshot.data(),
+                            authUid: authUid
+                        )
+                    )
+                }
+
+            continuation.onTermination = { _ in
+                registration.remove()
+            }
+        }
+    }
+
+    private func decodeTraineeOwnAttendance(
+        _ data: [String: Any]?,
+        authUid: String
+    ) -> AttendanceStatus? {
+        guard let data else { return nil }
 
         let occurrenceId = (data["occurrenceId"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -1779,6 +1881,54 @@ final class AttendanceRepository {
         )
     }
 
+    func attendanceMemberChanges(
+        ownerUid: String,
+        branchName: String,
+        groupKey: String
+    ) -> AsyncThrowingStream<Void, Error> {
+        AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let branch = branchName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let group = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard !ownerUid.isEmpty,
+                  Auth.auth().currentUser?.uid == ownerUid,
+                  !branch.isEmpty,
+                  !group.isEmpty else {
+                continuation.finish(throwing: OwnAttendanceError.invalidContext)
+                return
+            }
+
+            let registration = attendanceGroupReference(
+                branchName: branch,
+                groupKey: group
+            )
+            .collection("members")
+            .addSnapshotListener(includeMetadataChanges: true) { snapshot, error in
+                guard Auth.auth().currentUser?.uid == ownerUid else {
+                    continuation.finish(throwing: CancellationError())
+                    return
+                }
+
+                if let error {
+                    continuation.finish(throwing: error)
+                    return
+                }
+
+                guard let snapshot,
+                      !snapshot.metadata.isFromCache,
+                      !snapshot.metadata.hasPendingWrites else {
+                    return
+                }
+
+                continuation.yield(())
+            }
+
+            continuation.onTermination = { _ in
+                registration.remove()
+            }
+        }
+    }
+
     func loadRealMembers(
         ownerUid: String,
         branchName: String,
@@ -2080,25 +2230,84 @@ final class AttendanceRepository {
         #endif
     }
 
+    private func savedAttendanceReportQuery(
+        branchName: String,
+        groupKey: String,
+        dateIso: String
+    ) -> Query {
+        attendanceGroupReference(
+            branchName: branchName,
+            groupKey: groupKey
+        )
+        .collection("reports")
+        .whereField("date", isEqualTo: dateIso)
+        .limit(to: 1)
+    }
+
     func hasSavedAttendanceReport(
         branchName: String,
         groupKey: String,
         dateIso: String
     ) async throws -> Bool {
         do {
-            let snapshot = try await attendanceGroupReference(
+            let snapshot = try await savedAttendanceReportQuery(
                 branchName: branchName,
-                groupKey: groupKey
+                groupKey: groupKey,
+                dateIso: dateIso
             )
-            .collection("reports")
-            .whereField("date", isEqualTo: dateIso)
-            .limit(to: 1)
             .getDocuments()
 
             return !snapshot.documents.isEmpty
         } catch {
             debugAttendanceReadFailure(stage: "saved-report", error: error)
             throw error
+        }
+    }
+
+    func savedAttendanceReportSnapshots(
+        ownerUid: String,
+        branchName: String,
+        groupKey: String,
+        dateIso: String
+    ) -> AsyncThrowingStream<Bool, Error> {
+        AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            guard !ownerUid.isEmpty,
+                  Auth.auth().currentUser?.uid == ownerUid,
+                  !branchName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !groupKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  Self.date(fromIso: dateIso) != nil else {
+                continuation.finish(throwing: OwnAttendanceError.invalidContext)
+                return
+            }
+
+            let registration = savedAttendanceReportQuery(
+                branchName: branchName,
+                groupKey: groupKey,
+                dateIso: dateIso
+            )
+            .addSnapshotListener(includeMetadataChanges: true) { snapshot, error in
+                guard Auth.auth().currentUser?.uid == ownerUid else {
+                    continuation.finish(throwing: CancellationError())
+                    return
+                }
+
+                if let error {
+                    continuation.finish(throwing: error)
+                    return
+                }
+
+                guard let snapshot,
+                      !snapshot.metadata.isFromCache,
+                      !snapshot.metadata.hasPendingWrites else {
+                    return
+                }
+
+                continuation.yield(!snapshot.documents.isEmpty)
+            }
+
+            continuation.onTermination = { _ in
+                registration.remove()
+            }
         }
     }
 
@@ -2133,6 +2342,99 @@ final class AttendanceRepository {
     }
 
     // MARK: - Coach attendance marking
+
+    func ensureCoachAttendanceSession(
+        ownerUid: String,
+        branchName: String,
+        groupKey: String,
+        dateIso: String
+    ) async throws {
+        let branch = branchName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let group = groupKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let date = dateIso.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        try Task.checkCancellation()
+
+        guard !branch.isEmpty,
+              !group.isEmpty,
+              Self.date(fromIso: date) != nil,
+              !ownerUid.isEmpty,
+              let user = Auth.auth().currentUser,
+              user.uid == ownerUid else {
+            throw OwnAttendanceError.invalidContext
+        }
+
+        let groupReference = attendanceGroupReference(
+            branchName: branch,
+            groupKey: group
+        )
+        let sessionReference = groupReference
+            .collection("sessions")
+            .document(date)
+        let sessionSnapshot = try await sessionReference.getDocument()
+
+        try Task.checkCancellation()
+        guard Auth.auth().currentUser?.uid == ownerUid else {
+            throw CancellationError()
+        }
+
+        guard !sessionSnapshot.exists else { return }
+
+        try await ensureGroupMetadata(
+            branchName: branch,
+            groupKey: group
+        )
+
+        try Task.checkCancellation()
+        guard Auth.auth().currentUser?.uid == ownerUid else {
+            throw CancellationError()
+        }
+
+        let groupSnapshot = try await groupReference.getDocument()
+
+        guard let canonicalBranch = groupSnapshot.get("branch") as? String,
+              let canonicalGroup = groupSnapshot.get("groupKey") as? String,
+              normalizedAttendanceIdentity(canonicalBranch) ==
+                normalizedAttendanceIdentity(branch),
+              normalizedAttendanceIdentity(canonicalGroup) ==
+                normalizedAttendanceIdentity(group) else {
+            throw OwnAttendanceError.invalidContext
+        }
+
+        let now = Int64(Date().timeIntervalSince1970 * 1_000)
+        let sessionData: [String: Any] = [
+            "id": stableAttendanceId("\(branch)|\(group)|\(date)"),
+            "date": date,
+            "branch": canonicalBranch,
+            "groupKey": canonicalGroup,
+            "coachUid": ownerUid,
+            "coachEmail": user.email ?? "",
+            "status": "open",
+            "createdAtMillis": now,
+            "updatedAtMillis": now,
+            "updatedAt": FieldValue.serverTimestamp()
+        ]
+
+        try Task.checkCancellation()
+        guard Auth.auth().currentUser?.uid == ownerUid else {
+            throw CancellationError()
+        }
+
+        _ = try await Firestore.firestore().runTransaction { transaction, errorPointer in
+            do {
+                let currentSession = try transaction.getDocument(sessionReference)
+
+                if !currentSession.exists {
+                    transaction.setData(sessionData, forDocument: sessionReference)
+                }
+
+                return nil
+            } catch let error as NSError {
+                errorPointer?.pointee = error
+                return nil
+            }
+        }
+    }
 
     func markCoachAttendance(
         ownerUid: String,
@@ -2175,69 +2477,12 @@ final class AttendanceRepository {
         let sessionId = stableAttendanceId("\(branch)|\(group)|\(date)")
         let recordId = stableAttendanceId("\(sessionId)|\(numericMemberId)")
 
-        let sessionSnapshot = try await sessionReference.getDocument()
-
-        try Task.checkCancellation()
-        guard Auth.auth().currentUser?.uid == ownerUid else {
-            throw CancellationError()
-        }
-
-        if !sessionSnapshot.exists {
-            try await ensureGroupMetadata(
-                branchName: branch,
-                groupKey: group
-            )
-
-            try Task.checkCancellation()
-            guard Auth.auth().currentUser?.uid == ownerUid else {
-                throw CancellationError()
-            }
-
-            let groupSnapshot = try await groupReference.getDocument()
-
-            guard let canonicalBranch = groupSnapshot.get("branch") as? String,
-                  let canonicalGroup = groupSnapshot.get("groupKey") as? String,
-                  normalizedAttendanceIdentity(canonicalBranch) ==
-                    normalizedAttendanceIdentity(branch),
-                  normalizedAttendanceIdentity(canonicalGroup) ==
-                    normalizedAttendanceIdentity(group) else {
-                throw OwnAttendanceError.invalidContext
-            }
-
-            let now = Int64(Date().timeIntervalSince1970 * 1_000)
-            let sessionData: [String: Any] = [
-                "id": sessionId,
-                "date": date,
-                "branch": canonicalBranch,
-                "groupKey": canonicalGroup,
-                "coachUid": ownerUid,
-                "coachEmail": user.email ?? "",
-                "status": "open",
-                "createdAtMillis": now,
-                "updatedAtMillis": now,
-                "updatedAt": FieldValue.serverTimestamp()
-            ]
-
-            try Task.checkCancellation()
-            guard Auth.auth().currentUser?.uid == ownerUid else {
-                throw CancellationError()
-            }
-
-            _ = try await Firestore.firestore().runTransaction { transaction, errorPointer in
-                do {
-                    let currentSession = try transaction.getDocument(sessionReference)
-
-                    if !currentSession.exists {
-                        transaction.setData(sessionData, forDocument: sessionReference)
-                    }
-
-                    return nil
-                } catch let error as NSError {
-                    errorPointer?.pointee = error
-                    return nil
-                }
-            }
-        }
+        try await ensureCoachAttendanceSession(
+            ownerUid: ownerUid,
+            branchName: branch,
+            groupKey: group,
+            dateIso: date
+        )
 
         let now = Int64(Date().timeIntervalSince1970 * 1_000)
         let statusName = coachAttendanceStatusName(status)

@@ -3257,7 +3257,6 @@ struct AttendanceCoachQrSheet: View {
     @State private var phase: Phase = .loading
     @State private var isPrinting = false
     @State private var showPrintError = false
-    @State private var requestsAdminQR = false
 
     private struct Occurrence: Identifiable, Equatable {
         let id: String
@@ -3267,7 +3266,7 @@ struct AttendanceCoachQrSheet: View {
 
     private enum Work: Equatable {
         case lookup(UUID)
-        case generate(Occurrence, testMode: Bool)
+        case generate(Occurrence)
     }
 
     private enum Phase {
@@ -3310,18 +3309,6 @@ struct AttendanceCoachQrSheet: View {
                             .frame(height: 132)
 
                     case let .choose(occurrences):
-                        Toggle(isOn: $requestsAdminQR) {
-                            Text(
-                                tr(
-                                    "QR מנהל — רישום נוכחות בכל שעה",
-                                    "Admin QR — Attendance at any time"
-                                )
-                            )
-                            .kmiTypography(.action)
-                            .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .tint(KmiAppTheme.primary(for: colorScheme))
-
                         if occurrences.count == 1, let occurrence = occurrences.first {
                             Button(tr("הפק QR", "Generate QR")) {
                                 beginGeneration(for: occurrence)
@@ -3549,7 +3536,7 @@ struct AttendanceCoachQrSheet: View {
 
     private func beginGeneration(for occurrence: Occurrence) {
         phase = .loading
-        work = .generate(occurrence, testMode: requestsAdminQR)
+        work = .generate(occurrence)
     }
 
     @MainActor
@@ -3597,7 +3584,9 @@ struct AttendanceCoachQrSheet: View {
                     return left.startMillis < right.startMillis
                 }
 
-                if occurrences.isEmpty {
+                if occurrences.count == 1, let occurrence = occurrences.first {
+                    beginGeneration(for: occurrence)
+                } else if occurrences.isEmpty {
                     phase = .failed(
                         tr(
                             "לא נמצא אימון מתאים לתאריך, לסניף ולקבוצה שנבחרו.",
@@ -3608,14 +3597,51 @@ struct AttendanceCoachQrSheet: View {
                     phase = .choose(occurrences)
                 }
 
-            case let .generate(occurrence, testMode):
+            case let .generate(occurrence):
+                try await AttendanceRepository.shared.ensureCoachAttendanceSession(
+                    ownerUid: request.uid,
+                    branchName: request.branch,
+                    groupKey: request.group,
+                    dateIso: request.dateIso
+                )
+
+                guard canApplyResult(for: currentWork) else {
+                    return
+                }
+
                 let callable = Functions.functions(region: "europe-west1")
                     .httpsCallable("createKamiAttendanceQr")
 
-                let result = try await callable.call([
-                    "occurrenceId": occurrence.id,
-                    "testMode": testMode
-                ])
+                let issueQR: (Bool) async throws -> HTTPSCallableResult = { testMode in
+                    try await callable.call([
+                        "occurrenceId": occurrence.id,
+                        "testMode": testMode
+                    ])
+                }
+
+                let result: HTTPSCallableResult
+                let requestedAdminQR: Bool
+
+                do {
+                    result = try await issueQR(false)
+                    requestedAdminQR = false
+                } catch {
+                    let details = error as NSError
+                    let payload = details.userInfo[FunctionsErrorDetailsKey] as? [String: Any]
+
+                    guard details.domain == FunctionsErrorDomain,
+                          FunctionsErrorCode(rawValue: details.code) == .failedPrecondition,
+                          payload?["reason"] as? String == "outside_qr_window" else {
+                        throw error
+                    }
+
+                    guard canApplyResult(for: currentWork) else {
+                        return
+                    }
+
+                    result = try await issueQR(true)
+                    requestedAdminQR = true
+                }
 
                 guard canApplyResult(for: currentWork) else {
                     return
@@ -3631,7 +3657,7 @@ struct AttendanceCoachQrSheet: View {
                 }
 
                 let issuedAsAdminQR = response["testMode"] as? Bool == true
-                guard issuedAsAdminQR == testMode else {
+                guard issuedAsAdminQR == requestedAdminQR else {
                     phase = .failed(
                         tr(
                             "השרת החזיר קוד במצב שונה מהמצב שנבחר.",

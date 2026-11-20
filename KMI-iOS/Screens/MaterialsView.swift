@@ -382,6 +382,8 @@ struct MaterialsView: View {
 
     @State private var traineeMarksLoadedFromServer = false
     @State private var coachMarksLoadedFromServer = false
+    @State private var traineeMarksConfirmedByServer = false
+    @State private var coachMarksConfirmedByServer = false
 
     // סימונים מקומיים הממתינים לאישור.
     // תור הכתיבות עצמו מנוהל על ידי Firestore.
@@ -770,6 +772,8 @@ struct MaterialsView: View {
 
         traineeMarksLoadedFromServer = false
         coachMarksLoadedFromServer = false
+        traineeMarksConfirmedByServer = false
+        coachMarksConfirmedByServer = false
 
         // נתוני התצוגה של המסך מתנקים.
         // כתיבות שכבר נמסרו ל-Firestore אינן מתבטלות.
@@ -807,7 +811,7 @@ struct MaterialsView: View {
 
         traineeMarkListener = userDocument
             .collection("exerciseMarks")
-            .addSnapshotListener { snapshot, error in
+            .addSnapshotListener(includeMetadataChanges: true) { snapshot, error in
                 DispatchQueue.main.async {
                     guard markListenerUID == uid,
                           markListenerSession == listenerSession,
@@ -816,6 +820,8 @@ struct MaterialsView: View {
                     }
 
                     if let error {
+                        traineeMarksConfirmedByServer = false
+
                         #if DEBUG
                         print("KMI_IOS_TRAINEE_MARKS_READ_FAILED", error)
                         #endif
@@ -846,6 +852,9 @@ struct MaterialsView: View {
                     remoteTraineeMarks = updatedMarks
                     remoteTraineeDates = updatedDates
                     traineeMarksLoadedFromServer = true
+                    traineeMarksConfirmedByServer =
+                        !snapshot.metadata.isFromCache &&
+                        !snapshot.metadata.hasPendingWrites
                 }
             }
 
@@ -853,7 +862,7 @@ struct MaterialsView: View {
 
         coachMarkListener = userDocument
             .collection("coachExerciseMarks")
-            .addSnapshotListener { snapshot, error in
+            .addSnapshotListener(includeMetadataChanges: true) { snapshot, error in
                 DispatchQueue.main.async {
                     guard markListenerUID == uid,
                           markListenerSession == listenerSession,
@@ -863,6 +872,8 @@ struct MaterialsView: View {
                     }
 
                     if let error {
+                        coachMarksConfirmedByServer = false
+
                         #if DEBUG
                         print("KMI_IOS_COACH_MARKS_READ_FAILED", error)
                         #endif
@@ -906,6 +917,9 @@ struct MaterialsView: View {
 
                     remoteCoachProgress = updated
                     coachMarksLoadedFromServer = true
+                    coachMarksConfirmedByServer =
+                        !snapshot.metadata.isFromCache &&
+                        !snapshot.metadata.hasPendingWrites
                 }
             }
     }
@@ -3933,12 +3947,12 @@ struct MaterialsView: View {
         guard let uid = Auth.auth().currentUser?.uid,
               markListenerUID == uid,
               effectiveIsCoach
-                ? coachMarksLoadedFromServer
-                : traineeMarksLoadedFromServer else {
+                ? coachMarksConfirmedByServer
+                : traineeMarksConfirmedByServer else {
             showToast(
                 tr(
-                    "הסימונים עדיין לא נטענו. לא נוצר PDF מנתונים חלקיים.",
-                    "Marks are not loaded yet. No PDF was created from incomplete data."
+                    "ייצוא PDF יתאפשר לאחר שהשרת יאשר שהסימונים מעודכנים.",
+                    "PDF export is available once the server confirms the marks are up to date."
                 )
             )
             return
@@ -4002,12 +4016,12 @@ struct MaterialsView: View {
         }
 
         guard effectiveIsCoach
-                ? coachMarksLoadedFromServer
-                : traineeMarksLoadedFromServer else {
+                ? coachMarksConfirmedByServer
+                : traineeMarksConfirmedByServer else {
             showToast(
                 tr(
-                    "לא ניתן לאפס לפני טעינת הסימונים.",
-                    "Cannot reset before marks are loaded."
+                    "איפוס יתאפשר לאחר שהשרת יאשר שהסימונים מעודכנים.",
+                    "Reset is available once the server confirms the marks are up to date."
                 )
             )
             return
@@ -4998,28 +5012,46 @@ struct MaterialsExerciseRow: View {
                         ) / 4
                     )
                     
+                    let sharedTraineeStatus: KmiTraineeExerciseStatus? = switch mark {
+                    case .mastered: .known
+                    case .partiallyKnown: .partiallyKnown
+                    case .unknown: .unknown
+                    case nil: nil
+                    }
+
+                    let traineeStatusDateText = traineeUpdatedAt > 0
+                        ? Date(
+                            timeIntervalSince1970: TimeInterval(traineeUpdatedAt) / 1_000
+                        ).formatted(.dateTime.day(.twoDigits).month(.twoDigits).year(.twoDigits))
+                        : ""
+
                     HStack(
                         spacing:
                             4
                     ) {
-                        
+
                         menuButton(
                             width:
                                 buttonWidth
                         )
 
-                        MaterialsTraineeStatusSelector(
-                            mark:
-                                mark,
-                            updatedAt:
-                                traineeUpdatedAt,
-                            buttonWidth:
-                                buttonWidth,
-                            isEnglish:
-                                isEnglish,
-                            onSelect:
-                                onSelectTraineeStatus
-                        )
+                        KmiTraineeExerciseStatusSelector(
+                            selectedStatus: sharedTraineeStatus,
+                            dateText: traineeStatusDateText,
+                            isEnglish: isEnglish
+                        ) { status in
+                            switch status {
+                            case .known:
+                                onSelectTraineeStatus(.mastered)
+                            case .partiallyKnown:
+                                onSelectTraineeStatus(.partiallyKnown)
+                            case .unknown:
+                                onSelectTraineeStatus(.unknown)
+                            case nil:
+                                onSelectTraineeStatus(nil)
+                            }
+                        }
+                        .frame(width: buttonWidth * 3 + 8)
                     }
                     .environment(
                         \.layoutDirection,
@@ -5547,580 +5579,80 @@ struct MaterialsExerciseRow: View {
     }
 }
 
-private struct MaterialsCoachStatusSelector:
-    View {
-
-    @Environment(\.colorScheme)
-    private var colorScheme
-
-    @Environment(\.kmiFontScale)
-    private var displayScale: CGFloat
-
-    let progress:
-        MaterialsView.CoachMaterialProgress
-
-    let buttonWidth:
-        CGFloat
-
+private struct MaterialsCoachStatusSelector: View {
+    let progress: MaterialsView.CoachMaterialProgress
+    let buttonWidth: CGFloat
     let isEnglish: Bool
+    let onSelect: (MaterialsView.CoachMaterialStatus) -> Void
 
-    let onSelect:
-        (MaterialsView.CoachMaterialStatus) -> Void
+    @State private var showStatusLimit = false
 
-    private let statuses:
-        [MaterialsView.CoachMaterialStatus] = [
-            .needsReinforcement,
-            .practiced,
-            .taught
-        ]
-
-    var body: some View {
-
-        HStack(
-            spacing:
-                4
-        ) {
-
-            ForEach(
-                statuses,
-                id:
-                    \.rawValue
-            ) { status in
-
-                statusButton(
-                    status
-                )
-            }
-        }
-        .frame(
-            maxWidth:
-                .infinity
-        )
-    }
-
-    private func statusButton(
-        _ status:
-            MaterialsView.CoachMaterialStatus
-    ) -> some View {
-
-        let selected =
-            progress.isSelected(
-                status
-            )
-
-        let canSelect =
-            selected ||
-            progress.selectedStatuses.count < 2
-
-        let activeColor =
-            color(
-                for:
-                    status
-            )
-
-        return Button {
-
-            if canSelect {
-
-                onSelect(
-                    status
-                )
-            }
-
-        } label: {
-
-            VStack(
-                spacing:
-                    1
-            ) {
-
-                Text(
-                    label(
-                        for:
-                            status
-                    )
-                )
-                .kmiTypography(
-                    .caption
-                )
-                .fontWeight(
-                    selected
-                        ? .heavy
-                        : .bold
-                )
-                .foregroundStyle(
-                    selected
-                        ? activeColor
-                        : KmiAppTheme
-                            .onSurfaceVariant(
-                                for:
-                                    colorScheme
-                            )
-                )
-                .lineLimit(
-                    1
-                )
-                .minimumScaleFactor(
-                    0.70
-                )
-
-                if selected {
-
-                    let dateValue =
-                        progress.updatedAt(
-                            for:
-                                status
-                        )
-
-                    if dateValue > 0 {
-
-                        Text(
-                            formattedDate(
-                                dateValue
-                            )
-                        )
-                        .kmiTypography(
-                            .caption
-                        )
-                        .foregroundStyle(
-                            activeColor.opacity(
-                                0.88
-                            )
-                        )
-                        .lineLimit(
-                            1
-                        )
-                        .minimumScaleFactor(
-                            0.72
-                        )
-                    }
-                }
-            }
-            .frame(
-                maxWidth:
-                    .infinity,
-                maxHeight:
-                    .infinity
-            )
-            .background {
-
-                RoundedRectangle(
-                    cornerRadius:
-                        7,
-                    style:
-                        .continuous
-                )
-                .fill(
-                    activeColor.opacity(
-                        selected
-                            ? (
-                                colorScheme == .dark
-                                    ? 0.18
-                                    : 0.10
-                            )
-                            : (
-                                colorScheme == .dark
-                                    ? 0.08
-                                    : 0.05
-                            )
-                    )
-                )
-            }
-            .overlay {
-
-                RoundedRectangle(
-                    cornerRadius:
-                        7,
-                    style:
-                        .continuous
-                )
-                .stroke(
-                    activeColor.opacity(
-                        selected
-                            ? 0.46
-                            : 0.16
-                    ),
-                    lineWidth:
-                        selected
-                            ? 0.9
-                            : 0.7
-                )
-            }
-        }
-        .buttonStyle(
-            .plain
-        )
-        .disabled(
-            !canSelect
-        )
-        .opacity(
-            canSelect
-                ? 1.0
-                : 0.55
-        )
-        .frame(
-            width:
-                buttonWidth,
-            height:
-                KmiLayoutMetrics.exerciseStatusButtonHeight(
-                    scale: displayScale
-                )
-        )
-        .accessibilityLabel(
-            label(
-                for:
-                    status
-            )
-        )
-    }
-
-    private func label(
-        for status:
-            MaterialsView.CoachMaterialStatus
-    ) -> String {
-
-        switch status {
-
-        case .taught:
-
-            return isEnglish
-                ? "Taught"
-                : "נלמד"
-
-        case .practiced:
-
-            return isEnglish
-                ? "Practiced"
-                : "תורגל"
-
-        case .needsReinforcement:
-
-            return isEnglish
-                ? "Reinforce"
-                : "חיזוק"
-
-        case .notTaught:
-
-            return isEnglish
-                ? "Not taught"
-                : "לא נלמד"
-        }
-    }
-
-    private func color(
+    private func sharedStatus(
         for status: MaterialsView.CoachMaterialStatus
-    ) -> Color {
+    ) -> KmiCoachExerciseStatus? {
         switch status {
         case .taught:
-            return KmiAppTheme.success(for: colorScheme)
-
+            return .taught
         case .practiced:
-            return KmiAppTheme.primary(for: colorScheme)
-
+            return .practiced
         case .needsReinforcement:
-            return KmiAppTheme.warning(for: colorScheme)
-
+            return .needsReinforcement
         case .notTaught:
-            return KmiAppTheme.onSurfaceVariant(for: colorScheme)
+            return nil
         }
     }
 
-    private func formattedDate(
-        _ millis: Int64
-    ) -> String {
+    private var sharedDates: [KmiCoachExerciseStatus: Date] {
+        var dates: [KmiCoachExerciseStatus: Date] = [:]
 
-        let date =
-            Date(
-                timeIntervalSince1970:
-                    TimeInterval(
-                        millis
-                    ) / 1000
+        for (status, timestamp) in progress.updatedAtByStatus {
+            guard timestamp > 0, let shared = sharedStatus(for: status) else {
+                continue
+            }
+
+            dates[shared] = Date(
+                timeIntervalSince1970: TimeInterval(timestamp) / 1_000
             )
+        }
 
-        let formatter =
-            DateFormatter()
-
-        formatter.dateFormat =
-            "dd/MM/yy"
-
-        return formatter.string(
-            from:
-                date
-        )
+        return dates
     }
-}
-
-private struct MaterialsTraineeStatusSelector:
-    View {
-
-    @Environment(\.colorScheme)
-    private var colorScheme
-
-    @Environment(\.kmiFontScale)
-    private var displayScale: CGFloat
-
-    let mark:
-        MaterialsView.RowMark?
-
-    let updatedAt:
-        Int64
-
-    let buttonWidth:
-        CGFloat
-
-    let isEnglish: Bool
-
-    let onSelect:
-        (MaterialsView.RowMark?) -> Void
-
-    private let statuses:
-        [MaterialsView.RowMark] = [
-            .unknown,
-            .partiallyKnown,
-            .mastered
-        ]
 
     var body: some View {
-
-        HStack(
-            spacing:
-                4
-        ) {
-
-            ForEach(
-                statuses,
-                id:
-                    \.rawValue
+        HStack(spacing: 4) {
+            KmiCoachExerciseStatusSelector(
+                selectedStatuses: Set(
+                    progress.selectedStatuses.compactMap { sharedStatus(for: $0) }
+                ),
+                updatedAtByStatus: sharedDates,
+                isEnglish: isEnglish,
+                minimumWidth: 0,
+                onLimitReached: { showStatusLimit = true }
             ) { status in
-
-                statusButton(
-                    status
-                )
-            }
-        }
-        .frame(
-            maxWidth:
-                .infinity
-        )
-    }
-
-    private func statusButton(
-        _ status:
-            MaterialsView.RowMark
-    ) -> some View {
-
-        let selected =
-            mark == status
-
-        let activeColor =
-            color(
-                for:
-                    status
-            )
-
-        return Button {
-
-            onSelect(
-                selected
-                    ? nil
-                    : status
-            )
-
-        } label: {
-
-            VStack(
-                spacing:
-                    1
-            ) {
-
-                Text(
-                    label(
-                        for:
-                            status
-                    )
-                )
-                .kmiTypography(
-                    .caption
-                )
-                .fontWeight(
-                    selected
-                        ? .heavy
-                        : .bold
-                )
-                .foregroundStyle(
-                    selected
-                        ? activeColor
-                        : KmiAppTheme
-                            .onSurfaceVariant(
-                                for:
-                                    colorScheme
-                            )
-                )
-                .lineLimit(
-                    1
-                )
-                .minimumScaleFactor(
-                    0.70
-                )
-
-                if selected &&
-                    updatedAt > 0 {
-
-                    Text(
-                        formattedDate(
-                            updatedAt
-                        )
-                    )
-                    .kmiTypography(
-                        .caption
-                    )
-                    .foregroundStyle(
-                        activeColor.opacity(
-                            0.88
-                        )
-                    )
-                    .lineLimit(
-                        1
-                    )
-                    .minimumScaleFactor(
-                        0.72
-                    )
+                switch status {
+                case .taught:
+                    onSelect(.taught)
+                case .practiced:
+                    onSelect(.practiced)
+                case .needsReinforcement:
+                    onSelect(.needsReinforcement)
                 }
             }
-            .frame(
-                maxWidth:
-                    .infinity,
-                maxHeight:
-                    .infinity
-            )
-            .background {
-
-                RoundedRectangle(
-                    cornerRadius:
-                        7,
-                    style:
-                        .continuous
-                )
-                .fill(
-                    activeColor.opacity(
-                        selected
-                            ? (
-                                colorScheme == .dark
-                                    ? 0.18
-                                    : 0.10
-                            )
-                            : (
-                                colorScheme == .dark
-                                    ? 0.08
-                                    : 0.05
-                            )
-                    )
-                )
-            }
-            .overlay {
-
-                RoundedRectangle(
-                    cornerRadius:
-                        7,
-                    style:
-                        .continuous
-                )
-                .stroke(
-                    activeColor.opacity(
-                        selected
-                            ? 0.46
-                            : 0.16
-                    ),
-                    lineWidth:
-                        selected
-                            ? 0.9
-                            : 0.7
-                )
-            }
         }
-        .buttonStyle(
-            .plain
-        )
-        .frame(
-            width:
-                buttonWidth,
-            height:
-                KmiLayoutMetrics.exerciseStatusButtonHeight(
-                    scale: displayScale
-                )
-        )
-        .accessibilityLabel(
-            label(
-                for:
-                    status
+        .frame(width: buttonWidth * 3 + 8)
+        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
+        .alert(
+            isEnglish ? "Status limit" : "מגבלת סימונים",
+            isPresented: $showStatusLimit
+        ) {
+            Button(isEnglish ? "OK" : "אישור", role: .cancel) {}
+        } message: {
+            Text(
+                isEnglish
+                    ? "You can select up to 2 statuses."
+                    : "ניתן לבחור עד 2 סטטוסים."
             )
-        )
-    }
-
-    private func label(
-        for status:
-            MaterialsView.RowMark
-    ) -> String {
-
-        switch status {
-
-        case .mastered:
-
-            return isEnglish
-                ? "Known"
-                : "יודע"
-
-        case .partiallyKnown:
-
-            return isEnglish
-                ? "Partly"
-                : "חלקית"
-
-        case .unknown:
-
-            return isEnglish
-                ? "Unknown"
-                : "לא יודע"
         }
-    }
-
-    private func color(
-        for status: MaterialsView.RowMark
-    ) -> Color {
-        switch status {
-        case .mastered:
-            return KmiAppTheme.success(for: colorScheme)
-
-        case .partiallyKnown:
-            return KmiAppTheme.warning(for: colorScheme)
-
-        case .unknown:
-            return KmiAppTheme.error(for: colorScheme)
-        }
-    }
-
-    private func formattedDate(
-        _ millis: Int64
-    ) -> String {
-
-        let date =
-            Date(
-                timeIntervalSince1970:
-                    TimeInterval(
-                        millis
-                    ) / 1000
-            )
-
-        let formatter =
-            DateFormatter()
-
-        formatter.dateFormat =
-            "dd/MM/yy"
-
-        return formatter.string(
-            from:
-                date
-        )
     }
 }
 

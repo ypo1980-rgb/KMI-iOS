@@ -5615,26 +5615,37 @@ private var attendanceStartDate: Date {
                             !attendanceSaving
 
                         VStack(spacing: 5) {
-                            HStack(spacing: 8) {
-                                attendanceChoiceButton(
-                                    .absent,
-                                    title: attendanceText(
-                                        "לא מגיע",
-                                        "Not coming"
-                                    ),
-                                    enabled: canEdit
+                            if attendanceLoading {
+                                // מצב הטעינה מטופל בכרטיס הקיים.
+                            } else if timeline.date >= attendanceStartDate,
+                                      attendanceChoice == .present {
+                                Label(
+                                    attendanceText("מגיע", "Coming"),
+                                    systemImage: "checkmark.circle.fill"
                                 )
+                                .kmiTypography(.caption)
+                            } else {
+                                HStack(spacing: 8) {
+                                    attendanceChoiceButton(
+                                        .absent,
+                                        title: attendanceText(
+                                            "לא מגיע",
+                                            "Not coming"
+                                        ),
+                                        enabled: canEdit
+                                    )
 
-                                attendanceChoiceButton(
-                                    .present,
-                                    title: attendanceText(
-                                        "מגיע",
-                                        "Coming"
-                                    ),
-                                    enabled: canEdit
-                                )
+                                    attendanceChoiceButton(
+                                        .present,
+                                        title: attendanceText(
+                                            "מגיע",
+                                            "Coming"
+                                        ),
+                                        enabled: canEdit
+                                    )
+                                }
+                                .environment(\.layoutDirection, .leftToRight)
                             }
-                            .environment(\.layoutDirection, .leftToRight)
 
                             if attendanceMemberId == nil {
                                 Text(
@@ -5916,6 +5927,8 @@ private var attendanceStartDate: Date {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
+    @State private var traineeAttendanceTask: Task<Void, Never>?
+
     @MainActor
     private func loadAttendance() async {
         stopAttendanceListening()
@@ -5942,6 +5955,16 @@ private var attendanceStartDate: Date {
         }
 
         let repository = AttendanceRepository.shared
+
+        #if DEBUG
+        print(
+            "KMI_HOME_ATTENDANCE_MODE",
+            "isCoach:", isCoach,
+            "branch:", branch,
+            "group:", group,
+            "trainingDate:", attendanceStartDate
+        )
+        #endif
 
         if isCoach {
             guard !Task.isCancelled,
@@ -5992,26 +6015,70 @@ private var attendanceStartDate: Date {
                 return
             }
 
-            guard let memberId else {
-                attendanceLoading = false
-                return
-            }
+#if DEBUG
+print(
+    "KMI_HOME_ATTENDANCE_MEMBER",
+    "branch:", branch,
+    "group:", group,
+    "date:", attendanceStartDate,
+    "memberFound:", memberId != nil
+)
+#endif
 
-            let choice = try await repository.getTraineeOwnAttendance(
-                branchName: branch,
-                groupKey: group,
-                date: attendanceStartDate,
-                authUid: uid
-            )
+guard let memberId else {
+    attendanceLoading = false
+    return
+}
 
-            guard !Task.isCancelled,
-                  attendanceRequestID == token else {
-                return
-            }
+guard Auth.auth().currentUser?.uid == uid else { return }
 
             attendanceMemberId = memberId
-            attendanceChoice = choice
-            attendanceLoading = false
+            let startDate = attendanceStartDate
+
+            traineeAttendanceTask = Task { @MainActor in
+                do {
+                    let snapshots = try await repository.traineeOwnAttendanceSnapshots(
+                        branchName: branch,
+                        groupKey: group,
+                        date: startDate,
+                        authUid: uid
+                    )
+
+                    for try await choice in snapshots {
+                        guard !Task.isCancelled,
+                              attendanceRequestID == token,
+                              Auth.auth().currentUser?.uid == uid else {
+                            return
+                        }
+
+                        attendanceChoice = choice
+                        attendanceLoadFailed = false
+                        attendanceLoading = false
+                    }
+                } catch {
+                    guard !Task.isCancelled,
+                          attendanceRequestID == token,
+                          Auth.auth().currentUser?.uid == uid else {
+                        return
+                    }
+
+#if DEBUG
+let listenerError = error as NSError
+print(
+    "KMI_HOME_ATTENDANCE_LISTENER_FAILED",
+    "branch:", branch,
+    "group:", group,
+    "date:", startDate,
+    "domain:", listenerError.domain,
+    "code:", listenerError.code,
+    "message:", listenerError.localizedDescription
+)
+#endif
+
+attendanceLoadFailed = true
+attendanceLoading = false
+}
+}
         } catch {
             guard !Task.isCancelled,
                   attendanceRequestID == token else {
@@ -6025,6 +6092,9 @@ private var attendanceStartDate: Date {
 
     private func stopAttendanceListening() {
         attendanceRequestID = UUID()
+
+        traineeAttendanceTask?.cancel()
+        traineeAttendanceTask = nil
 
         for registration in attendanceListeners {
             registration.remove()
@@ -6074,11 +6144,11 @@ private var attendanceStartDate: Date {
                         occurrenceKey: occurrenceKey
                     )
 
-                guard attendanceRequestID == token else {
+                guard attendanceRequestID == token,
+                      Auth.auth().currentUser?.uid == uid else {
                     return
                 }
 
-                attendanceChoice = status
                 attendanceSaving = false
             } catch {
                 guard attendanceRequestID == token else {

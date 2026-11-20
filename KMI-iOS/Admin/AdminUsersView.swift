@@ -585,8 +585,12 @@ struct AdminUsersView: View {
                                 if user.accessTargetUid == nil {
                                     Text(
                                         tr(
-                                            "לא ניתן לאמת את מזהה החשבון לשינוי הרשאה.",
-                                            "The account ID could not be verified for an access change."
+                                            user.hasConflictingAccessAccounts
+                                                ? "האימייל והטלפון משויכים לכמה חשבונות. כדי לשנות הרשאה נדרש חשבון מזוהה אחד."
+                                                : "לא ניתן לאמת את מזהה החשבון לשינוי הרשאה.",
+                                            user.hasConflictingAccessAccounts
+                                                ? "This email and phone number match multiple accounts. Access can only be changed for a single identified account."
+                                                : "The account ID could not be verified for an access change."
                                         )
                                     )
                                     .kmiTypography(.caption)

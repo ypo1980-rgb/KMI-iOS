@@ -2760,12 +2760,9 @@ struct HomeView: View {
                 )
             )
 
-            let handleContentColor =
-                homeQuickMenuHandleContentColor(accent)
-
-            let railWidth: CGFloat = 46
+            let railWidth: CGFloat = 38
             let openRailWidth: CGFloat = 50.6
-            let closedHeight: CGFloat = 58
+            let closedHeight: CGFloat = 72
             let availableHeight = max(0, geo.size.height - 16)
             let preferredPanelHeight =
                 CGFloat(homeQuickMenuItems.count) * 82 + 68
@@ -2928,93 +2925,11 @@ struct HomeView: View {
                     .position(x: centerX, y: centerY)
                     .transition(.opacity)
                 } else {
-                    Image(systemName: "line.3.horizontal")
-                        .kmiIconSize(20)
-                        .fontWeight(.bold)
-                        .foregroundStyle(handleContentColor)
-                        .frame(
-                            width: 24,
-                            height: closedHeight
-                        )
-                        .background(
-                            LinearGradient(
-                                colors: [
-                                    accent.opacity(0.76),
-                                    accent,
-                                    accent.opacity(0.90)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .overlay(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.30),
-                                    Color.white.opacity(0.08),
-                                    Color.clear,
-                                    Color.black.opacity(0.10)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .clipShape(
-                            UnevenRoundedRectangle(
-                                topLeadingRadius: isEnglish ? 0 : 22,
-                                bottomLeadingRadius: isEnglish ? 0 : 22,
-                                bottomTrailingRadius: isEnglish ? 22 : 0,
-                                topTrailingRadius: isEnglish ? 22 : 0
-                            )
-                        )
-                        .overlay(
-                            UnevenRoundedRectangle(
-                                topLeadingRadius: isEnglish ? 0 : 22,
-                                bottomLeadingRadius: isEnglish ? 0 : 22,
-                                bottomTrailingRadius: isEnglish ? 22 : 0,
-                                topTrailingRadius: isEnglish ? 22 : 0
-                            )
-                            .stroke(
-                                handleContentColor.opacity(0.72),
-                                lineWidth: 1.25
-                            )
-                            .allowsHitTesting(false)
-                        )
-                        .frame(
-                            width: railWidth,
-                            height: closedHeight,
-                            alignment: isEnglish ? .leading : .trailing
-                        )
-                        .background(
-                            alignment: isEnglish ? .leading : .trailing
-                        ) {
-                            UnevenRoundedRectangle(
-                                topLeadingRadius: isEnglish ? 0 : 22,
-                                bottomLeadingRadius: isEnglish ? 0 : 22,
-                                bottomTrailingRadius: isEnglish ? 22 : 0,
-                                topTrailingRadius: isEnglish ? 22 : 0
-                            )
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        accent.opacity(0.62),
-                                        accent.opacity(0.22),
-                                        .clear
-                                    ],
-                                    startPoint: isEnglish ? .leading : .trailing,
-                                    endPoint: isEnglish ? .trailing : .leading
-                                )
-                            )
-                            .frame(width: 29, height: closedHeight)
-                            .opacity(
-                                reduceHomeQuickMenuMotion
-                                    ? 0.35
-                                    : (homeQuickMenuGlowActive ? 0.55 : 0.20)
-                            )
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                        }
-                        .contentShape(Rectangle())
+                    BeltScreenSideQuickFab(
+                        accent: accent,
+                        attachedToLeftEdge: isEnglish
+                    )
+                    .contentShape(Rectangle())
                         .overlay {
                             BeltQuickMenuGestureView(
                                 onTap: {
@@ -3030,22 +2945,6 @@ struct HomeView: View {
                                 onDragChanged: onHandleDrag,
                                 onDragEnded: onHandleDragEnded
                             )
-                        }
-                        .onAppear {
-                            guard !reduceHomeQuickMenuMotion else {
-                                homeQuickMenuGlowActive = false
-                                return
-                            }
-
-                            withAnimation(
-                                .easeInOut(duration: 1.3)
-                                    .repeatForever(autoreverses: true)
-                            ) {
-                                homeQuickMenuGlowActive = true
-                            }
-                        }
-                        .onDisappear {
-                            homeQuickMenuGlowActive = false
                         }
                         .position(x: centerX, y: centerY)
                         .accessibilityElement()

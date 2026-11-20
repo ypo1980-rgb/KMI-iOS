@@ -11,7 +11,9 @@ struct TrainingSummaryView: View {
     @State private var summaryReloadCount = 0
 
     private var canEditSummary: Bool {
-        preparedSummaryDate == vm.state.dateIso &&
+        guard let date = validDateIso else { return false }
+
+        return preparedSummaryDate == date &&
             !vm.isLoadingRemoteSummary &&
             !vm.remoteSummaryLoadFailed &&
             !vm.state.isSaving
@@ -98,16 +100,11 @@ struct TrainingSummaryView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: KmiAppTheme.screenBackgroundColors(for: colorScheme),
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            KmiAppBackground()
 
             ScrollView {
                 VStack(spacing: 12) {
-                    if vm.remoteSummaryLoadFailed {
+                    if validDateIso != nil && vm.remoteSummaryLoadFailed {
                         VStack(spacing: 8) {
                             Text(tr(
                                 "לא ניתן היה לטעון את הסיכום.",
@@ -116,17 +113,22 @@ struct TrainingSummaryView: View {
                             .kmiTypography(.secondary)
                             .multilineTextAlignment(.center)
 
-                            Button(tr("נסה שוב", "Try Again")) {
+                            Button {
                                 preparedSummaryDate = nil
                                 summaryReloadCount += 1
+                            } label: {
+                                Text(tr("נסה שוב", "Try Again"))
+                                    .kmiTypography(.action)
                             }
                             .buttonStyle(.bordered)
-                            .tint(KmiAppTheme.primary(for: colorScheme))
+                            .tint(summaryPrimary)
                         }
                     }
 
+                    trainingInfoCard
+                        .disabled(vm.state.isSaving)
+
                     VStack(spacing: 12) {
-                        trainingInfoCard
                         exercisesCard
                         notesCard
                         actionsCard
@@ -139,11 +141,16 @@ struct TrainingSummaryView: View {
             }
             .scrollDismissesKeyboard(.interactively)
 
-            if !vm.remoteSummaryLoadFailed &&
-                (preparedSummaryDate != vm.state.dateIso || vm.isLoadingRemoteSummary) {
+            if vm.state.isSaving ||
+                (validDateIso != nil &&
+                    !vm.remoteSummaryLoadFailed &&
+                    (preparedSummaryDate != validDateIso || vm.isLoadingRemoteSummary)) {
                 KmiLoadingOverlay()
+                    .allowsHitTesting(vm.state.isSaving)
                     .accessibilityLabel(
-                        tr("טוען סיכום אימון", "Loading training summary")
+                        vm.state.isSaving
+                            ? tr("שומר את סיכום האימון", "Saving training summary")
+                            : tr("טוען סיכום אימון", "Loading training summary")
                     )
             }
 
@@ -215,16 +222,16 @@ struct TrainingSummaryView: View {
             }
         }
         .task(id: "\(vm.state.dateIso)|\(summaryReloadCount)") {
-            let date = vm.state.dateIso
             preparedSummaryDate = nil
+            guard let date = validDateIso else { return }
 
             await vm.prepareSummaryForEditing(dateIso: date)
 
-            guard !Task.isCancelled, vm.state.dateIso == date else { return }
+            guard !Task.isCancelled,
+                  validDateIso == date,
+                  !vm.remoteSummaryLoadFailed else { return }
 
-            if !vm.remoteSummaryLoadFailed {
-                preparedSummaryDate = date
-            }
+            preparedSummaryDate = date
         }
         .task(id: vm.state.saveEventId) {
             guard toastMessage != nil else {
@@ -380,7 +387,8 @@ struct TrainingSummaryView: View {
                                 "Change training date"
                             )
                     )
-                    .kmiFont(size: 15, weight: .heavy)
+                    .kmiTypography(.action)
+                    .fontWeight(.heavy)
                 }
                 .foregroundStyle(summaryOnPrimary)
                 .multilineTextAlignment(.center)
@@ -398,7 +406,8 @@ struct TrainingSummaryView: View {
                         "Choose a date in the monthly training calendar to start filling out the training summary."
                     )
                 )
-                .kmiFont(size: 14, weight: .heavy)
+                .kmiTypography(.body)
+                .fontWeight(.heavy)
                 .foregroundStyle(summaryText)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -450,7 +459,8 @@ struct TrainingSummaryView: View {
                 .foregroundStyle(summaryTextMuted)
 
             Text(value)
-                .kmiFont(size: 14, weight: .heavy)
+                .kmiTypography(.body)
+                .fontWeight(.heavy)
                 .foregroundStyle(summaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -488,7 +498,8 @@ struct TrainingSummaryView: View {
                         "No exercises have been added to this training yet"
                     )
             )
-            .kmiFont(size: 14, weight: .semibold)
+            .kmiTypography(.secondary)
+            .fontWeight(.semibold)
             .foregroundStyle(summaryTextMuted)
             .frame(maxWidth: .infinity, alignment: .leading)
             .multilineTextAlignment(.leading)
@@ -502,7 +513,8 @@ struct TrainingSummaryView: View {
                         .accessibilityHidden(true)
 
                     Text(tr("הוסף תרגילים", "Add exercises"))
-                        .kmiFont(size: 15, weight: .semibold)
+                        .kmiTypography(.action)
+                        .fontWeight(.semibold)
                 }
                 .foregroundStyle(summaryOnPrimary)
                 .multilineTextAlignment(.center)
@@ -529,7 +541,8 @@ struct TrainingSummaryView: View {
                                 "Open / edit existing exercises"
                             )
                     )
-                    .kmiFont(size: 15, weight: .bold)
+                    .kmiTypography(.action)
+                    .fontWeight(.bold)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                 }
@@ -693,7 +706,8 @@ struct TrainingSummaryView: View {
                         )
                     )
                     .scrollContentBackground(.hidden)
-                    .kmiFont(size: 14, weight: .regular)
+                    .kmiTypography(.body)
+                    .fontWeight(.regular)
                     .multilineTextAlignment(.leading)
                     .foregroundStyle(summaryText)
                     .frame(minHeight: 90)
@@ -713,7 +727,8 @@ struct TrainingSummaryView: View {
                 }
             } else if !highlight.isEmpty {
                 Text(item.highlight)
-                    .kmiFont(size: 14, weight: .regular)
+                    .kmiTypography(.body)
+                    .fontWeight(.regular)
                     .foregroundStyle(summaryText)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
@@ -769,7 +784,8 @@ struct TrainingSummaryView: View {
                     )
                 )
                 .scrollContentBackground(.hidden)
-                .kmiFont(size: 16, weight: .regular)
+                .kmiTypography(.body)
+                .fontWeight(.regular)
                 .foregroundStyle(summaryText)
                 .multilineTextAlignment(.leading)
                 .frame(minHeight: 145)
@@ -779,7 +795,8 @@ struct TrainingSummaryView: View {
 
                 if vm.state.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(prompt)
-                        .kmiFont(size: 14, weight: .medium)
+                        .kmiTypography(.secondary)
+                        .fontWeight(.medium)
                         .foregroundStyle(summaryTextMuted)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
@@ -818,23 +835,18 @@ struct TrainingSummaryView: View {
                 })
             } label: {
                 HStack(spacing: 8) {
-                    if vm.state.isSaving {
-                        ProgressView()
-                            .tint(summaryOnPrimary)
-                            .accessibilityHidden(true)
-                    } else {
-                        Image(systemName: "checkmark.circle.fill")
-                            .kmiIconSize(.medium)
-                            .accessibilityHidden(true)
-                    }
+                    Image(systemName: "checkmark.circle.fill")
+                        .kmiIconSize(.medium)
+                        .accessibilityHidden(true)
 
                     Text(
                         vm.state.isSaving
                             ? tr("שומר...", "Saving...")
-                            : tr("שמירת סיכום האימון", "Save training summary")
-                    )
-                    .kmiFont(size: 17, weight: .bold)
-                    .multilineTextAlignment(.center)
+                        : tr("שמירת סיכום האימון", "Save training summary")
+                )
+                .kmiTypography(.action)
+                .fontWeight(.bold)
+                .multilineTextAlignment(.center)
                 }
                 .foregroundStyle(summaryOnPrimary)
                 .padding(.horizontal, 12)

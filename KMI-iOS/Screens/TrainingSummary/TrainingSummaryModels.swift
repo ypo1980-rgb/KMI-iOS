@@ -105,11 +105,37 @@ extension TrainingSummaryUiState {
         )
     }
 
+    @MainActor
     private func exportableExerciseDescription(
-        for name: String,
+        for item: SelectedExerciseUi,
+        belt: Belt?,
         isEnglish: Bool
     ) -> String? {
-        switch name.trimmed() {
+        let name = item.name.trimmed()
+        let rootTopic = item.topic
+            .components(separatedBy: " · ")
+            .first?
+            .trimmed() ?? ""
+
+        if let belt, !rootTopic.isEmpty {
+            let explanation = KmiExerciseExplanationResolverIOS.shared.get(
+                belt: belt,
+                topic: rootTopic,
+                item: name,
+                isEnglish: isEnglish
+            )
+            .replacingOccurrences(of: "[[RED_BOLD]]", with: "")
+            .replacingOccurrences(of: "[[/RED_BOLD]]", with: "")
+            .replacingOccurrences(of: "[[BLUE_BOLD]]", with: "")
+            .replacingOccurrences(of: "[[/BLUE_BOLD]]", with: "")
+            .trimmed()
+
+            if !explanation.isEmpty {
+                return explanation
+            }
+        }
+
+        switch name {
         case "חימום":
             return isEnglish
                 ? "Gradually increase your movement at a comfortable pace before the main session."
@@ -125,13 +151,22 @@ extension TrainingSummaryUiState {
         }
     }
 
+    @MainActor
     func makeShareText(
         isEnglish: Bool,
         privacyEnabled: Bool,
+        onSectionHeading: ((NSRange) -> Void)? = nil,
         onBeltHeading: ((Belt?, NSRange) -> Void)? = nil
     ) -> String {
         func tr(_ hebrew: String, _ english: String) -> String {
             isEnglish ? english : hebrew
+        }
+
+        func headingRange(_ heading: String, after lines: [String]) -> NSRange {
+            let start = lines.reduce(0) { offset, line in
+                offset + line.utf16.count + 1
+            }
+            return NSRange(location: start, length: heading.utf16.count)
         }
 
         let belts = TrainingSummaryCatalog.belts
@@ -182,12 +217,15 @@ extension TrainingSummaryUiState {
         ]
 
         let cleanBranch = branchName.trimmed()
-
-        if !cleanBranch.isEmpty {
+        if !privacyEnabled && !cleanBranch.isEmpty {
+            let displayedBranch = TrainingCatalogIOS.displayBranch(
+                cleanBranch,
+                isEnglish: isEnglish
+            )
             lines.append(
                 tr(
-                    "סניף: \(cleanBranch)",
-                    "Branch: \(cleanBranch)"
+                    "סניף: \(displayedBranch)",
+                    "Branch: \(displayedBranch)"
                 )
             )
         }
@@ -211,8 +249,7 @@ extension TrainingSummaryUiState {
         }
 
         let cleanGroup = groupKey.trimmed()
-
-        if !cleanGroup.isEmpty {
+        if !privacyEnabled && !cleanGroup.isEmpty {
             let displayedGroup = TrainingCatalogIOS.displayGroup(
                 cleanGroup,
                 isEnglish: isEnglish
@@ -228,53 +265,56 @@ extension TrainingSummaryUiState {
 
         lines.append("")
 
+        let exercisesHeading = tr("תרגילים", "Exercises")
+        onSectionHeading?(headingRange(exercisesHeading, after: lines))
+
         if sortedExercises.isEmpty {
             lines.append(
                 tr(
-                    "תרגילים: לא נוספו תרגילים",
-                    "Exercises: No exercises added"
+                    "\(exercisesHeading): לא נוספו תרגילים",
+                    "\(exercisesHeading): No exercises added"
                 )
             )
         } else {
-            lines.append(tr("תרגילים:", "Exercises:"))
+            lines.append("\(exercisesHeading):")
 
             var previousBeltIndex: Int?
 
             for entry in sortedExercises {
                 let item = entry.item
+                let belt = belts.indices.contains(entry.beltIndex)
+                    ? belts[entry.beltIndex]
+                    : nil
 
                 if entry.beltIndex != previousBeltIndex {
-                    let belt = belts.indices.contains(entry.beltIndex)
-                        ? belts[entry.beltIndex]
-                        : nil
-
                     let heading = belt.map { isEnglish ? $0.en : $0.heb }
                         ?? tr("ללא חגורה", "No belt")
 
-                    if let onBeltHeading {
-                        let headingStart = lines.reduce(0) { offset, line in
-                            offset + line.utf16.count + 1
-                        }
-
-                        onBeltHeading(
-                            belt,
-                            NSRange(location: headingStart, length: heading.utf16.count)
-                        )
-                    }
-
+                    onBeltHeading?(belt, headingRange(heading, after: lines))
                     lines.append(heading)
                     previousBeltIndex = entry.beltIndex
                 }
 
-                lines.append("- \(item.name)")
+                let displayedName = KmiEnglishTitleResolver.title(
+                    for: item.name.trimmed(),
+                    isEnglish: isEnglish
+                )
+                lines.append("- \(displayedName)")
 
-                let topic = item.topic.trimmed()
+                let displayedTopic = item.topic
+                    .components(separatedBy: " · ")
+                    .map { $0.trimmed() }
+                    .filter { !$0.isEmpty }
+                    .map {
+                        KmiEnglishTitleResolver.title(for: $0, isEnglish: isEnglish)
+                    }
+                    .joined(separator: " · ")
 
-                if !topic.isEmpty {
+                if !displayedTopic.isEmpty {
                     lines.append(
                         tr(
-                            "  נושא: \(topic)",
-                            "  Topic: \(topic)"
+                            "  נושא: \(displayedTopic)",
+                            "  Topic: \(displayedTopic)"
                         )
                     )
                 }
@@ -290,7 +330,8 @@ extension TrainingSummaryUiState {
 
                 if item.includeExplanation,
                    let description = exportableExerciseDescription(
-                       for: item.name,
+                       for: item,
+                       belt: belt,
                        isEnglish: isEnglish
                    ) {
                     lines.append(
@@ -302,8 +343,7 @@ extension TrainingSummaryUiState {
                 }
 
                 let highlight = item.highlight.trimmed()
-
-                if !highlight.isEmpty {
+                if !privacyEnabled && !highlight.isEmpty {
                     lines.append(
                         tr(
                             "  דגשים: \(highlight)",
@@ -326,17 +366,20 @@ extension TrainingSummaryUiState {
             }
         }
 
-        let cleanNotes = notes.trimmed()
-
-        lines.append(tr("סיכום כללי:", "General summary:"))
-        lines.append(
-            cleanNotes.isEmpty
-                ? tr(
-                    "לא נכתב סיכום כללי",
-                    "No general summary provided"
-                )
-                : cleanNotes
-        )
+        if !privacyEnabled {
+            let cleanNotes = notes.trimmed()
+            let notesHeading = tr("סיכום כללי", "General summary")
+            onSectionHeading?(headingRange(notesHeading, after: lines))
+            lines.append("\(notesHeading):")
+            lines.append(
+                cleanNotes.isEmpty
+                    ? tr(
+                        "לא נכתב סיכום כללי",
+                        "No general summary provided"
+                    )
+                    : cleanNotes
+            )
+        }
 
         return lines.joined(separator: "\n")
     }

@@ -14,6 +14,7 @@ final class TrainingSummaryViewModel: ObservableObject {
     @Published private(set) var remoteSummaryLoadFailed = false
 
     private var editingRemoteSummary: RemoteSummary?
+    private var summaryDaysLoadTask: Task<Void, Never>?
 
     /*
      * נתוני הסניף והמאמן שהתקבלו בעת פתיחת המסך
@@ -130,8 +131,25 @@ final class TrainingSummaryViewModel: ObservableObject {
         state.selectedBelt = belt
     }
 
+    private static func summaryCollection(
+        ownerUid: String,
+        role: SummaryAuthorRole
+    ) -> CollectionReference {
+        Firestore.firestore()
+            .collection("users")
+            .document(ownerUid)
+            .collection("training_summaries_\(role.rawValue)")
+    }
+
     func loadSummaryDaysForMonth(year: Int, month1to12: Int) {
-        guard (1...12).contains(month1to12),
+        summaryDaysLoadTask?.cancel()
+        summaryDaysLoadTask = nil
+
+        let uid = state.ownerUid.trimmed()
+        let role = state.ownerRole
+
+        guard !uid.isEmpty,
+              (1...12).contains(month1to12),
               let start = Self.makeDate(
                   year: year,
                   month: month1to12,
@@ -147,12 +165,42 @@ final class TrainingSummaryViewModel: ObservableObject {
             return
         }
 
-        state.summaryDaysInCalendarMonth = store.listDatesForOwnerBetween(
-            ownerUid: state.ownerUid,
-            role: state.ownerRole,
-            startIso: Self.isoString(start),
-            endIsoExclusive: Self.isoString(end)
+        let startIso = Self.isoString(start)
+        let endIsoExclusive = Self.isoString(end)
+        let localDates = store.listDatesForOwnerBetween(
+            ownerUid: uid,
+            role: role,
+            startIso: startIso,
+            endIsoExclusive: endIsoExclusive
         )
+        state.summaryDaysInCalendarMonth = localDates
+
+        summaryDaysLoadTask = Task { @MainActor [weak self] in
+            do {
+                let snapshot = try await Self.summaryCollection(
+                    ownerUid: uid,
+                    role: role
+                )
+                .whereField("dateIso", isGreaterThanOrEqualTo: startIso)
+                .whereField("dateIso", isLessThan: endIsoExclusive)
+                .getDocuments()
+
+                guard !Task.isCancelled,
+                      let self,
+                      self.state.ownerUid.trimmed() == uid,
+                      self.state.ownerRole == role else { return }
+
+                let remoteDates = snapshot.documents.compactMap { document in
+                    Self.normalizedIsoOrNil(
+                        document.data()["dateIso"] as? String ?? ""
+                    )
+                }
+
+                self.state.summaryDaysInCalendarMonth = localDates.union(remoteDates)
+            } catch {
+                // Local dates remain visible when Firestore is unavailable.
+            }
+        }
     }
 
     func toggleExercise(_ item: ExercisePickItem) {
@@ -288,63 +336,22 @@ final class TrainingSummaryViewModel: ObservableObject {
             updatedAtMs: 0
         )
 
-        if let remote = editingRemoteSummary, remote.entity.dateIso == cleanDate {
-            Task { @MainActor in
-                await saveRemoteEdit(model, to: remote, onSaved: onSaved)
-            }
-            return
+        let existingDocument = editingRemoteSummary.flatMap { remote in
+            remote.entity.dateIso == cleanDate ? remote.document : nil
         }
 
-        let didSave = store.saveForOwner(
-            ownerUid:
-                state.ownerUid.trimmed(),
-            role:
-                state.ownerRole,
-            summary:
-                model
-        )
-
-        state.isSaving = false
-
-        guard didSave else {
-            publishSaveResult(
-                message: localizedText(
-                    hebrew: "לא ניתן לשמור את סיכום האימון כרגע. נסה שוב.",
-                    english: "Could not save the training summary. Please try again."
-                ),
-                isError: true
-            )
-            return
-        }
-
-        publishSaveResult(
-            message: localizedText(
-                hebrew: "✅ הסיכום נשמר",
-                english: "✅ Summary saved"
-            ),
-            isError: false
-        )
-
-        let components =
-            Self.dateComponents(
-                fromIso: cleanDate
-            )
-
-        if
-            let year = components.year,
-            let month = components.month {
-            loadSummaryDaysForMonth(
-                year: year,
-                month1to12: month
+        Task { @MainActor in
+            await saveRemoteSummary(
+                model,
+                existingDocument: existingDocument,
+                onSaved: onSaved
             )
         }
-
-        onSaved?()
     }
 
-    private func saveRemoteEdit(
+    private func saveRemoteSummary(
         _ model: TrainingSummaryEntity,
-        to remote: RemoteSummary,
+        existingDocument: DocumentReference?,
         onSaved: (() -> Void)?
     ) async {
         defer { state.isSaving = false }
@@ -366,26 +373,56 @@ final class TrainingSummaryViewModel: ObservableObject {
             return fields
         }
 
+        let now = Int64(Date().timeIntervalSince1970 * 1_000)
+        var fields: [String: Any] = [
+            "branchId": model.branchId,
+            "branchName": model.branchName,
+            "coachUid": model.coachUid,
+            "coachName": model.coachName,
+            "groupKey": model.groupKey,
+            "exercises": exercises,
+            "notes": model.notes,
+            "updatedAtMs": now
+        ]
+
         do {
-            try await remote.document.updateData([
-                "branchId": model.branchId,
-                "branchName": model.branchName,
-                "coachUid": model.coachUid,
-                "coachName": model.coachName,
-                "groupKey": model.groupKey,
-                "exercises": exercises,
-                "notes": model.notes,
-                "updatedAtMs": Int64(Date().timeIntervalSince1970 * 1_000)
-            ])
+            if let existingDocument {
+                try await existingDocument.updateData(fields)
+            } else {
+                let document = Self.summaryCollection(
+                    ownerUid: model.ownerUid,
+                    role: model.ownerRole
+                )
+                .document(model.dateIso)
+
+                fields["id"] = document.documentID
+                fields["ownerUid"] = model.ownerUid
+                fields["ownerRole"] = model.ownerRole.rawValue
+                fields["dateIso"] = model.dateIso
+                fields["createdAtMs"] = now
+
+                try await document.setData(fields, merge: true)
+            }
         } catch {
             publishSaveResult(
                 message: localizedText(
-                    hebrew: "לא ניתן לאשר את עדכון הסיכום. נסה שוב.",
-                    english: "Could not confirm the summary update. Please try again."
+                    hebrew: "לא ניתן לאשר את שמירת הסיכום. נסה שוב.",
+                    english: "Could not confirm that the summary was saved. Please try again."
                 ),
                 isError: true
             )
             return
+        }
+
+        store.addMarkedDay(
+            ownerUid: model.ownerUid,
+            role: model.ownerRole,
+            dateIso: model.dateIso
+        )
+
+        let components = Self.dateComponents(fromIso: model.dateIso)
+        if let year = components.year, let month = components.month {
+            loadSummaryDaysForMonth(year: year, month1to12: month)
         }
 
         publishSaveResult(
@@ -717,10 +754,7 @@ final class TrainingSummaryViewModel: ObservableObject {
             return nil
         }
 
-        let collection = Firestore.firestore()
-            .collection("users")
-            .document(uid)
-            .collection("training_summaries_\(ownerRole.rawValue)")
+        let collection = summaryCollection(ownerUid: uid, role: ownerRole)
 
         let matching = try await collection
             .whereField("dateIso", isEqualTo: date)

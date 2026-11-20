@@ -1543,7 +1543,7 @@ struct BeltQuestionsByBeltView: View {
             if !cleanSubtitle.isEmpty {
 
                 Text(cleanSubtitle)
-                    .kmiTypography(.caption)
+                    .kmiTypography(.secondary)
                     .fontWeight(.heavy)
                     .foregroundStyle(byBeltRowSubColor)
                     .frame(
@@ -2300,6 +2300,7 @@ struct BeltQuestionsByBeltView: View {
                     alignment: .bottom
                 )
             }
+            .ignoresSafeArea(.container, edges: .bottom)
             .zIndex(40)
             .allowsHitTesting(
                 !quickMenuOpen
@@ -3749,7 +3750,7 @@ struct BeltQuestionsByBeltView: View {
             .leftToRight
         )
         .frame(
-            height: 76
+            height: KmiAppTheme.sectionTabsHeight
         )
         .background(
             KmiAppTheme
@@ -3767,7 +3768,7 @@ struct BeltQuestionsByBeltView: View {
         }
         .padding(
             .bottom,
-            6
+            KmiAppTheme.sectionTabsBottomSpacing
         )
     }
 
@@ -3846,7 +3847,7 @@ struct BeltQuestionsByBeltView: View {
     @ViewBuilder
     private var byBeltContent: some View {
         GeometryReader { geometry in
-            let rowMinHeight: CGFloat = 62
+            let rowMinHeight: CGFloat = 72
 
             let wheelClearance: CGFloat = 112
 
@@ -4540,7 +4541,7 @@ private struct BeltScreenSideQuickMenuOverlay: View {
     }
 }
 
-private struct BeltScreenSideQuickFab: View {
+struct BeltScreenSideQuickFab: View {
 
     @Environment(\.colorScheme)
     private var colorScheme

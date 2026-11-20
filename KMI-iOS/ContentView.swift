@@ -285,12 +285,10 @@ final class AppNavModel: ObservableObject {
         }
 
         /*
-         * מסכי התרגילים מנהלים את תצוגת הטעינה
-         * לפי מוכנות הנתונים שלהם.
-         * אין להוסיף מעליהם טעינת מעבר אוטומטית.
+         * המסכים האלה מציגים חיווי טעינה לפי מוכנות הנתונים.
          */
         switch route {
-        case .beltQuestionsByBelt, .beltQuestionsByTopic:
+        case .beltQuestionsByBelt, .beltQuestionsByTopic, .trainingSummary:
             path.append(route)
             return
 

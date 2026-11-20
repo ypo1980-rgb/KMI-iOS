@@ -4344,7 +4344,8 @@ struct BeltQuestionsByTopicView: View {
                 onLockedItemClick: {
                     triggerTapHaptic()
                     nav.push(.subscriptionPlans)
-                }
+                },
+                usesBeltScreenHandle: true
             )
             .zIndex(40)
         }

@@ -8,25 +8,9 @@ struct BeltArcPicker: View {
     let isEnglish: Bool
 
     private let big: CGFloat = 112
-
-    // הגודל המקורי משמש לחישוב מיקום העיגולים בקרוסלה.
-    private let originalSmall: CGFloat = 58
-
-    // שני העיגולים הצדדיים מוגדלים ב־15%
-    // ולאחר מכן ב־25% נוספים.
-    private var small: CGFloat {
-        originalSmall * 1.15 * 1.25*1.15
-    }
-
-    private let stepGap: CGFloat = 46
-
-    // שומר על המרווחים המקוריים בין מרכזי העיגולים.
-    private var step: CGFloat {
-        originalSmall + stepGap
-    }
-
-    private let arcDepth: CGFloat = 74
-    private var pickerHeight: CGFloat { big + arcDepth - 34 }
+    private let small: CGFloat = 104
+    private let step: CGFloat = 104
+    private let pickerHeight: CGFloat = 152
     
     @State private var centerValue: CGFloat = 0
     @State private var dragStartCenter: CGFloat? = nil
@@ -40,6 +24,9 @@ struct BeltArcPicker: View {
         GeometryReader { geo in
             let width = geo.size.width
             let centerX = width / 2
+            let sideInset: CGFloat = 34
+            let horizontalStep = max(0, centerX - small / 2 - sideInset)
+            let selectedCenterY = 22 + big / 2
 
             ZStack(alignment: .top) {
                 ForEach(Array(belts.enumerated()), id: \.offset) { index, belt in
@@ -50,8 +37,6 @@ struct BeltArcPicker: View {
                     // מציגים את המרכזי ועוד עיגולים צדדיים שנחתכים בתחתית.
                     let hide = dist > 2.55
 
-                    let t = Swift.min(CGFloat(1), dist / 2.0)
-                    let drop = arcDepth * (1 - cos(t * .pi / 2))
                     let grow: CGFloat = {
                         if dist >= 0.58 { return 0 }
                         let normalized = (0.58 - dist) / 0.58
@@ -65,23 +50,13 @@ struct BeltArcPicker: View {
                         return 0.78
                     }()
 
-                    let x = centerX + step * rel
-
-                    // משתמש בגודל המקורי כדי שההגדלה לא תזיז
-                    // את העיגולים הצדדיים כלפי מטה.
-                    let sideBoost = originalSmall * 1.32
-                    let boostFactor = min(1, dist)
-                    let yDrop = drop + sideBoost * boostFactor
-                    let y = yDrop + 22
+                    let x = centerX + horizontalStep * rel
+                    let centerLift: CGFloat = 18 * grow
+                    let y = selectedCenterY + (pickerHeight - selectedCenterY) * dist - 8 - centerLift
                     let isCenter = dist < 0.25
 
                     ZStack {
                         if isCenter {
-                            Circle()
-                                .fill(BeltPalette.color(for: belt).opacity(0.26))
-                                .frame(width: targetSize + 22, height: targetSize + 22)
-                                .blur(radius: 12)
-
                             RotatingOrbitRing(
                                 base: BeltPalette.color(for: belt)
                             )
@@ -101,13 +76,13 @@ struct BeltArcPicker: View {
                     )
                     .scaleEffect(1.0)
                     .opacity(targetAlpha)
-                    .position(x: x, y: y + targetSize / 2)
+                    .position(x: x, y: y)
                     .zIndex(isCenter ? 3 : 1)
                     .shadow(
-                        color: isCenter ? Color.black.opacity(0.30) : Color.black.opacity(0.20),
-                        radius: isCenter ? 9 : 4,
+                        color: isCenter ? .clear : Color.black.opacity(0.20),
+                        radius: 4,
                         x: 0,
-                        y: isCenter ? 5 : 2
+                        y: 2
                     )
                     .contentShape(Circle())
                     .allowsHitTesting(!hide)
@@ -119,8 +94,10 @@ struct BeltArcPicker: View {
                     }
                 }
             }
-            .frame(width: min(width, 360), height: pickerHeight, alignment: .top)
+            .frame(width: width, height: pickerHeight, alignment: .top)
+            .padding(.top, 16)
             .clipped()
+            .padding(.top, -16)
             .contentShape(Rectangle())
             .gesture(dragGesture())
             .onAppear {

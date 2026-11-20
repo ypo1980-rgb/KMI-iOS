@@ -267,6 +267,7 @@ struct KmiFloatingQuickMenu: View {
     let hasFullAccess: Bool
     let actions: [KmiQuickMenuAction]
     let onLockedItemClick: () -> Void
+    var usesBeltScreenHandle = false
 
     private var railShape: UnevenRoundedRectangle {
         UnevenRoundedRectangle(
@@ -307,13 +308,13 @@ struct KmiFloatingQuickMenu: View {
             )
 
             let panelHeight = listHeight + 77.4
-            let visibleHeight =
-                isExpanded ? panelHeight : CGFloat(58)
+            let handleHeight: CGFloat = usesBeltScreenHandle ? 72 : 58
+            let visibleWidth: CGFloat = isExpanded || !usesBeltScreenHandle ? 46 : 38
+            let visibleHeight = isExpanded ? panelHeight : handleHeight
 
-            let centerX =
-                isEnglish
-                    ? CGFloat(23)
-                    : geometry.size.width - 23
+            let centerX = isEnglish
+                ? visibleWidth / 2
+                : geometry.size.width - visibleWidth / 2
 
             let centerY =
                 geometry.size.height
@@ -341,22 +342,19 @@ struct KmiFloatingQuickMenu: View {
                         y: centerY
                     )
                 } else {
-                    menuHandle(
-                        maximumBottom: maximumBottom
-                    )
-                    .frame(width: 46, height: 58)
-                    .background(
-                        accentColor.opacity(0.96)
-                    )
-                    .clipShape(railShape)
-                    .overlay {
-                        railShape
-                            .stroke(
-                                Color.white.opacity(0.70),
-                                lineWidth: 1.25
-                            )
-                            .allowsHitTesting(false)
-                    }
+                    menuHandle(maximumBottom: maximumBottom)
+                        .frame(width: visibleWidth, height: handleHeight)
+                        .background {
+                            if !usesBeltScreenHandle {
+                                railShape
+                                    .fill(accentColor.opacity(0.96))
+                                    .overlay {
+                                        railShape
+                                            .stroke(Color.white.opacity(0.70), lineWidth: 1.25)
+                                    }
+                                    .allowsHitTesting(false)
+                            }
+                        }
                     .position(
                         x: centerX,
                         y: centerY

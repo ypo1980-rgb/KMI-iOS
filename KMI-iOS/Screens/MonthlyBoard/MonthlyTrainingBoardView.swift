@@ -15,7 +15,7 @@ struct MonthlyTrainingBoardView: View {
     @State private var loadedSummaryMonthKey: SummaryMonthKey?
     @State private var markedSummaryDays: Set<Date> = []
     @State private var firestoreSummaryMonthKey: SummaryMonthKey?
-    @State private var firestoreSummaryDays: Set<Date> = []
+    @State private var firestoreSummaryDaysByRole: [SummaryAuthorRole: Set<Date>] = [:]
 
     private struct SummaryLookupKey: Equatable {
         let ownerUid: String
@@ -99,15 +99,31 @@ struct MonthlyTrainingBoardView: View {
                 ? markedSummaryDays
                 : []
 
-        let remoteSummaryDays: Set<Date> =
-            monthKey != nil && firestoreSummaryMonthKey == monthKey
-                ? firestoreSummaryDays
-                : []
+        let remoteDaysByRole = monthKey != nil && firestoreSummaryMonthKey == monthKey
+            ? firestoreSummaryDaysByRole
+            : [:]
 
+        let remoteSummaryDays = remoteDaysByRole.values.reduce(into: Set<Date>()) {
+            $0.formUnion($1)
+        }
         let visibleSummaryDays = localSummaryDays.union(remoteSummaryDays)
-        let hasRemoteSummary = selectedDetails.map {
-            remoteSummaryDays.contains(calendar.startOfDay(for: $0.date))
-        } ?? false
+
+        let remoteSummaryKey = selectedDetails.flatMap { details -> SummaryLookupKey? in
+            let day = calendar.startOfDay(for: details.date)
+            let otherRole: SummaryAuthorRole = summaryOwnerRole == .coach ? .trainee : .coach
+
+            guard let role = [summaryOwnerRole, otherRole].first(where: {
+                remoteDaysByRole[$0]?.contains(day) == true
+            }) else { return nil }
+
+            return SummaryLookupKey(
+                ownerUid: summaryOwnerUid,
+                ownerRole: role,
+                dateIso: isoDate(details.date)
+            )
+        }
+
+        let hasRemoteSummary = remoteSummaryKey != nil
 
         ZStack {
             LinearGradient(
@@ -137,7 +153,7 @@ struct MonthlyTrainingBoardView: View {
                         details: selectedDetails,
                         onAddSummaryTap: (
                             hasSummary ||
-                            hasRemoteSummary ||
+                            remoteSummaryKey?.ownerRole == summaryOwnerRole ||
                             selectedDetails?.trainings.isEmpty == false
                         ) ? {
                             guard let dateIso else { return }
@@ -145,10 +161,9 @@ struct MonthlyTrainingBoardView: View {
                         } : nil,
                         hasSummary: hasSummary || hasRemoteSummary,
                         onOpenSummaryPdf: hasSummary || hasRemoteSummary ? {
-                            guard let summaryKey else { return }
-
+                            guard let pdfKey = remoteSummaryKey ?? summaryKey else { return }
                             Task {
-                                await openSummaryPdf(for: summaryKey)
+                                await openSummaryPdf(for: pdfKey)
                             }
                         } : nil
                     )
@@ -385,44 +400,53 @@ struct MonthlyTrainingBoardView: View {
                   to: key.monthStart
               ) else {
             firestoreSummaryMonthKey = nil
-            firestoreSummaryDays = []
+            firestoreSummaryDaysByRole = [:]
             return
         }
 
         if firestoreSummaryMonthKey != key {
             firestoreSummaryMonthKey = nil
-            firestoreSummaryDays = []
+            firestoreSummaryDaysByRole = [:]
         }
 
+        let user = Firestore.firestore()
+            .collection("users")
+            .document(key.ownerUid)
+
+        let startIso = isoDate(key.monthStart)
+        let endIso = isoDate(nextMonth)
+
         do {
-            let snapshot = try await Firestore.firestore()
-                .collection("users")
-                .document(key.ownerUid)
-                .collection("training_summaries_\(key.ownerRole.rawValue)")
-                .whereField("dateIso", isGreaterThanOrEqualTo: isoDate(key.monthStart))
-                .whereField("dateIso", isLessThan: isoDate(nextMonth))
-                .getDocuments()
+            var daysByRole: [SummaryAuthorRole: Set<Date>] = [:]
 
-            guard !Task.isCancelled else { return }
+            for role in SummaryAuthorRole.allCases {
+                let snapshot = try await user
+                    .collection("training_summaries_\(role.rawValue)")
+                    .whereField("dateIso", isGreaterThanOrEqualTo: startIso)
+                    .whereField("dateIso", isLessThan: endIso)
+                    .getDocuments()
 
-            let dateKeys = Set(snapshot.documents.compactMap { document -> String? in
-                guard let value = document.data()["dateIso"] as? String else {
-                    return nil
-                }
+                guard !Task.isCancelled else { return }
 
-                let dateIso = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                return dateIso.isEmpty ? nil : String(dateIso.prefix(10))
-            })
-
-            firestoreSummaryDays = Set(
-                monthData.dayItems.compactMap { item -> Date? in
-                    guard let date = item.date, dateKeys.contains(isoDate(date)) else {
+                let dateKeys = Set(snapshot.documents.compactMap { document -> String? in
+                    guard let value = document.data()["dateIso"] as? String else {
                         return nil
                     }
+                    let dateIso = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return dateIso.isEmpty ? nil : String(dateIso.prefix(10))
+                })
 
-                    return calendar.startOfDay(for: date)
-                }
-            )
+                daysByRole[role] = Set(
+                    monthData.dayItems.compactMap { item -> Date? in
+                        guard let date = item.date, dateKeys.contains(isoDate(date)) else {
+                            return nil
+                        }
+                        return calendar.startOfDay(for: date)
+                    }
+                )
+            }
+
+            firestoreSummaryDaysByRole = daysByRole
             firestoreSummaryMonthKey = key
         } catch {
             guard !Task.isCancelled else { return }
@@ -497,23 +521,32 @@ struct MonthlyTrainingBoardView: View {
                 pickedDateIso: key.dateIso
             )
             var state = viewModel.state
+            let hasLocalSummary = TrainingSummaryLocalStore.shared.loadForOwner(
+                ownerUid: uid,
+                role: key.ownerRole,
+                summaryId: key.dateIso
+            ) != nil
 
-            if savedSummary(for: key.dateIso) == nil {
-                guard let remote = try await loadRemoteSummary(
-                    ownerUid: uid,
-                    role: key.ownerRole,
-                    dateIso: key.dateIso
-                ) else {
-                    showSummaryPdfError = true
-                    return
-                }
+            let remote = try await loadRemoteSummary(
+                ownerUid: uid,
+                role: key.ownerRole,
+                dateIso: key.dateIso
+            )
 
+            guard !Task.isCancelled,
+                  summaryOwnerUid.trimmingCharacters(in: .whitespacesAndNewlines) == uid,
+                  selectedDate.map({ isoDate($0) }) == key.dateIso else {
+                return
+            }
+
+            if let remote {
                 state.branchId = remote["branchId"] as? String ?? ""
                 state.branchName = remote["branchName"] as? String ?? ""
                 state.coachUid = remote["coachUid"] as? String ?? ""
                 state.coachName = remote["coachName"] as? String ?? ""
                 state.groupKey = remote["groupKey"] as? String ?? ""
                 state.notes = remote["notes"] as? String ?? ""
+                state.selected.removeAll()
 
                 let exercises = remote["exercises"] as? [[String: Any]] ?? []
                 for exercise in exercises {
@@ -531,12 +564,8 @@ struct MonthlyTrainingBoardView: View {
                     item.includeExplanation = exercise["includeExplanation"] as? Bool ?? false
                     state.selected[id] = item
                 }
-            }
-
-            guard !Task.isCancelled,
-                  summaryOwnerUid.trimmingCharacters(in: .whitespacesAndNewlines) == uid,
-                  summaryOwnerRole == key.ownerRole,
-                  selectedDate.map({ isoDate($0) }) == key.dateIso else {
+            } else if !hasLocalSummary {
+                showSummaryPdfError = true
                 return
             }
 

@@ -42,23 +42,28 @@ enum TrainingSummaryPdfExporter {
         let group = state.groupKey
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
+        let privacyEnabled = DemoPrivacy.shared.isEnabled
         let subtitle = [
             "\u{2066}\(displayDate)\u{2069}",
-            branch.isEmpty
+            privacyEnabled || branch.isEmpty
                 ? ""
                 : TrainingCatalogIOS.displayBranch(branch, isEnglish: isEnglish),
-            group.isEmpty
+            privacyEnabled || group.isEmpty
                 ? ""
                 : TrainingCatalogIOS.displayGroup(group, isEnglish: isEnglish)
         ]
         .filter { !$0.isEmpty }
         .joined(separator: " · ")
 
+        var sectionHeadings: [NSRange] = []
         var beltHeadings: [(belt: Belt?, range: NSRange)] = []
 
         let text = state.makeShareText(
             isEnglish: isEnglish,
-            privacyEnabled: DemoPrivacy.shared.isEnabled,
+            privacyEnabled: privacyEnabled,
+            onSectionHeading: { range in
+                sectionHeadings.append(range)
+            },
             onBeltHeading: { belt, range in
                 beltHeadings.append((belt: belt, range: range))
             }
@@ -80,7 +85,7 @@ enum TrainingSummaryPdfExporter {
             string: text,
             attributes: [
                 .font: UIFont.systemFont(
-                    ofSize: 12,
+                    ofSize: 13,
                     weight: .regular
                 ),
                 .foregroundColor: UIColor(
@@ -89,6 +94,16 @@ enum TrainingSummaryPdfExporter {
                 .paragraphStyle: paragraph
             ]
         )
+
+        for range in sectionHeadings {
+            attributedText.addAttributes(
+                [
+                    .font: UIFont.systemFont(ofSize: 17, weight: .bold),
+                    .foregroundColor: UIColor(KmiAppTheme.primary(for: .light))
+                ],
+                range: range
+            )
+        }
 
         for heading in beltHeadings {
             let accent = heading.belt.map { KmiBeltPalette.color(for: $0) }
@@ -110,10 +125,11 @@ enum TrainingSummaryPdfExporter {
             height: 842
         )
 
+        let horizontalMargin: CGFloat = 40
         let contentRect = CGRect(
-            x: 34,
+            x: horizontalMargin,
             y: KmiPdfHeader.CONTENT_TOP,
-            width: pageRect.width - 68,
+            width: pageRect.width - horizontalMargin * 2,
             height:
                 pageRect.height
                 - KmiPdfHeader.CONTENT_TOP
@@ -262,18 +278,72 @@ enum TrainingSummaryPdfExporter {
                 )
                 guard !visibleBounds.isEmpty else { continue }
 
-                let cornerRadius = min(4, visibleBounds.height / 2)
-
-                context.setFillColor(heading.color.cgColor)
-                context.addPath(
-                    CGPath(
-                        roundedRect: visibleBounds,
-                        cornerWidth: cornerRadius,
-                        cornerHeight: cornerRadius,
-                        transform: nil
-                    )
+                let borderWidth: CGFloat = 1.6
+                let bounds = visibleBounds.insetBy(
+                    dx: borderWidth / 2,
+                    dy: borderWidth / 2
                 )
-                context.fillPath()
+                guard !bounds.isEmpty else { continue }
+
+                let cornerRadius = min(12, bounds.height / 2)
+                let path = CGPath(
+                    roundedRect: bounds,
+                    cornerWidth: cornerRadius,
+                    cornerHeight: cornerRadius,
+                    transform: nil
+                )
+
+                context.setFillColor(
+                    heading.color.withAlphaComponent(0.11).cgColor
+                )
+                context.setStrokeColor(
+                    heading.color.withAlphaComponent(1).cgColor
+                )
+                context.setLineWidth(borderWidth)
+                context.addPath(path)
+                context.drawPath(using: .fillStroke)
+            }
+        }
+
+        func drawSectionDividers(in frame: CTFrame, context: CGContext) {
+            guard !sectionHeadings.isEmpty,
+                  let lines = CTFrameGetLines(frame) as? [CTLine],
+                  !lines.isEmpty else { return }
+
+            var origins = Array(repeating: CGPoint.zero, count: lines.count)
+            origins.withUnsafeMutableBufferPointer { buffer in
+                if let baseAddress = buffer.baseAddress {
+                    CTFrameGetLineOrigins(
+                        frame,
+                        CFRange(location: 0, length: 0),
+                        baseAddress
+                    )
+                }
+            }
+
+            context.setStrokeColor(
+                UIColor(KmiAppTheme.outlineVariant(for: .light)).cgColor
+            )
+            context.setLineWidth(1)
+
+            for (index, line) in lines.enumerated() {
+                let range = CTLineGetStringRange(line)
+                let lineEnd = range.location + range.length
+
+                guard sectionHeadings.contains(where: { heading in
+                    let end = NSMaxRange(heading)
+                    return end > range.location && end <= lineEnd
+                }) else { continue }
+
+                var descent: CGFloat = 0
+                CTLineGetTypographicBounds(line, nil, &descent, nil)
+
+                let y = origins[index].y - descent - 2
+                guard y >= 1 else { continue }
+
+                context.move(to: CGPoint(x: 0, y: y))
+                context.addLine(to: CGPoint(x: contentRect.width, y: y))
+                context.strokePath()
             }
         }
 
@@ -307,8 +377,8 @@ enum TrainingSummaryPdfExporter {
 
                 context.saveGState()
                 drawBeltHeadingBackgrounds(in: frame, context: context)
+                drawSectionDividers(in: frame, context: context)
                 context.restoreGState()
-
                 context.textMatrix = .identity
 
                 CTFrameDraw(frame, context)

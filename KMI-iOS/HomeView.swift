@@ -6182,10 +6182,10 @@ private struct HomePremiumExerciseButton: View {
     private var buttonHeight: CGFloat {
 
         min(
-            58,
+            66,
             max(
-                46,
-                50 * displayScale
+                54,
+                58 * displayScale
             )
         )
     }

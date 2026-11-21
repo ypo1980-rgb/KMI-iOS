@@ -839,6 +839,7 @@ struct KmiTopBar: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .offset(x: hasRole ? (isEnglish ? -7 : 7) : 0)
                     .accessibilityLabel(isEnglish ? "Back" : "חזור")
                     } else {
                         Color.clear
@@ -846,50 +847,39 @@ struct KmiTopBar: View {
                     }
 
                     if hasRole {
+                        Spacer(minLength: 0)
+
                         let badgeScale = max(1, displayScale)
                         let badgeShape = UnevenRoundedRectangle(
-                            topTrailingRadius: 18,
+                            topLeadingRadius: isEnglish ? 18 : 0,
+                            topTrailingRadius: isEnglish ? 0 : 18,
                             style: .continuous
                         )
                         let badgeBackground = isCoachRole
-                            ? KmiAppTheme.primary(for: colorScheme)
-                            : KmiAppTheme.secondary(for: colorScheme)
+                            ? KmiAppTheme.primaryContainer(for: colorScheme)
+                            : KmiAppTheme.secondaryContainer(for: colorScheme)
                         let badgeForeground = isCoachRole
-                            ? KmiAppTheme.onPrimary(for: colorScheme)
-                            : KmiAppTheme.onSecondary(for: colorScheme)
+                            ? KmiAppTheme.onPrimaryContainer(for: colorScheme)
+                            : KmiAppTheme.onSecondaryContainer(for: colorScheme)
 
-                        let rolePill = HStack(spacing: 3) {
-                            Text(localizedRoleLabel)
-                                .kmiTypography(.body)
-                                .fontWeight(.bold)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
-
-                            if onRoleModeSelected != nil {
-                                Image(systemName: "chevron.down")
-                                    .kmiIconSize(9)
-                                    .fontWeight(.bold)
-                                    .accessibilityHidden(true)
+                        let rolePill = Text(localizedRoleLabel)
+                            .kmiTypography(.action)
+                            .fontWeight(.heavy)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .environment(
+                                \.layoutDirection,
+                                isEnglish ? .leftToRight : .rightToLeft
+                            )
+                            .foregroundStyle(badgeForeground)
+                            .padding(.horizontal, 5)
+                            .frame(width: 66 * badgeScale, height: 26 * badgeScale)
+                            .background {
+                                badgeShape
+                                    .fill(badgeBackground)
+                                    .environment(\.layoutDirection, .leftToRight)
                             }
-                        }
-                        .environment(
-                            \.layoutDirection,
-                            isEnglish ? .leftToRight : .rightToLeft
-                        )
-                        .foregroundStyle(badgeForeground)
-                        .padding(.horizontal, 5)
-                        .frame(width: 66 * badgeScale, height: 26 * badgeScale)
-                        .background {
-                            badgeShape
-                                .fill(badgeBackground.opacity(0.96))
-                                .environment(\.layoutDirection, .leftToRight)
-                        }
-                        .overlay {
-                            badgeShape
-                                .strokeBorder(Color.white.opacity(0.70), lineWidth: 1.4)
-                                .environment(\.layoutDirection, .leftToRight)
-                        }
-                        .contentShape(Rectangle())
+                            .contentShape(Rectangle())
 
                         if let onRoleModeSelected {
                             Menu {
@@ -953,7 +943,8 @@ struct KmiTopBar: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(isEnglish ? "Menu" : "תפריט")
             }
-            .padding(.horizontal, 7)
+            .padding(.leading, hasRole ? 0 : 7)
+            .padding(.trailing, 7)
             .frame(maxHeight: .infinity, alignment: .top)
             .padding(.top, 6)
 

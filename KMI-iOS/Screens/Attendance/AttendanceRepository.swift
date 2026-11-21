@@ -1,6 +1,6 @@
 import Foundation
 import FirebaseAuth
-import FirebaseFirestore
+@preconcurrency import FirebaseFirestore
 import CryptoKit
 
 protocol AttendanceRemoteMembersSource {
@@ -1300,12 +1300,29 @@ final class AttendanceRepository {
                         return
                     }
 
-                    continuation.yield(
-                        self.decodeTraineeOwnAttendance(
-                            snapshot.data(),
-                            authUid: authUid
+                    let data = snapshot.data()
+
+                    if let data,
+                       data["traineeUid"] as? String == authUid,
+                       data["traineeStatus"] as? String == "ABSENT",
+                       data["qrVerified"] as? Bool == true,
+                       data["qrVerifiedTraineeUid"] as? String == authUid,
+                       let occurrenceId = data["occurrenceId"] as? String,
+                       !occurrenceId.isEmpty,
+                       data["qrVerifiedOccurrenceId"] as? String == occurrenceId,
+                       let qrVerifiedAt = data["qrVerifiedAtMillis"] as? NSNumber,
+                       qrVerifiedAt.int64Value > 0,
+                       let traineeMarkedAt = data["traineeMarkedAtMillis"] as? NSNumber,
+                       traineeMarkedAt.int64Value > qrVerifiedAt.int64Value {
+                        continuation.yield(.absent)
+                    } else {
+                        continuation.yield(
+                            self.decodeTraineeOwnAttendance(
+                                data,
+                                authUid: authUid
+                            )
                         )
-                    )
+                    }
                 }
 
             continuation.onTermination = { _ in

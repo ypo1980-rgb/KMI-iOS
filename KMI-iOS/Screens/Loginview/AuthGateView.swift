@@ -1018,10 +1018,10 @@ private struct KmiIntroGateScreen: View {
             isCompactHeight ? 72 : 82
 
         let imageWidth: CGFloat =
-            isCompactHeight ? 130 : 150
+            isCompactHeight ? 241 : 277
 
         let imageHeight: CGFloat =
-            isCompactHeight ? 30 : 36
+            isCompactHeight ? 57 : 66
 
         if let rank = currentRank {
             VStack(
@@ -1065,7 +1065,8 @@ private struct KmiIntroGateScreen: View {
                 .accessibilityHidden(true)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: rowHeight)
+            .frame(minHeight: rowHeight)
+
         } else {
             Text(
                 isEnglish
@@ -1167,6 +1168,10 @@ private struct KmiIntroGateScreen: View {
                         width: geo.size.width,
                         height: geo.size.height
                     )
+                    .scaleEffect(
+                        1.06,
+                        anchor: UnitPoint(x: 0.5, y: 0.10)
+                    )
                     .clipped()
                     .ignoresSafeArea()
 
@@ -1185,7 +1190,7 @@ private struct KmiIntroGateScreen: View {
                     )
                     .padding(.horizontal, horizontalPadding)
                     .offset(
-                        y: -(height * 0.015)
+                        y: height * 0.025
                     )
 
                     Spacer(minLength: 0)
@@ -1385,7 +1390,7 @@ private struct KmiIntroGateScreen: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 40)
+            .frame(height: canContinueExistingUser ? 52 : 40)
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         }

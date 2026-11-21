@@ -284,6 +284,21 @@ final class AppNavModel: ObservableObject {
             return
         }
 
+        switch (path.last, route) {
+        case (.beltQuestionsByBelt?, .beltQuestionsByTopic),
+             (.beltQuestionsByTopic?, .beltQuestionsByBelt):
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+
+            withTransaction(transaction) {
+                path.append(route)
+            }
+            return
+
+        default:
+            break
+        }
+
         /*
          * המסכים האלה מציגים חיווי טעינה לפי מוכנות הנתונים.
          */
@@ -348,19 +363,23 @@ final class AppNavModel: ObservableObject {
          * Back צריך לחזור ל-By Belt
          * ולא לשורש.
          */
-        if
-            path.count == 1,
-            case .beltQuestionsByTopic(
-                let belt
-            ) = path[0] {
+        if case .beltQuestionsByTopic(let belt)? = path.last {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
 
-            path = [
-                .beltQuestionsByBelt(
-                    belt: belt
-                )
-            ]
+            if path.count == 1 {
+                withTransaction(transaction) {
+                    path = [.beltQuestionsByBelt(belt: belt)]
+                }
+                return
+            }
 
-            return
+            if case .beltQuestionsByBelt = path[path.count - 2] {
+                withTransaction(transaction) {
+                    path.removeLast()
+                }
+                return
+            }
         }
 
         path.removeLast()

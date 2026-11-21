@@ -1700,36 +1700,18 @@ struct MaterialsView: View {
                     isQuickMenuExpanded.toggle()
                 }
             } label: {
-                ZStack {
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: 18,
-                        bottomLeadingRadius: 18,
-                        bottomTrailingRadius: 0,
-                        topTrailingRadius: 0,
-                        style: .continuous
-                    )
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                KmiAppTheme.success(for: colorScheme)
-                                    .opacity(0.84),
-                                KmiAppTheme.success(for: colorScheme),
-                                KmiAppTheme.success(for: colorScheme)
-                                    .opacity(0.88)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-
-                    Image(systemName: "line.3.horizontal")
-                        .kmiIconSize(26)
-                        .foregroundStyle(.white)
-                }
-                .frame(width: 38, height: 72)
+                BeltScreenSideQuickFab(
+                    accent: KmiAppTheme.success(for: colorScheme),
+                    attachedToLeftEdge: false
+                )
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(
+                isQuickMenuExpanded
+                    ? tr("סגור תפריט מהיר", "Close quick menu")
+                    : tr("פתח תפריט מהיר", "Open quick menu")
+            )
             .frame(
                 width: isQuickMenuExpanded ? 58 : 38,
                 alignment: .trailing
@@ -1779,15 +1761,14 @@ struct MaterialsView: View {
                     }
             )
         }
-        .padding(.vertical, 4)
-        .padding(.leading, 4)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(
-                    KmiAppTheme.success(for: colorScheme)
-                        .opacity(0.92)
-                )
-        )
+        .padding(.vertical, isQuickMenuExpanded ? 4 : 0)
+        .padding(.leading, isQuickMenuExpanded ? 4 : 0)
+        .background {
+            if isQuickMenuExpanded {
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(KmiAppTheme.success(for: colorScheme).opacity(0.92))
+            }
+        }
         .fixedSize(horizontal: false, vertical: true)
     }
 

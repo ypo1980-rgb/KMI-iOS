@@ -89,7 +89,6 @@ struct KmiSideDrawer: View {
     @AppStorage("region") private var storedRegion: String = ""
     @AppStorage("branch") private var storedBranch: String = ""
     @AppStorage("active_branch") private var storedActiveBranch: String = ""
-    @AppStorage("user_role") private var storedActiveUserRole: String = ""
 
     @Binding var isOpen: Bool
 
@@ -107,6 +106,12 @@ struct KmiSideDrawer: View {
     @State private var forumListenerRequestID = UUID()
 
     @State private var verifiedAdminUID: String?
+    @State private var checkedAdminUID: String?
+
+    private var isDrawerContentReady: Bool {
+        guard let uid = adminCheckUID else { return true }
+        return checkedAdminUID == uid
+    }
 
     private var isEnglish: Bool {
         let values = [
@@ -278,17 +283,16 @@ struct KmiSideDrawer: View {
                role == "kmi_coach"
     }
 
-    private var isCoachMode: Bool {
-        let storedRole = normalizeRole(storedActiveUserRole)
-        let activeRole = storedRole.isEmpty
-            ? normalizeRole(auth.userRole)
-            : storedRole
-
-        return isCoachRole(activeRole)
-    }
-
     private var showsCoachArea: Bool {
-        isCoachMode && (isCoachRole(auth.userRole) || isAdminUser)
+        guard auth.isSignedIn,
+              let uid = Auth.auth().currentUser?.uid,
+              auth.loadedProfileUID == uid,
+              !auth.isProfileLoading,
+              !auth.profileLoadFailed else {
+            return false
+        }
+
+        return isCoachRole(auth.userRole)
     }
 
     private var isAdminUser: Bool {
@@ -523,11 +527,16 @@ struct KmiSideDrawer: View {
                         .padding(.top, 8)
                         .padding(.bottom, 24)
                     }
-                    .id([isEnglish, showsCoachArea, isAdminUser])
+                    .id(isEnglish)
+                    .opacity(isDrawerContentReady ? 1 : 0)
+                    .allowsHitTesting(isDrawerContentReady)
+                    .accessibilityHidden(!isDrawerContentReady)
+                    .animation(nil, value: isDrawerContentReady)
                 }
             }
         }
         .task(id: adminCheckUID) {
+            checkedAdminUID = nil
             verifiedAdminUID = nil
 
             guard let requestedUID = adminCheckUID else {
@@ -547,6 +556,7 @@ struct KmiSideDrawer: View {
             verifiedAdminUID = authorized
                 ? requestedUID
                 : nil
+            checkedAdminUID = requestedUID
         }
         .onAppear {
             startForumUnreadListener()
@@ -775,10 +785,6 @@ struct KmiSideDrawerContainer<Content: View>: View {
         return false
     }
 
-    private var drawerTransitionEdge: Edge {
-        isEnglish ? .leading : .trailing
-    }
-
     var body: some View {
         GeometryReader { geo in
             let drawerWidth = min(geo.size.width * 0.78, 320)
@@ -832,9 +838,7 @@ struct KmiSideDrawerContainer<Content: View>: View {
                         x: (geo.size.width - drawerWidth) / 2 *
                             (isEnglish ? -1 : 1)
                     )
-                    .transition(
-                        .move(edge: drawerTransitionEdge)
-                    )
+                    .transition(.identity)
                     .zIndex(2)
                 }
             }

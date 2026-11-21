@@ -57,6 +57,7 @@ final class AuthViewModel: ObservableObject {
     }
 
     private var profileLoadRequestID = UUID()
+    private var activeModeSelectionUID: String?
 
     // ✅ cache מקומי ל-UI מהיר (לא מקור אמת)
     private let roleDefaultsKey = "kmi.user.role"
@@ -877,6 +878,13 @@ isLoading = true
         }
 
         let targetRole = isCoach ? "coach" : "trainee"
+
+        activeModeSelectionUID = uid
+        defer {
+            if activeModeSelectionUID == uid {
+                activeModeSelectionUID = nil
+            }
+        }
 
         await loadUserProfileFromFirestore(
             uid: uid,
@@ -2467,6 +2475,10 @@ do {
             return
         }
 
+        if requestedMode == nil, activeModeSelectionUID == uid {
+            return
+        }
+
         if let previousUID = loadedProfileUID,
            previousUID != uid {
             clearTrainingAssignmentsOnSignOut()
@@ -2630,9 +2642,10 @@ do {
             }
             .first { !$0.isEmpty }
 
+            let currentRole = loadedProfileUID == uid ? userRole : nil
             let requestedRole =
                 normalizedActiveRole(
-                    requestedMode ?? storedActiveRole ?? normalizedRole
+                    requestedMode ?? currentRole ?? storedActiveRole ?? normalizedRole
                 )
 
             let resolvedRole =

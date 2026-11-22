@@ -432,9 +432,6 @@ struct MaterialsView: View {
     @AppStorage("kmi.materials.quickMenu.verticalOffset")
     private var savedQuickMenuVerticalOffset: Double = 0
 
-    @State private var quickMenuVerticalOffset: CGFloat = 0
-    @State private var quickMenuDragStartOffset: CGFloat?
-
     /*
      * פתיחת כרטיס ההערה הכללית של
      * הנושא או תת־הנושא הנוכחי.
@@ -1324,7 +1321,7 @@ struct MaterialsView: View {
                         height: 80,
                         alignment: .bottom
                     )
-                    .offset(y: quickMenuVerticalOffset)
+                    .offset(y: CGFloat(savedQuickMenuVerticalOffset))
 
                     Spacer(minLength: 0)
                 }
@@ -1350,10 +1347,6 @@ struct MaterialsView: View {
         .navigationBarBackButtonHidden(true)
         .environment(\.layoutDirection, screenLayoutDirection)
         .onAppear {
-            quickMenuVerticalOffset = CGFloat(
-                savedQuickMenuVerticalOffset
-            )
-
             speechDelegate.onFinish = {
                 isSpeakingExplanation = false
             }
@@ -1715,50 +1708,6 @@ struct MaterialsView: View {
             .frame(
                 width: isQuickMenuExpanded ? 58 : 38,
                 alignment: .trailing
-            )
-            .simultaneousGesture(
-                LongPressGesture(minimumDuration: 0.45)
-                    .sequenced(
-                        before: DragGesture(minimumDistance: 0)
-                    )
-                    .onChanged { value in
-                        guard case .second(true, let drag?) = value else {
-                            return
-                        }
-
-                        if quickMenuDragStartOffset == nil {
-                            quickMenuDragStartOffset =
-                                quickMenuVerticalOffset
-                        }
-
-                        let startOffset =
-                            quickMenuDragStartOffset ?? 0
-
-                        let minOffset: CGFloat = -120
-
-                        let menuHeight: CGFloat =
-                            isQuickMenuExpanded ? 322 : 56
-
-                        let maxOffset = max(
-                            minOffset,
-                            availableHeight - 132 - menuHeight
-                        )
-
-                        quickMenuVerticalOffset = min(
-                            max(
-                                startOffset + drag.translation.height,
-                                minOffset
-                            ),
-                            maxOffset
-                        )
-                    }
-                    .onEnded { _ in
-                        savedQuickMenuVerticalOffset = Double(
-                            quickMenuVerticalOffset
-                        )
-
-                        quickMenuDragStartOffset = nil
-                    }
             )
         }
         .padding(.vertical, isQuickMenuExpanded ? 4 : 0)

@@ -104,14 +104,7 @@ struct TrainingArchiveView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: KmiAppTheme.screenBackgroundColors(
-                    for: colorScheme
-                ),
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            KmiAppBackground()
 
             VStack(spacing: 0) {
                 Text(
@@ -120,11 +113,12 @@ struct TrainingArchiveView: View {
                         "Training history and date range"
                     )
                 )
-                .kmiFont(size: 15, weight: .black)
+                .kmiTypography(.secondary)
+                .fontWeight(.black)
                 .foregroundStyle(KmiAppTheme.sectionHeaderContentColor)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: 56)
+                .frame(minHeight: KmiAppTheme.sectionTabsMinimumHeight)
                 .padding(.horizontal, 16)
                 .background(KmiAppTheme.sectionHeaderBrush)
 
@@ -261,6 +255,8 @@ struct TrainingArchiveView: View {
 
     @MainActor
     private func shareArchivePDF() {
+        guard shareItem == nil else { return }
+
         guard !isLoading else {
             shareErrorMessage = tr(
                 "הארכיון עדיין נטען. נסה שוב בסיום הטעינה.",
@@ -395,10 +391,11 @@ struct TrainingArchiveView: View {
             HStack(spacing: 6) {
                 VStack(spacing: 2) {
                     Text(title)
-                        .kmiFont(size: 11, weight: .bold)
-
+                        .kmiTypography(.caption)
+                        .fontWeight(.bold)
                     Text(calendarDateText(date, format: "dd/MM/yyyy"))
-                        .kmiFont(size: 13, weight: .black)
+                        .kmiTypography(.body)
+                        .fontWeight(.black)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                 }
@@ -510,14 +507,13 @@ struct TrainingArchiveView: View {
                         Text(
                             field == .from
                                 ? tr("בחירת תאריך התחלה", "Choose start date")
-                                : tr("בחירת תאריך סיום", "Choose end date")
-                        )
-                        .kmiFont(size: 17, weight: .black)
-
-                        Spacer()
-
-                        Button {
-                            dateField = nil
+                            : tr("בחירת תאריך סיום", "Choose end date")
+                    )
+                    .kmiTypography(.sectionTitle)
+                    .fontWeight(.black)
+                    Spacer()
+                    Button {
+                        dateField = nil
                         } label: {
                             Image(systemName: "xmark")
                                 .kmiIconSize(16)
@@ -548,7 +544,8 @@ struct TrainingArchiveView: View {
                         )
 
                         Text(monthData.titleHeb)
-                            .kmiFont(size: 17, weight: .black)
+                            .kmiTypography(.cardTitle)
+                            .fontWeight(.black)
                             .frame(maxWidth: .infinity)
                             .multilineTextAlignment(.center)
 
@@ -584,13 +581,16 @@ struct TrainingArchiveView: View {
                                     "Unable to load this month's data."
                                 )
                             )
-                            .kmiFont(size: 14, weight: .bold)
+                            .kmiTypography(.body)
+                            .fontWeight(.bold)
+                            .multilineTextAlignment(.center)
 
                             Button {
                                 startCalendarListening()
                             } label: {
                                 Text(tr("נסה שוב", "Try again"))
-                                    .kmiFont(size: 14, weight: .bold)
+                                    .kmiTypography(.action)
+                                    .fontWeight(.bold)
                             }
                         }
                         .frame(maxWidth: .infinity)
@@ -754,7 +754,8 @@ struct TrainingArchiveView: View {
             filter = .all
         } label: {
             Text(title)
-                .kmiFont(size: 11, weight: .bold)
+                .kmiTypography(.caption)
+                .fontWeight(.bold)
                 .foregroundStyle(
                     KmiAppTheme.onPrimaryContainer(for: colorScheme)
                 )
@@ -785,10 +786,11 @@ struct TrainingArchiveView: View {
         } label: {
             VStack(spacing: 2) {
                 Text("\(count)")
-                    .kmiFont(size: 17, weight: .black)
-
+                    .kmiTypography(.cardTitle)
+                    .fontWeight(.black)
                 Text(title)
-                    .kmiFont(size: 10, weight: .bold)
+                    .kmiTypography(.caption)
+                    .fontWeight(.bold)
                     .lineLimit(1)
                     .minimumScaleFactor(0.70)
             }
@@ -814,6 +816,7 @@ struct TrainingArchiveView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private func archiveCard(
@@ -829,6 +832,11 @@ struct TrainingArchiveView: View {
 
         let displayedCoach = coachDisplayName(item.training.coach)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayedPlace = TrainingCatalogIOS.displayPlace(
+            item.training.place,
+            isEnglish: isEnglish
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
 
         return VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 7) {
@@ -846,23 +854,13 @@ struct TrainingArchiveView: View {
                 .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(
-                        TrainingCatalogIOS.displayPlace(
-                            item.training.place,
-                            isEnglish: isEnglish
-                        )
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                        .isEmpty
-                            ? tr("אימון", "Training")
-                            : TrainingCatalogIOS.displayPlace(
-                                item.training.place,
-                                isEnglish: isEnglish
-                            )
-                    )
-                    .kmiFont(size: 15, weight: .black)
+                    Text(displayedPlace.isEmpty ? tr("אימון", "Training") : displayedPlace)
+                        .kmiTypography(.cardTitle)
+                        .fontWeight(.black)
 
                     Text(dateTimeText(item))
-                        .kmiFont(size: 12, weight: .bold)
+                        .kmiTypography(.caption)
+                        .fontWeight(.bold)
                         .foregroundStyle(
                             KmiAppTheme.onSurfaceVariant(for: colorScheme)
                         )
@@ -881,7 +879,8 @@ struct TrainingArchiveView: View {
                         isEnglish: isEnglish
                     )
                 )
-                .kmiFont(size: 12, weight: .semibold)
+                .kmiTypography(.caption)
+                .fontWeight(.semibold)
                 .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -892,7 +891,9 @@ struct TrainingArchiveView: View {
                         "Coach: \(displayedCoach)"
                     )
                 )
-                .kmiFont(size: 12, weight: .semibold)
+                .kmiTypography(.caption)
+                .fontWeight(.semibold)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             Rectangle()
@@ -901,7 +902,8 @@ struct TrainingArchiveView: View {
                 .padding(.top, 2)
 
             Text(item.status.title(isEnglish: isEnglish))
-                .kmiFont(size: 11, weight: .black)
+                .kmiTypography(.caption)
+                .fontWeight(.black)
                 .foregroundStyle(
                     item.isCancelled
                         ? KmiAppTheme.onErrorContainer(for: colorScheme)
@@ -956,15 +958,16 @@ struct TrainingArchiveView: View {
                 .foregroundStyle(KmiAppTheme.primary(for: colorScheme))
 
             Text(tr("אין אימונים בטווח שנבחר", "No trainings in this range"))
-                .kmiFont(size: 18, weight: .bold)
-
+                .kmiTypography(.sectionTitle)
+                .fontWeight(.bold)
             Text(
                 tr(
                     "אפשר לבחור טווח תאריכים אחר או להשתמש בסינונים המהירים.",
                     "Choose another date range or use a quick filter."
                 )
             )
-            .kmiFont(size: 13, weight: .semibold)
+            .kmiTypography(.secondary)
+            .fontWeight(.semibold)
             .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
         }
         .multilineTextAlignment(.center)
@@ -984,14 +987,16 @@ struct TrainingArchiveView: View {
                     "Unable to load training changes. Check your connection and try again."
                 )
             )
-            .kmiFont(size: 14, weight: .bold)
+            .kmiTypography(.body)
+            .fontWeight(.bold)
             .multilineTextAlignment(.center)
 
             Button {
                 startListening()
             } label: {
                 Text(tr("נסה שוב", "Try again"))
-                    .kmiFont(size: 14, weight: .bold)
+                    .kmiTypography(.action)
+                    .fontWeight(.bold)
             }
         }
         .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))

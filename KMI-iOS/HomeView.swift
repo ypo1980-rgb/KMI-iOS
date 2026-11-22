@@ -1865,6 +1865,15 @@ struct HomeView: View {
                         )
                     )
                 }
+            },
+
+            HomeQuickMenuItem(
+                title: tr("תרגילי מתיחות", "Stretching Exercises"),
+                systemImage: "figure.flexibility",
+                actionType: .freeTrainings
+            ) {
+                showHomeQuickMenu = false
+                nav.push(.stretching)
             }
         ]
     }
@@ -2461,7 +2470,7 @@ struct HomeView: View {
                                                 isEnglish: isEnglish
                                             )
                                         }
-                                        .sheet(
+                                        .fullScreenCover(
                                             item: $trainingManagementItem,
                                             onDismiss: {
                                                 trainingManagementItem = nil
@@ -2474,8 +2483,6 @@ struct HomeView: View {
                                                     trainingManagementItem = nil
                                                 }
                                             )
-                                            .presentationDetents([.large])
-                                            .presentationDragIndicator(.visible)
                                         }
                                         .sheet(isPresented: $showCoachMessagesSheet) {
                                             CoachMessagesHistorySheet(
@@ -2900,6 +2907,7 @@ struct HomeView: View {
                         width: openRailWidth,
                         height: panelHeight
                     )
+                    .scrollDisabled(true)
                     .background(accent.opacity(0.96))
                     .clipShape(
                         UnevenRoundedRectangle(

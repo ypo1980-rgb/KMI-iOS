@@ -200,6 +200,7 @@ enum AppRoute: Hashable {
     case coachBroadcast
     case progress
     case trainingHistory
+    case stretching
     case trainingArchive(
         sources: [TrainingArchiveSource]
     )
@@ -376,7 +377,7 @@ final class AppNavModel: ObservableObject {
 
             if case .beltQuestionsByBelt = path[path.count - 2] {
                 withTransaction(transaction) {
-                    path.removeLast()
+                    _ = path.removeLast()
                 }
                 return
             }
@@ -1792,6 +1793,17 @@ private func beltTitleForUi(_ belt: Belt) -> String {
                     case .trainingHistory:
                         KmiRootLayout(title: "היסטוריית אימונים", nav: nav, selectedIcon: .home) {
                             TrainingHistoryView()
+                                .navigationBarBackButtonHidden(true)
+                        }
+
+                    case .stretching:
+                        KmiRootLayout(
+                            title: tr("תרגילי מתיחות", "Stretching Exercises"),
+                            nav: nav,
+                            selectedIcon: .home,
+                            showShareAction: false
+                        ) {
+                            StretchingCategoriesView()
                                 .navigationBarBackButtonHidden(true)
                         }
 

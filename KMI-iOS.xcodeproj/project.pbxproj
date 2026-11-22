@@ -128,6 +128,7 @@
 				7E6CF51E2F3907D90061115C /* Frameworks */,
 				7E6CF51F2F3907D90061115C /* Resources */,
 				7E728DA6309DE06E005684EA /* CopyFiles */,
+				7E677DBE30B35E5700CE97D9 /* Copy Stretching Images */,
 			);
 			buildRules = (
 			);
@@ -205,6 +206,26 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		7E677DBE30B35E5700CE97D9 /* Copy Stretching Images */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"/Users/yuval/Desktop/KMI/KMI-clean/app/src/main/res/drawable-nodpi",
+			);
+			name = "Copy Stretching Images";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Stretching",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\n\nsource_dir=\"$SCRIPT_INPUT_FILE_0\"\ndestination_dir=\"$SCRIPT_OUTPUT_FILE_0\"\n\nif [ ! -d \"$source_dir\" ]; then\n    echo \"error: Stretching image source folder not found: $source_dir\"\n    exit 1\nfi\n\nmkdir -p \"$destination_dir\"\n\n/usr/bin/rsync -r --delete \\\n    --include='/stretching_*' \\\n    --include='/stretch_*' \\\n    --exclude='*' \\\n    \"$source_dir/\" \"$destination_dir/\"\n";
+		};
 		7E89F28E2F6328D300DC6F40 /* Run Script */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -365,7 +386,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = 7JBRYHKVUK;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -407,7 +428,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = "";
 				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 7JBRYHKVUK;
 				ENABLE_PREVIEWS = YES;

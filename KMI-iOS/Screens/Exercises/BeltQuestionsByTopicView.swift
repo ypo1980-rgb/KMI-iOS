@@ -3616,8 +3616,8 @@ struct BeltQuestionsByTopicView: View {
             ),
             KmiQuickMenuAction(
                 id: "lists",
-                titleHe: "כל הרשימות",
-                titleEn: "All Lists",
+                titleHe: "רשימות",
+                titleEn: "Lists",
                 systemImage: "list.bullet",
                 iconTint: KmiAppTheme.secondary(for: colorScheme),
                 action: {
@@ -3841,35 +3841,7 @@ struct BeltQuestionsByTopicView: View {
     }
 
     private var topicsCardContent: some View {
-        VStack(
-            alignment:
-                isEnglish
-                ? .leading
-                : .trailing,
-            spacing: 0
-        ) {
-            Text(
-                tr(
-                    "נושאים (קטגוריות)",
-                    "Subjects (Categories)"
-                )
-            )
-            .kmiTypography(.sectionTitle)
-            .foregroundStyle(
-                KmiAppTheme.onSurface(
-                    for: colorScheme
-                )
-            )
-            .frame(
-                maxWidth: .infinity,
-                alignment: .center
-            )
-            .multilineTextAlignment(.center)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
-
-            topicsRowsContent
-        }
+        topicsRowsContent
     }
 
     private var topicsRowsContent: some View {
@@ -4333,6 +4305,7 @@ struct BeltQuestionsByTopicView: View {
     }
 
     @ViewBuilder
+    
     private var quickRailLayer: some View {
         if !embeddedMode {
             KmiFloatingQuickMenu(
@@ -4340,12 +4313,15 @@ struct BeltQuestionsByTopicView: View {
                 isEnglish: isEnglish,
                 accentColor: activeBeltFill,
                 hasFullAccess: !isQuickActionLocked,
-                actions: topicQuickMenuActions,
+                actions: topicQuickMenuActions.filter {
+                    $0.id == "lists" || $0.id == "practice"
+                },
                 onLockedItemClick: {
                     triggerTapHaptic()
                     nav.push(.subscriptionPlans)
                 },
-                usesBeltScreenHandle: true
+                usesBeltScreenHandle: true,
+                allowsActionScrolling: false
             )
             .zIndex(40)
         }

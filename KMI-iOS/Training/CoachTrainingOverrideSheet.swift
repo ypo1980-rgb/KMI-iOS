@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct TrainingManagementUiData:
     Hashable {
@@ -45,6 +46,12 @@ private enum TrainingManagementMode {
 }
 
 struct CoachTrainingOverrideSheet: View {
+    @EnvironmentObject private var nav: AppNavModel
+    @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject private var demoPrivacy = DemoPrivacy.shared
+
+    @State private var trainingPDFURL: URL?
+    @State private var showTrainingPDFShare = false
 
     let request: TrainingManagementRequest
     let isEnglish: Bool
@@ -218,52 +225,28 @@ struct CoachTrainingOverrideSheet: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                LinearGradient(
-                    colors: [
-                        Color(
-                            red: 0.97,
-                            green: 0.98,
-                            blue: 1
-                        ),
-                        accent.opacity(0.08),
-                        Color.white
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
+            KmiRootLayout(
+                title: tr("ניהול אימון", "Manage training"),
+                nav: nav,
+                selectedIcon: .home,
+                showShareAction: mode == .menu && !isSaving,
+                onShare: shareTrainingPDF,
+                onBackOverride: {
+                    guard !isSaving else { return }
 
+                    if mode == .menu {
+                        onClose()
+                    } else {
+                        returnToMenu()
+                    }
+                }
+            ) {
                 VStack(spacing: 0) {
                     header
 
                     ScrollView {
                         VStack(spacing: 14) {
                             trainingDetailsCard
-
-                            Text(
-                                tr(
-                                    "בחר את הפעולה שברצונך לבצע",
-                                    "Choose the action you want to perform"
-                                )
-                            )
-                            .font(
-                                .system(
-                                    size: 18,
-                                    weight: .heavy
-                                )
-                            )
-                            .foregroundStyle(
-                                Color.black.opacity(0.80)
-                            )
-                            .frame(
-                                maxWidth: .infinity,
-                                alignment: frameAlignment
-                            )
-                            .multilineTextAlignment(
-                                textAlignment
-                            )
-
                             modeContent
 
                             if let errorMessage {
@@ -279,7 +262,9 @@ struct CoachTrainingOverrideSheet: View {
                         .interactively
                     )
 
-                    bottomActions
+                    if mode != .menu {
+                        bottomActions
+                    }
                 }
             }
             .environment(
@@ -289,6 +274,13 @@ struct CoachTrainingOverrideSheet: View {
             .interactiveDismissDisabled(
                 isSaving
             )
+            .sheet(isPresented: $showTrainingPDFShare, onDismiss: {
+                trainingPDFURL = nil
+            }) {
+                if let trainingPDFURL {
+                    KmiShareSheet(items: [trainingPDFURL])
+                }
+            }
             .confirmationDialog(
                 tr(
                     "להחזיר את האימון להגדרה המקורית?",
@@ -322,178 +314,59 @@ struct CoachTrainingOverrideSheet: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Button {
-                guard !isSaving else {
-                    return
-                }
+        let title = mode == .menu
+            ? tr("ביטול / שינוי שעת אימון", "Cancel / change training time")
+            : screenTitle
 
-                if mode == .menu {
-                    onClose()
-                } else {
-                    returnToMenu()
-                }
-            } label: {
-                Image(
-                    systemName:
-                        mode == .menu
-                        ? "xmark"
-                        : (
-                            isEnglish
-                            ? "chevron.left"
-                            : "chevron.right"
-                        )
-                )
-                .font(
-                    .system(
-                        size: 15,
-                        weight: .black
-                    )
-                )
-                .foregroundStyle(
-                    Color.white
-                )
-                .frame(
-                    width: 38,
-                    height: 38
-                )
-                .background(
-                    Circle()
-                        .fill(
-                            Color.white.opacity(0.16)
-                        )
-                )
-            }
-            .buttonStyle(.plain)
-
-            Text(screenTitle)
-                .font(
-                    .system(
-                        size: 21,
-                        weight: .black
-                    )
-                )
-                .foregroundStyle(Color.white)
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: .center
-                )
-
-            Color.clear
-                .frame(
-                    width: 38,
-                    height: 38
-                )
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(
-            LinearGradient(
-                colors: [
-                    accent,
-                    accent.opacity(0.78)
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        )
+        return Text(title)
+            .kmiTypography(.action)
+            .fontWeight(.bold)
+            .multilineTextAlignment(.center)
+            .foregroundStyle(KmiAppTheme.sectionHeaderContentColor)
+            .padding(.horizontal, 56)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, minHeight: KmiAppTheme.sectionTabsHeight)
+            .background(KmiAppTheme.sectionHeaderBrush)
+            .accessibilityAddTraits(.isHeader)
     }
 
-    private var trainingDetailsCard:
-        some View {
-        VStack(spacing: 9) {
-            Image(
-                systemName:
-                    "figure.martial.arts"
-            )
-            .font(
-                .system(
-                    size: 24,
-                    weight: .bold
-                )
-            )
-            .foregroundStyle(accent)
+    private var trainingDetailsCard: some View {
+        let data = request.uiData
+        let place = data.place.trimmingCharacters(in: .whitespacesAndNewlines)
+        let outline = KmiAppTheme.outline(for: colorScheme)
+        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
 
-            Text(
-                request.uiData.place
-                    .trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    )
-                    .isEmpty
-                ? request.uiData.branch
-                : request.uiData.place
-            )
-            .font(
-                .system(
-                    size: 20,
-                    weight: .black
-                )
-            )
-            .foregroundStyle(
-                Color.black.opacity(0.84)
-            )
-            .multilineTextAlignment(.center)
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(place.isEmpty ? data.branch : place)
+                .kmiTypography(.cardTitle)
+                .fontWeight(.heavy)
+                .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
 
-            Text(
-                request.uiData.dateText
-            )
-            .font(
-                .system(
-                    size: 15,
-                    weight: .bold
-                )
-            )
-            .foregroundStyle(
-                Color.black.opacity(0.62)
-            )
+            Text(tr("סניף: \(data.branch)", "Branch: \(data.branch)"))
+                .kmiTypography(.body)
 
-            Text(
-                "\(request.uiData.startTime) – "
-                + request.uiData.endTime
-            )
-            .font(
-                .system(
-                    size: 17,
-                    weight: .black
-                )
-            )
-            .foregroundStyle(accent)
+            Text(tr("קבוצה: \(data.group)", "Group: \(data.group)"))
+                .kmiTypography(.body)
 
-            HStack(spacing: 8) {
-                detailPill(
-                    request.uiData.branch
-                )
+            Divider()
+                .overlay(outline.opacity(0.18))
+                .padding(.vertical, 2)
 
-                detailPill(
-                    request.uiData.group
-                )
-            }
+            Text(verbatim: "\(data.dateText) · \(data.startTime)–\(data.endTime)")
+                .kmiTypography(.body)
+                .fontWeight(.bold)
+                .environment(\.layoutDirection, .leftToRight)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity)
-        .padding(16)
-        .background(
-            RoundedRectangle(
-                cornerRadius: 22,
-                style: .continuous
-            )
-            .fill(Color.white)
-        )
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 22,
-                style: .continuous
-            )
-            .stroke(
-                accent.opacity(0.22),
-                lineWidth: 1
-            )
-        )
-        .shadow(
-            color: Color.black.opacity(0.07),
-            radius: 8,
-            x: 0,
-            y: 4
-        )
+        .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
+        .multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
+        .background(KmiAppTheme.surface(for: colorScheme), in: shape)
+        .overlay {
+            shape.strokeBorder(outline.opacity(0.30), lineWidth: 1)
+        }
     }
 
     @ViewBuilder
@@ -509,18 +382,9 @@ struct CoachTrainingOverrideSheet: View {
                     "בחירת שעת התחלה וסיום חדשות",
                     "Choose new start and end times"
                 ),
-                systemImage: "clock.fill",
-                tint: Color(
-                    red: 0.43,
-                    green: 0.29,
-                    blue: 0.71
-                ),
-                background:
-                    Color(
-                        red: 0.94,
-                        green: 0.92,
-                        blue: 1
-                    )
+                systemImage: "clock",
+                tint: KmiAppTheme.secondary(for: colorScheme),
+                background: KmiAppTheme.surfaceVariant(for: colorScheme)
             ) {
                 errorMessage = nil
                 reason = ""
@@ -536,19 +400,9 @@ struct CoachTrainingOverrideSheet: View {
                     "ביטול האימון ושליחת עדכון למתאמנים",
                     "Cancel and notify the trainees"
                 ),
-                systemImage:
-                    "xmark.circle.fill",
-                tint: Color(
-                    red: 0.78,
-                    green: 0.12,
-                    blue: 0.12
-                ),
-                background:
-                    Color(
-                        red: 1,
-                        green: 0.93,
-                        blue: 0.93
-                    )
+                systemImage: "xmark.circle.fill",
+                tint: KmiAppTheme.error(for: colorScheme),
+                background: KmiAppTheme.surfaceVariant(for: colorScheme)
             ) {
                 errorMessage = nil
                 reason = ""
@@ -630,15 +484,9 @@ struct CoachTrainingOverrideSheet: View {
     ) -> some View {
         VStack(spacing: 6) {
             Text(label)
-                .font(
-                    .system(
-                        size: 12,
-                        weight: .bold
-                    )
-                )
-                .foregroundStyle(
-                    Color.black.opacity(0.56)
-                )
+                .kmiTypography(.caption)
+                .fontWeight(.bold)
+                .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
 
             DatePicker(
                 "",
@@ -658,8 +506,7 @@ struct CoachTrainingOverrideSheet: View {
                 )
             )
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 76)
+        .frame(maxWidth: .infinity, minHeight: 76)
         .background(
             RoundedRectangle(
                 cornerRadius: 18,
@@ -684,13 +531,7 @@ struct CoachTrainingOverrideSheet: View {
     private func reasonField(
         isCancellation: Bool
     ) -> some View {
-        VStack(
-            alignment:
-                isEnglish
-                ? .leading
-                : .trailing,
-            spacing: 7
-        ) {
+        VStack(alignment: .leading, spacing: 7) {
             Text(
                 isCancellation
                 ? tr(
@@ -718,16 +559,15 @@ struct CoachTrainingOverrideSheet: View {
                         weight: .semibold
                     )
                 )
-                .multilineTextAlignment(
-                    textAlignment
-                )
-                .frame(
-                    minHeight: 105,
-                    maxHeight: 150
-                )
+                .multilineTextAlignment(.leading)
+                .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
+                .frame(minHeight: 105, maxHeight: 150)
                 .padding(10)
                 .scrollContentBackground(.hidden)
-                .background(Color.white)
+                .background(
+                    KmiAppTheme.surfaceVariant(for: colorScheme),
+                    in: RoundedRectangle(cornerRadius: 12)
+                )
                 .onChange(of: reason) {
                     _, newValue in
 
@@ -753,23 +593,13 @@ struct CoachTrainingOverrideSheet: View {
 
                 Text("\(reason.count)/250")
             }
-            .font(
-                .system(
-                    size: 11,
-                    weight: .medium
-                )
-            )
-            .foregroundStyle(
-                Color.black.opacity(0.48)
-            )
+            .kmiTypography(.caption)
+            .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
         }
         .padding(14)
         .background(
-            RoundedRectangle(
-                cornerRadius: 18,
-                style: .continuous
-            )
-            .fill(Color.white)
+            KmiAppTheme.surface(for: colorScheme),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
         )
         .overlay(
             RoundedRectangle(
@@ -912,9 +742,7 @@ struct CoachTrainingOverrideSheet: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(
-            Color.white.opacity(0.96)
-        )
+        .background(KmiAppTheme.surface(for: colorScheme))
     }
 
     private func actionCard(
@@ -930,10 +758,7 @@ struct CoachTrainingOverrideSheet: View {
                 ZStack {
                     Circle()
                         .fill(tint)
-                        .frame(
-                            width: 48,
-                            height: 48
-                        )
+                        .frame(width: 52, height: 52)
 
                     Image(
                         systemName: systemImage
@@ -949,38 +774,26 @@ struct CoachTrainingOverrideSheet: View {
 
                 VStack(spacing: 4) {
                     Text(title)
-                        .font(
-                            .system(
-                                size: 20,
-                                weight: .black
-                            )
-                        )
-                        .foregroundStyle(tint)
+                        .kmiTypography(.cardTitle)
+                        .fontWeight(.heavy)
+                        .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
 
                     Text(subtitle)
-                        .font(
-                            .system(
-                                size: 13,
-                                weight: .semibold
-                            )
-                        )
-                        .foregroundStyle(
-                            tint.opacity(0.78)
-                        )
-                        .multilineTextAlignment(
-                            .center
-                        )
+                        .kmiTypography(.body)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(KmiAppTheme.onSurfaceVariant(for: colorScheme))
                 }
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
             }
             .padding(
                 .horizontal,
                 16
             )
-            .padding(
-                .vertical,
-                14
-            )
+            .padding(.vertical, 14)
+            .frame(minHeight: 96)
+            .contentShape(Rectangle())
             .background(
                 RoundedRectangle(
                     cornerRadius: 20,
@@ -1040,39 +853,172 @@ struct CoachTrainingOverrideSheet: View {
         )
     }
 
-    private func errorCard(
-        _ message: String
-    ) -> some View {
-        Text(message)
-            .font(
-                .system(
-                    size: 14,
-                    weight: .bold
-                )
-            )
-            .foregroundStyle(
-                Color(
-                    red: 0.65,
-                    green: 0.08,
-                    blue: 0.08
-                )
-            )
+    private func errorCard(_ message: String) -> some View {
+        let errorColor = KmiAppTheme.error(for: colorScheme)
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+
+        return Text(message)
+            .kmiTypography(.body)
+            .fontWeight(.bold)
+            .foregroundStyle(KmiAppTheme.onSurface(for: colorScheme))
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .padding(12)
-            .background(
-                RoundedRectangle(
-                    cornerRadius: 14,
-                    style: .continuous
-                )
-                .fill(
-                    Color(
-                        red: 1,
-                        green: 0.92,
-                        blue: 0.92
-                    )
-                )
+            .background(KmiAppTheme.surface(for: colorScheme), in: shape)
+            .overlay {
+                shape.strokeBorder(errorColor.opacity(0.45), lineWidth: 1)
+            }
+    }
+
+    private func shareTrainingPDF() {
+        guard mode == .menu, !isSaving else { return }
+
+        errorMessage = nil
+
+        do {
+            trainingPDFURL = try makeTrainingPDF()
+            showTrainingPDFShare = true
+        } catch {
+            errorMessage = tr(
+                "לא ניתן ליצור את קובץ ה־PDF.",
+                "Unable to create the PDF file."
             )
+        }
+    }
+
+    private func makeTrainingPDF() throws -> URL {
+        let data = request.uiData
+        let titleHe = "פרטי אימון"
+        let titleEn = "Training Details"
+        let place = data.place.trimmingCharacters(in: .whitespacesAndNewlines)
+        let location = place.isEmpty ? data.branch : place
+        let privacyLabel = tr("נתוני הדגמה", "Demo data")
+        let isDemo = demoPrivacy.isEnabled
+
+        let fields: [(label: String, value: String)] = [
+            (tr("מקום", "Location"), location),
+            (tr("סניף", "Branch"), data.branch),
+            (tr("קבוצה", "Group"), data.group),
+            (tr("תאריך", "Date"), data.dateText),
+            (
+                tr("שעות האימון", "Training time"),
+                "\u{2066}\(data.startTime)–\(data.endTime)\u{2069}"
+            )
+        ]
+
+        let page = CGRect(x: 0, y: 0, width: 595, height: 842)
+        let margin: CGFloat = 42
+        let textWidth = page.width - 2 * margin
+        let contentTop = KmiPdfHeader.CONTENT_TOP + 14
+        let contentBottom = page.height - KmiPdfFooter.CONTENT_BOTTOM_PADDING
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = isEnglish ? .left : .right
+        paragraph.baseWritingDirection = isEnglish ? .leftToRight : .rightToLeft
+        paragraph.lineBreakMode = .byWordWrapping
+
+        let measureOptions: NSStringDrawingOptions = [
+            .usesLineFragmentOrigin,
+            .usesFontLeading
+        ]
+        let labelStyle: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: UIColor(KmiAppTheme.onSurfaceVariant(for: .light)),
+            .paragraphStyle: paragraph
+        ]
+        let valueStyle: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 15, weight: .bold),
+            .foregroundColor: UIColor(KmiAppTheme.onSurface(for: .light)),
+            .paragraphStyle: paragraph
+        ]
+
+        func textHeight(_ text: NSAttributedString) -> CGFloat {
+            ceil(text.boundingRect(
+                with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
+                options: measureOptions,
+                context: nil
+            ).height)
+        }
+
+        let rows = fields.map { field in
+            let cleanValue = field.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            let displayValue = isDemo ? privacyLabel : (cleanValue.isEmpty ? "—" : cleanValue)
+            let label = NSAttributedString(string: field.label, attributes: labelStyle)
+            let value = NSAttributedString(string: displayValue, attributes: valueStyle)
+            return (label: label, value: value, labelHeight: textHeight(label),
+                    valueHeight: textHeight(value))
+        }
+
+        let labelGap: CGFloat = 4
+        let rowGap: CGFloat = 16
+        guard rows.allSatisfy({
+            $0.labelHeight + labelGap + $0.valueHeight <= contentBottom - contentTop
+        }) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+
+        let renderer = UIGraphicsPDFRenderer(bounds: page)
+        let pdf = renderer.pdfData { context in
+            var pageNumber = 0
+            var y = contentTop
+
+            func drawFooter() {
+                KmiPdfFooter.draw(
+                    context: context.cgContext,
+                    pageWidth: page.width,
+                    pageHeight: page.height,
+                    pageNumber: pageNumber,
+                    isEnglish: isEnglish
+                )
+            }
+
+            func beginPage() {
+                context.beginPage()
+                pageNumber += 1
+                y = contentTop
+
+                let subtitle = isDemo ? privacyLabel : location
+                KmiPdfHeader.draw(
+                    context: context.cgContext,
+                    pageWidth: page.width,
+                    isEnglish: isEnglish,
+                    titleHebrew: titleHe,
+                    titleEnglish: titleEn,
+                    subtitleHebrew: subtitle,
+                    subtitleEnglish: subtitle
+                )
+            }
+
+            beginPage()
+
+            for row in rows {
+                let rowHeight = row.labelHeight + labelGap + row.valueHeight
+                if y + rowHeight > contentBottom {
+                    drawFooter()
+                    beginPage()
+                }
+
+                row.label.draw(
+                    with: CGRect(x: margin, y: y, width: textWidth, height: row.labelHeight),
+                    options: measureOptions,
+                    context: nil
+                )
+                y += row.labelHeight + labelGap
+
+                row.value.draw(
+                    with: CGRect(x: margin, y: y, width: textWidth, height: row.valueHeight),
+                    options: measureOptions,
+                    context: nil
+                )
+                y += row.valueHeight + rowGap
+            }
+
+            drawFooter()
+        }
+
+        let fileName = tr("\(titleHe).pdf", "\(titleEn).pdf")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+        try pdf.write(to: url, options: .atomic)
+        return url
     }
 
     private func returnToMenu() {

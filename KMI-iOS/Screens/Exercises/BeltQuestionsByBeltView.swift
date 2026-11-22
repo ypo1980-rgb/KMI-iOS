@@ -765,10 +765,10 @@ struct BeltQuestionsByBeltView: View {
                 ? "Weak Points"
                 : "נקודות תורפה"
 
-        let allListsTitle =
-            isEnglish
-                ? "All Lists"
-                : "כל הרשימות"
+            let allListsTitle =
+                isEnglish
+                    ? "Lists"
+                    : "רשימות"
 
         let practiceTitle =
             isEnglish
@@ -4253,6 +4253,7 @@ private struct BeltScreenSideQuickMenuOverlay: View {
 
     @State private var dragBottomOffset: CGFloat?
     @State private var dragStartBottomOffset: CGFloat?
+    @State private var expandedPanelHeight: CGFloat = 0
 
     let isEnglish: Bool
     let accent: Color
@@ -4336,22 +4337,10 @@ private struct BeltScreenSideQuickMenuOverlay: View {
              * שומרים מקום לידית בתחתית ולשוליים העליונים.
              * כאשר אין מספיק גובה, רשימת הפעולות תגלול.
              */
-            let actionsMaxHeight: CGFloat =
-                max(
-                    0,
-                    min(
-                        280,
-                        triggerTop + triggerHeight - 12 - 65
-                    )
-                )
-
-            let panelY: CGFloat =
-                max(
-                    12,
-                    triggerTop + triggerHeight
-                        - actionsMaxHeight
-                        - 65
-                )
+            let panelY = max(
+                12,
+                triggerTop + triggerHeight - expandedPanelHeight
+            )
 
             ZStack(
                 alignment:
@@ -4371,8 +4360,6 @@ private struct BeltScreenSideQuickMenuOverlay: View {
                             accent,
                         items:
                             items,
-                        actionsMaxHeight:
-                            actionsMaxHeight,
                         onDragChanged: { translation in
                             if dragStartBottomOffset == nil {
                                 dragStartBottomOffset = bottomSpacing
@@ -4415,16 +4402,14 @@ private struct BeltScreenSideQuickMenuOverlay: View {
                             onClose()
                         }
                     )
-                    .frame(
-                        width:
-                            panelWidth
-                    )
-                    .offset(
-                        x:
-                            panelX,
-                        y:
-                            panelY
-                    )
+                    .frame(width: panelWidth)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onGeometryChange(for: CGFloat.self) { geometry in
+                        geometry.size.height
+                    } action: { height in
+                        expandedPanelHeight = height
+                    }
+                    .offset(x: panelX, y: panelY)
                     .transition(
                         .move(
                             edge:
@@ -4708,7 +4693,6 @@ struct BeltQuickMenuGestureView: UIViewRepresentable {
             target: context.coordinator,
             action: #selector(Coordinator.handleTap(_:))
         )
-
         tap.require(toFail: longPress)
 
         view.addGestureRecognizer(longPress)
@@ -4785,7 +4769,6 @@ private struct BeltScreenQuickMenuPanel: View {
     let isEnglish: Bool
     let accent: Color
     let items: [BeltScreenQuickMenuItem]
-    let actionsMaxHeight: CGFloat
     let onDragChanged: (CGFloat) -> Void
     let onDragEnded: () -> Void
     let onClose: () -> Void
@@ -4807,7 +4790,7 @@ private struct BeltScreenQuickMenuPanel: View {
 
     var body: some View {
         VStack(alignment: stackAlignment, spacing: 0) {
-            ScrollView(.vertical) {
+            Group {
                 VStack(spacing: 0) {
                     ForEach(
                         Array(items.enumerated()),
@@ -4838,7 +4821,6 @@ private struct BeltScreenQuickMenuPanel: View {
                     }
                 }
             }
-            .frame(maxHeight: actionsMaxHeight)
 
             Rectangle()
                 .fill(Color.white.opacity(0.45))

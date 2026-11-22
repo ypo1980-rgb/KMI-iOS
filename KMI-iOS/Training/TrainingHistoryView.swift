@@ -3,21 +3,39 @@ import SwiftUI
 struct TrainingHistoryView: View {
 
     @State private var sessions: [[String: Any]] = []
+    @AppStorage("kmi_app_language") private var languageCode = "he"
+
+    private var isEnglish: Bool {
+        let language = languageCode
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return language == "en" || language == "english"
+    }
+
+    private func tr(_ hebrew: String, _ english: String) -> String {
+        isEnglish ? english : hebrew
+    }
 
     var body: some View {
         ZStack {
 
-            KmiGradientBackground(forceTraineeStyle: false)
+            KmiAppBackground()
 
             if sessions.isEmpty {
-
                 VStack(spacing: 12) {
-                    Text("אין היסטוריית אימונים")
-                        .font(.system(size: 22, weight: .heavy))
+                    Text(tr("אין היסטוריית אימונים", "No training history"))
+                        .kmiTypography(.sectionTitle)
+                        .fontWeight(.heavy)
 
-                    Text("האימונים שתשמור יופיעו כאן")
-                        .foregroundStyle(.secondary)
+                    Text(tr(
+                        "האימונים שתשמור יופיעו כאן",
+                        "Your saved sessions will appear here"
+                    ))
+                    .kmiTypography(.secondary)
+                    .foregroundStyle(.secondary)
                 }
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
 
             } else {
 
@@ -38,8 +56,8 @@ struct TrainingHistoryView: View {
             }
 
         }
-        .navigationTitle("היסטוריית אימונים")
-        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
+        .environment(\.layoutDirection, isEnglish ? .leftToRight : .rightToLeft)
         .onAppear {
             loadSessions()
         }
@@ -67,21 +85,27 @@ struct TrainingHistoryView: View {
 
             VStack(spacing: 10) {
 
-                Text("אימון")
-                    .font(.system(size: 18, weight: .heavy))
+                Text(tr("אימון", "Training session"))
+                    .kmiTypography(.cardTitle)
+                    .fontWeight(.heavy)
 
-                Text("משך: \(duration) דקות")
+                Text(tr("משך: \(duration) דקות", "Duration: \(duration) min"))
+                    .kmiTypography(.body)
 
-                Text("תרגילים: \(completed) / \(total)")
+                Text(tr("תרגילים: \(completed) / \(total)", "Exercises: \(completed) / \(total)"))
+                    .kmiTypography(.body)
 
-                Text("השלמה: \(rate)%")
-                    .font(.system(size: 16, weight: .bold))
+                Text(tr("השלמה: \(rate)%", "Completion: \(rate)%"))
+                    .kmiTypography(.action)
+                    .fontWeight(.bold)
 
                 if !feedback.isEmpty {
-                    Text("הערה:")
-                        .font(.system(size: 15, weight: .bold))
+                    Text(tr("הערה:", "Note:"))
+                        .kmiTypography(.secondary)
+                        .fontWeight(.bold)
 
                     Text(feedback)
+                        .kmiTypography(.secondary)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.secondary)
                 }

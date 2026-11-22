@@ -268,6 +268,8 @@ struct KmiFloatingQuickMenu: View {
     let actions: [KmiQuickMenuAction]
     let onLockedItemClick: () -> Void
     var usesBeltScreenHandle = false
+    var fixedBottomInset: CGFloat? = nil
+    var allowsActionScrolling = true
 
     private var railShape: UnevenRoundedRectangle {
         UnevenRoundedRectangle(
@@ -285,11 +287,11 @@ struct KmiFloatingQuickMenu: View {
                 geometry.size.height - 420 - 20
             )
 
+            let requestedBottom =
+                fixedBottomInset ?? (CGFloat(savedBottom) - dragTranslation)
+
             let bottom = min(
-                max(
-                    CGFloat(savedBottom) - dragTranslation,
-                    24
-                ),
+                max(requestedBottom, 24),
                 maximumBottom
             )
 
@@ -397,6 +399,7 @@ struct KmiFloatingQuickMenu: View {
                 }
             }
             .frame(height: listHeight)
+            .scrollDisabled(!allowsActionScrolling)
 
             separator
 
@@ -514,61 +517,68 @@ struct KmiFloatingQuickMenu: View {
                 isExpanded.toggle()
             }
         } label: {
-            Image(systemName: "line.3.horizontal")
-                .resizable()
-                .scaledToFit()
-                .kmiIconSize(.small)
-                .foregroundStyle(.white)
-                .frame(width: 25, height: 25)
-                .overlay {
-                    if isExpanded {
-                        Circle()
-                            .stroke(
-                                Color.white.opacity(0.74),
-                                lineWidth: 1.1
-                            )
-                    }
-                }
-                .frame(
-                    maxWidth: .infinity,
-                    maxHeight: .infinity
+            if usesBeltScreenHandle && !isExpanded {
+                BeltScreenSideQuickFab(
+                    accent: accentColor,
+                    attachedToLeftEdge: isEnglish
                 )
                 .contentShape(Rectangle())
+            } else {
+                Image(systemName: "line.3.horizontal")
+                    .resizable()
+                    .scaledToFit()
+                    .kmiIconSize(.small)
+                    .foregroundStyle(.white)
+                    .frame(width: 25, height: 25)
+                    .overlay {
+                        if isExpanded {
+                            Circle()
+                                .stroke(
+                                    Color.white.opacity(0.74),
+                                    lineWidth: 1.1
+                                )
+                        }
+                    }
+                    .frame(
+                        maxWidth: .infinity,
+                        maxHeight: .infinity
+                    )
+                    .contentShape(Rectangle())
+            }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(
             isExpanded
                 ? (isEnglish ? "Close quick menu" : "סגור תפריט מהיר")
-                : (isEnglish ? "Open quick menu" : "פתח תפריט מהיר")
-        )
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.4)
-                .sequenced(before: DragGesture())
-                .onChanged { value in
-                    if case .second(true, let drag?) = value {
-                        dragTranslation = drag.translation.height
-                    }
+            : (isEnglish ? "Open quick menu" : "פתח תפריט מהיר")
+    )
+    .simultaneousGesture(
+        LongPressGesture(minimumDuration: 0.45)
+            .sequenced(before: DragGesture(minimumDistance: 0))
+            .onChanged { value in
+                if case .second(true, let drag?) = value {
+                    dragTranslation = drag.translation.height
                 }
-                .onEnded { value in
-                    if case .second(true, let drag?) = value {
-                        savedBottom = Double(
-                            min(
-                                max(
-                                    CGFloat(savedBottom)
-                                        - drag.translation.height,
-                                    24
-                                ),
-                                maximumBottom
-                            )
-                        )
-                    }
+            }
+            .onEnded { value in
+                defer { dragTranslation = 0 }
 
-                    dragTranslation = 0
+                guard case .second(true, let drag?) = value else {
+                    return
                 }
-        )
-    }
 
-    private func closeMenu() {
+                savedBottom = Double(
+                    min(
+                        max(CGFloat(savedBottom) - drag.translation.height, 24),
+                        maximumBottom
+                    )
+                )
+            },
+        including: usesBeltScreenHandle && fixedBottomInset == nil ? .all : .none
+    )
+}
+
+private func closeMenu() {
         withAnimation(.easeInOut(duration: 0.18)) {
             isExpanded = false
         }
